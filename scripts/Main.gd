@@ -304,32 +304,27 @@ func _setup_camera() -> void:
 		z_min = min(z_min, c.z)
 		z_max = max(z_max, c.z)
 
-	# Center pivot on map center
+	# Center the view on the map
 	var center_x := (x_min + x_max) / 2.0
 	var center_z := (z_min + z_max) / 2.0
-	camera_pivot.position = Vector3(center_x, 0, center_z)
-	camera_pivot.rotation_degrees = Vector3(0, 0, 0)
+	var map_center := Vector3(center_x, 0.0, center_z)
 
-	# Orthographic camera: size = world units visible as screen height.
-	# At -45° tilt, map Z-range projects to screen height as: z_range * sin(45°) = z_range * 0.7071
-	# Map X-range maps 1:1 to screen width.
-	# Pick ortho size so the taller axis fills ~85% of screen.
-	var z_range := (z_max - z_min) + HexGrid.HEX_SIZE * 4.0  # add border padding
-	var x_range := (x_max - x_min) + HexGrid.HEX_SIZE * 4.0
-	var proj_z := z_range * 0.7071  # projected screen height at 45°
-	var vp := get_viewport()
-	var aspect := float(vp.size.x) / float(vp.size.y) if vp.size.y > 0 else 1.714
-	var size_for_z := proj_z / 0.85           # fit Z with 15% margin
-	var size_for_x := x_range / (aspect * 0.85)  # fit X with 15% margin
-	camera_distance = max(size_for_z, size_for_x)  # use larger to fit both axes
+	# Orthographic camera: size = screen height in world units.
+	# Map Z range projected onto screen at 45° = z_range * sin(45°) = z_range * 0.7071
+	# Use 20% padding so map fills ~83% of screen height.
+	var z_range := (z_max - z_min) + HexGrid.HEX_SIZE * 4.0
+	camera_distance = z_range * 0.7071 * 1.2
 
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
 	camera.size = camera_distance
 	camera.near = 0.1
-	camera.far = 2000.0
-	# Position camera far above/behind pivot — distance doesn't matter for ortho
-	camera.position = Vector3(0, 500.0, 500.0)
-	camera.rotation_degrees = Vector3(-45, 0, 0)
+	camera.far = 3000.0
+
+	# Place camera above+behind map center, then look_at to guarantee centering
+	camera_pivot.global_position = Vector3.ZERO
+	camera_pivot.rotation_degrees = Vector3.ZERO
+	camera.global_position = map_center + Vector3(0.0, 500.0, 500.0)
+	camera.look_at(map_center, Vector3.UP)
 
 func _process(delta: float) -> void:
 	_handle_camera_input(delta)
