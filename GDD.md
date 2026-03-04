@@ -1,4 +1,4 @@
-# Project X — Game Design Document
+# Attrition — Game Design Document
 *Living document. Last updated: 2026-03-03*
 
 ---

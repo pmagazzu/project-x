@@ -1,4 +1,4 @@
-# Project X — Phase 1 Prototype Technical Spec
+# Attrition — Phase 1 Prototype Technical Spec
 
 ## Goal
 Build a playable 2-player turn-based strategy game prototype in Godot 4. Two players take turns simultaneously on a hex grid map, build a barracks, train infantry, move units, and fight. If your HQ is destroyed, you lose.
