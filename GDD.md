@@ -476,3 +476,61 @@ A player looks across the map and sees a large, detailed, red-dot unit and immed
 
 ### Player Experience Goal
 A player looks across the map and sees a large, detailed, red-dot unit and immediately knows: "that's a high-tier heavy — I need anti-tank weapons before engaging." They don't know the exact cannon or armor spec without spending a recon unit to ID it. That intel costs something, which makes recon valuable.
+
+## 22. Victory Types & Game Modes
+
+### Victory Types
+- **Annihilation** — destroy all enemy HQs. No turn limit. Core mode.
+- **King of the Hill** — 1, 3, or 5 control points on map. Each point controlled = points per turn. First to X points wins, or most points at turn limit. Control points placed at contested terrain (passes, resource nodes, high ground).
+
+### Game Modes
+- **Skirmish** — pick map, nation, opponents (human or AI). Core mode.
+- **vs AI** — solo skirmish against AI opponents/teammates
+- *(future)* Historic Scenarios
+- *(future)* Attack/Defense mode
+
+---
+
+## 23. Nations
+
+Fictional universe — same tech tree for all, minor starting differences only. No huge advantages.
+
+**Differentiation model:**
+- Different Tier 0 starting units (minor stat variation, equalizes by Tier 2)
+- 1 free Tier 1 research unlock at game start
+- 1 small passive bonus (≤10% effect, nothing that snowballs)
+- Distinct visual aesthetic per nation
+
+**6 Placeholder Nations:**
+| Nation | Free Research | Passive |
+|---|---|---|
+| 🔴 Ardenian Compact | Iron Mine efficiency | +5% iron output |
+| 🟤 Khalessi Dominion | Oil extraction | +5% oil output |
+| 🟢 Verath Republic | Infantry Rifles Mk1 | — |
+| 🔵 Morrean Sovereignty | Destroyer hull | +1 naval unit movement |
+| ⚫ Irongate Federation | Military Training | Units start as Trained |
+| 🟡 Solenne Union | Farm efficiency | +5% food output |
+
+---
+
+## 24. Buildings System
+
+### Core Principle
+Buildings upgrade Tier 1→5 by physically adding on — each tier adds a new structure/function, not just a stat bump. A Tier 4 Barracks looks fortified and busy. A Tier 1 is a wooden shack. Visual progression helps players read the battlefield.
+
+### Barracks Upgrade Chain (template for all buildings)
+- **T1** — Basic structure, slow production, Tier 0-1 units only
+- **T2** — + Training Yard: units start as Trained, faster production, Tier 2 units
+- **T3** — + Defensive addition (MG nest, repair bay, control tower, etc.), Tier 3 units
+- **T4** — + Armory/Advanced facility, better starting equipment, Tier 4 units
+- **T5** — + Elite facility, rare bonuses, Tier 5 units
+
+### Building Categories
+**Production:** Barracks, Motor Pool, Artillery Depot, Airfield, Naval Yard
+**Industrial:** Iron Mine, Oil Well, Farm, Gold Mine, Factory, Power Plant, Housing, Trade Post
+**Science/Intel:** Research Lab, Intelligence Bureau, Listening Post, Radio Tower
+**City Chain:** Town Hall → City Hall → Government HQ (HQ = win condition target)
+**Forward Operating Base (FOB):** Field mini-HQ, trains T0-1 units, gathers local resources, T1-3 upgrades only
+**Defensive:** Trench Network, Concrete Bunker, Defensive Wall, AA Battery, Coastal Artillery, Naval Minefield, Land Minefield, Artillery Emplacement, Observation Tower, Radar Station
+
+More building types to be added in future design passes.
