@@ -83,7 +83,7 @@ func _ready() -> void:
 	FogOfWar.update_visibility(2, game_state)
 
 	# Setup camera to fit the hex map
-	_setup_camera()
+	call_deferred("_setup_camera")
 
 	# Update UI
 	ui.update_hud()
@@ -304,27 +304,24 @@ func _setup_camera() -> void:
 		z_min = min(z_min, c.z)
 		z_max = max(z_max, c.z)
 
-	# Center the view on the map
+	# Center pivot on map center
 	var center_x := (x_min + x_max) / 2.0
 	var center_z := (z_min + z_max) / 2.0
-	var map_center := Vector3(center_x, 0.0, center_z)
+	camera_pivot.position = Vector3(center_x, 0.0, center_z)
+	camera_pivot.rotation_degrees = Vector3.ZERO
 
 	# Orthographic camera: size = screen height in world units.
-	# Map Z range projected onto screen at 45° = z_range * sin(45°) = z_range * 0.7071
-	# Use 20% padding so map fills ~83% of screen height.
-	var z_range := (z_max - z_min) + HexGrid.HEX_SIZE * 4.0
-	camera_distance = z_range * 0.7071 * 1.2
+	# At 45°, map Z range (187) projects to screen as 187*sin(45°) = 132 units.
+	# Size 160 = map fills 132/160 = 82% of screen height. Good fit.
+	camera_distance = 160.0
 
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
 	camera.size = camera_distance
 	camera.near = 0.1
 	camera.far = 3000.0
-
-	# Place camera above+behind map center, then look_at to guarantee centering
-	camera_pivot.global_position = Vector3.ZERO
-	camera_pivot.rotation_degrees = Vector3.ZERO
-	camera.global_position = map_center + Vector3(0.0, 500.0, 500.0)
-	camera.look_at(map_center, Vector3.UP)
+	# Position directly: (0, d, d) relative to pivot, rotated -45° on X
+	camera.position = Vector3(0.0, 200.0, 200.0)
+	camera.rotation_degrees = Vector3(-45.0, 0.0, 0.0)
 
 func _process(delta: float) -> void:
 	_handle_camera_input(delta)

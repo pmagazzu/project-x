@@ -30,9 +30,9 @@ script = ExtResource("1_main")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 54, 0, 93.5)
 
 [node name="Camera3D" type="Camera3D" parent="CameraPivot"]
-transform = Transform3D(1, 0, 0, 0, 0.707107, -0.707107, 0, 0.707107, 0.707107, 0, 500, 500)
+transform = Transform3D(1, 0, 0, 0, 0.707107, -0.707107, 0, 0.707107, 0.707107, 0, 200, 200)
 projection = 1
-size = 169.0
+size = 160.0
 near = 0.1
 far = 3000.0
 
