@@ -291,9 +291,9 @@ func _setup_camera() -> void:
 	var center := HexGrid.axial_to_world(game_state.MAP_SIZE / 2, game_state.MAP_SIZE / 2)
 	camera_pivot.position = Vector3(center.x, 0, center.z)
 	camera_pivot.rotation_degrees = Vector3(0, 0, 0)
-	# Place camera directly above, tilted forward to see the map
-	camera.position = Vector3(0, camera_distance * 0.7, camera_distance)
-	camera.rotation_degrees = Vector3(-35, 0, 0)
+	# Classic isometric: above and behind, looking down at 45 degrees
+	camera.position = Vector3(0, camera_distance, camera_distance)
+	camera.rotation_degrees = Vector3(-45, 0, 0)
 
 func _process(delta: float) -> void:
 	_handle_camera_input(delta)
@@ -333,10 +333,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		if mb.pressed:
 			if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
 				camera_distance = max(CAMERA_ZOOM_MIN, camera_distance - CAMERA_ZOOM_SPEED)
-				camera.position = Vector3(0, camera_distance * 0.7, camera_distance)
+				camera.position = Vector3(0, camera_distance, camera_distance)
 			elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 				camera_distance = min(CAMERA_ZOOM_MAX, camera_distance + CAMERA_ZOOM_SPEED)
-				camera.position = Vector3(0, camera_distance * 0.7, camera_distance)
+				camera.position = Vector3(0, camera_distance, camera_distance)
 			elif mb.button_index == MOUSE_BUTTON_LEFT:
 				_handle_left_click(mb.position)
 			elif mb.button_index == MOUSE_BUTTON_RIGHT:
