@@ -9,9 +9,9 @@ const BUILDING_SCENE := preload("res://scenes/Building.tscn")
 
 # Camera settings
 const CAMERA_PAN_SPEED := 15.0
-const CAMERA_ZOOM_SPEED := 3.0
-const CAMERA_ZOOM_MIN := 10.0
-const CAMERA_ZOOM_MAX := 80.0
+const CAMERA_ZOOM_SPEED := 8.0   # ortho size units per scroll tick
+const CAMERA_ZOOM_MIN := 20.0    # ortho size min (zoomed in)
+const CAMERA_ZOOM_MAX := 300.0   # ortho size max (zoomed out)
 const CAMERA_ROTATE_SPEED := 1.5
 
 # Node references
@@ -310,17 +310,25 @@ func _setup_camera() -> void:
 	camera_pivot.position = Vector3(center_x, 0, center_z)
 	camera_pivot.rotation_degrees = Vector3(0, 0, 0)
 
-	# Camera distance math (flat-top hex, HEX_SIZE=3, 25x25 map):
-	# Map X width ~108 units, Z depth ~187 units
-	# Camera at (0, d, d) → actual distance = sqrt(2)*d
-	# Godot FOV 75°, half=37.5°, tan=0.767, aspect~1.71
-	# Visible half-width = 1.71 * 0.767 * sqrt(2) * d ≈ 1.855*d
-	# Need 1.855*d >= half_width+margin → d ≈ 35 fills map with padding
-	var half_width := (x_max - x_min) / 2.0 + HexGrid.HEX_SIZE * 2.0
-	camera_distance = half_width / 1.855
+	# Orthographic camera: size = world units visible as screen height.
+	# At -45° tilt, map Z-range projects to screen height as: z_range * sin(45°) = z_range * 0.7071
+	# Map X-range maps 1:1 to screen width.
+	# Pick ortho size so the taller axis fills ~85% of screen.
+	var z_range := (z_max - z_min) + HexGrid.HEX_SIZE * 4.0  # add border padding
+	var x_range := (x_max - x_min) + HexGrid.HEX_SIZE * 4.0
+	var proj_z := z_range * 0.7071  # projected screen height at 45°
+	var vp := get_viewport()
+	var aspect := float(vp.size.x) / float(vp.size.y) if vp.size.y > 0 else 1.714
+	var size_for_z := proj_z / 0.85           # fit Z with 15% margin
+	var size_for_x := x_range / (aspect * 0.85)  # fit X with 15% margin
+	camera_distance = max(size_for_z, size_for_x)  # use larger to fit both axes
 
-	# Isometric: above and behind, looking down at 45 degrees
-	camera.position = Vector3(0, camera_distance, camera_distance)
+	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	camera.size = camera_distance
+	camera.near = 0.1
+	camera.far = 2000.0
+	# Position camera far above/behind pivot — distance doesn't matter for ortho
+	camera.position = Vector3(0, 500.0, 500.0)
 	camera.rotation_degrees = Vector3(-45, 0, 0)
 
 func _process(delta: float) -> void:
@@ -361,10 +369,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		if mb.pressed:
 			if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
 				camera_distance = max(CAMERA_ZOOM_MIN, camera_distance - CAMERA_ZOOM_SPEED)
-				camera.position = Vector3(0, camera_distance, camera_distance)
+				camera.size = camera_distance
 			elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 				camera_distance = min(CAMERA_ZOOM_MAX, camera_distance + CAMERA_ZOOM_SPEED)
-				camera.position = Vector3(0, camera_distance, camera_distance)
+				camera.size = camera_distance
 			elif mb.button_index == MOUSE_BUTTON_LEFT:
 				_handle_left_click(mb.position)
 			elif mb.button_index == MOUSE_BUTTON_RIGHT:
