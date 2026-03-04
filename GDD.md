@@ -432,3 +432,47 @@ Enemy units in your LOS AND ID'd by recon: fully visible with stats
 Ghost icons (last known position) fade after 2 turns as before.
 
 This makes recon units essential — you can't counter what you can't identify.
+
+## 21. Unit Visual Identification System
+
+**Design Rule: Shape = class, Size/detail = tier, Color dot = threat level, Stats = recon only**
+
+### Visibility Tiers (ties into Fog of War §20)
+
+| Intel Level | What You See |
+|---|---|
+| Hidden (no LOS) | Nothing |
+| Detected (LOS, no recon ID) | Silhouette/question mark — you know something is there |
+| Basic ID (LOS) | Unit type icon (tank, infantry, artillery) + threat color dot |
+| Full ID (recon unit nearby) | Unit name, approximate health bar, known loadout details |
+
+### Visual Design Rules for Sprites
+- **Shape** communicates unit class — scout/light = small fast silhouette, medium tank = wide low profile, heavy = massive/imposing, infantry = humanoid cluster
+- **Size and detail level** communicates tier — Tier 0 is small/boxy/simple, Tier 2 has longer barrels/more detail, Tier 4-5 is visually intimidating and clearly different
+- **Threat color dot** (under unit tile): 🟢 Green = low threat, 🟡 Yellow = moderate, 🔴 Red = high threat
+- Threat dot is based on estimated tier (visible from basic LOS), not exact stats
+
+### Player Experience Goal
+A player looks across the map and sees a large, detailed, red-dot unit and immediately knows: "that's a high-tier heavy — I need anti-tank weapons before engaging." They don't know the exact cannon or armor spec without spending a recon unit to ID it. That intel costs something, which makes recon valuable.
+
+## 21. Unit Visual Identification System
+
+**Design Rule: Shape = class, Size/detail = tier, Color dot = threat level, Stats = recon only**
+
+### Visibility Tiers (ties into Fog of War §20)
+
+| Intel Level | What You See |
+|---|---|
+| Hidden (no LOS) | Nothing |
+| Detected (LOS, no recon ID) | Silhouette/question mark — you know something is there |
+| Basic ID (LOS) | Unit type icon (tank, infantry, artillery) + threat color dot |
+| Full ID (recon unit nearby) | Unit name, approximate health bar, known loadout details |
+
+### Visual Design Rules for Sprites
+- **Shape** communicates unit class — scout/light = small fast silhouette, medium tank = wide low profile, heavy = massive/imposing, infantry = humanoid cluster
+- **Size and detail level** communicates tier — Tier 0 is small/boxy/simple, Tier 2 has longer barrels/more detail, Tier 4-5 is visually intimidating and clearly different
+- **Threat color dot** (under unit tile): 🟢 Green = low threat, 🟡 Yellow = moderate, 🔴 Red = high threat
+- Threat dot is based on estimated tier (visible from basic LOS), not exact stats
+
+### Player Experience Goal
+A player looks across the map and sees a large, detailed, red-dot unit and immediately knows: "that's a high-tier heavy — I need anti-tank weapons before engaging." They don't know the exact cannon or armor spec without spending a recon unit to ID it. That intel costs something, which makes recon valuable.
