@@ -1,0 +1,3 @@
+[gd_scene format=3 uid="uid://chexmap00001"]
+
+[node name="HexMap" type="Node3D"]

@@ -1,0 +1,30 @@
+[gd_scene load_steps=3 format=3 uid="uid://cghextile001"]
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_hex"]
+top_radius = 1.0
+bottom_radius = 1.0
+height = 0.1
+radial_segments = 6
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_hex"]
+albedo_color = Color(0.3, 0.6, 0.2, 1)
+
+[node name="HexTile" type="StaticBody3D"]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("CylinderMesh_hex")
+surface_material_override/0 = SubResource("StandardMaterial3D_hex")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+
+[node name="IronIcon" type="Sprite3D" parent="."]
+visible = false
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.15, 0)
+pixel_size = 0.03
+billboard = 1
+
+[node name="TreeSprite" type="Sprite3D" parent="."]
+visible = false
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0)
+pixel_size = 0.04
+billboard = 1

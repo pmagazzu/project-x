@@ -1,0 +1,138 @@
+[gd_scene load_steps=2 format=3 uid="uid://cui000001"]
+
+[ext_resource type="Script" path="res://scripts/UI.gd" id="1_ui"]
+
+[node name="UI" type="CanvasLayer"]
+script = ExtResource("1_ui")
+
+[node name="TopBar" type="HBoxContainer" parent="."]
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 40.0
+grow_horizontal = 2
+
+[node name="PanelContainer" type="PanelContainer" parent="TopBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="HBox" type="HBoxContainer" parent="TopBar/PanelContainer"]
+layout_mode = 2
+
+[node name="PlayerLabel" type="Label" parent="TopBar/PanelContainer/HBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Player 1"
+
+[node name="Sep1" type="VSeparator" parent="TopBar/PanelContainer/HBox"]
+layout_mode = 2
+
+[node name="IronLabel" type="Label" parent="TopBar/PanelContainer/HBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Iron: 50"
+
+[node name="Sep2" type="VSeparator" parent="TopBar/PanelContainer/HBox"]
+layout_mode = 2
+
+[node name="TurnLabel" type="Label" parent="TopBar/PanelContainer/HBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Turn: 1"
+
+[node name="Sep3" type="VSeparator" parent="TopBar/PanelContainer/HBox"]
+layout_mode = 2
+
+[node name="PhaseLabel" type="Label" parent="TopBar/PanelContainer/HBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "PLAYER 1 PLANNING"
+
+[node name="SubmitButton" type="Button" parent="TopBar"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(150, 0)
+text = "SUBMIT TURN"
+
+[node name="BottomBar" type="VBoxContainer" parent="."]
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -160.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="InfoPanel" type="PanelContainer" parent="BottomBar"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="VBox" type="VBoxContainer" parent="BottomBar/InfoPanel"]
+layout_mode = 2
+
+[node name="InfoName" type="Label" parent="BottomBar/InfoPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Unit Name"
+
+[node name="InfoStats" type="Label" parent="BottomBar/InfoPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Stats"
+
+[node name="InfoOrders" type="Label" parent="BottomBar/InfoPanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = ""
+
+[node name="ButtonRow" type="HBoxContainer" parent="BottomBar/InfoPanel/VBox"]
+layout_mode = 2
+
+[node name="BuildBarracksBtn" type="Button" parent="BottomBar/InfoPanel/VBox/ButtonRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Build Barracks (30)"
+
+[node name="BuildMineBtn" type="Button" parent="BottomBar/InfoPanel/VBox/ButtonRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Build Mine (20)"
+
+[node name="TrainRow" type="HBoxContainer" parent="BottomBar/InfoPanel/VBox"]
+layout_mode = 2
+
+[node name="TrainRifleBtn" type="Button" parent="BottomBar/InfoPanel/VBox/TrainRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Train Rifle (15)"
+
+[node name="TrainScoutBtn" type="Button" parent="BottomBar/InfoPanel/VBox/TrainRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Train Scout (10)"
+
+[node name="TrainArtilleryBtn" type="Button" parent="BottomBar/InfoPanel/VBox/TrainRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Train Artillery (40)"
+
+[node name="GameOverPanel" type="PanelContainer" parent="."]
+unique_name_in_owner = true
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -150.0
+offset_top = -50.0
+offset_right = 150.0
+offset_bottom = 50.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="GameOverLabel" type="Label" parent="GameOverPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "GAME OVER"
