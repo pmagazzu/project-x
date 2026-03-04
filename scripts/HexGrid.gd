@@ -4,7 +4,7 @@ class_name HexGrid
 # Hex math utilities for flat-top hexagonal grid using axial coordinates (q, r).
 # Flat-top hex: pointy sides on top/bottom, flat edges on left/right.
 
-const HEX_SIZE := 1.0  # Outer radius (center to vertex)
+const HEX_SIZE := 3.0  # Outer radius (center to vertex)
 const SQRT3 := 1.7320508
 
 # Flat-top hex dimensions
