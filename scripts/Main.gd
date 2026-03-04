@@ -313,14 +313,14 @@ func _setup_camera() -> void:
 	# Orthographic camera: size = screen height in world units.
 	# At 45°, map Z range (187) projects to screen as 187*sin(45°) = 132 units.
 	# Size 160 = map fills 132/160 = 82% of screen height. Good fit.
-	camera_distance = 35.0
-
-	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-	camera.size = camera_distance
+	# Use perspective projection — orthographic has proven unreliable.
+	# Start very close; player can zoom out.
+	camera_distance = 25.0
+	camera.projection = Camera3D.PROJECTION_PERSPECTIVE
+	camera.fov = 60.0
 	camera.near = 0.1
 	camera.far = 3000.0
-	# Position directly: (0, d, d) relative to pivot, rotated -45° on X
-	camera.position = Vector3(0.0, 50.0, 50.0)
+	camera.position = Vector3(0.0, camera_distance, camera_distance)
 	camera.rotation_degrees = Vector3(-45.0, 0.0, 0.0)
 
 func _process(delta: float) -> void:
@@ -361,10 +361,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		if mb.pressed:
 			if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
 				camera_distance = max(CAMERA_ZOOM_MIN, camera_distance - CAMERA_ZOOM_SPEED)
-				camera.size = camera_distance
+				camera.position = Vector3(0, camera_distance, camera_distance)
 			elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 				camera_distance = min(CAMERA_ZOOM_MAX, camera_distance + CAMERA_ZOOM_SPEED)
-				camera.size = camera_distance
+				camera.position = Vector3(0, camera_distance, camera_distance)
 			elif mb.button_index == MOUSE_BUTTON_LEFT:
 				_handle_left_click(mb.position)
 			elif mb.button_index == MOUSE_BUTTON_RIGHT:
