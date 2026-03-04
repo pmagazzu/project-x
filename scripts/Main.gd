@@ -11,7 +11,7 @@ const BUILDING_SCENE := preload("res://scenes/Building.tscn")
 const CAMERA_PAN_SPEED := 15.0
 const CAMERA_ZOOM_SPEED := 3.0
 const CAMERA_ZOOM_MIN := 10.0
-const CAMERA_ZOOM_MAX := 200.0
+const CAMERA_ZOOM_MAX := 80.0
 const CAMERA_ROTATE_SPEED := 1.5
 
 # Node references
@@ -28,7 +28,7 @@ var game_state: GameState
 var turn_manager: TurnManager
 
 # Camera state
-var camera_distance: float = 140.0
+var camera_distance: float = 35.0
 var camera_rotating: bool = false
 var camera_pan_dragging: bool = false
 var last_mouse_pos: Vector2 = Vector2.ZERO
@@ -310,13 +310,14 @@ func _setup_camera() -> void:
 	camera_pivot.position = Vector3(center_x, 0, center_z)
 	camera_pivot.rotation_degrees = Vector3(0, 0, 0)
 
-	# Calculate camera distance to fit entire map on screen
-	# At 45-degree down angle with 60-degree vertical FOV:
-	# Near ground edge (bottom of screen) is at 75 degrees from horizontal
-	# Visible Z from pivot toward camera = camera_distance * 0.732
-	# Need this >= half the map Z-extent plus hex margin
-	var half_z := (z_max - z_min) / 2.0 + HexGrid.HEX_SIZE
-	camera_distance = half_z / 0.7
+	# Camera distance math (flat-top hex, HEX_SIZE=3, 25x25 map):
+	# Map X width ~108 units, Z depth ~187 units
+	# Camera at (0, d, d) → actual distance = sqrt(2)*d
+	# Godot FOV 75°, half=37.5°, tan=0.767, aspect~1.71
+	# Visible half-width = 1.71 * 0.767 * sqrt(2) * d ≈ 1.855*d
+	# Need 1.855*d >= half_width+margin → d ≈ 35 fills map with padding
+	var half_width := (x_max - x_min) / 2.0 + HexGrid.HEX_SIZE * 2.0
+	camera_distance = half_width / 1.855
 
 	# Isometric: above and behind, looking down at 45 degrees
 	camera.position = Vector3(0, camera_distance, camera_distance)
