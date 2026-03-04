@@ -310,12 +310,18 @@ func _setup_camera() -> void:
 	camera_pivot.position = Vector3(center_x, 0.0, center_z)
 	camera_pivot.rotation_degrees = Vector3.ZERO
 
-	# Orthographic camera: size = screen height in world units.
-	# At 45°, map Z range (187) projects to screen as 187*sin(45°) = 132 units.
-	# Size 160 = map fills 132/160 = 82% of screen height. Good fit.
-	# Use perspective projection — orthographic has proven unreliable.
-	# Start very close; player can zoom out.
-	camera_distance = 25.0
+	# DEBUG: red sphere at map center so we can see where camera is looking
+	var dbg := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = 3.0
+	dbg.mesh = sph
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color.RED
+	dbg.material_override = mat
+	dbg.position = Vector3(center_x, 3.0, center_z)
+	add_child(dbg)
+
+	camera_distance = 70.0
 	camera.projection = Camera3D.PROJECTION_PERSPECTIVE
 	camera.fov = 60.0
 	camera.near = 0.1
