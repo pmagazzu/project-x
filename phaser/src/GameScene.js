@@ -1,6 +1,11 @@
 import Phaser from 'phaser';
 import { hexToScreen, hexVertices, screenToHex, isValid, MAP_SIZE, HEX_SIZE } from './HexGrid.js';
 
+// Zoom state
+let zoomScale = 1.0;
+const ZOOM_MIN = 0.3;
+const ZOOM_MAX = 4.0;
+
 const TERRAIN = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2 };
 
 const TERRAIN_COLORS = {
@@ -104,8 +109,8 @@ export class GameScene extends Phaser.Scene {
       for (let r = 0; r < MAP_SIZE; r++) {
         const terrain = this.terrain[`${q},${r}`];
         const { x, y } = hexToScreen(q, r);
-        const sx = x + this.camX;
-        const sy = y + this.camY;
+        const sx = x * zoomScale + this.camX;
+        const sy = y * zoomScale + this.camY;
 
         const isSelected = this.selectedHex?.q === q && this.selectedHex?.r === r;
         const isHovered  = this.hoveredHex?.q  === q && this.hoveredHex?.r  === r;
@@ -114,7 +119,7 @@ export class GameScene extends Phaser.Scene {
         const strokeColor = isSelected ? SELECTED_STROKE : isHovered ? HOVER_STROKE : colors.stroke;
         const strokeWidth = isSelected ? 2.5 : isHovered ? 1.5 : 1;
 
-        const verts = hexVertices(sx, sy);
+        const verts = hexVertices(sx, sy, zoomScale);
 
         this.tileGfx.fillStyle(colors.fill);
         this.tileGfx.beginPath();
@@ -148,7 +153,7 @@ export class GameScene extends Phaser.Scene {
         this._drawMap();
       } else {
         // Hover
-        const hex = screenToHex(ptr.x, ptr.y, this.camX, this.camY);
+        const hex = screenToHex(ptr.x, ptr.y, this.camX, this.camY, zoomScale);
         if (isValid(hex.q, hex.r)) {
           if (!this.hoveredHex || this.hoveredHex.q !== hex.q || this.hoveredHex.r !== hex.r) {
             this.hoveredHex = hex;
@@ -164,7 +169,7 @@ export class GameScene extends Phaser.Scene {
     // Left click — select tile
     this.input.on('pointerdown', (ptr) => {
       if (ptr.button === 0) {
-        const hex = screenToHex(ptr.x, ptr.y, this.camX, this.camY);
+        const hex = screenToHex(ptr.x, ptr.y, this.camX, this.camY, zoomScale);
         if (isValid(hex.q, hex.r)) {
           this.selectedHex = hex;
           this._drawMap();
@@ -173,14 +178,15 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    // Scroll wheel zoom
+    // Scroll wheel zoom — scales tiles, zooms toward cursor
     this.input.on('wheel', (ptr, objs, dx, dy) => {
-      const zoomDelta = dy > 0 ? 0.9 : 1.1;
-      // Simple zoom toward mouse position
-      this.camX = ptr.x + (this.camX - ptr.x) * zoomDelta;
-      this.camY = ptr.y + (this.camY - ptr.y) * zoomDelta;
-      // Scale HEX_SIZE via camera scale
-      this._zoomScale = (this._zoomScale || 1) * zoomDelta;
+      const factor = dy > 0 ? 0.85 : 1.18;
+      const newZoom = Phaser.Math.Clamp(zoomScale * factor, ZOOM_MIN, ZOOM_MAX);
+      const ratio = newZoom / zoomScale;
+      // Keep point under cursor fixed
+      this.camX = ptr.x - (ptr.x - this.camX) * ratio;
+      this.camY = ptr.y - (ptr.y - this.camY) * ratio;
+      zoomScale = newZoom;
       this._drawMap();
     });
 

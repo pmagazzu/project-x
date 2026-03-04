@@ -30,9 +30,9 @@ export function hexToScreen(q, r) {
 /**
  * Convert screen position to axial hex coordinates (for click detection).
  */
-export function screenToHex(screenX, screenY, cameraX, cameraY) {
-  const wx = screenX - cameraX;
-  const wy = (screenY - cameraY) / ISO_SQUISH;
+export function screenToHex(screenX, screenY, cameraX, cameraY, scale = 1.0) {
+  const wx = (screenX - cameraX) / scale;
+  const wy = (screenY - cameraY) / scale / ISO_SQUISH;
 
   const q = (2/3) * wx / HEX_SIZE;
   const r = (-1/3 * wx + Math.sqrt(3)/3 * wy) / HEX_SIZE;
@@ -64,13 +64,14 @@ export function isValid(q, r) {
  * Get the 6 vertices of a flat-top hex centered at (cx, cy) in screen space.
  * Used for drawing the hex polygon.
  */
-export function hexVertices(cx, cy) {
+export function hexVertices(cx, cy, scale = 1.0) {
   const pts = [];
+  const r = HEX_SIZE * scale;
   for (let i = 0; i < 6; i++) {
     const angle = (Math.PI / 180) * (60 * i);  // flat-top: 0°, 60°, 120°...
     pts.push({
-      x: cx + HEX_SIZE * Math.cos(angle),
-      y: cy + HEX_SIZE * Math.sin(angle) * ISO_SQUISH
+      x: cx + r * Math.cos(angle),
+      y: cy + r * Math.sin(angle) * ISO_SQUISH
     });
   }
   return pts;
