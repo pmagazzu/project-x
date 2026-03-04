@@ -313,14 +313,14 @@ func _setup_camera() -> void:
 	# Orthographic camera: size = screen height in world units.
 	# At 45°, map Z range (187) projects to screen as 187*sin(45°) = 132 units.
 	# Size 160 = map fills 132/160 = 82% of screen height. Good fit.
-	camera_distance = 160.0
+	camera_distance = 35.0
 
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
 	camera.size = camera_distance
 	camera.near = 0.1
 	camera.far = 3000.0
 	# Position directly: (0, d, d) relative to pivot, rotated -45° on X
-	camera.position = Vector3(0.0, 200.0, 200.0)
+	camera.position = Vector3(0.0, 50.0, 50.0)
 	camera.rotation_degrees = Vector3(-45.0, 0.0, 0.0)
 
 func _process(delta: float) -> void:
