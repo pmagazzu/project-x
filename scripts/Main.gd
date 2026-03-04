@@ -9,9 +9,9 @@ const BUILDING_SCENE := preload("res://scenes/Building.tscn")
 
 # Camera settings
 const CAMERA_PAN_SPEED := 15.0
-const CAMERA_ZOOM_SPEED := 2.0
-const CAMERA_ZOOM_MIN := 5.0
-const CAMERA_ZOOM_MAX := 40.0
+const CAMERA_ZOOM_SPEED := 3.0
+const CAMERA_ZOOM_MIN := 10.0
+const CAMERA_ZOOM_MAX := 80.0
 const CAMERA_ROTATE_SPEED := 1.5
 
 # Node references
@@ -28,7 +28,7 @@ var game_state: GameState
 var turn_manager: TurnManager
 
 # Camera state
-var camera_distance: float = 20.0
+var camera_distance: float = 50.0
 var camera_rotating: bool = false
 var camera_pan_dragging: bool = false
 var last_mouse_pos: Vector2 = Vector2.ZERO
