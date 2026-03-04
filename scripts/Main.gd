@@ -82,8 +82,8 @@ func _ready() -> void:
 	FogOfWar.update_visibility(1, game_state)
 	FogOfWar.update_visibility(2, game_state)
 
-	# Setup camera
-	_setup_camera()
+	# Camera position is set in Main.tscn scene file
+	# _setup_camera()  # disabled - using hardcoded scene values
 
 	# Update UI
 	ui.update_hud()
