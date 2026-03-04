@@ -118,12 +118,12 @@ const BUILDING_STATS := {
 }
 
 ## Create a new unit and add it to state
-func create_unit(type: UnitType, owner: int, pos: Vector2i) -> UnitData:
+func create_unit(type: UnitType, p_owner: int, pos: Vector2i) -> UnitData:
 	var unit := UnitData.new()
 	unit.id = next_unit_id
 	next_unit_id += 1
 	unit.type = type
-	unit.owner = owner
+	unit.owner = p_owner
 	unit.position = pos
 	var stats: Dictionary = UNIT_STATS[type]
 	unit.hp = stats["hp"]
@@ -139,12 +139,12 @@ func create_unit(type: UnitType, owner: int, pos: Vector2i) -> UnitData:
 	return unit
 
 ## Create a new building and add it to state
-func create_building(type: BuildingType, owner: int, pos: Vector2i, instant: bool = false) -> BuildingData:
+func create_building(type: BuildingType, p_owner: int, pos: Vector2i, instant: bool = false) -> BuildingData:
 	var bld := BuildingData.new()
 	bld.id = next_building_id
 	next_building_id += 1
 	bld.type = type
-	bld.owner = owner
+	bld.owner = p_owner
 	bld.position = pos
 	var stats: Dictionary = BUILDING_STATS[type]
 	bld.hp = stats["hp"]

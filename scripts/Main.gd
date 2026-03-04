@@ -294,10 +294,10 @@ func _setup_camera() -> void:
 		HexGrid.axial_to_world(0, game_state.MAP_SIZE - 1),
 		HexGrid.axial_to_world(game_state.MAP_SIZE - 1, game_state.MAP_SIZE - 1),
 	]
-	var x_min := corners[0].x
-	var x_max := corners[0].x
-	var z_min := corners[0].z
-	var z_max := corners[0].z
+	var x_min: float = corners[0].x
+	var x_max: float = corners[0].x
+	var z_min: float = corners[0].z
+	var z_max: float = corners[0].z
 	for c in corners:
 		x_min = min(x_min, c.x)
 		x_max = max(x_max, c.x)
