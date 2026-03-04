@@ -11,7 +11,7 @@ const BUILDING_SCENE := preload("res://scenes/Building.tscn")
 const CAMERA_PAN_SPEED := 15.0
 const CAMERA_ZOOM_SPEED := 3.0
 const CAMERA_ZOOM_MIN := 10.0
-const CAMERA_ZOOM_MAX := 80.0
+const CAMERA_ZOOM_MAX := 200.0
 const CAMERA_ROTATE_SPEED := 1.5
 
 # Node references
@@ -28,7 +28,7 @@ var game_state: GameState
 var turn_manager: TurnManager
 
 # Camera state
-var camera_distance: float = 50.0
+var camera_distance: float = 140.0
 var camera_rotating: bool = false
 var camera_pan_dragging: bool = false
 var last_mouse_pos: Vector2 = Vector2.ZERO
@@ -82,8 +82,8 @@ func _ready() -> void:
 	FogOfWar.update_visibility(1, game_state)
 	FogOfWar.update_visibility(2, game_state)
 
-	# Camera position is set in Main.tscn scene file
-	# _setup_camera()  # disabled - using hardcoded scene values
+	# Setup camera to fit the hex map
+	_setup_camera()
 
 	# Update UI
 	ui.update_hud()
@@ -285,13 +285,40 @@ func _spawn_building_node(bld_data: GameState.BuildingData) -> void:
 	buildings_node.add_child(bld_node)
 	bld_node.setup(bld_data.id, game_state)
 
-## Setup isometric camera
+## Setup isometric camera to fit the entire hex map
 func _setup_camera() -> void:
-	# Center camera on map center
-	var center := HexGrid.axial_to_world(game_state.MAP_SIZE / 2, game_state.MAP_SIZE / 2)
-	camera_pivot.position = Vector3(center.x, 0, center.z)
+	# Calculate map bounding box from all four corners
+	var corners := [
+		HexGrid.axial_to_world(0, 0),
+		HexGrid.axial_to_world(game_state.MAP_SIZE - 1, 0),
+		HexGrid.axial_to_world(0, game_state.MAP_SIZE - 1),
+		HexGrid.axial_to_world(game_state.MAP_SIZE - 1, game_state.MAP_SIZE - 1),
+	]
+	var x_min := corners[0].x
+	var x_max := corners[0].x
+	var z_min := corners[0].z
+	var z_max := corners[0].z
+	for c in corners:
+		x_min = min(x_min, c.x)
+		x_max = max(x_max, c.x)
+		z_min = min(z_min, c.z)
+		z_max = max(z_max, c.z)
+
+	# Center pivot on map center
+	var center_x := (x_min + x_max) / 2.0
+	var center_z := (z_min + z_max) / 2.0
+	camera_pivot.position = Vector3(center_x, 0, center_z)
 	camera_pivot.rotation_degrees = Vector3(0, 0, 0)
-	# Classic isometric: above and behind, looking down at 45 degrees
+
+	# Calculate camera distance to fit entire map on screen
+	# At 45-degree down angle with 60-degree vertical FOV:
+	# Near ground edge (bottom of screen) is at 75 degrees from horizontal
+	# Visible Z from pivot toward camera = camera_distance * 0.732
+	# Need this >= half the map Z-extent plus hex margin
+	var half_z := (z_max - z_min) / 2.0 + HexGrid.HEX_SIZE
+	camera_distance = half_z / 0.7
+
+	# Isometric: above and behind, looking down at 45 degrees
 	camera.position = Vector3(0, camera_distance, camera_distance)
 	camera.rotation_degrees = Vector3(-45, 0, 0)
 
