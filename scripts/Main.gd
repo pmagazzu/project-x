@@ -20,7 +20,7 @@ const CAMERA_ROTATE_SPEED := 1.5
 @onready var hex_map: Node3D = $HexMap
 @onready var units_node: Node3D = $Units
 @onready var buildings_node: Node3D = $Buildings
-@onready var ui: CanvasLayer = $UI
+@onready var ui = $UI
 @onready var highlight_mesh: MeshInstance3D = $SelectionHighlight
 @onready var move_highlight_parent: Node3D = $MoveHighlights
 
@@ -540,7 +540,7 @@ func _screen_to_hex(screen_pos: Vector2) -> Vector2i:
 	var from := camera.project_ray_origin(screen_pos)
 	var dir := camera.project_ray_normal(screen_pos)
 	# Intersect with y=0 plane (approximate)
-	if abs(dir.y) < 0.001:
+	if absf(dir.y) < 0.001:
 		return Vector2i(-999, -999)
 	var t := -from.y / dir.y
 	if t < 0:

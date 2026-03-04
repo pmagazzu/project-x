@@ -6,7 +6,7 @@
 
 config/name="Project X"
 run/main_scene="res://scenes/Main.tscn"
-config/features=PackedStringArray("4.2", "Forward Plus")
+config/features=PackedStringArray("4.4", "GL Compatibility")
 
 [display]
 

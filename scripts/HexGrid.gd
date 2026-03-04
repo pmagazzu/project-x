@@ -32,12 +32,12 @@ static func world_to_axial(world_pos: Vector3) -> Vector2:
 ## Round fractional axial coordinates to nearest hex
 static func axial_round(frac: Vector2) -> Vector2i:
 	var s: float = -frac.x - frac.y
-	var rq: float = round(frac.x)
-	var rr: float = round(frac.y)
-	var rs: float = round(s)
-	var q_diff: float = abs(rq - frac.x)
-	var r_diff: float = abs(rr - frac.y)
-	var s_diff: float = abs(rs - s)
+	var rq: float = roundf(frac.x)
+	var rr: float = roundf(frac.y)
+	var rs: float = roundf(s)
+	var q_diff: float = absf(rq - frac.x)
+	var r_diff: float = absf(rr - frac.y)
+	var s_diff: float = absf(rs - s)
 	if q_diff > r_diff and q_diff > s_diff:
 		rq = -rr - rs
 	elif r_diff > s_diff:
@@ -53,9 +53,9 @@ static func get_neighbors(q: int, r: int) -> Array[Vector2i]:
 
 ## Hex distance between two axial coordinates
 static func hex_distance(a: Vector2i, b: Vector2i) -> int:
-	var dq: int = abs(a.x - b.x)
-	var dr: int = abs(a.y - b.y)
-	var ds: int = abs((-a.x - a.y) - (-b.x - b.y))
+	var dq: int = absi(a.x - b.x)
+	var dr: int = absi(a.y - b.y)
+	var ds: int = absi((-a.x - a.y) - (-b.x - b.y))
 	return maxi(dq, maxi(dr, ds))
 
 ## Get all hexes within radius of a center hex
@@ -80,12 +80,12 @@ static func hex_line(a: Vector2i, b: Vector2i) -> Array[Vector2i]:
 	for i in range(n + 1):
 		var t := float(i) / float(n)
 		var cube := a_cube.lerp(b_cube, t)
-		var q: float = round(cube.x)
-		var r: float = round(cube.y)
-		var s: float = round(cube.z)
-		var qd: float = abs(q - cube.x)
-		var rd: float = abs(r - cube.y)
-		var sd: float = abs(s - cube.z)
+		var q: float = roundf(cube.x)
+		var r: float = roundf(cube.y)
+		var s: float = roundf(cube.z)
+		var qd: float = absf(q - cube.x)
+		var rd: float = absf(r - cube.y)
+		var sd: float = absf(s - cube.z)
 		if qd > rd and qd > sd:
 			q = -r - s
 		elif rd > sd:
