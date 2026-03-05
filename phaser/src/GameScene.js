@@ -614,7 +614,10 @@ export class GameScene extends Phaser.Scene {
       backgroundColor: `#${color.toString(16).padStart(6,'0')}`,
       padding: { x: 0, y: 0 }, fixedWidth: w, fixedHeight: h, align: 'center'
     }).setScrollFactor(0).setDepth(101).setInteractive({ useHandCursor: true });
-    btn.on('pointerdown', cb);
+    btn.on('pointerdown', () => {
+      this._contextMenuClicked = true; // prevent pointerup from firing _onHexClick
+      cb();
+    });
     btn.on('pointerover', () => btn.setAlpha(0.8));
     btn.on('pointerout',  () => btn.setAlpha(1.0));
     return btn;
