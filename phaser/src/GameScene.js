@@ -1261,7 +1261,8 @@ export class GameScene extends Phaser.Scene {
   // the engineer's current hex, or null if no clear winner (→ show submenu).
   _getSmartBuild(unit) {
     const gs = this.gameState, p = gs.currentPlayer;
-    const noBuilding = !buildingAt(gs, unit.q, unit.r);
+    const existingB = buildingAt(gs, unit.q, unit.r);
+    const noBuilding = !existingB || existingB.type === 'ROAD';
     const res = gs.resourceHexes[`${unit.q},${unit.r}`];
     const iron = gs.players[p].iron, oil = gs.players[p].oil;
 
@@ -1392,7 +1393,9 @@ export class GameScene extends Phaser.Scene {
     } else if (submenu === 'build') {
       title = '▸ BUILD';
       const gs = this.gameState, p = gs.currentPlayer;
-      const noBuilding = !buildingAt(gs, unit.q, unit.r);
+      // Roads don't count as "a building" for placement purposes
+      const existingBuilding = buildingAt(gs, unit.q, unit.r);
+      const noBuilding = !existingBuilding || existingBuilding.type === 'ROAD';
       const res = gs.resourceHexes[`${unit.q},${unit.r}`];
       const iron = gs.players[p].iron, oil = gs.players[p].oil;
 
