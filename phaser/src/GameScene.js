@@ -4,8 +4,10 @@ import {
   MAP_SIZE, HEX_SIZE, ISO_SQUISH, getMapBounds
 } from './HexGrid.js';
 import {
-  createGameState, unitAt, buildingAt, getReachableHexes, getAttackableHexes,
-  resolveTurn, checkWinner, calcIncome, UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES
+  createGameState, unitAt, buildingAt, createBuilding,
+  getReachableHexes, getAttackableHexes,
+  resolveTurn, checkWinner, calcIncome,
+  UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, MINE_COST
 } from './GameState.js';
 
 const TERRAIN = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2 };
@@ -121,25 +123,34 @@ export class GameScene extends Phaser.Scene {
     const gs = this.gameState;
     for (const b of gs.buildings) {
       const { x, y } = hexToWorld(b.q, b.r);
-      const def   = BUILDING_TYPES[b.type];
       const color = b.owner ? PLAYER_COLORS[b.owner] : 0x888888;
-      const s     = HEX_SIZE * 0.28;
 
       if (b.type === 'HQ') {
-        // HQ: filled pentagon-ish (just use a star shape via two triangles)
-        this.buildingGfx.fillStyle(color, 0.9);
-        this.buildingGfx.fillRect(x - s, y - s * 0.7, s * 2, s * 1.5);
-        // Flag notch on top
-        this.buildingGfx.fillTriangle(x - s, y - s * 0.7, x + s, y - s * 0.7, x, y - s * 1.6);
-        this.buildingGfx.lineStyle(2, 0x000000, 0.8);
-        this.buildingGfx.strokeRect(x - s, y - s * 0.7, s * 2, s * 1.5);
+        const s = HEX_SIZE * 0.36;
+        // Dark outline
+        this.buildingGfx.fillStyle(0x000000, 1);
+        this.buildingGfx.fillRect(x - s - 2, y - s * 0.6 - 2, s * 2 + 4, s * 1.6 + 4);
+        // Body
+        this.buildingGfx.fillStyle(color, 1);
+        this.buildingGfx.fillRect(x - s, y - s * 0.6, s * 2, s * 1.4);
+        // Roof triangle
+        this.buildingGfx.fillStyle(color, 1);
+        this.buildingGfx.fillTriangle(x - s - 2, y - s * 0.6, x + s + 2, y - s * 0.6, x, y - s * 1.7);
+        // White "HQ" outline
+        this.buildingGfx.lineStyle(2, 0xffffff, 0.9);
+        this.buildingGfx.strokeRect(x - s, y - s * 0.6, s * 2, s * 1.4);
       } else if (b.type === 'MINE') {
-        // Mine: small pickaxe-like cross
-        this.buildingGfx.fillStyle(color, 0.85);
-        this.buildingGfx.fillRect(x - s * 0.3, y - s, s * 0.6, s * 2);
-        this.buildingGfx.fillRect(x - s, y - s * 0.3, s * 2, s * 0.6);
-        this.buildingGfx.lineStyle(1, 0x000000, 0.6);
-        this.buildingGfx.strokeRect(x - s * 0.3, y - s, s * 0.6, s * 2);
+        const s = HEX_SIZE * 0.25;
+        // Dark outline circle
+        this.buildingGfx.fillStyle(0x000000, 1);
+        this.buildingGfx.fillCircle(x, y, s + 3);
+        // Colored fill
+        this.buildingGfx.fillStyle(color, 1);
+        this.buildingGfx.fillCircle(x, y, s);
+        // ⚙ cross inside
+        this.buildingGfx.fillStyle(0x000000, 0.7);
+        this.buildingGfx.fillRect(x - s * 0.2, y - s * 0.8, s * 0.4, s * 1.6);
+        this.buildingGfx.fillRect(x - s * 0.8, y - s * 0.2, s * 1.6, s * 0.4);
       }
     }
   }
@@ -270,10 +281,10 @@ export class GameScene extends Phaser.Scene {
   // ── Buttons ───────────────────────────────────────────────────────────────
   _createButtons() {
     const w = this.scale.width;
-
     this.btnSubmit = this._makeButton(w - 140, 12, 'SUBMIT TURN', 0x226622, () => this._onSubmit());
     this.btnAttack = this._makeButton(w - 290, 12, 'ATTACK',      0x882222, () => this._onAttackMode());
-    this.btnCancel = this._makeButton(w - 430, 12, 'CANCEL',      0x444444, () => this._onCancel());
+    this.btnBuild  = this._makeButton(w - 420, 12, `BUILD MINE (${MINE_COST}⚙)`, 0x557755, () => this._onBuildMine());
+    this.btnCancel = this._makeButton(w - 570, 12, 'CANCEL',      0x444444, () => this._onCancel());
   }
 
   _makeButton(x, y, label, color, cb) {
@@ -289,10 +300,24 @@ export class GameScene extends Phaser.Scene {
   }
 
   _updateButtons() {
+    const gs      = this.gameState;
     const hasUnit = !!this.selectedUnit;
-    const canAct  = hasUnit && this.selectedUnit.owner === this.gameState.currentPlayer;
+    const canAct  = hasUnit && this.selectedUnit.owner === gs.currentPlayer;
+
     this.btnAttack.setVisible(canAct && !this.selectedUnit.attacked);
     this.btnCancel.setVisible(hasUnit || this.mode !== 'select');
+
+    // Show Build Mine if: unit on a resource hex, no building there, enough iron
+    if (canAct) {
+      const u   = this.selectedUnit;
+      const key = `${u.q},${u.r}`;
+      const onResource = !!gs.resourceHexes[key];
+      const noBuilding = !buildingAt(gs, u.q, u.r);
+      const canAfford  = gs.players[gs.currentPlayer].iron >= MINE_COST;
+      this.btnBuild.setVisible(onResource && noBuilding && canAfford);
+    } else {
+      this.btnBuild.setVisible(false);
+    }
   }
 
   // ── Input ─────────────────────────────────────────────────────────────────
@@ -442,6 +467,18 @@ export class GameScene extends Phaser.Scene {
       this.selectedUnit.q, this.selectedUnit.r
     );
     this._refresh();
+  }
+
+  _onBuildMine() {
+    const gs = this.gameState;
+    const u  = this.selectedUnit;
+    if (!u) return;
+    const key = `${u.q},${u.r}`;
+    if (!gs.resourceHexes[key] || buildingAt(gs, u.q, u.r)) return;
+    if (gs.players[gs.currentPlayer].iron < MINE_COST) return;
+    gs.players[gs.currentPlayer].iron -= MINE_COST;
+    gs.buildings.push(createBuilding('MINE', gs.currentPlayer, u.q, u.r));
+    this._clearSelection();
   }
 
   _onSubmit() {

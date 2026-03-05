@@ -24,6 +24,7 @@ export const RESOURCE_TYPES = {
 
 export const STARTING_IRON = 15;
 export const BASE_IRON_PER_TURN = 3;
+export const MINE_COST = 4;
 
 let _nextId = 1;
 
@@ -62,35 +63,31 @@ export function createGameState() {
     log: [],
   };
 
-  // ── Spawn units near center, ~10 hexes apart ──────────────────────────────
-  // Player 1: top-left cluster around (7, 7)
-  state.units.push(createUnit('INFANTRY', 1, 6, 7));
-  state.units.push(createUnit('INFANTRY', 1, 7, 6));
-  state.units.push(createUnit('TANK',     1, 7, 7));
+  // ── Spawn units close together for quick combat (~5-6 hexes apart) ─────────
+  // Player 1: around (10, 11)
+  state.units.push(createUnit('INFANTRY', 1, 9,  11));
+  state.units.push(createUnit('INFANTRY', 1, 10, 10));
+  state.units.push(createUnit('TANK',     1, 10, 11));
 
-  // Player 2: bottom-right cluster around (17, 17)
-  state.units.push(createUnit('INFANTRY', 2, 18, 17));
-  state.units.push(createUnit('INFANTRY', 2, 17, 18));
-  state.units.push(createUnit('TANK',     2, 17, 17));
+  // Player 2: around (14, 12)
+  state.units.push(createUnit('INFANTRY', 2, 15, 12));
+  state.units.push(createUnit('INFANTRY', 2, 14, 13));
+  state.units.push(createUnit('TANK',     2, 14, 12));
 
-  // ── HQ buildings ──────────────────────────────────────────────────────────
-  state.buildings.push(createBuilding('HQ', 1, 7, 7));
-  state.buildings.push(createBuilding('HQ', 2, 17, 17));
+  // ── HQ buildings (behind starting units) ─────────────────────────────────
+  state.buildings.push(createBuilding('HQ', 1, 8, 12));
+  state.buildings.push(createBuilding('HQ', 2, 16, 11));
 
-  // ── Resource hexes (iron deposits scattered around map) ───────────────────
+  // ── Resource hexes (iron deposits) ───────────────────────────────────────
   const ironSpots = [
-    [12, 12], [12, 11], [11, 12],   // center cluster
-    [8,  10], [9,  8],               // near P1
-    [16, 14], [15, 16],              // near P2
-    [12, 7],  [7,  13],              // flanks
+    [12, 11], [12, 12],              // center
+    [10, 13], [11, 10],              // near P1
+    [13, 11], [13, 14],              // near P2
+    [9,  9],  [15, 14],              // flanks
   ];
   for (const [q, r] of ironSpots) {
     state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
   }
-
-  // Start with mines on resource hexes nearest each HQ
-  state.buildings.push(createBuilding('MINE', 1, 9, 8));
-  state.buildings.push(createBuilding('MINE', 2, 15, 16));
 
   return state;
 }
