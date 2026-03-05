@@ -1496,22 +1496,17 @@ export class GameScene extends Phaser.Scene {
     this._refresh();
   }
 
-  // Right-click: open context menu for own unit, or deselect if out of range
+  // Right-click: open context menu when clicking ON a friendly unit; deselect everywhere else
   _onHexRightClick(q, r) {
     const gs = this.gameState;
     const clickedUnit = gs.units.find(u => u.q === q && u.r === r && !u.dead);
     if (clickedUnit && clickedUnit.owner === gs.currentPlayer) {
+      // Right-clicked directly on own unit → select + show action menu
       if (this.selectedUnit !== clickedUnit) this._selectUnit(clickedUnit);
       this._showContextMenu(clickedUnit);
-    } else if (this.selectedUnit && this.selectedUnit.owner === gs.currentPlayer) {
-      // Right-click on empty/enemy hex — deselect if outside move+attack range
-      const inReach  = this.reachable.some(h => h.q === q && h.r === r);
-      const inAttack = this.attackable.some(h => h.q === q && h.r === r);
-      if (!inReach && !inAttack) {
-        this._clearSelection();
-      } else {
-        this._showContextMenu(this.selectedUnit);
-      }
+    } else {
+      // Right-clicked on empty hex or enemy → deselect
+      this._clearSelection();
     }
   }
 
