@@ -398,72 +398,74 @@ export class GameScene extends Phaser.Scene {
 
   // ── Recruitment panel ─────────────────────────────────────────────────────
   _createRecruitPanel() {
-    const w = this.scale.width, h = this.scale.height;
-    this.recruitPanel = this.add.container(w/2, h/2).setDepth(200).setScrollFactor(0);
-
-    this.recruitBg = this.add.rectangle(0, 0, 420, 300, 0x111111, 0.95)
-      .setStrokeStyle(2, 0x888888);
-    this.recruitTitle = this.add.text(0, -130, 'RECRUIT', {
-      font: 'bold 16px monospace', fill: '#ffffff'
-    }).setOrigin(0.5);
-
-    this.recruitItems = [];
-    this.recruitPanel.add([this.recruitBg, this.recruitTitle]);
-    this.recruitPanel.setVisible(false);
+    // Panel uses plain screen-space objects (no Container — avoids input issues)
+    this.recruitPanel = { visible: false, objects: [] };
   }
 
   _showRecruitPanel(building) {
+    this._hideRecruitPanel();
     this.recruitBuilding = building;
     const gs = this.gameState;
-    const available = building ? BUILDING_TYPES[building.type].canRecruit : [];
+    const available = BUILDING_TYPES[building.type].canRecruit;
+    const p  = gs.currentPlayer;
+    const w  = this.scale.width, h = this.scale.height;
+    const panelW = 440, panelH = 80 + available.length * 48 + 60;
+    const px = w / 2 - panelW / 2, py = h / 2 - panelH / 2;
+    const objs = [];
 
-    // Clear old items
-    for (const item of this.recruitItems) item.destroy();
-    this.recruitItems = [];
+    const bg = this.add.rectangle(w/2, h/2, panelW, panelH, 0x111111, 0.96)
+      .setStrokeStyle(2, 0x888888).setScrollFactor(0).setDepth(200);
+    objs.push(bg);
 
-    const p = gs.currentPlayer;
+    const title = this.add.text(w/2, py + 20, `RECRUIT — ${BUILDING_TYPES[building.type].name}`, {
+      font: 'bold 15px monospace', fill: '#ffffff'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
+    objs.push(title);
+
     available.forEach((unitType, i) => {
-      const def  = UNIT_TYPES[unitType];
-      const iron = def.cost.iron, oil = def.cost.oil;
-      const canAfford = gs.players[p].iron >= iron && gs.players[p].oil >= oil;
-      const label = `${def.name}  |  ⚙${iron} iron${oil > 0 ? `  🛢${oil} oil` : ''}  |  HP:${def.health} ATK:${def.attack} MOV:${def.move}`;
-      const color = canAfford ? 0x224422 : 0x442222;
-      const btn = this.add.text(0, -80 + i * 44, label, {
-        font: '13px monospace', fill: canAfford ? '#ccffcc' : '#ff8888',
-        backgroundColor: `#${color.toString(16).padStart(6,'0')}`,
-        padding: { x: 10, y: 6 }
-      }).setOrigin(0.5).setInteractive({ useHandCursor: canAfford });
+      const def = UNIT_TYPES[unitType];
+      const canAfford = gs.players[p].iron >= def.cost.iron && gs.players[p].oil >= def.cost.oil;
+      const label = `${def.name}  ⚙${def.cost.iron}${def.cost.oil > 0 ? ` 🛢${def.cost.oil}` : ''}  HP:${def.health} ATK:${def.attack} MOV:${def.move}`;
+      const btn = this.add.text(w/2, py + 60 + i * 48, label, {
+        font: '13px monospace', fill: canAfford ? '#ccffcc' : '#ff6666',
+        backgroundColor: canAfford ? '#224422' : '#332222',
+        padding: { x: 12, y: 8 }
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+        .setInteractive({ useHandCursor: canAfford });
 
       if (canAfford) {
         btn.on('pointerdown', () => {
-          const result = queueRecruit(gs, p, unitType, building.id);
-          if (result.ok) this._pushLog(`P${p} queued ${def.name}`);
+          queueRecruit(gs, p, unitType, building.id);
+          this._pushLog(`P${p} queued ${def.name}`);
           this._hideRecruitPanel();
           this._refresh();
         });
         btn.on('pointerover', () => btn.setAlpha(0.8));
         btn.on('pointerout',  () => btn.setAlpha(1.0));
       }
-
-      this.recruitPanel.add(btn);
-      this.recruitItems.push(btn);
+      objs.push(btn);
     });
 
-    const closeBtn = this.add.text(0, 120, 'CLOSE', {
+    const closeBtn = this.add.text(w/2, py + panelH - 28, '[ CLOSE ]', {
       font: 'bold 13px monospace', fill: '#ffffff',
-      backgroundColor: '#444444', padding: { x: 10, y: 6 }
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+      backgroundColor: '#444444', padding: { x: 14, y: 7 }
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+      .setInteractive({ useHandCursor: true });
     closeBtn.on('pointerdown', () => this._hideRecruitPanel());
-    this.recruitPanel.add(closeBtn);
-    this.recruitItems.push(closeBtn);
+    closeBtn.on('pointerover', () => closeBtn.setAlpha(0.8));
+    closeBtn.on('pointerout',  () => closeBtn.setAlpha(1.0));
+    objs.push(closeBtn);
 
-    this.recruitPanel.setVisible(true);
+    this.recruitPanel = { visible: true, objects: objs };
     this._updateButtons();
   }
 
   _hideRecruitPanel() {
+    if (this.recruitPanel?.objects) {
+      for (const o of this.recruitPanel.objects) o.destroy();
+    }
+    this.recruitPanel = { visible: false, objects: [] };
     this.recruitBuilding = null;
-    this.recruitPanel.setVisible(false);
     this._updateButtons();
   }
 
@@ -498,7 +500,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointerup', (ptr) => {
-      if (ptr.button === 0 && !this._isDragging && !this.recruitPanel.visible) {
+      if (ptr.button === 0 && !this._isDragging && !this.recruitPanel?.visible) {
         const world = cam.getWorldPoint(ptr.x, ptr.y);
         const hex   = worldToHex(world.x, world.y);
         if (isValid(hex.q, hex.r)) this._onHexClick(hex.q, hex.r);
