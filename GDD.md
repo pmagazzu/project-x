@@ -534,3 +534,98 @@ Buildings upgrade Tier 1→5 by physically adding on — each tier adds a new st
 **Defensive:** Trench Network, Concrete Bunker, Defensive Wall, AA Battery, Coastal Artillery, Naval Minefield, Land Minefield, Artillery Emplacement, Observation Tower, Radar Station
 
 More building types to be added in future design passes.
+
+---
+
+## §25 — Combat System (Full Design)
+
+### Combat Stats
+
+**Offensive:**
+- `soft_attack` — damage vs infantry, engineers, unarmored units
+- `hard_attack` — damage vs armored targets
+- `pierce` — armor penetration value; compared directly to target's `armor`
+- `range` — attack range in hexes
+- `accuracy` — modifier to combat score roll
+
+**Defensive:**
+- `armor` — compared directly to attacker's `pierce`; reduces hard damage if pierce < armor
+- `defense` — general damage reduction (training, cover, entrenchment)
+- `evasion` — shifts outcome roll toward better results (recon/fast units)
+
+**Operational:**
+- `movement` — hexes per turn (terrain + road modified)
+- `supply_use` — supply consumed per turn (future)
+- `sight` — fog of war vision radius
+- `reliability` — breakdown chance under stress (future)
+
+### Pierce vs Armor
+
+- If `pierce ≥ armor`: full damage (penetrated)
+- If `pierce < armor`: damage scaled down by ratio — `dmg × (pierce / armor)`
+- Example: pierce 3 vs armor 5 → 60% damage; pierce 6 vs armor 5 → 100%
+
+### Combat Outcome Tiers (replaces miss/hit)
+
+Roll a combat score from attacker vs defender stats. Result:
+
+| Tier | Score Range | Effect |
+|---|---|---|
+| Catastrophic Failure | 0–19 | Heavy attacker losses, defender unharmed |
+| Repelled | 20–39 | Attacker takes damage |
+| Neutral | 40–59 | Half damage both ways |
+| Effective | 60–79 | Full damage to defender |
+| Overwhelming | 80–100 | Full damage + defender suppressed (loses next action) |
+
+**Score modifiers:**
+- Pierce vs armor ratio (major)
+- Terrain defense bonus: forest +10, mountain +20, trench +15
+- Dug-in: +8 defender
+- Flanking (multiple attackers same target): +10 per additional attacker
+- Morale: ±5–15 (future)
+- Veterancy: ±5–20 (future)
+
+### Transparency Principle
+
+All combat math is shown to the player. After resolution:
+- Full breakdown: attack values, armor comparison, terrain modifiers, score, outcome tier
+- Enemy stats shown based on intel level:
+  - No recon: unit type + rough health only
+  - Friendly recon unit adjacent: armor + attack class
+  - Dedicated recon unit in range: full stats
+- Goal: players can reverse-engineer exactly why they lost and redesign accordingly
+
+### Design Intent
+
+Transparent stats drive unit customization. Players should be able to look at a combat breakdown, identify the gap ("their armor is 6, my pierce is 2"), and solve it through the unit designer. This loop — see stats → understand → redesign → retry — is the core engagement driver for veteran players.
+
+---
+
+## §26 — Building System
+
+### Assignment
+- **HQ**: trains Engineers (future: Recon, research/upgrade actions)
+- **Barracks**: trains Infantry
+- **Vehicle Depot** (TBD): trains Tanks, Artillery, armored units
+- **Iron Mine**: +2 iron/turn (engineer builds on iron deposit hex)
+- **Oil Pump**: +2 oil/turn (engineer builds on oil deposit hex)
+- **Road**: reduces all terrain movement costs to 1 (engineer builds on any hex, costs 1 iron)
+
+### Construction
+- Engineers build most structures (spend move action, costs iron)
+- Infantry can "Dig In" (field fortification, minor defense bonus, lost on move)
+- Future: researched Trench building — permanent structure, survives unit, destroyable
+
+### Building Capture
+- Move a unit onto an enemy-owned building → ownership flips at turn resolution
+- HQ capture = game over for that player (King of the Hill win condition)
+
+---
+
+## §27 — Combat Intel UI
+
+When attacking, show side-by-side panel:
+- Left: attacker full stats
+- Right: enemy stats (filtered by intel level)
+- Preview: estimated outcome range based on known values
+- After resolution: full breakdown with all modifiers shown
