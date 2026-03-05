@@ -178,7 +178,7 @@ export function calcIncome(state, player) {
 export function resolveTurn(state) {
   const events = [];
 
-  // Apply moves (collision check)
+  // ── PHASE 1: Moves ────────────────────────────────────────────────────────
   const destinations = {};
   for (const [idStr, dest] of Object.entries(state.pendingMoves)) {
     const key = `${dest.q},${dest.r}`;
@@ -195,25 +195,30 @@ export function resolveTurn(state) {
       const unit = state.units.find(u => u.id === parseInt(idStr));
       if (unit) {
         unit.q = dest.q; unit.r = dest.r;
-        unit.dugIn = false;  // moving removes dig-in
+        unit.dugIn = false;
         events.push(`${UNIT_TYPES[unit.type].name} (P${unit.owner}) → (${dest.q},${dest.r})`);
       }
     }
   }
 
-  // Resolve attacks (simultaneous)
+  // ── PHASE 2: Attacks (based on post-move positions) ───────────────────────
+  // If target moved out of attacker's range, attack misses.
   const damage = {};
   for (const [idStr, targetId] of Object.entries(state.pendingAttacks)) {
     const attacker = state.units.find(u => u.id === parseInt(idStr));
     const target   = state.units.find(u => u.id === targetId);
     if (!attacker || !target) continue;
-    const def = UNIT_TYPES[attacker.type];
+    const def  = UNIT_TYPES[attacker.type];
+    const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
+    if (dist > def.range) {
+      events.push(`${UNIT_TYPES[attacker.type].name} (P${attacker.owner}) attack missed — target moved away`);
+      continue;
+    }
     let dmg = Math.max(1, def.attack + Math.floor(Math.random() * 2) - 1);
-    // Dug-in defense bonus: -1 damage (min 0)
-    if (target.dugIn) { dmg = Math.max(0, dmg - 1); }
+    if (target.dugIn) dmg = Math.max(0, dmg - 1);
     damage[targetId] = (damage[targetId] || 0) + dmg;
-    const dugInNote = target.dugIn ? ' (dug in -1)' : '';
-    events.push(`${UNIT_TYPES[attacker.type].name} (P${attacker.owner}) hits ${UNIT_TYPES[target.type].name} (P${target.owner}) for ${dmg}${dugInNote}`);
+    const note = target.dugIn ? ' (dug in -1)' : '';
+    events.push(`${UNIT_TYPES[attacker.type].name} (P${attacker.owner}) hits ${UNIT_TYPES[target.type].name} (P${target.owner}) for ${dmg}${note}`);
   }
   for (const [idStr, dmg] of Object.entries(damage)) {
     const target = state.units.find(u => u.id === parseInt(idStr));
