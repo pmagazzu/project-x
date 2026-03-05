@@ -510,9 +510,7 @@ export class GameScene extends Phaser.Scene {
       more:    this._makeActionBtn(ax+2*(bw+gap),ay+bh+gap, 'MORE',      0x333333, () => {}),
     };
 
-    // Build submenu (hidden by default)
-    this._buildMenuOpen = false;
-    this._buildMenuBtns = [];
+    this._contextMenuUnit = null;
   }
 
   _makeActionBtn(x, y, label, color, cb) {
@@ -574,66 +572,11 @@ export class GameScene extends Phaser.Scene {
     this.actBtns.move.setAlpha(this.mode === 'move' ? 1.0 : 0.75);
     this.actBtns.attack.setAlpha(this.mode === 'attack' ? 1.0 : 0.75);
 
-    // Rebuild build menu if open
-    if (this._buildMenuOpen) this._showBuildMenu();
-  }
-
-  _toggleBuildMenu() {
-    this._buildMenuOpen = !this._buildMenuOpen;
-    if (this._buildMenuOpen) {
-      this._buildMenuJustOpened = true; // prevent immediate close on pointerup
-      this._showBuildMenu();
-    } else {
-      this._hideBuildMenu();
     }
-  }
 
-  _showBuildMenu() {
-    this._hideBuildMenu();
-    const gs = this.gameState, u = this.selectedUnit;
-    if (!u) return;
-    const p = gs.currentPlayer;
-    const noBuilding = !buildingAt(gs, u.q, u.r);
-    const res = gs.resourceHexes[`${u.q},${u.r}`];
-    const w = this.scale.width, h = this.scale.height;
-
-    const options = [];
-    if (!roadAt(gs, u.q, u.r) && gs.players[p].iron >= 1)
-      options.push({ label: `Road (1⚙)`, cb: () => this._onBuildRoad() });
-    if (res && noBuilding && gs.players[p].iron >= 4)
-      options.push({ label: `${res.type === 'OIL' ? 'Oil Pump' : 'Mine'} (4⚙)`, cb: () => this._onBuildMine(res.type) });
-    if (noBuilding && gs.players[p].iron >= 5)
-      options.push({ label: `Bunker (5⚙)`, cb: () => this._onBuildStructure('BUNKER', 5) });
-    if (noBuilding && gs.players[p].iron >= 8 && gs.players[p].oil >= 2)
-      options.push({ label: `Vehicle Depot (8⚙ 2🛢)`, cb: () => this._onBuildStructure('VEHICLE_DEPOT', 8) });
-    if (noBuilding && gs.players[p].iron >= 3)
-      options.push({ label: `Obs. Post (3⚙)`, cb: () => this._onBuildStructure('OBS_POST', 3) });
-
-    const startY = h - 120 - options.length * 38 - 8;
-    options.forEach((opt, i) => {
-      const btn = this.add.text(w - 390, startY + i * 38, opt.label, {
-        font: '13px monospace', fill: '#ccffcc',
-        backgroundColor: '#224422', padding: { x: 10, y: 8 }
-      }).setScrollFactor(0).setDepth(110).setInteractive({ useHandCursor: true });
-      btn.on('pointerdown', () => { this._hideBuildMenu(); this._buildMenuOpen = false; opt.cb(); });
-      btn.on('pointerover', () => btn.setAlpha(0.8));
-      btn.on('pointerout',  () => btn.setAlpha(1.0));
-      this._buildMenuBtns.push(btn);
-    });
-
-    if (options.length === 0) {
-      const lbl = this.add.text(w - 390, startY, 'Nothing to build here', {
-        font: '12px monospace', fill: '#888888', backgroundColor: '#222222', padding: { x: 10, y: 8 }
-      }).setScrollFactor(0).setDepth(110);
-      this._buildMenuBtns.push(lbl);
-    }
-    this._addToUI(this._buildMenuBtns);
-  }
-
-  _hideBuildMenu() {
-    for (const b of this._buildMenuBtns) b.destroy();
-    this._buildMenuBtns = [];
-  }
+  // Build options are now served through _showContextMenu(unit, 'build', page)
+  _hideBuildMenu() { /* legacy no-op — build menu is now part of context menu */ }
+  _toggleBuildMenu() { if (this.selectedUnit) this._showContextMenu(this.selectedUnit, 'build', 0); }
 
   // ── Recruitment panel ─────────────────────────────────────────────────────
   _createRecruitPanel() {
@@ -970,7 +913,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointerup', (ptr) => {
-      if (ptr.button === 0 && !this._isDragging && !this._panelOpenAtMouseDown && !this._buildMenuJustOpened) {
+      if (ptr.button === 0 && !this._isDragging && !this._panelOpenAtMouseDown) {
         const world = cam.getWorldPoint(ptr.x, ptr.y);
         const hex   = worldToHex(world.x, world.y);
         if (isValid(hex.q, hex.r)) this._onHexClick(hex.q, hex.r);
@@ -980,7 +923,6 @@ export class GameScene extends Phaser.Scene {
         const hex   = worldToHex(world.x, world.y);
         if (isValid(hex.q, hex.r)) this._onHexRightClick(hex.q, hex.r);
       }
-      this._buildMenuJustOpened = false;
       this._isDragging = false;
     });
 
@@ -1029,7 +971,7 @@ export class GameScene extends Phaser.Scene {
       actions.push({ label: 'DIG IN', key: 'digin',  enabled: true,  color: 0x8B5A2B, cb: () => this._onDigIn() });
     }
     if (def.canBuild && unit.moved) {
-      actions.push({ label: 'BUILD',  key: 'build',  enabled: true,  color: 0x557755, cb: () => { this._buildMenuOpen = true; this._showBuildMenu(); } });
+      actions.push({ label: 'BUILD ▸', key: 'build',  enabled: true,  color: 0x335533, cb: () => this._showContextMenu(unit, 'build', 0) });
     }
     if (def.canHeal) {
       actions.push({ label: 'HEAL',   key: 'heal',   enabled: true,  color: 0x229944, cb: () => {} }); // passive — shows status
@@ -1041,50 +983,134 @@ export class GameScene extends Phaser.Scene {
     return actions;
   }
 
-  // ── Contextual action popup ───────────────────────────────────────────────
-  _showContextMenu(unit) {
+  // ── Unified context menu (root actions + submenus with pagination) ─────────
+  // submenu: 'root' | 'build'   page: 0-based page index within that submenu
+  _showContextMenu(unit, submenu = 'root', page = 0) {
     this._hideContextMenu();
     if (!this.settings.showContextMenu) return;
 
     const wp = hexToWorld(unit.q, unit.r);
     const { x: sx, y: sy } = this._worldToScreen(wp.x, wp.y);
-    const actions = this._getUnitActions(unit);
-    const btnH = 28, btnW = 110, gap = 3;
-    const objs = [];
     const sw = this.scale.width, sh = this.scale.height;
 
-    // Position to the right of unit, clamped to screen
-    let px = sx + 36;
-    let py = sy - (actions.length * (btnH + gap)) / 2;
-    if (px + btnW > sw - 10) px = sx - btnW - 10;
-    if (py < 50) py = 50;
-    if (py + actions.length * (btnH + gap) > sh - 130) py = sh - 130 - actions.length * (btnH + gap);
+    const PAGE_SIZE = 6;
+    const btnH = 30, btnW = 180, gap = 3;
+    const DEPTH = 150;
+    const objs  = [];
 
-    actions.forEach((action, i) => {
-      const by = py + i * (btnH + gap);
-      const col = action.enabled ? `#${action.color.toString(16).padStart(6,'0')}` : '#222222';
-      const btn = this.add.text(px, by, action.label, {
-        font: 'bold 11px monospace', fill: action.enabled ? '#ffffff' : '#555555',
-        backgroundColor: col, padding: { x: 8, y: 6 },
-        fixedWidth: btnW, align: 'center'
-      }).setOrigin(0, 0).setScrollFactor(0).setDepth(150)
-        .setInteractive({ useHandCursor: action.enabled });
-      if (action.enabled) {
-        btn.on('pointerdown', () => { this._hideContextMenu(); action.cb(); });
+    // ── Build list of items to show ──────────────────────────────────────────
+    let title = null;
+    let items = []; // { label, color, enabled, cb }
+
+    if (submenu === 'root') {
+      const actions = this._getUnitActions(unit);
+      items = actions.map(a => ({
+        label:   a.label,
+        color:   a.color,
+        enabled: a.enabled,
+        cb:      a.cb,
+      }));
+    } else if (submenu === 'build') {
+      title = '▸ BUILD';
+      const gs = this.gameState, p = gs.currentPlayer;
+      const noBuilding = !buildingAt(gs, unit.q, unit.r);
+      const res = gs.resourceHexes[`${unit.q},${unit.r}`];
+      const iron = gs.players[p].iron, oil = gs.players[p].oil;
+
+      // All possible build options — add more here as the game grows
+      const allOpts = [];
+      if (!roadAt(gs, unit.q, unit.r))
+        allOpts.push({ label: `Road        1⚙`,  cost: { iron:1,oil:0 }, enabled: iron>=1,  cb: () => this._onBuildRoad() });
+      if (res && noBuilding)
+        allOpts.push({ label: `${res.type==='OIL'?'Oil Pump   4⚙ 2🛢':'Mine        4⚙'}`,
+                       cost: { iron:4,oil: res.type==='OIL'?2:0 }, enabled: res.type==='OIL'?(iron>=4&&oil>=2):iron>=4,
+                       cb: () => this._onBuildMine(res.type) });
+      if (noBuilding)
+        allOpts.push({ label: `Barracks    6⚙`,  cost:{iron:6,oil:0},  enabled: iron>=6,  cb: () => this._onBuildStructure('BARRACKS',6) });
+      if (noBuilding)
+        allOpts.push({ label: `Bunker      5⚙`,  cost:{iron:5,oil:0},  enabled: iron>=5,  cb: () => this._onBuildStructure('BUNKER',5) });
+      if (noBuilding)
+        allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢`, cost:{iron:8,oil:2}, enabled: iron>=8&&oil>=2, cb: () => this._onBuildStructure('VEHICLE_DEPOT',8) });
+      if (noBuilding)
+        allOpts.push({ label: `Obs. Post   3⚙`,  cost:{iron:3,oil:0},  enabled: iron>=3,  cb: () => this._onBuildStructure('OBS_POST',3) });
+      // Future entries just go here — pagination handles overflow automatically
+
+      const totalPages = Math.max(1, Math.ceil(allOpts.length / PAGE_SIZE));
+      page = Phaser.Math.Clamp(page, 0, totalPages - 1);
+      const slice = allOpts.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+      items = slice.map(o => ({
+        label:   o.enabled ? o.label : `${o.label}  ✗`,
+        color:   o.enabled ? 0x2a5533 : 0x222222,
+        enabled: o.enabled,
+        cb:      o.cb,
+      }));
+
+      // Pagination row (prev / page indicator / next) appended as items
+      if (totalPages > 1) {
+        items.push({
+          label:   `${page > 0 ? '◀ ' : '  '}  ${page+1}/${totalPages}  ${page < totalPages-1 ? ' ▶' : '  '}`,
+          color:   0x333355, enabled: true,
+          cb: () => {
+            // Toggle between pages; wrap around
+            const next = (page + 1) % totalPages;
+            this._showContextMenu(unit, 'build', next);
+          }
+        });
+      }
+
+      // Back button at bottom
+      items.push({ label: '← BACK', color: 0x443322, enabled: true, cb: () => this._showContextMenu(unit, 'root', 0) });
+    }
+
+    // ── Position menu near unit, clamped to screen ───────────────────────────
+    const rowCount = items.length + (title ? 1 : 0);
+    let px = sx + 40;
+    let py = sy - (rowCount * (btnH + gap)) / 2;
+    if (px + btnW > sw - 10) px = sx - btnW - 14;
+    if (py < 50) py = 50;
+    if (py + rowCount * (btnH + gap) > sh - 130) py = sh - 130 - rowCount * (btnH + gap);
+
+    // ── Title row ────────────────────────────────────────────────────────────
+    let rowY = py;
+    if (title) {
+      const hdr = this.add.text(px, rowY, title, {
+        font: 'bold 10px monospace', fill: '#aaffaa',
+        backgroundColor: '#112211', padding: { x: 8, y: 5 },
+        fixedWidth: btnW, align: 'left'
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH);
+      objs.push(hdr);
+      rowY += btnH + gap;
+    }
+
+    // ── Item rows ────────────────────────────────────────────────────────────
+    items.forEach(item => {
+      const col = `#${item.color.toString(16).padStart(6,'0')}`;
+      const btn = this.add.text(px, rowY, item.label, {
+        font: `bold 11px monospace`, fill: item.enabled ? '#ffffff' : '#555555',
+        backgroundColor: col, padding: { x: 8, y: 5 },
+        fixedWidth: btnW, align: 'left'
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH)
+        .setInteractive({ useHandCursor: item.enabled });
+      if (item.enabled) {
+        btn.on('pointerdown', () => { this._hideContextMenu(); item.cb(); });
         btn.on('pointerover', () => btn.setAlpha(0.85));
         btn.on('pointerout',  () => btn.setAlpha(1.0));
       }
       objs.push(btn);
+      rowY += btnH + gap;
     });
 
     this._addToUI(objs);
     this._contextMenuObjs = objs;
+    this._contextMenuUnit = unit; // remember for rebuild
   }
 
   _hideContextMenu() {
     if (this._contextMenuObjs) {
       for (const o of this._contextMenuObjs) o.destroy();
       this._contextMenuObjs = null;
+      this._contextMenuUnit = null;
     }
   }
 
@@ -1196,12 +1222,11 @@ export class GameScene extends Phaser.Scene {
           this.attackable = []; this.mode = 'select';
         }
         // Engineers: auto-open build menu after moving (if setting enabled)
-        if (UNIT_TYPES[this.selectedUnit.type].canBuild && this.settings.engineerAutoBuild) {
-          this._buildMenuOpen = true;
-          this._buildMenuJustOpened = true;
-        }
         this._refresh();
-        if (this._buildMenuOpen) this._showBuildMenu();
+        // Engineer auto-build: pop open the build submenu after moving
+        if (UNIT_TYPES[this.selectedUnit.type].canBuild && this.settings.engineerAutoBuild) {
+          this._showContextMenu(this.selectedUnit, 'build', 0);
+        }
         return;
       }
       // In move mode: clicking an enemy that's in attack range = auto-attack
@@ -1243,7 +1268,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   _selectUnit(unit) {
-    this._hideBuildMenu(); this._buildMenuOpen = false;
     this._hideContextMenu();
     this.selectedUnit = unit;
     if (!unit.moved) {
@@ -1285,7 +1309,7 @@ export class GameScene extends Phaser.Scene {
     this._refresh();
   }
 
-  _onCancel() { this._hideBuildMenu(); this._buildMenuOpen = false; this._hideContextMenu(); this._clearSelection(); this._hideRecruitPanel(); }
+  _onCancel() { this._hideContextMenu(); this._clearSelection(); this._hideRecruitPanel(); }
 
   _onMoveMode() {
     if (!this.selectedUnit || this.selectedUnit.moved) return;
