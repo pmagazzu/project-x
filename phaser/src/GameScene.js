@@ -16,8 +16,9 @@ import {
 const TERRAIN        = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2 };
 const TERRAIN_COLORS = {
   0: { fill: 0x8aaa55, stroke: 0x6a8a35 },  // plains: bright yellow-green
-  1: { fill: 0x1a4010, stroke: 0x0d2008 },  // forest: very dark green, clearly distinct
+  1: { fill: 0x1a4010, stroke: 0x0d2008 },  // forest: very dark green
   2: { fill: 0x8a7a6a, stroke: 0x6a5a4a },  // mountain: warm grey
+  3: { fill: 0xb8a060, stroke: 0x9a8040 },  // hill: sandy brown/tan
 };
 const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
@@ -156,11 +157,20 @@ export class GameScene extends Phaser.Scene {
         gfx.fillTriangle(cx+ox, cy+oy-ts, cx+ox-ts, cy+oy+ts, cx+ox+ts, cy+oy+ts);
       }
     }
-    // Mountain: draw small peak lines
+    // Mountain: draw sharp peak lines
     if (terrain === 2 && !isHovered && !isSelected) {
-      gfx.lineStyle(1.5, 0xffffff, 0.3);
-      gfx.beginPath(); gfx.moveTo(cx-8, cy+4); gfx.lineTo(cx-2, cy-6); gfx.lineTo(cx+4, cy+4);
-      gfx.moveTo(cx, cy+6); gfx.lineTo(cx+6, cy-2); gfx.lineTo(cx+12, cy+6);
+      gfx.lineStyle(1.5, 0xffffff, 0.35);
+      gfx.beginPath();
+      gfx.moveTo(cx-8, cy+5); gfx.lineTo(cx-2, cy-7); gfx.lineTo(cx+4, cy+5);
+      gfx.moveTo(cx+1, cy+5); gfx.lineTo(cx+7, cy-3); gfx.lineTo(cx+13, cy+5);
+      gfx.strokePath();
+    }
+    // Hill: draw smooth rounded bump curves
+    if (terrain === 3 && !isHovered && !isSelected) {
+      gfx.lineStyle(2, 0xffffff, 0.25);
+      gfx.beginPath();
+      gfx.moveTo(cx-10, cy+4); gfx.lineTo(cx-5, cy-4); gfx.lineTo(cx, cy+4);
+      gfx.moveTo(cx-2, cy+4); gfx.lineTo(cx+4, cy-3); gfx.lineTo(cx+10, cy+4);
       gfx.strokePath();
     }
   }
@@ -620,7 +630,7 @@ export class GameScene extends Phaser.Scene {
       this.unitStatusTxt.setText(status);
     } else if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r)) {
       const key  = `${this.hoveredHex.q},${this.hoveredHex.r}`;
-      const t    = ['Plains','Forest','Mountain'][this.terrain[key]];
+      const t    = ['Plains','Forest','Mountain','Hill'][this.terrain[key]];
       const res  = gs.resourceHexes[key];
       const bu   = buildingAt(gs, this.hoveredHex.q, this.hoveredHex.r);
       const hu   = unitAt(gs, this.hoveredHex.q, this.hoveredHex.r);
@@ -1804,7 +1814,15 @@ export class GameScene extends Phaser.Scene {
         for (let dr = -2; dr <= 2; dr++)
           if (isValid(cq+dq,cr+dr) && rng()>0.4) map[`${cq+dq},${cr+dr}`] = 1;
     }
-    for (let i = 0; i < 15; i++) {
+    // Hills (terrain 3) — rolling terrain, medium clusters
+    for (let i = 0; i < 20; i++) {
+      const cq = Math.floor(rng() * MAP_SIZE), cr = Math.floor(rng() * MAP_SIZE);
+      for (let dq = -2; dq <= 2; dq++)
+        for (let dr = -2; dr <= 2; dr++)
+          if (isValid(cq+dq,cr+dr) && rng()>0.55) map[`${cq+dq},${cr+dr}`] = 3;
+    }
+    // Mountains (terrain 2) — steep peaks, small clusters; overwrite hills
+    for (let i = 0; i < 10; i++) {
       const cq = Math.floor(rng() * MAP_SIZE), cr = Math.floor(rng() * MAP_SIZE);
       for (let dq = -1; dq <= 1; dq++)
         for (let dr = -1; dr <= 1; dr++)

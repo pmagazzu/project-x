@@ -12,13 +12,14 @@
 export const UNIT_TYPES = {
   //              name          mv  atk  hp  rng  cost                   shape      canDigIn canBuild canHeal sight | soft  hard  pierce armor def  eva  acc
   //                                                                                                                                                                                          buildTime = turns to produce
+  // range in hexes (1 hex ≈ 250m)
   INFANTRY:  { name:'Infantry',  move:2, attack:2, health:3, range:1, cost:{iron:2,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:3, hard_attack:1, pierce:1, armor:1, defense:1, evasion:0,  accuracy:0,  buildTime:1 },
-  TANK:      { name:'Tank',      move:4, attack:3, health:6, range:1, cost:{iron:4,oil:2}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:2, hard_attack:4, pierce:5, armor:6, defense:2, evasion:5,  accuracy:5,  buildTime:3 },
-  ARTILLERY: { name:'Artillery', move:1, attack:4, health:2, range:2, cost:{iron:3,oil:2}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:5, hard_attack:3, pierce:3, armor:1, defense:0, evasion:0,  accuracy:5,  buildTime:2 },
+  TANK:      { name:'Tank',      move:4, attack:3, health:6, range:3, cost:{iron:4,oil:2}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:2, hard_attack:4, pierce:5, armor:6, defense:2, evasion:5,  accuracy:5,  buildTime:3 },
+  ARTILLERY: { name:'Artillery', move:1, attack:4, health:2, range:8, cost:{iron:3,oil:2}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:5, hard_attack:3, pierce:3, armor:1, defense:0, evasion:0,  accuracy:5,  buildTime:2 },
   ENGINEER:  { name:'Engineer',  move:2, attack:1, health:2, range:1, cost:{iron:3,oil:0}, shape:'diamond',  canDigIn:false, canBuild:true,  canHeal:false, sight:2, soft_attack:1, hard_attack:0, pierce:1, armor:1, defense:0, evasion:0,  accuracy:-5, buildTime:1 },
-  RECON:     { name:'Recon',     move:4, attack:1, health:2, range:1, cost:{iron:3,oil:1}, shape:'star',     canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:2, hard_attack:0, pierce:1, armor:1, defense:0, evasion:15, accuracy:5,  buildTime:1 },
-  ANTI_TANK: { name:'Anti-Tank', move:2, attack:1, health:2, range:1, cost:{iron:3,oil:0}, shape:'arrow',    canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:1, hard_attack:3, pierce:6, armor:1, defense:1, evasion:0,  accuracy:0,  buildTime:2 },
-  MORTAR:    { name:'Mortar',    move:2, attack:3, health:2, range:2, cost:{iron:2,oil:0}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:4, hard_attack:1, pierce:2, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:2 },
+  RECON:     { name:'Recon',     move:4, attack:1, health:2, range:2, cost:{iron:3,oil:1}, shape:'star',     canDigIn:false, canBuild:false, canHeal:false, sight:6, soft_attack:2, hard_attack:0, pierce:1, armor:1, defense:0, evasion:15, accuracy:5,  buildTime:1 },
+  ANTI_TANK: { name:'Anti-Tank', move:2, attack:1, health:2, range:3, cost:{iron:3,oil:0}, shape:'arrow',    canDigIn:true,  canBuild:false, canHeal:false, sight:3, soft_attack:1, hard_attack:3, pierce:6, armor:1, defense:1, evasion:0,  accuracy:0,  buildTime:2 },
+  MORTAR:    { name:'Mortar',    move:2, attack:3, health:2, range:4, cost:{iron:2,oil:0}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:4, hard_attack:1, pierce:2, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:2 },
   MEDIC:     { name:'Medic',     move:2, attack:0, health:2, range:0, cost:{iron:2,oil:0}, shape:'cross',    canDigIn:false, canBuild:false, canHeal:true,  sight:2, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:1 },
 };
 
@@ -216,18 +217,22 @@ export function hexDistance(q1, r1, q2, r2) {
 // Wheeled/tracked vehicles that are badly hampered by forest
 const HEAVY_UNITS = new Set(['TANK', 'ARTILLERY', 'ANTI_TANK', 'VEHICLE_DEPOT']);
 
-// terrain: 0=plains, 1=forest, 2=mountain
-// Heavy vehicles pay 999 to enter forest without a road —
-// the min-1-hex guarantee still lets them crawl in 1 hex/turn.
+// terrain: 0=plains, 1=forest, 2=mountain, 3=hill
+// Move costs: plains=1, forest=2(infantry)/999(vehicles), mountain=3(foot only), hill=2(all)
 export function getMoveCost(terrainType, hasRoad, unitType = '') {
   if (hasRoad) return 0.5;
-  if (terrainType === 1 && HEAVY_UNITS.has(unitType)) return 999;
-  return [1, 2, 3][terrainType] ?? 1;
+  if (terrainType === 1 && HEAVY_UNITS.has(unitType)) return 999; // forest: vehicles crawl (1 hex)
+  return [1, 2, 3, 2][terrainType] ?? 1; // plains, forest, mountain, hill
 }
 export function canEnterTerrain(unitType, terrainType) {
   if (terrainType === 2) return unitType === 'INFANTRY' || unitType === 'ENGINEER'; // mountains: foot only
-  return true;
+  return true; // hills, forest, plains: all allowed (vehicles pay extra for forest)
 }
+
+// Terrain that blocks line-of-sight beyond 1 hex (for future LOS system)
+export const LOS_BLOCKING = new Set([1, 2, 3]); // forest, mountain, hill all block LOS
+// Units ON a hill get a sight bonus (elevated position)
+export const HILL_SIGHT_BONUS = 2;
 
 // ── Pathfinding (Dijkstra for terrain costs) ───────────────────────────────
 export function getReachableHexes(state, unit, terrain, mapSize) {
