@@ -361,6 +361,8 @@ export class GameScene extends Phaser.Scene {
     const canAct  = hasUnit && this.selectedUnit.owner === gs.currentPlayer;
     const u       = this.selectedUnit;
 
+    this.btnSubmit.setVisible(true);
+
     this.btnAttack.setVisible(canAct && !u.attacked && this.mode !== 'attack');
     this.btnCancel.setVisible(hasUnit || this.mode !== 'select' || !!this.recruitBuilding);
 
