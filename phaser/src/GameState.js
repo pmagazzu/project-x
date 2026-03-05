@@ -413,7 +413,7 @@ export function resolveTurn(state, terrain) {
       const unit = state.units.find(u => u.q === attack.hex.q && u.r === attack.hex.r && !u.dead);
       const attacker = state.units.find(u => u.id === parseInt(idStr));
       if (unit && attacker && unit.owner !== attacker.owner) {
-        resolvedAttacks[idStr] = unit.id;
+        resolvedAttacks[idStr] = { id: unit.id, blindFire: true };
       } else {
         // Blind fire hit empty hex
         const attacker2 = state.units.find(u => u.id === parseInt(idStr));
@@ -422,18 +422,20 @@ export function resolveTurn(state, terrain) {
         combatLog.push({ type: 'blind_miss', attackerName: aDef?.name, attackerOwner: attacker2?.owner, hex: attack.hex });
       }
     } else {
-      resolvedAttacks[idStr] = attack; // direct unit target
+      resolvedAttacks[idStr] = { id: attack, blindFire: false }; // direct unit target
     }
   }
 
   // Count how many attackers are targeting each unit (flanking bonus)
   const attackerCount = {};
-  for (const targetId of Object.values(resolvedAttacks)) {
-    if (targetId) attackerCount[targetId] = (attackerCount[targetId] || 0) + 1;
+  for (const atk of Object.values(resolvedAttacks)) {
+    if (atk?.id) attackerCount[atk.id] = (attackerCount[atk.id] || 0) + 1;
   }
 
-  for (const [idStr, targetId] of Object.entries(resolvedAttacks)) {
-    if (!targetId) continue;
+  for (const [idStr, atk] of Object.entries(resolvedAttacks)) {
+    if (!atk?.id) continue;
+    const targetId = atk.id;
+    const blindFire = atk.blindFire;
     const attacker = state.units.find(u => u.id === parseInt(idStr));
     const target   = state.units.find(u => u.id === targetId);
     if (!attacker || !target) continue;
@@ -457,6 +459,9 @@ export function resolveTurn(state, terrain) {
     // Base combat score (50 = neutral starting point)
     let score = 50;
     score += aDef.accuracy;
+    // Blind fire penalty: firing at a hex without confirmed intel = -20 score
+    const blindFirePenalty = blindFire ? 20 : 0;
+    score -= blindFirePenalty;
     score += target.evasion_penalty || 0; // suppressed units lose evasion
 
     // Terrain modifier for defender
@@ -526,8 +531,8 @@ export function resolveTurn(state, terrain) {
       targetName: tDef.name,   targetOwner: target.owner,
       isArmored, baseAttack, pierce: aDef.pierce, armor: tDef.armor, pierceRatio,
       accuracy: aDef.accuracy, evasion: tDef.evasion,
-      terrainMod, dugInMod, bunkerMod, flankMod, roll,
-      score, tier, dmg, attackerDmg, suppressed,
+      terrainMod, dugInMod, bunkerMod, flankMod, roll, blindFirePenalty,
+      score, tier, dmg, attackerDmg, suppressed, blindFire,
     };
     combatLog.push(entry);
     events.push(`[COMBAT] ${aDef.name}(P${attacker.owner}) → ${tDef.name}(P${target.owner}) | Score:${score} | ${tier} | Def dmg:${dmg} Att dmg:${attackerDmg}${suppressed?' SUPPRESSED':''}`);

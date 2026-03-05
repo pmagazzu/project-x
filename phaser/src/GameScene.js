@@ -15,9 +15,9 @@ import {
 // ── Constants ─────────────────────────────────────────────────────────────
 const TERRAIN        = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2 };
 const TERRAIN_COLORS = {
-  0: { fill: 0x6b8c3e, stroke: 0x4a6128 },
-  1: { fill: 0x2d5a1b, stroke: 0x1a3a0a },
-  2: { fill: 0x7a6a5a, stroke: 0x5a4a3a },
+  0: { fill: 0x8aaa55, stroke: 0x6a8a35 },  // plains: bright yellow-green
+  1: { fill: 0x1a4010, stroke: 0x0d2008 },  // forest: very dark green, clearly distinct
+  2: { fill: 0x8a7a6a, stroke: 0x6a5a4a },  // mountain: warm grey
 };
 const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
@@ -147,6 +147,21 @@ export class GameScene extends Phaser.Scene {
     gfx.beginPath(); gfx.moveTo(verts[0].x, verts[0].y);
     for (let i = 1; i < verts.length; i++) gfx.lineTo(verts[i].x, verts[i].y);
     gfx.closePath(); gfx.strokePath();
+    // Forest: draw small tree triangles
+    if (terrain === 1 && !isHovered && !isSelected) {
+      gfx.fillStyle(0x2a6018, 0.9);
+      const ts = 5; // tree size
+      for (const [ox, oy] of [[-7,-4],[4,-6],[0,5],[-4,6],[7,2]]) {
+        gfx.fillTriangle(cx+ox, cy+oy-ts, cx+ox-ts, cy+oy+ts, cx+ox+ts, cy+oy+ts);
+      }
+    }
+    // Mountain: draw small peak lines
+    if (terrain === 2 && !isHovered && !isSelected) {
+      gfx.lineStyle(1.5, 0xffffff, 0.3);
+      gfx.beginPath(); gfx.moveTo(cx-8, cy+4); gfx.lineTo(cx-2, cy-6); gfx.lineTo(cx+4, cy+4);
+      gfx.moveTo(cx, cy+6); gfx.lineTo(cx+6, cy-2); gfx.lineTo(cx+12, cy+6);
+      gfx.strokePath();
+    }
   }
 
   // ── Static layers (resources, roads) ─────────────────────────────────────
