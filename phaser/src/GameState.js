@@ -232,7 +232,8 @@ export function canEnterTerrain(unitType, terrainType) {
 // ── Pathfinding (Dijkstra for terrain costs) ───────────────────────────────
 export function getReachableHexes(state, unit, terrain, mapSize) {
   const maxMove = UNIT_TYPES[unit.type].move;
-  const dist = new Map();
+  const dist  = new Map();
+  const visited = new Set();
   const queue = [{ q: unit.q, r: unit.r, cost: 0 }];
   dist.set(`${unit.q},${unit.r}`, 0);
   const result = [];
@@ -240,27 +241,32 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
   while (queue.length > 0) {
     queue.sort((a, b) => a.cost - b.cost);
     const { q, r, cost } = queue.shift();
+    const nodeKey = `${q},${r}`;
+    if (visited.has(nodeKey)) continue; // already settled at minimum cost
+    visited.add(nodeKey);
 
     for (const [dq, dr] of HEX_NEIGHBORS) {
       const nq = q + dq, nr = r + dr;
       if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) continue;
-      const ttype = terrain[`${nq},${nr}`] ?? 0;
+      const key = `${nq},${nr}`;
+      if (visited.has(key)) continue;
+      const ttype = terrain[key] ?? 0;
       const hasRoad = !!roadAt(state, nq, nr);
       if (!canEnterTerrain(unit.type, ttype)) continue;
       const moveCost = getMoveCost(ttype, hasRoad, unit.type);
-      // Guarantee minimum 1-hex move: even if terrain is expensive, can always enter
-      // the first adjacent passable hex regardless of terrain cost.
       const newCost = cost + moveCost;
-      const withinBudget = newCost <= maxMove || (cost === 0 && maxMove >= 1);
+      // Min-1-hex guarantee: unit can always reach an adjacent passable hex on its first step
+      // BUT forest/mountain-cost hexes reached this way do NOT propagate further (newCost stays huge)
+      const isFirstStep = cost === 0;
+      const withinBudget = newCost <= maxMove || (isFirstStep && maxMove >= 1);
       if (!withinBudget) continue;
-      const key = `${nq},${nr}`;
-      if (dist.has(key) && dist.get(key) <= newCost) continue;
       // Enemy units: can't pass through or end on
       const occupant = unitAt(state, nq, nr);
       if (occupant && occupant.owner !== unit.owner) continue;
-      // Friendly units: can pass through but not end on (only block as destination)
-      dist.set(key, newCost);
-      queue.push({ q: nq, r: nr, cost: newCost });
+      if (!dist.has(key) || newCost < dist.get(key)) {
+        dist.set(key, newCost);
+        queue.push({ q: nq, r: nr, cost: newCost });
+      }
     }
   }
 
