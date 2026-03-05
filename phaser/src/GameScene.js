@@ -48,6 +48,13 @@ export class GameScene extends Phaser.Scene {
     this._dragStart   = { x: 0, y: 0 };
     this._dragStartScroll = { x: 0, y: 0 };
 
+    // Settings
+    this.settings = {
+      engineerAutoBuild: true,  // auto-open build menu after engineer moves
+      autoAttackMode:    true,  // auto-enter attack mode after move if enemies in range
+      showContextMenu:   true,  // contextual action popup near selected unit
+    };
+
     // Recruitment panel state
     this.recruitBuilding = null;
 
@@ -186,7 +193,12 @@ export class GameScene extends Phaser.Scene {
     this._redrawFog();
     this._updateTopBar();
     this._updateBottomPanel();
-    this.btnSubmit?.setVisible(true); // always re-show after any refresh
+    this.btnSubmit?.setVisible(true);
+    // Refresh context menu position (unit may have moved or camera changed)
+    if (this.selectedUnit) {
+      this._hideContextMenu();
+      this._showContextMenu(this.selectedUnit);
+    }
   }
 
   // ── Highlights ────────────────────────────────────────────────────────────
@@ -426,6 +438,9 @@ export class GameScene extends Phaser.Scene {
     this.resIron = this._makeLabel(12, 11, '⚙ Iron: —', D);
     this.resOil  = this._makeLabel(160, 11, '🛢 Oil: —', D);
     this.turnLbl = this._makeLabel(w/2, 11, 'Turn 1 | Player 1 | PLANNING', D, true);
+
+    // Settings gear button
+    this.btnSettings = this._makeBtn(w - 160, 11, '⚙ Settings', 0x333355, () => this._toggleSettings(), D, 'right');
 
     // Submit button (always visible in top-right)
     this.btnSubmit = this._makeBtn(w - 10, 11, 'SUBMIT TURN', 0x226622, () => this._onSubmit(), D, 'right');
@@ -979,15 +994,181 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.wasd = this.input.keyboard.addKeys('W,A,S,D');
+    this.input.keyboard.on('keydown-ESC', () => this._toggleSettings());
+  }
+
+  // ── World → Screen coordinate conversion ─────────────────────────────────
+  _worldToScreen(wx, wy) {
+    const cam = this.cameras.main;
+    return {
+      x: (wx - cam.scrollX) * cam.zoom + cam.x,
+      y: (wy - cam.scrollY) * cam.zoom + cam.y,
+    };
+  }
+
+  // ── Unit action framework ─────────────────────────────────────────────────
+  // Returns array of {label, key, enabled, color, cb} for the selected unit.
+  // Add special abilities here when ready — just push to the array.
+  _getUnitActions(unit) {
+    const gs   = this.gameState;
+    const def  = UNIT_TYPES[unit.type];
+    const actions = [];
+
+    if (!unit.moved && !unit.suppressed) {
+      actions.push({ label: 'MOVE',   key: 'move',   enabled: true,  color: 0x1a5c8a, cb: () => this._onMoveMode() });
+    }
+    if (!unit.attacked && !unit.suppressed) {
+      const atk = getAttackableHexes(gs, unit, unit.q, unit.r);
+      actions.push({ label: 'ATTACK', key: 'attack', enabled: atk.length > 0, color: 0x882222, cb: () => this._onAttackMode() });
+    }
+    if (def.canDigIn && !unit.dugIn && !unit.moved) {
+      actions.push({ label: 'DIG IN', key: 'digin',  enabled: true,  color: 0x8B5A2B, cb: () => this._onDigIn() });
+    }
+    if (def.canBuild && unit.moved) {
+      actions.push({ label: 'BUILD',  key: 'build',  enabled: true,  color: 0x557755, cb: () => { this._buildMenuOpen = true; this._showBuildMenu(); } });
+    }
+    if (def.canHeal) {
+      actions.push({ label: 'HEAL',   key: 'heal',   enabled: true,  color: 0x229944, cb: () => {} }); // passive — shows status
+    }
+    // Hook: special abilities (future — unit.abilities array)
+    // (unit.abilities || []).forEach(ab => actions.push({ label: ab.name, key: ab.key, enabled: ab.canUse(gs, unit), color: 0x664488, cb: () => ab.use(gs, unit) }));
+    actions.push({ label: 'WAIT',   key: 'wait',   enabled: true,  color: 0x444444, cb: () => this._clearSelection() });
+
+    return actions;
+  }
+
+  // ── Contextual action popup ───────────────────────────────────────────────
+  _showContextMenu(unit) {
+    this._hideContextMenu();
+    if (!this.settings.showContextMenu) return;
+
+    const wp = hexToWorld(unit.q, unit.r);
+    const { x: sx, y: sy } = this._worldToScreen(wp.x, wp.y);
+    const actions = this._getUnitActions(unit);
+    const btnH = 28, btnW = 110, gap = 3;
+    const objs = [];
+    const sw = this.scale.width, sh = this.scale.height;
+
+    // Position to the right of unit, clamped to screen
+    let px = sx + 36;
+    let py = sy - (actions.length * (btnH + gap)) / 2;
+    if (px + btnW > sw - 10) px = sx - btnW - 10;
+    if (py < 50) py = 50;
+    if (py + actions.length * (btnH + gap) > sh - 130) py = sh - 130 - actions.length * (btnH + gap);
+
+    actions.forEach((action, i) => {
+      const by = py + i * (btnH + gap);
+      const col = action.enabled ? `#${action.color.toString(16).padStart(6,'0')}` : '#222222';
+      const btn = this.add.text(px, by, action.label, {
+        font: 'bold 11px monospace', fill: action.enabled ? '#ffffff' : '#555555',
+        backgroundColor: col, padding: { x: 8, y: 6 },
+        fixedWidth: btnW, align: 'center'
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(150)
+        .setInteractive({ useHandCursor: action.enabled });
+      if (action.enabled) {
+        btn.on('pointerdown', () => { this._hideContextMenu(); action.cb(); });
+        btn.on('pointerover', () => btn.setAlpha(0.85));
+        btn.on('pointerout',  () => btn.setAlpha(1.0));
+      }
+      objs.push(btn);
+    });
+
+    this._addToUI(objs);
+    this._contextMenuObjs = objs;
+  }
+
+  _hideContextMenu() {
+    if (this._contextMenuObjs) {
+      for (const o of this._contextMenuObjs) o.destroy();
+      this._contextMenuObjs = null;
+    }
+  }
+
+  // ── Settings panel ────────────────────────────────────────────────────────
+  _toggleSettings() {
+    if (this._settingsOpen) { this._closeSettings(); }
+    else { this._openSettings(); }
+  }
+
+  _openSettings() {
+    this._closeSettings();
+    this._settingsOpen = true;
+    const w = this.scale.width, h = this.scale.height;
+    const panelW = 340, D = 210;
+    const objs = [];
+
+    const bg = this.add.rectangle(w/2, h/2, panelW, 280, 0x111122, 0.97)
+      .setStrokeStyle(2, 0x4466aa).setScrollFactor(0).setDepth(D);
+    objs.push(bg);
+    objs.push(this.add.text(w/2, h/2 - 120, '── SETTINGS ──', { font: 'bold 15px monospace', fill: '#88ccff' })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(D+1));
+
+    const toggles = [
+      { key: 'engineerAutoBuild', label: 'Engineer auto-build menu' },
+      { key: 'autoAttackMode',    label: 'Auto-enter attack after move' },
+      { key: 'showContextMenu',   label: 'Show unit context menu' },
+    ];
+
+    toggles.forEach((t, i) => {
+      const ty = h/2 - 75 + i * 48;
+      const makeRow = () => {
+        if (this[`_settingRow_${t.key}`]) { for (const o of this[`_settingRow_${t.key}`]) o.destroy(); }
+        const rowObjs = [];
+        const lbl = this.add.text(w/2 - 140, ty, t.label, { font: '12px monospace', fill: '#cccccc' })
+          .setOrigin(0, 0.5).setScrollFactor(0).setDepth(D+1);
+        const val = this.settings[t.key];
+        const tog = this.add.text(w/2 + 70, ty, val ? '[ ON ]' : '[ OFF ]', {
+          font: 'bold 12px monospace', fill: val ? '#88ff88' : '#ff8888',
+          backgroundColor: val ? '#224422' : '#442222', padding: { x: 8, y: 5 }
+        }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
+        tog.on('pointerdown', () => {
+          this.settings[t.key] = !this.settings[t.key];
+          makeRow();
+        });
+        tog.on('pointerover', () => tog.setAlpha(0.8));
+        tog.on('pointerout',  () => tog.setAlpha(1.0));
+        rowObjs.push(lbl, tog);
+        this._addToUI(rowObjs);
+        this[`_settingRow_${t.key}`] = rowObjs;
+        // Replace in master objs list
+        objs.push(...rowObjs);
+      };
+      makeRow();
+    });
+
+    const closeBtn = this.add.text(w/2, h/2 + 105, '[ CLOSE ]', {
+      font: 'bold 13px monospace', fill: '#ffffff', backgroundColor: '#444444', padding: { x: 14, y: 7 }
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerdown', () => this._closeSettings());
+    closeBtn.on('pointerover', () => closeBtn.setAlpha(0.8));
+    closeBtn.on('pointerout',  () => closeBtn.setAlpha(1.0));
+    objs.push(closeBtn);
+
+    this._addToUI(objs);
+    this._settingsObjs = objs;
+  }
+
+  _closeSettings() {
+    if (this._settingsObjs) {
+      for (const o of this._settingsObjs) { if (!o.destroyed) o.destroy(); }
+      this._settingsObjs = null;
+    }
+    this._settingsOpen = false;
   }
 
   update() {
     const cam = this.cameras.main;
     const speed = 6 / cam.zoom;
+    const wasdMoving = this.wasd.W.isDown || this.wasd.S.isDown || this.wasd.A.isDown || this.wasd.D.isDown;
     if (this.wasd.W.isDown) cam.scrollY -= speed;
     if (this.wasd.S.isDown) cam.scrollY += speed;
     if (this.wasd.A.isDown) cam.scrollX -= speed;
     if (this.wasd.D.isDown) cam.scrollX += speed;
+    // Update context menu position while panning with WASD
+    if (wasdMoving && this.selectedUnit) {
+      this._hideContextMenu();
+      this._showContextMenu(this.selectedUnit);
+    }
   }
 
   // ── Click handling ────────────────────────────────────────────────────────
@@ -1013,12 +1194,13 @@ export class GameScene extends Phaser.Scene {
         } else {
           this.attackable = []; this.mode = 'select';
         }
-        // Engineers: auto-open build menu after moving
-        if (UNIT_TYPES[this.selectedUnit.type].canBuild) {
+        // Engineers: auto-open build menu after moving (if setting enabled)
+        if (UNIT_TYPES[this.selectedUnit.type].canBuild && this.settings.engineerAutoBuild) {
           this._buildMenuOpen = true;
           this._buildMenuJustOpened = true;
         }
         this._refresh();
+        this._showContextMenu(this.selectedUnit);
         if (this._buildMenuOpen) this._showBuildMenu();
         return;
       }
@@ -1041,7 +1223,9 @@ export class GameScene extends Phaser.Scene {
         gs.pendingAttacks[this.selectedUnit.id] = target.targetId;
         this.selectedUnit.attacked = true;
         this.reachable = []; this.attackable = []; this.mode = 'select';
-        this._refresh(); return;
+        this._refresh();
+        this._showContextMenu(this.selectedUnit);
+        return;
       }
     }
 
@@ -1061,6 +1245,7 @@ export class GameScene extends Phaser.Scene {
 
   _selectUnit(unit) {
     this._hideBuildMenu(); this._buildMenuOpen = false;
+    this._hideContextMenu();
     this.selectedUnit = unit;
     this.attackable = [];
     if (!unit.moved) {
@@ -1069,21 +1254,23 @@ export class GameScene extends Phaser.Scene {
     } else if (!unit.attacked) {
       this.reachable = [];
       const atk = getAttackableHexes(this.gameState, unit, unit.q, unit.r);
-      if (atk.length > 0) { this.attackable = atk; this.mode = 'attack'; }
+      if (atk.length > 0 && this.settings.autoAttackMode) { this.attackable = atk; this.mode = 'attack'; }
       else { this.mode = 'select'; }
     } else {
       this.reachable = [];
       this.mode = 'select';
     }
     this._refresh();
+    this._showContextMenu(unit);
   }
 
   _clearSelection() {
+    this._hideContextMenu();
     this.selectedUnit = null; this.reachable = []; this.attackable = []; this.mode = 'select';
     this._refresh();
   }
 
-  _onCancel() { this._hideBuildMenu(); this._buildMenuOpen = false; this._clearSelection(); this._hideRecruitPanel(); }
+  _onCancel() { this._hideBuildMenu(); this._buildMenuOpen = false; this._hideContextMenu(); this._clearSelection(); this._hideRecruitPanel(); }
 
   _onMoveMode() {
     if (!this.selectedUnit || this.selectedUnit.moved) return;
