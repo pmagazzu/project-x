@@ -21,6 +21,96 @@ export const UNIT_TYPES = {
   MEDIC:     { name:'Medic',     move:2, attack:0, health:2, range:0, cost:{iron:2,oil:0}, shape:'cross',    canDigIn:false, canBuild:false, canHeal:true,  sight:2, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0  },
 };
 
+// ── Module system ─────────────────────────────────────────────────────────
+// Each module has: name, tier, validChassis[], statDelta{}, designCost{iron,oil}, trainCost{iron,oil}
+// statDelta values are added to the chassis base stats when the unit is trained.
+// Negative trainCost = savings (debuffs reduce recurring cost).
+export const MODULES = {
+  AT_RIFLE:      { name: 'Anti-Tank Rifle',  tier: 1, chassis: ['INFANTRY','ENGINEER'],            statDelta: { pierce: 2, hard_attack: 1 },           designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1,  oil:  0 } },
+  FIELD_RADIO:   { name: 'Field Radio',      tier: 1, chassis: ['INFANTRY','ENGINEER','RECON'],     statDelta: { sight: 1, accuracy: 3 },               designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1,  oil:  0 } },
+  BETTER_ENGINE: { name: 'Better Engine',    tier: 1, chassis: ['TANK','ARTILLERY','RECON'],        statDelta: { move: 1 },                             designCost: { iron: 2, oil: 1 }, trainCost: { iron: 0,  oil:  1 } },
+  EXTRA_ARMOR:   { name: 'Extra Armor',      tier: 1, chassis: ['TANK'],                            statDelta: { armor: 2, defense: 1, move: -1 },      designCost: { iron: 3, oil: 0 }, trainCost: { iron: 2,  oil:  0 } },
+  EXTRA_FUEL:    { name: 'Extra Fuel Tank',  tier: 1, chassis: ['TANK','ARTILLERY'],                statDelta: { move: 1, defense: -1 },                designCost: { iron: 1, oil: 1 }, trainCost: { iron: 0,  oil:  1 } },
+  RED_BALL:      { name: 'Red Ball (speed)', tier: 1, chassis: ['RECON'],                           statDelta: { move: 2, defense: -1 },                designCost: { iron: 1, oil: 1 }, trainCost: { iron: 0,  oil:  2 } },
+  REINFORCED_POS:{ name: 'Reinforced Pos.',  tier: 1, chassis: ['MORTAR','ARTILLERY'],              statDelta: { defense: 2, move: -1 },                designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1,  oil:  0 } },
+  SKELETON_CREW: { name: 'Skeleton Crew',    tier: 0, chassis: ['INFANTRY','ENGINEER','MEDIC'],     statDelta: { health: -1, defense: -1 },             designCost: { iron: 0, oil: 0 }, trainCost: { iron: -1, oil:  0 } },
+  LONG_RANGE:    { name: 'Long Barrel',      tier: 1, chassis: ['ARTILLERY','MORTAR'],              statDelta: { range: 1, soft_attack: 1, move: -1 },  designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1,  oil:  0 } },
+};
+
+// Which building trains which chassis types (for design registration)
+export const CHASSIS_BUILDINGS = {
+  INFANTRY:  'BARRACKS',
+  TANK:      'VEHICLE_DEPOT',
+  ARTILLERY: 'VEHICLE_DEPOT',
+  ENGINEER:  'HQ',
+  RECON:     'HQ',
+  ANTI_TANK: 'BARRACKS',
+  MORTAR:    'BARRACKS',
+  MEDIC:     'BARRACKS',
+};
+
+export const MAX_DESIGNS_PER_PLAYER = 4; // design slots per player
+export const DESIGN_BASE_COST = { iron: 3, oil: 0 }; // flat registration fee + module costs
+
+// Compute the full stat block for a custom design
+export function computeDesignStats(chassis, moduleKeys) {
+  const base = { ...UNIT_TYPES[chassis] };
+  for (const key of moduleKeys) {
+    const mod = MODULES[key];
+    if (!mod) continue;
+    for (const [stat, delta] of Object.entries(mod.statDelta)) {
+      base[stat] = (base[stat] || 0) + delta;
+    }
+  }
+  // Clamp sanity
+  base.health  = Math.max(1, base.health);
+  base.move    = Math.max(1, base.move);
+  base.range   = Math.max(0, base.range);
+  base.pierce  = Math.max(0, base.pierce);
+  base.armor   = Math.max(0, base.armor);
+  base.defense = Math.max(0, base.defense);
+  return base;
+}
+
+// Total cost to register a design (base fee + sum of module design costs)
+export function designRegistrationCost(moduleKeys) {
+  const cost = { iron: DESIGN_BASE_COST.iron, oil: DESIGN_BASE_COST.oil };
+  for (const key of moduleKeys) {
+    const mod = MODULES[key];
+    if (!mod) continue;
+    cost.iron += mod.designCost.iron;
+    cost.oil  += mod.designCost.oil;
+  }
+  return cost;
+}
+
+// Per-unit training cost for a custom design (base chassis cost + module train costs)
+export function designTrainCost(chassis, moduleKeys) {
+  const base = { ...UNIT_TYPES[chassis].cost };
+  for (const key of moduleKeys) {
+    const mod = MODULES[key];
+    if (!mod) continue;
+    base.iron = (base.iron || 0) + mod.trainCost.iron;
+    base.oil  = (base.oil  || 0) + mod.trainCost.oil;
+  }
+  base.iron = Math.max(0, base.iron);
+  base.oil  = Math.max(0, base.oil);
+  return base;
+}
+
+export function registerDesign(state, player, chassis, moduleKeys, designName) {
+  const designs = state.designs[player];
+  if (designs.length >= MAX_DESIGNS_PER_PLAYER) return { ok: false, reason: `Max ${MAX_DESIGNS_PER_PLAYER} designs reached` };
+  const cost = designRegistrationCost(moduleKeys);
+  if (state.players[player].iron < cost.iron) return { ok: false, reason: `Need ${cost.iron} iron` };
+  if (state.players[player].oil  < cost.oil)  return { ok: false, reason: `Need ${cost.oil} oil` };
+  state.players[player].iron -= cost.iron;
+  state.players[player].oil  -= cost.oil;
+  const id = _nextId++;
+  designs.push({ id, chassis, modules: moduleKeys, name: designName || `Custom ${UNIT_TYPES[chassis].name}`, stats: computeDesignStats(chassis, moduleKeys), trainCost: designTrainCost(chassis, moduleKeys) });
+  return { ok: true, id };
+}
+
 // ── Combat modifier notes (future) ────────────────────────────────────────
 // - Attack after move: -1 attack penalty (most units)
 // - Spec ops / recon: no penalty after move
@@ -73,6 +163,7 @@ export function createGameState() {
     },
     units: [], buildings: [], resourceHexes: {},
     pendingMoves: {}, pendingAttacks: {}, pendingRecruits: [],
+    designs: { 1: [], 2: [] }, // custom unit design registry per player
   };
 
   // Spawns — close for testing
@@ -216,9 +307,22 @@ export function calcIncome(state, player) {
 }
 
 // ── Recruitment ────────────────────────────────────────────────────────────
+// unitType can be a standard type key OR a design id (number)
 export function canRecruit(state, player, unitType, buildingId) {
   const b = state.buildings.find(b => b.id === buildingId && b.owner === player);
   if (!b) return { ok: false, reason: 'No building' };
+
+  // Custom design
+  if (typeof unitType === 'number') {
+    const design = state.designs[player].find(d => d.id === unitType);
+    if (!design) return { ok: false, reason: 'Design not found' };
+    const expectedBuilding = CHASSIS_BUILDINGS[design.chassis];
+    if (b.type !== expectedBuilding) return { ok: false, reason: 'Wrong building for this design' };
+    if (state.players[player].iron < design.trainCost.iron) return { ok: false, reason: `Need ${design.trainCost.iron} iron` };
+    if (state.players[player].oil  < design.trainCost.oil)  return { ok: false, reason: `Need ${design.trainCost.oil} oil` };
+    return { ok: true };
+  }
+
   if (!BUILDING_TYPES[b.type].canRecruit.includes(unitType)) return { ok: false, reason: 'Wrong building' };
   const def = UNIT_TYPES[unitType];
   if (state.players[player].iron < def.cost.iron) return { ok: false, reason: 'Not enough iron' };
@@ -229,6 +333,15 @@ export function canRecruit(state, player, unitType, buildingId) {
 export function queueRecruit(state, player, unitType, buildingId) {
   const result = canRecruit(state, player, unitType, buildingId);
   if (!result.ok) return result;
+
+  if (typeof unitType === 'number') {
+    const design = state.designs[player].find(d => d.id === unitType);
+    state.players[player].iron -= design.trainCost.iron;
+    state.players[player].oil  -= design.trainCost.oil;
+    state.pendingRecruits.push({ owner: player, designId: unitType, buildingId });
+    return { ok: true };
+  }
+
   const def = UNIT_TYPES[unitType];
   state.players[player].iron -= def.cost.iron;
   state.players[player].oil  -= def.cost.oil;
@@ -406,10 +519,22 @@ export function resolveTurn(state, terrain) {
     if (!b || b.owner !== recruit.owner) continue;
     const spawnHex = findFreeAdjacentHex(state, b.q, b.r);
     if (spawnHex) {
-      state.units.push(createUnit(recruit.type, recruit.owner, spawnHex.q, spawnHex.r));
-      events.push(`P${recruit.owner} recruits ${UNIT_TYPES[recruit.type].name}`);
+      if (recruit.designId !== undefined) {
+        // Custom design spawn
+        const design = state.designs[recruit.owner].find(d => d.id === recruit.designId);
+        if (design) {
+          const unit = createUnit(design.chassis, recruit.owner, spawnHex.q, spawnHex.r);
+          // Apply custom stats
+          Object.assign(unit, { ...design.stats, q: spawnHex.q, r: spawnHex.r, owner: recruit.owner, id: unit.id, type: design.chassis, health: design.stats.health, maxHealth: design.stats.health, moved: false, attacked: false, dugIn: false, building: false, suppressed: false, designId: design.id, designName: design.name });
+          state.units.push(unit);
+          events.push(`P${recruit.owner} recruits ${design.name}`);
+        }
+      } else {
+        state.units.push(createUnit(recruit.type, recruit.owner, spawnHex.q, spawnHex.r));
+        events.push(`P${recruit.owner} recruits ${UNIT_TYPES[recruit.type].name}`);
+      }
     } else {
-      events.push(`P${recruit.owner} recruit failed — no space near ${BUILDING_TYPES[b.type].name}`);
+      events.push(`P${recruit.owner} recruit failed — no space`);
     }
   }
 

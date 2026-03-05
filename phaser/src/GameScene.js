@@ -6,8 +6,10 @@ import {
 import {
   createGameState, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, computeFog,
-  resolveTurn, checkWinner, calcIncome, queueRecruit,
-  UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES
+  resolveTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
+  UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
+  MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
+  designRegistrationCost, computeDesignStats
 } from './GameState.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -625,7 +627,48 @@ export class GameScene extends Phaser.Scene {
       objs.push(btn);
     });
 
-    const closeBtn = this.add.text(w/2, py + panelH - 28, '[ CLOSE ]', {
+    // Custom designs trained from this building
+    const btype = building.type;
+    const customDesigns = (gs.designs[p] || []).filter(d => CHASSIS_BUILDINGS[d.chassis] === btype);
+    customDesigns.forEach((design, i) => {
+      const idx = available.length + i;
+      const canAfford = gs.players[p].iron >= design.trainCost.iron && gs.players[p].oil >= design.trainCost.oil;
+      const label = `★ ${design.name}  ⚙${design.trainCost.iron}${design.trainCost.oil > 0 ? ` 🛢${design.trainCost.oil}` : ''}  HP:${design.stats.health} ATK:${design.stats.soft_attack}/${design.stats.hard_attack} MOV:${design.stats.move}`;
+      const btn = this.add.text(w/2, py + 60 + idx * 48, label, {
+        font: '12px monospace', fill: canAfford ? '#ffffaa' : '#888855',
+        backgroundColor: canAfford ? '#333311' : '#222211',
+        padding: { x: 12, y: 8 }
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+        .setInteractive({ useHandCursor: canAfford });
+      if (canAfford) {
+        btn.on('pointerdown', () => {
+          queueRecruit(gs, p, design.id, building.id);
+          this._pushLog(`P${p} queued ${design.name}`);
+          this._hideRecruitPanel();
+          this._refresh();
+        });
+        btn.on('pointerover', () => btn.setAlpha(0.8));
+        btn.on('pointerout',  () => btn.setAlpha(1.0));
+      }
+      objs.push(btn);
+    });
+
+    // "Design new unit" button
+    const totalRows = available.length + customDesigns.length;
+    const designBtn = this.add.text(w/2, py + 60 + totalRows * 48 + 8, '[ + DESIGN NEW UNIT ]', {
+      font: 'bold 12px monospace', fill: '#88ccff',
+      backgroundColor: '#112233', padding: { x: 12, y: 7 }
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true });
+    designBtn.on('pointerdown', () => {
+      this._hideRecruitPanel();
+      this._showDesignPanel(building);
+    });
+    designBtn.on('pointerover', () => designBtn.setAlpha(0.8));
+    designBtn.on('pointerout',  () => designBtn.setAlpha(1.0));
+    objs.push(designBtn);
+
+    const closeBtnY = py + 60 + totalRows * 48 + 50;
+    const closeBtn = this.add.text(w/2, closeBtnY, '[ CLOSE ]', {
       font: 'bold 13px monospace', fill: '#ffffff',
       backgroundColor: '#444444', padding: { x: 14, y: 7 }
     }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
@@ -634,6 +677,10 @@ export class GameScene extends Phaser.Scene {
     closeBtn.on('pointerover', () => closeBtn.setAlpha(0.8));
     closeBtn.on('pointerout',  () => closeBtn.setAlpha(1.0));
     objs.push(closeBtn);
+
+    // Resize bg to fit
+    const newH = closeBtnY - py + 40;
+    bg.setSize(panelW, newH).setPosition(w/2, py + newH/2);
 
     this.recruitPanel = { visible: true, objects: objs };
     this._updateButtons();
@@ -645,6 +692,155 @@ export class GameScene extends Phaser.Scene {
     }
     this.recruitPanel = { visible: false, objects: [] };
     this.recruitBuilding = null;
+  }
+
+  // ── Design Panel ──────────────────────────────────────────────────────────
+  _showDesignPanel(building) {
+    this._hideDesignPanel();
+    const gs = this.gameState;
+    const p  = gs.currentPlayer;
+    const w  = this.scale.width, h = this.scale.height;
+
+    // Which chassis can this building train?
+    const validChassis = Object.entries(CHASSIS_BUILDINGS)
+      .filter(([, btype]) => btype === building.type)
+      .map(([chassis]) => chassis);
+
+    let selectedChassis = validChassis[0] || null;
+    let selectedModules = new Set();
+
+    const objs = [];
+    const rebuild = () => {
+      for (const o of objs) o.destroy();
+      objs.length = 0;
+      this._renderDesignPanel(building, validChassis, selectedChassis, selectedModules, p, objs,
+        (chassis) => { selectedChassis = chassis; selectedModules = new Set(); rebuild(); },
+        (modKey)  => { selectedModules.has(modKey) ? selectedModules.delete(modKey) : selectedModules.add(modKey); rebuild(); },
+        () => {
+          // Confirm design
+          const modules = [...selectedModules];
+          const cost = designRegistrationCost(modules);
+          if (gs.players[p].iron < cost.iron) return;
+          if (gs.players[p].oil  < cost.oil)  return;
+          if (gs.designs[p].length >= MAX_DESIGNS_PER_PLAYER) return;
+          const result = registerDesign(gs, p, selectedChassis, modules);
+          if (result.ok) {
+            this._pushLog(`P${p} designed ${UNIT_TYPES[selectedChassis].name} (${modules.length} mods)`);
+            this._hideDesignPanel();
+            this._showRecruitPanel(building);
+            this._refresh();
+          }
+        },
+        () => { this._hideDesignPanel(); this._showRecruitPanel(building); }
+      );
+    };
+
+    this.designPanelObj = { objects: objs, rebuild };
+    rebuild();
+  }
+
+  _renderDesignPanel(building, validChassis, selectedChassis, selectedModules, player, objs, onChassis, onModule, onConfirm, onClose) {
+    const gs = this.gameState;
+    const w  = this.scale.width, h = this.scale.height;
+    const panelW = 580, D = 202;
+    const px = w/2 - panelW/2;
+
+    const bg = this.add.rectangle(w/2, h/2, panelW, h - 60, 0x0a0a14, 0.97)
+      .setStrokeStyle(2, 0x4488cc).setScrollFactor(0).setDepth(D);
+    objs.push(bg);
+
+    let y = 38;
+    const line = (text, color = '#cccccc', bold = false, xOff = 0, align = 'center') => {
+      const t = this.add.text(w/2 + xOff, y, text, {
+        font: `${bold?'bold ':''}12px monospace`, fill: color, align
+      }).setOrigin(align === 'left' ? 0 : 0.5, 0).setScrollFactor(0).setDepth(D+1);
+      objs.push(t);
+      y += 18;
+    };
+
+    line('── UNIT DESIGNER ──', '#88ccff', true);
+    line(`Slots: ${gs.designs[player].length}/${MAX_DESIGNS_PER_PLAYER}  |  Iron: ${gs.players[player].iron}  Oil: ${gs.players[player].oil}`, '#888888');
+    y += 4;
+
+    // Chassis selector
+    line('CHASSIS:', '#aaaaaa', true);
+    const chRow = y; y += 30;
+    validChassis.forEach((chassis, i) => {
+      const sel = chassis === selectedChassis;
+      const btn = this.add.text(px + 20 + i * 120, chRow, UNIT_TYPES[chassis].name, {
+        font: 'bold 11px monospace', fill: sel ? '#000000' : '#aaaaaa',
+        backgroundColor: sel ? '#88ccff' : '#222244', padding: { x: 10, y: 6 }
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
+      btn.on('pointerdown', () => onChassis(chassis));
+      objs.push(btn);
+    });
+
+    if (!selectedChassis) return;
+
+    // Base stats of chassis
+    const base = UNIT_TYPES[selectedChassis];
+    line(`Base: HP${base.health} MOV${base.move} RNG${base.range} SA${base.soft_attack} HA${base.hard_attack} PRC${base.pierce} ARM${base.armor} DEF${base.defense} EVA${base.evasion} ACC${base.accuracy}`, '#6688aa');
+    y += 4;
+
+    // Module list
+    line('MODULES  (click to toggle):', '#aaaaaa', true);
+    const validMods = Object.entries(MODULES).filter(([, m]) => m.chassis.includes(selectedChassis));
+
+    for (const [key, mod] of validMods) {
+      const sel = selectedModules.has(key);
+      const deltaStr = Object.entries(mod.statDelta).map(([k, v]) => `${k}${v>0?'+':''}${v}`).join(' ');
+      const costStr  = `⚙${mod.designCost.iron}${mod.designCost.oil > 0 ? ` 🛢${mod.designCost.oil}` : ''}`;
+      const trainStr = `train:⚙${mod.trainCost.iron}${mod.trainCost.oil > 0 ? ` 🛢${mod.trainCost.oil}` : ''}`;
+      const label    = `${sel ? '✓' : '○'} ${mod.name.padEnd(22)}  ${deltaStr.padEnd(30)}  ${costStr}  ${trainStr}`;
+      const btn = this.add.text(px + 10, y, label, {
+        font: '11px monospace', fill: sel ? '#aaffaa' : '#888888',
+        backgroundColor: sel ? '#112211' : '#111111', padding: { x: 8, y: 5 }
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
+      btn.on('pointerdown', () => onModule(key));
+      btn.on('pointerover', () => btn.setAlpha(0.8));
+      btn.on('pointerout',  () => btn.setAlpha(1.0));
+      objs.push(btn);
+      y += 22;
+    }
+
+    y += 6;
+    // Preview stats
+    const preview = computeDesignStats(selectedChassis, [...selectedModules]);
+    const cost    = designRegistrationCost([...selectedModules]);
+    const canAfford = gs.players[player].iron >= cost.iron && gs.players[player].oil >= cost.oil;
+    const slotsFull = gs.designs[player].length >= MAX_DESIGNS_PER_PLAYER;
+
+    line(`Preview: HP${preview.health} MOV${preview.move} RNG${preview.range} SA${preview.soft_attack} HA${preview.hard_attack} PRC${preview.pierce} ARM${preview.armor} DEF${preview.defense}`, '#aaddff', true);
+    line(`Register cost: ⚙${cost.iron}${cost.oil > 0 ? ` 🛢${cost.oil}` : ''}  ${!canAfford ? '(NOT ENOUGH)' : slotsFull ? '(SLOTS FULL)' : '(affordable)'}`, canAfford && !slotsFull ? '#88ff88' : '#ff6666');
+    y += 4;
+
+    const confirmBtn = this.add.text(w/2 - 70, y, '[ REGISTER DESIGN ]', {
+      font: 'bold 12px monospace', fill: (canAfford && !slotsFull) ? '#000000' : '#555555',
+      backgroundColor: (canAfford && !slotsFull) ? '#44aa44' : '#222222', padding: { x: 12, y: 8 }
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(D+1);
+    if (canAfford && !slotsFull) {
+      confirmBtn.setInteractive({ useHandCursor: true });
+      confirmBtn.on('pointerdown', onConfirm);
+      confirmBtn.on('pointerover', () => confirmBtn.setAlpha(0.8));
+      confirmBtn.on('pointerout',  () => confirmBtn.setAlpha(1.0));
+    }
+    objs.push(confirmBtn);
+
+    const cancelBtn = this.add.text(w/2 + 70, y, '[ CANCEL ]', {
+      font: 'bold 12px monospace', fill: '#ffffff',
+      backgroundColor: '#444444', padding: { x: 12, y: 8 }
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
+    cancelBtn.on('pointerdown', onClose);
+    cancelBtn.on('pointerover', () => cancelBtn.setAlpha(0.8));
+    cancelBtn.on('pointerout',  () => cancelBtn.setAlpha(1.0));
+    objs.push(cancelBtn);
+  }
+
+  _hideDesignPanel() {
+    if (this.designPanelObj?.objects) {
+      for (const o of this.designPanelObj.objects) o.destroy();
+    }
+    this.designPanelObj = null;
   }
 
   // ── Input ─────────────────────────────────────────────────────────────────
