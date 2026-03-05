@@ -217,14 +217,15 @@ export function hexDistance(q1, r1, q2, r2) {
 const HEAVY_UNITS = new Set(['TANK', 'ARTILLERY', 'ANTI_TANK', 'VEHICLE_DEPOT']);
 
 // terrain: 0=plains, 1=forest, 2=mountain
-export function getMoveCost(terrainType, hasRoad) {
-  if (hasRoad) return 0.5; // roads cut through any terrain
+// Heavy vehicles pay 999 to enter forest without a road —
+// the min-1-hex guarantee still lets them crawl in 1 hex/turn.
+export function getMoveCost(terrainType, hasRoad, unitType = '') {
+  if (hasRoad) return 0.5;
+  if (terrainType === 1 && HEAVY_UNITS.has(unitType)) return 999;
   return [1, 2, 3][terrainType] ?? 1;
 }
-export function canEnterTerrain(unitType, terrainType, hasRoad = false) {
-  if (hasRoad) return true; // roads bypass all terrain restrictions
-  if (terrainType === 2) return unitType === 'INFANTRY' || unitType === 'ENGINEER'; // mountains
-  if (terrainType === 1) return !HEAVY_UNITS.has(unitType); // forest blocks vehicles
+export function canEnterTerrain(unitType, terrainType) {
+  if (terrainType === 2) return unitType === 'INFANTRY' || unitType === 'ENGINEER'; // mountains: foot only
   return true;
 }
 
@@ -245,8 +246,8 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
       if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) continue;
       const ttype = terrain[`${nq},${nr}`] ?? 0;
       const hasRoad = !!roadAt(state, nq, nr);
-      if (!canEnterTerrain(unit.type, ttype, hasRoad)) continue;
-      const moveCost = getMoveCost(ttype, hasRoad);
+      if (!canEnterTerrain(unit.type, ttype)) continue;
+      const moveCost = getMoveCost(ttype, hasRoad, unit.type);
       // Guarantee minimum 1-hex move: even if terrain is expensive, can always enter
       // the first adjacent passable hex regardless of terrain cost.
       const newCost = cost + moveCost;
