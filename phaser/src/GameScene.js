@@ -889,16 +889,90 @@ export class GameScene extends Phaser.Scene {
 
   _showResolution(events, winner) {
     const w = this.scale.width, h = this.scale.height;
-    const overlay = this.add.rectangle(w/2, h/2, w, h, 0x000000, 0.9).setScrollFactor(0).setDepth(200);
-    let text = `── Turn ${this.gameState.turn - 1} Resolution ──\n\n${events.join('\n') || '(No actions)'}`;
-    if (winner) text += `\n\n🏆 PLAYER ${winner} WINS!`;
-    else text += `\n\nTurn ${this.gameState.turn} begins`;
-    const txt = this.add.text(w/2, h/2 - 20, text, {
-      font: '13px monospace', fill: '#ffffff', align: 'center', wordWrap: { width: w - 80 }
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
+    const overlay = this.add.rectangle(w/2, h/2, w, h, 0x0a0a0a, 0.93).setScrollFactor(0).setDepth(200);
+    const combatLog = this.gameState._lastCombatLog || [];
+    const objects = [overlay];
+
+    // ── Header ──
+    const header = this.add.text(w/2, 28, `── TURN ${this.gameState.turn - 1} RESOLUTION ──`, {
+      font: 'bold 16px monospace', fill: '#ffdd44'
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(201);
+    objects.push(header);
+
+    // ── Combat Breakdowns ──
+    const TIER_COLOR = {
+      'Catastrophic Failure': '#ff4444',
+      'Repelled':             '#ff8844',
+      'Neutral':              '#aaaaaa',
+      'Effective':            '#88dd44',
+      'Overwhelming':         '#44ffaa',
+    };
+
+    let yPos = 64;
+    const lineH = 15;
+
+    const addLine = (text, color = '#cccccc', bold = false, xOff = 0) => {
+      const t = this.add.text(w/2 + xOff, yPos, text, {
+        font: `${bold ? 'bold ' : ''}12px monospace`, fill: color
+      }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(201);
+      objects.push(t);
+      yPos += lineH;
+    };
+
+    if (combatLog.length === 0) {
+      addLine('(No combat this turn)', '#888888');
+    } else {
+      for (const entry of combatLog) {
+        if (entry.type === 'miss') {
+          addLine(`${entry.attackerName} (P${entry.attackerOwner}) → ${entry.targetName} (P${entry.targetOwner})  [OUT OF RANGE]`, '#888888', true);
+          yPos += 4;
+          continue;
+        }
+
+        const tierColor = TIER_COLOR[entry.tier] || '#ffffff';
+        // Title row
+        addLine(`${entry.attackerName} (P${entry.attackerOwner}) ⚔ ${entry.targetName} (P${entry.targetOwner})`, '#ffffff', true);
+
+        // Stats row
+        const attackLabel = entry.isArmored ? `Hard Atk:${entry.baseAttack}` : `Soft Atk:${entry.baseAttack}`;
+        addLine(`  ${attackLabel}  Pierce:${entry.pierce} vs Armor:${entry.armor}  ratio:${entry.pierceRatio.toFixed(2)}`, '#aaddff');
+
+        // Score breakdown
+        const mods = [];
+        if (entry.accuracy !== 0)  mods.push(`acc${entry.accuracy > 0 ? '+' : ''}${entry.accuracy}`);
+        if (entry.evasion !== 0)   mods.push(`eva-${entry.evasion}`);
+        if (entry.terrainMod !== 0) mods.push(`terrain-${entry.terrainMod}`);
+        if (entry.dugInMod !== 0)  mods.push(`dugin-${entry.dugInMod}`);
+        if (entry.bunkerMod !== 0) mods.push(`bunker-${entry.bunkerMod}`);
+        if (entry.flankMod !== 0)  mods.push(`flank+${entry.flankMod}`);
+        mods.push(`roll${entry.roll >= 0 ? '+' : ''}${entry.roll}`);
+        addLine(`  Score: 50 + ${mods.join(' ')} = ${entry.score}`, '#ddddaa');
+
+        // Outcome
+        addLine(`  ► ${entry.tier}  |  Def takes ${entry.dmg} dmg  |  Att takes ${entry.attackerDmg} dmg${entry.suppressed ? '  |  SUPPRESSED' : ''}`, tierColor, true);
+
+        yPos += 6; // spacing between combats
+      }
+    }
+
+    // ── Other events (moves, captures, income) ──
+    yPos += 4;
+    const nonCombat = events.filter(e => !e.startsWith('[COMBAT]'));
+    if (nonCombat.length > 0) {
+      addLine('── Other Events ──', '#888888', true);
+      for (const ev of nonCombat) addLine(ev, '#999999');
+    }
+
+    if (winner) {
+      yPos += 10;
+      addLine(`🏆  PLAYER ${winner} WINS!`, '#ffdd44', true);
+    } else {
+      yPos += 6;
+      addLine(`Turn ${this.gameState.turn} begins`, '#666666');
+    }
 
     if (!winner) {
-      this._showSplash([overlay, txt], () => this._refresh());
+      this._showSplash(objects, () => this._refresh());
     }
   }
 

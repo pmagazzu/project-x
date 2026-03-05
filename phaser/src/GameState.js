@@ -1,15 +1,24 @@
 // GameState.js — Core game state for Attrition prototype
 // Phase 1: 2-player hotseat, iron + oil, 4 unit types, simultaneous turns (we-go)
 
+// ── Unit stat guide ────────────────────────────────────────────────────────
+// soft_attack : damage vs infantry / unarmored
+// hard_attack : damage vs armored targets
+// pierce      : armor penetration (vs target.armor)
+// armor       : damage reduction when pierce < armor; dmg × (pierce/armor)
+// defense     : flat reduction applied to incoming damage
+// evasion     : shifts outcome score upward (fast/recon units)
+// accuracy    : shifts outcome score (attacker side)
 export const UNIT_TYPES = {
-  INFANTRY:   { name: 'Infantry',   move: 2, attack: 2, health: 3, range: 1, cost: { iron: 2, oil: 0 }, shape: 'circle',   canDigIn: true,  canBuild: false, canHeal: false, sight: 2 },
-  TANK:       { name: 'Tank',       move: 4, attack: 3, health: 6, range: 1, cost: { iron: 4, oil: 2 }, shape: 'square',   canDigIn: false, canBuild: false, canHeal: false, sight: 3 },
-  ARTILLERY:  { name: 'Artillery',  move: 1, attack: 4, health: 2, range: 2, cost: { iron: 3, oil: 2 }, shape: 'triangle', canDigIn: false, canBuild: false, canHeal: false, sight: 2 },
-  ENGINEER:   { name: 'Engineer',   move: 2, attack: 1, health: 2, range: 1, cost: { iron: 3, oil: 0 }, shape: 'diamond',  canDigIn: false, canBuild: true,  canHeal: false, sight: 2 },
-  RECON:      { name: 'Recon',      move: 4, attack: 1, health: 2, range: 1, cost: { iron: 3, oil: 1 }, shape: 'star',     canDigIn: false, canBuild: false, canHeal: false, sight: 4 },
-  ANTI_TANK:  { name: 'Anti-Tank',  move: 1, attack: 1, health: 2, range: 1, cost: { iron: 3, oil: 0 }, shape: 'arrow',    canDigIn: true,  canBuild: false, canHeal: false, sight: 2 },
-  MORTAR:     { name: 'Mortar',     move: 1, attack: 3, health: 2, range: 2, cost: { iron: 2, oil: 0 }, shape: 'triangle', canDigIn: false, canBuild: false, canHeal: false, sight: 2 },
-  MEDIC:      { name: 'Medic',      move: 2, attack: 0, health: 2, range: 0, cost: { iron: 2, oil: 0 }, shape: 'cross',    canDigIn: false, canBuild: false, canHeal: true,  sight: 2 },
+  //              name          mv  atk  hp  rng  cost                   shape      canDigIn canBuild canHeal sight | soft  hard  pierce armor def  eva  acc
+  INFANTRY:  { name:'Infantry',  move:2, attack:2, health:3, range:1, cost:{iron:2,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:3, hard_attack:1, pierce:1, armor:1, defense:1, evasion:0,  accuracy:0  },
+  TANK:      { name:'Tank',      move:4, attack:3, health:6, range:1, cost:{iron:4,oil:2}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:2, hard_attack:4, pierce:5, armor:6, defense:2, evasion:5,  accuracy:5  },
+  ARTILLERY: { name:'Artillery', move:1, attack:4, health:2, range:2, cost:{iron:3,oil:2}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:5, hard_attack:3, pierce:3, armor:1, defense:0, evasion:0,  accuracy:5  },
+  ENGINEER:  { name:'Engineer',  move:2, attack:1, health:2, range:1, cost:{iron:3,oil:0}, shape:'diamond',  canDigIn:false, canBuild:true,  canHeal:false, sight:2, soft_attack:1, hard_attack:0, pierce:1, armor:1, defense:0, evasion:0,  accuracy:-5 },
+  RECON:     { name:'Recon',     move:4, attack:1, health:2, range:1, cost:{iron:3,oil:1}, shape:'star',     canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:2, hard_attack:0, pierce:1, armor:1, defense:0, evasion:15, accuracy:5  },
+  ANTI_TANK: { name:'Anti-Tank', move:1, attack:1, health:2, range:1, cost:{iron:3,oil:0}, shape:'arrow',    canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:1, hard_attack:3, pierce:6, armor:1, defense:1, evasion:0,  accuracy:0  },
+  MORTAR:    { name:'Mortar',    move:1, attack:3, health:2, range:2, cost:{iron:2,oil:0}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:4, hard_attack:1, pierce:2, armor:1, defense:0, evasion:0,  accuracy:0  },
+  MEDIC:     { name:'Medic',     move:2, attack:0, health:2, range:0, cost:{iron:2,oil:0}, shape:'cross',    canDigIn:false, canBuild:false, canHeal:true,  sight:2, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0  },
 };
 
 // ── Combat modifier notes (future) ────────────────────────────────────────
@@ -230,6 +239,7 @@ export function queueRecruit(state, player, unitType, buildingId) {
 // ── Turn resolution ────────────────────────────────────────────────────────
 export function resolveTurn(state, terrain) {
   const events = [];
+  state._terrain = terrain; // make terrain accessible to combat resolution
 
   // Phase 1: Moves
   const destinations = {};
@@ -247,28 +257,125 @@ export function resolveTurn(state, terrain) {
     }
   }
 
-  // Phase 2: Attacks (post-move positions)
+  // Phase 2: Attacks (post-move positions) — full GDD combat system
   const damage = {};
+  const combatLog = []; // detailed breakdowns for UI
+  // Count how many attackers are targeting each unit (flanking bonus)
+  const attackerCount = {};
+  for (const targetId of Object.values(state.pendingAttacks)) {
+    attackerCount[targetId] = (attackerCount[targetId] || 0) + 1;
+  }
+
   for (const [idStr, targetId] of Object.entries(state.pendingAttacks)) {
     const attacker = state.units.find(u => u.id === parseInt(idStr));
     const target   = state.units.find(u => u.id === targetId);
     if (!attacker || !target) continue;
-    const def  = UNIT_TYPES[attacker.type];
+    const aDef = UNIT_TYPES[attacker.type];
+    const tDef = UNIT_TYPES[target.type];
     const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
-    if (dist > def.range) { events.push(`${UNIT_TYPES[attacker.type].name} (P${attacker.owner}) missed — target moved`); continue; }
-    let dmg = Math.max(1, def.attack + Math.floor(Math.random() * 2) - 1);
-    if (target.dugIn) dmg = Math.max(0, dmg - 1);
-    // Bunker: additional -1 damage reduction
+    if (dist > aDef.range) {
+      events.push(`${aDef.name} (P${attacker.owner}) missed — target moved out of range`);
+      combatLog.push({ type: 'miss', attackerName: aDef.name, attackerOwner: attacker.owner, targetName: tDef.name, targetOwner: target.owner });
+      continue;
+    }
+
+    // Determine if target is armored (armor > 2 = armored)
+    const isArmored = tDef.armor > 2;
+    const baseAttack = isArmored ? aDef.hard_attack : aDef.soft_attack;
+
+    // Pierce vs armor ratio
+    let pierceRatio = 1;
+    if (aDef.pierce < tDef.armor) pierceRatio = aDef.pierce / tDef.armor;
+
+    // Base combat score (50 = neutral starting point)
+    let score = 50;
+    score += aDef.accuracy;
+    score += target.evasion_penalty || 0; // suppressed units lose evasion
+
+    // Terrain modifier for defender
+    const ttype = (state._terrain && state._terrain[`${target.q},${target.r}`]) ?? 0;
+    let terrainMod = 0;
+    if (ttype === 1) terrainMod = 10; // forest
+    if (ttype === 2) terrainMod = 20; // mountain
+    score -= terrainMod; // terrain helps defender = hurts attacker score
+
+    // Dug-in bonus
+    let dugInMod = 0;
+    if (target.dugIn) { dugInMod = 8; score -= dugInMod; }
+
+    // Bunker bonus
+    let bunkerMod = 0;
     const onBunker = state.buildings.find(b => b.type === 'BUNKER' && b.q === target.q && b.r === target.r && b.owner === target.owner);
-    if (onBunker) dmg = Math.max(0, dmg - 2);
-    damage[targetId] = (damage[targetId] || 0) + dmg;
-    events.push(`${UNIT_TYPES[attacker.type].name} (P${attacker.owner}) hits ${UNIT_TYPES[target.type].name} (P${target.owner}) for ${dmg}${target.dugIn?' (dug in)':''}`);
+    if (onBunker) { bunkerMod = 15; score -= bunkerMod; }
+
+    // Evasion (defender)
+    score -= tDef.evasion;
+
+    // Flanking bonus (multiple attackers on same target)
+    const flankers = Math.max(0, (attackerCount[targetId] || 1) - 1);
+    const flankMod = flankers * 10;
+    score += flankMod;
+
+    // Pierce ratio shifts score
+    score += Math.round((pierceRatio - 0.5) * 20); // pierce=armor → +10; pierce=0 → -10
+
+    // Random roll ±15
+    const roll = Math.floor(Math.random() * 31) - 15;
+    score += roll;
+    score = Math.max(0, Math.min(100, score));
+
+    // Outcome tier
+    let tier, dmg = 0, attackerDmg = 0, suppressed = false;
+    if (score < 20) {
+      tier = 'Catastrophic Failure';
+      attackerDmg = Math.ceil(baseAttack * 0.5);
+    } else if (score < 40) {
+      tier = 'Repelled';
+      attackerDmg = 1;
+    } else if (score < 60) {
+      tier = 'Neutral';
+      dmg = Math.max(1, Math.round(baseAttack * pierceRatio * 0.5));
+      attackerDmg = 1;
+    } else if (score < 80) {
+      tier = 'Effective';
+      dmg = Math.max(1, Math.round(baseAttack * pierceRatio));
+    } else {
+      tier = 'Overwhelming';
+      dmg = Math.max(1, Math.round(baseAttack * pierceRatio));
+      suppressed = true;
+    }
+
+    // Defense flat reduction
+    dmg = Math.max(0, dmg - tDef.defense);
+
+    // Accumulate damage
+    if (dmg > 0)        damage[targetId]  = (damage[targetId]  || 0) + dmg;
+    if (attackerDmg > 0) damage[attacker.id] = (damage[attacker.id] || 0) + attackerDmg;
+    if (suppressed) target.suppressed = true;
+
+    const entry = {
+      type: 'combat',
+      attackerName: aDef.name, attackerOwner: attacker.owner,
+      targetName: tDef.name,   targetOwner: target.owner,
+      isArmored, baseAttack, pierce: aDef.pierce, armor: tDef.armor, pierceRatio,
+      accuracy: aDef.accuracy, evasion: tDef.evasion,
+      terrainMod, dugInMod, bunkerMod, flankMod, roll,
+      score, tier, dmg, attackerDmg, suppressed,
+    };
+    combatLog.push(entry);
+    events.push(`[COMBAT] ${aDef.name}(P${attacker.owner}) → ${tDef.name}(P${target.owner}) | Score:${score} | ${tier} | Def dmg:${dmg} Att dmg:${attackerDmg}${suppressed?' SUPPRESSED':''}`);
   }
+
+  // Apply all damage
   for (const [idStr, dmg] of Object.entries(damage)) {
     const t = state.units.find(u => u.id === parseInt(idStr));
-    if (t) { t.health -= dmg; if (t.health <= 0) events.push(`${UNIT_TYPES[t.type].name} (P${t.owner}) destroyed!`); }
+    if (t && dmg > 0) {
+      t.health -= dmg;
+      if (t.health <= 0) events.push(`${UNIT_TYPES[t.type].name} (P${t.owner}) destroyed!`);
+    }
   }
   state.units = state.units.filter(u => u.health > 0);
+  state._lastCombatLog = combatLog; // stored for UI to read
 
   // Phase 2.5: Medic healing (before captures)
   for (const medic of state.units.filter(u => u.type === 'MEDIC')) {
@@ -315,7 +422,7 @@ export function resolveTurn(state, terrain) {
   }
 
   // Reset
-  for (const unit of state.units) { unit.moved = false; unit.attacked = false; unit.building = false; }
+  for (const unit of state.units) { unit.moved = false; unit.attacked = false; unit.building = false; unit.suppressed = false; }
   state.pendingMoves = {}; state.pendingAttacks = {};
   state.players[1].submitted = false; state.players[2].submitted = false;
   state.currentPlayer = 1; state.phase = 'planning'; state.turn++;
