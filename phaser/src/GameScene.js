@@ -153,6 +153,7 @@ export class GameScene extends Phaser.Scene {
     this._redrawFog();
     this._updateTopBar();
     this._updateBottomPanel();
+    this.btnSubmit?.setVisible(true); // always re-show after any refresh
   }
 
   // ── Highlights ────────────────────────────────────────────────────────────
@@ -527,8 +528,12 @@ export class GameScene extends Phaser.Scene {
 
   _toggleBuildMenu() {
     this._buildMenuOpen = !this._buildMenuOpen;
-    if (this._buildMenuOpen) this._showBuildMenu();
-    else this._hideBuildMenu();
+    if (this._buildMenuOpen) {
+      this._buildMenuJustOpened = true; // prevent immediate close on pointerup
+      this._showBuildMenu();
+    } else {
+      this._hideBuildMenu();
+    }
   }
 
   _showBuildMenu() {
@@ -876,11 +881,12 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointerup', (ptr) => {
-      if (ptr.button === 0 && !this._isDragging && !this._panelOpenAtMouseDown) {
+      if (ptr.button === 0 && !this._isDragging && !this._panelOpenAtMouseDown && !this._buildMenuJustOpened) {
         const world = cam.getWorldPoint(ptr.x, ptr.y);
         const hex   = worldToHex(world.x, world.y);
         if (isValid(hex.q, hex.r)) this._onHexClick(hex.q, hex.r);
       }
+      this._buildMenuJustOpened = false;
       this._isDragging = false;
     });
 
