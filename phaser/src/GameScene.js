@@ -427,6 +427,24 @@ export class GameScene extends Phaser.Scene {
         this.unitGfx.strokeCircle(x, y, r + 9);
       }
 
+      // Attack-available indicator: pulsing crosshair on enemies the selected unit can attack
+      const isAttackTarget = this.attackable.some(h => h.q === unit.q && h.r === unit.r);
+      if (isAttackTarget && unit.owner !== gs.currentPlayer) {
+        const cr = r + 7;
+        // Outer ring
+        this.unitGfx.lineStyle(2, 0xff4400, 0.9);
+        this.unitGfx.strokeCircle(x, y, cr);
+        // Crosshair ticks (4 short lines at N/S/E/W outside ring)
+        const gap2 = 4, tick = 6;
+        this.unitGfx.lineStyle(2, 0xff4400, 0.9);
+        this.unitGfx.beginPath();
+        this.unitGfx.moveTo(x, y - cr - gap2);        this.unitGfx.lineTo(x, y - cr - gap2 - tick);
+        this.unitGfx.moveTo(x, y + cr + gap2);        this.unitGfx.lineTo(x, y + cr + gap2 + tick);
+        this.unitGfx.moveTo(x - cr - gap2, y);        this.unitGfx.lineTo(x - cr - gap2 - tick, y);
+        this.unitGfx.moveTo(x + cr + gap2, y);        this.unitGfx.lineTo(x + cr + gap2 + tick, y);
+        this.unitGfx.strokePath();
+      }
+
       this.unitGfx.fillStyle(color, alpha);
       this.unitGfx.lineStyle(2, 0x000000, alpha);
 
@@ -1091,7 +1109,7 @@ export class GameScene extends Phaser.Scene {
       actions.push({ label: 'MOVE',   key: 'move',   enabled: true,  color: 0x1a5c8a, cb: () => this._onMoveMode() });
     }
     if (!unit.attacked && !unit.suppressed && def.attack > 0) {
-      const visibleEnemies = getAttackableHexes(gs, unit, unit.q, unit.r);
+      const visibleEnemies = getAttackableHexes(gs, unit, unit.q, unit.r, this._currentFog);
       const hasRange = def.range > 0;
       // ATTACK — only if confirmed visible enemy in range (direct fire, no penalty)
       if (visibleEnemies.length > 0) {
@@ -1377,7 +1395,7 @@ export class GameScene extends Phaser.Scene {
         // Keep unit selected after move — show remaining actions
         this.reachable = [];
         if (!this.selectedUnit.attacked) {
-          const atk = getAttackableHexes(gs, this.selectedUnit, q, r);
+          const atk = getAttackableHexes(gs, this.selectedUnit, q, r, this._currentFog);
           if (atk.length > 0) {
             this.attackable = atk; this.mode = 'attack';
           } else {
@@ -1433,6 +1451,17 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Click on attack-indicator enemy target (works in select/move mode — direct fire shortcut)
+    if (this.selectedUnit && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
+      const attackTarget = this.attackable.find(h => h.q === q && h.r === r);
+      if (attackTarget && clickedUnit && clickedUnit.owner !== gs.currentPlayer) {
+        gs.pendingAttacks[this.selectedUnit.id] = attackTarget.targetId;
+        this.selectedUnit.attacked = true;
+        this.attackable = []; this.mode = 'select';
+        this._refresh(); return;
+      }
+    }
+
     // Recruitment: click own building
     if (clickedBuilding && clickedBuilding.owner === gs.currentPlayer &&
         clickedBuilding.type !== 'ROAD' && BUILDING_TYPES[clickedBuilding.type].canRecruit.length > 0) {
@@ -1450,15 +1479,19 @@ export class GameScene extends Phaser.Scene {
   _selectUnit(unit) {
     this._hideContextMenu();
     this.selectedUnit = unit;
-    // Never auto-enter attack mode — player chooses via action menu
+    const gs = this.gameState;
     if (!unit.moved) {
-      this.reachable  = getReachableHexes(this.gameState, unit, this.terrain, MAP_SIZE);
-      this.attackable = []; // no auto-highlight; use ATTACK / FIRE AT TILE from menu
+      this.reachable  = getReachableHexes(gs, unit, this.terrain, MAP_SIZE);
       this.mode = 'move';
     } else {
       this.reachable  = [];
-      this.attackable = [];
       this.mode = 'select';
+    }
+    // Always show attackable targets (fog-filtered) as clickable indicators on enemies
+    if (!unit.attacked && !unit.suppressed && UNIT_TYPES[unit.type].attack > 0) {
+      this.attackable = getAttackableHexes(gs, unit, unit.q, unit.r, this._currentFog);
+    } else {
+      this.attackable = [];
     }
     this._refresh();
   }
@@ -1503,7 +1536,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.selectedUnit || this.selectedUnit.attacked) return;
     this.mode = 'attack_direct';
     this.reachable  = [];
-    this.attackable = getAttackableHexes(this.gameState, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r);
+    this.attackable = getAttackableHexes(this.gameState, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r, this._currentFog);
     this._refresh();
   }
 

@@ -286,10 +286,16 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
 }
 
 // Returns hexes occupied by visible enemies — used for "known target" highlighting
-export function getAttackableHexes(state, unit, fromQ, fromR) {
+// fog: optional Set of visible hex keys `"q,r"` — if provided, only enemies in fog-visible hexes are returned
+export function getAttackableHexes(state, unit, fromQ, fromR, fog) {
   const def = UNIT_TYPES[unit.type];
   return state.units
-    .filter(u => u.owner !== unit.owner && hexDistance(fromQ, fromR, u.q, u.r) <= def.range)
+    .filter(u => {
+      if (u.owner === unit.owner || u.dead) return false;
+      if (hexDistance(fromQ, fromR, u.q, u.r) > def.range) return false;
+      if (fog && !fog.has(`${u.q},${u.r}`)) return false; // hidden in fog
+      return true;
+    })
     .map(u => ({ q: u.q, r: u.r, targetId: u.id }));
 }
 
