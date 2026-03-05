@@ -1776,9 +1776,8 @@ export class GameScene extends Phaser.Scene {
         for (let dr = -1; dr <= 1; dr++)
           if (isValid(cq+dq,cr+dr) && rng()>0.5) map[`${cq+dq},${cr+dr}`] = 2;
     }
-    // Resource and building hexes must be plains — deposits don't sit in dense forest/cliffs
+    // Building hexes (HQ, Barracks etc) must be on plains — but resource deposits can be in forest
     const gs = this.gameState;
-    for (const key of Object.keys(gs.resourceHexes)) map[key] = 0;
     for (const b of gs.buildings) map[`${b.q},${b.r}`] = 0;
     return map;
   }
