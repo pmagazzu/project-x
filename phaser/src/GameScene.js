@@ -7,7 +7,7 @@ import { MenuScene } from './MenuScene.js';
 import {
   createGameState, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
-  resolveTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
+  findPath, resolveTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, computeDesignStats
@@ -322,6 +322,39 @@ export class GameScene extends Phaser.Scene {
       // Ghost circle at origin to show where unit came from
       this.highlightGfx.lineStyle(1.5, color, 0.3);
       this.highlightGfx.strokeCircle(from.x, from.y, 10);
+    }
+
+    // ── Auto-road standing order path preview ─────────────────────────────
+    // Draw a dim dotted line along the engineer's planned road route
+    for (const u of gs.units) {
+      if (!u.roadOrder || !u.roadOrder.path || u.owner !== gs.currentPlayer) continue;
+      const path = u.roadOrder.path;
+      if (!path.length) continue;
+      const pts = [{ q: u.q, r: u.r }, ...path];
+      // Dim yellow dotted line through each hex center
+      this.highlightGfx.lineStyle(1.5, 0xffdd44, 0.35);
+      this.highlightGfx.beginPath();
+      const steps = 10;
+      for (let seg = 0; seg < pts.length - 1; seg++) {
+        const from2 = hexToWorld(pts[seg].q, pts[seg].r);
+        const to2   = hexToWorld(pts[seg+1].q, pts[seg+1].r);
+        for (let i = 0; i < steps; i++) {
+          const t0 = i / steps, t1 = (i + 0.5) / steps;
+          if (i % 2 === 0) {
+            this.highlightGfx.moveTo(from2.x + (to2.x - from2.x) * t0, from2.y + (to2.y - from2.y) * t0);
+            this.highlightGfx.lineTo(from2.x + (to2.x - from2.x) * t1, from2.y + (to2.y - from2.y) * t1);
+          }
+        }
+      }
+      this.highlightGfx.strokePath();
+      // Destination marker — small X
+      const dest = hexToWorld(u.roadOrder.destQ, u.roadOrder.destR);
+      this.highlightGfx.lineStyle(2, 0xffdd44, 0.7);
+      const d = 6;
+      this.highlightGfx.beginPath();
+      this.highlightGfx.moveTo(dest.x - d, dest.y - d); this.highlightGfx.lineTo(dest.x + d, dest.y + d);
+      this.highlightGfx.moveTo(dest.x + d, dest.y - d); this.highlightGfx.lineTo(dest.x - d, dest.y + d);
+      this.highlightGfx.strokePath();
     }
   }
 
@@ -1180,6 +1213,11 @@ export class GameScene extends Phaser.Scene {
     if (def.canDigIn && !unit.dugIn && !unit.moved) {
       actions.push({ label: 'DIG IN', key: 'digin',  enabled: true,  color: 0x8B5A2B, cb: () => this._onDigIn() });
     }
+    if (unit.roadOrder) {
+      actions.push({ label: '✕ CANCEL ROAD ORDER', key: 'cancel_road', enabled: true, color: 0x662222,
+        cb: () => { delete unit.roadOrder; this._hideContextMenu(); this._refresh(); }
+      });
+    }
     if (def.canBuild) {
       const smart = this._getSmartBuild(unit);
       if (smart) {
@@ -1249,6 +1287,12 @@ export class GameScene extends Phaser.Scene {
       const allOpts = [];
       if (!roadAt(gs, unit.q, unit.r))
         allOpts.push({ label: `Road        1⚙`,  cost: { iron:1,oil:0 }, enabled: iron>=1,  cb: () => this._onBuildRoad() });
+      // Auto-road standing order (engineer pathfinds to destination, builds each turn)
+      if (unit.roadOrder) {
+        allOpts.push({ label: `✕ CANCEL ROAD ORDER`, cost: null, enabled: true, cb: () => { delete unit.roadOrder; this._hideContextMenu(); this._refresh(); } });
+      } else {
+        allOpts.push({ label: `AUTO-ROAD →`, cost: null, enabled: true, cb: () => this._enterRoadDestMode(unit) });
+      }
       if (res && noBuilding)
         allOpts.push({ label: `${res.type==='OIL'?'Oil Pump   4⚙ 2🛢':'Mine        4⚙'}`,
                        cost: { iron:4,oil: res.type==='OIL'?2:0 }, enabled: res.type==='OIL'?(iron>=4&&oil>=2):iron>=4,
@@ -1463,6 +1507,22 @@ export class GameScene extends Phaser.Scene {
     const clickedUnit     = unitAt(gs, q, r);
     const clickedBuilding = buildingAt(gs, q, r);
 
+    // ── Auto-road destination mode ───────────────────────────────────────
+    if (this.mode === 'road_dest') {
+      const unit = this._roadOrderUnit;
+      if (unit) {
+        const path = findPath(this.terrain, this.mapSize, unit.q, unit.r, q, r, 'ENGINEER');
+        if (path && path.length > 0) {
+          unit.roadOrder = { destQ: q, destR: r, path };
+        } else {
+          // Show brief "no path" feedback — just log; could add toast later
+          console.log(`Auto-road: no path from (${unit.q},${unit.r}) to (${q},${r})`);
+        }
+      }
+      this._cancelRoadDestMode();
+      return;
+    }
+
     if (this.mode === 'move') {
       const isReachable = this.reachable.some(h => h.q === q && h.r === r);
       if (isReachable && !clickedUnit) {
@@ -1577,6 +1637,8 @@ export class GameScene extends Phaser.Scene {
 
   // Right-click: open context menu when clicking ON a friendly unit; deselect everywhere else
   _onHexRightClick(q, r) {
+    // Cancel road-dest mode on right-click
+    if (this.mode === 'road_dest') { this._cancelRoadDestMode(); return; }
     const gs = this.gameState;
     const clickedUnit = gs.units.find(u => u.q === q && u.r === r && !u.dead);
     if (clickedUnit && clickedUnit.owner === gs.currentPlayer) {
@@ -1647,6 +1709,28 @@ export class GameScene extends Phaser.Scene {
     this._clearSelection();
   }
 
+  // ── Auto-road destination selection ──────────────────────────────────────
+  _enterRoadDestMode(unit) {
+    this._hideContextMenu();
+    this._roadOrderUnit = unit;
+    this.mode = 'road_dest';
+    // Show a HUD tip
+    if (this._roadDestHint) { try { this._roadDestHint.destroy(); } catch(e){} }
+    this._roadDestHint = this.add.text(this.scale.width / 2, 80,
+      '📍 Click destination for AUTO-ROAD order  (Right-click to cancel)',
+      { fontSize: '14px', color: '#ffdd88', backgroundColor: '#222', padding: { x:8, y:4 } })
+      .setOrigin(0.5, 0).setScrollFactor(0).setDepth(200);
+    this._uiLayer.add(this._roadDestHint);
+    this._refresh();
+  }
+
+  _cancelRoadDestMode() {
+    this.mode = 'select';
+    this._roadOrderUnit = null;
+    if (this._roadDestHint) { try { this._roadDestHint.destroy(); } catch(e){} this._roadDestHint = null; }
+    this._refresh();
+  }
+
   _onBuildRoad() {
     const gs = this.gameState;
     const u  = this.selectedUnit;
@@ -1715,6 +1799,7 @@ export class GameScene extends Phaser.Scene {
     for (const u of gs.units) prePos[u.id] = { q: u.q, r: u.r };
 
     // Resolve everything (mutates state)
+    gs._mapSize = this.mapSize; // needed by auto-road phase
     const events = resolveTurn(gs, this.terrain);
     const winner = checkWinner(gs);
 

@@ -287,6 +287,60 @@ export function hexDistance(q1, r1, q2, r2) {
   return (Math.abs(q1-q2) + Math.abs(q1+r1-q2-r2) + Math.abs(r1-r2)) / 2;
 }
 
+// ── Full-map pathfinding for standing orders (e.g., auto-road) ────────────
+// Returns an array of {q,r} hexes from start (exclusive) to dest (inclusive),
+// or null if no path exists.  Uses Dijkstra with terrain costs; ignores units
+// (standing-order units move around obstacles each turn by re-pathing).
+export function findPath(terrain, mapSize, startQ, startR, destQ, destR, unitType = 'ENGINEER') {
+  const dist  = new Map();
+  const prev  = new Map();
+  const visited = new Set();
+  const startKey = `${startQ},${startR}`;
+  dist.set(startKey, 0);
+  const queue = [{ q: startQ, r: startR, cost: 0 }];
+
+  while (queue.length > 0) {
+    queue.sort((a, b) => a.cost - b.cost);
+    const { q, r, cost } = queue.shift();
+    const nodeKey = `${q},${r}`;
+    if (visited.has(nodeKey)) continue;
+    visited.add(nodeKey);
+    if (q === destQ && r === destR) break; // reached destination
+
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const nq = q + dq, nr = r + dr;
+      if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) continue;
+      const key = `${nq},${nr}`;
+      if (visited.has(key)) continue;
+      const ttype = terrain[key] ?? 0;
+      if (!canEnterTerrain(unitType, ttype)) continue;
+      // Use raw terrain cost (no road boost — roads don't exist yet on planned route)
+      const moveCost = getMoveCost(ttype, false, unitType);
+      const realCost = moveCost >= 999 ? 10 : moveCost; // treat impassable-for-vehicles as expensive but not infinite for path search
+      const newCost = cost + realCost;
+      if (!dist.has(key) || newCost < dist.get(key)) {
+        dist.set(key, newCost);
+        prev.set(key, { q, r });
+        queue.push({ q: nq, r: nr, cost: newCost });
+      }
+    }
+  }
+
+  const destKey = `${destQ},${destR}`;
+  if (!dist.has(destKey)) return null; // no path
+
+  // Reconstruct path
+  const path = [];
+  let cur = destKey;
+  while (cur && cur !== startKey) {
+    const [cq, cr] = cur.split(',').map(Number);
+    path.unshift({ q: cq, r: cr });
+    const p = prev.get(cur);
+    cur = p ? `${p.q},${p.r}` : null;
+  }
+  return path.length > 0 ? path : null;
+}
+
 // ── Terrain movement ───────────────────────────────────────────────────────
 // Wheeled/tracked vehicles that are badly hampered by forest
 const HEAVY_UNITS = new Set(['TANK', 'ARTILLERY', 'ANTI_TANK', 'VEHICLE_DEPOT']);
@@ -728,6 +782,81 @@ export function resolveTurn(state, terrain) {
         target.health = Math.min(target.maxHealth, target.health + 1);
         events.push(`Medic (P${medic.owner}) heals ${UNIT_TYPES[target.type].name}`);
       }
+    }
+  }
+
+  // Phase 2.6: Auto-road standing orders
+  // Engineers with a roadOrder automatically advance one step and build road.
+  // Cancel conditions: enemy within 2 tiles, iron shortage, destination reached, engineer dead.
+  for (const unit of state.units.filter(u => u.type === 'ENGINEER' && u.roadOrder && !u.dead)) {
+    const order = unit.roadOrder;
+    const owner = unit.owner;
+
+    // Cancel if enemy within 2 tiles (using display positions for consistency)
+    const threatened = state.units.some(e => {
+      if (e.dead || e.owner === owner) return false;
+      const eq = (e._origQ !== undefined) ? e._origQ : e.q;
+      const er = (e._origR !== undefined) ? e._origR : e.r;
+      return hexDistance(unit.q, unit.r, eq, er) <= 2;
+    });
+    if (threatened) {
+      events.push(`Engineer (P${owner}) auto-road cancelled — enemy nearby`);
+      delete unit.roadOrder;
+      continue;
+    }
+
+    // Cancel if iron insufficient
+    if (state.players[owner].iron < 1) {
+      events.push(`Engineer (P${owner}) auto-road paused — no iron`);
+      delete unit.roadOrder;
+      continue;
+    }
+
+    // Already at destination?
+    if (unit.q === order.destQ && unit.r === order.destR) {
+      events.push(`Engineer (P${owner}) auto-road complete`);
+      delete unit.roadOrder;
+      continue;
+    }
+
+    // Re-pathfind from current position each turn (handles dynamic obstacles)
+    const path = findPath(terrain, state._mapSize || 25, unit.q, unit.r, order.destQ, order.destR, 'ENGINEER');
+    if (!path || path.length === 0) {
+      events.push(`Engineer (P${owner}) auto-road blocked — no path`);
+      delete unit.roadOrder;
+      continue;
+    }
+
+    // Move one step along path
+    const next = path[0];
+    const nq = next.q, nr = next.r;
+
+    // Don't step on a unit (friendly or enemy)
+    if (unitAt(state, nq, nr)) {
+      // Skip this turn, keep order
+      events.push(`Engineer (P${owner}) auto-road stalled — hex occupied`);
+      continue;
+    }
+
+    unit.q = nq; unit.r = nr; unit.moved = true;
+
+    // Build road on the new hex if none exists
+    if (!roadAt(state, nq, nr)) {
+      state.buildings.push({ id: ++state._nextId, type: 'ROAD', q: nq, r: nr, owner });
+      state.players[owner].iron -= 1;
+      events.push(`Engineer (P${owner}) auto-builds road at (${nq},${nr})`);
+    } else {
+      // Already a road here — still move, no cost
+      events.push(`Engineer (P${owner}) advances along road at (${nq},${nr})`);
+    }
+
+    // Update stored path on the order (trim consumed step)
+    order.path = path.slice(1);
+
+    // If now at destination, clear order
+    if (nq === order.destQ && nr === order.destR) {
+      events.push(`Engineer (P${owner}) auto-road order complete`);
+      delete unit.roadOrder;
     }
   }
 
