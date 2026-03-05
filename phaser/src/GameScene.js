@@ -642,13 +642,44 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
     objs.push(title);
 
+    // Show current pending order for this building (1-per-building limit)
+    const existingOrder = gs.pendingRecruits.find(r => r.buildingId === building.id && r.owner === p);
+    if (existingOrder) {
+      const orderName = existingOrder.designId !== undefined
+        ? (gs.designs[p].find(d => d.id === existingOrder.designId)?.name || 'Custom Unit')
+        : UNIT_TYPES[existingOrder.type]?.name || '?';
+      const orderTxt = this.add.text(w/2, py + 48, `⏳ Queued: ${orderName}`, {
+        font: 'bold 12px monospace', fill: '#ffdd44', backgroundColor: '#333300', padding: { x: 10, y: 5 }
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
+      objs.push(orderTxt);
+      const cancelBtn = this.add.text(w/2 + 130, py + 48, '✕ cancel', {
+        font: '11px monospace', fill: '#ff8888', backgroundColor: '#330000', padding: { x: 8, y: 5 }
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true });
+      cancelBtn.on('pointerdown', () => {
+        // Refund cost
+        const refundType = existingOrder.type;
+        const refundDesign = existingOrder.designId !== undefined ? gs.designs[p].find(d => d.id === existingOrder.designId) : null;
+        const cost = refundDesign ? refundDesign.trainCost : (refundType ? UNIT_TYPES[refundType].cost : { iron: 0, oil: 0 });
+        gs.players[p].iron += cost.iron;
+        gs.players[p].oil  += cost.oil;
+        gs.pendingRecruits = gs.pendingRecruits.filter(r => !(r.buildingId === building.id && r.owner === p));
+        this._hideRecruitPanel();
+        this._showRecruitPanel(building);
+        this._refresh();
+      });
+      cancelBtn.on('pointerover', () => cancelBtn.setAlpha(0.8));
+      cancelBtn.on('pointerout',  () => cancelBtn.setAlpha(1.0));
+      objs.push(cancelBtn);
+    }
+
     available.forEach((unitType, i) => {
       const def = UNIT_TYPES[unitType];
-      const canAfford = gs.players[p].iron >= def.cost.iron && gs.players[p].oil >= def.cost.oil;
+      const alreadyOrdered = !!existingOrder;
+      const canAfford = !alreadyOrdered && gs.players[p].iron >= def.cost.iron && gs.players[p].oil >= def.cost.oil;
       const label = `${def.name}  ⚙${def.cost.iron}${def.cost.oil > 0 ? ` 🛢${def.cost.oil}` : ''}  HP:${def.health} ATK:${def.attack} MOV:${def.move}`;
-      const btn = this.add.text(w/2, py + 60 + i * 48, label, {
-        font: '13px monospace', fill: canAfford ? '#ccffcc' : '#ff6666',
-        backgroundColor: canAfford ? '#224422' : '#332222',
+      const btn = this.add.text(w/2, py + 60 + (existingOrder ? 36 : 0) + i * 48, label, {
+        font: '13px monospace', fill: canAfford ? '#ccffcc' : alreadyOrdered ? '#666666' : '#ff6666',
+        backgroundColor: canAfford ? '#224422' : '#222222',
         padding: { x: 12, y: 8 }
       }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
         .setInteractive({ useHandCursor: canAfford });
@@ -671,10 +702,10 @@ export class GameScene extends Phaser.Scene {
     const customDesigns = (gs.designs[p] || []).filter(d => CHASSIS_BUILDINGS[d.chassis] === btype);
     customDesigns.forEach((design, i) => {
       const idx = available.length + i;
-      const canAfford = gs.players[p].iron >= design.trainCost.iron && gs.players[p].oil >= design.trainCost.oil;
+      const canAfford = !existingOrder && gs.players[p].iron >= design.trainCost.iron && gs.players[p].oil >= design.trainCost.oil;
       const label = `★ ${design.name}  ⚙${design.trainCost.iron}${design.trainCost.oil > 0 ? ` 🛢${design.trainCost.oil}` : ''}  HP:${design.stats.health} ATK:${design.stats.soft_attack}/${design.stats.hard_attack} MOV:${design.stats.move}`;
-      const btn = this.add.text(w/2, py + 60 + idx * 48, label, {
-        font: '12px monospace', fill: canAfford ? '#ffffaa' : '#888855',
+      const btn = this.add.text(w/2, py + 60 + (existingOrder ? 36 : 0) + idx * 48, label, {
+        font: '12px monospace', fill: canAfford ? '#ffffaa' : '#666655',
         backgroundColor: canAfford ? '#333311' : '#222211',
         padding: { x: 12, y: 8 }
       }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
@@ -694,7 +725,8 @@ export class GameScene extends Phaser.Scene {
 
     // "Design new unit" button
     const totalRows = available.length + customDesigns.length;
-    const designBtn = this.add.text(w/2, py + 60 + totalRows * 48 + 8, '[ + DESIGN NEW UNIT ]', {
+    const queueOffset = existingOrder ? 36 : 0;
+    const designBtn = this.add.text(w/2, py + 60 + queueOffset + totalRows * 48 + 8, '[ + DESIGN NEW UNIT ]', {
       font: 'bold 12px monospace', fill: '#88ccff',
       backgroundColor: '#112233', padding: { x: 12, y: 7 }
     }).setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true });
@@ -706,7 +738,7 @@ export class GameScene extends Phaser.Scene {
     designBtn.on('pointerout',  () => designBtn.setAlpha(1.0));
     objs.push(designBtn);
 
-    const closeBtnY = py + 60 + totalRows * 48 + 50;
+    const closeBtnY = py + 60 + queueOffset + totalRows * 48 + 50;
     const closeBtn = this.add.text(w/2, closeBtnY, '[ CLOSE ]', {
       font: 'bold 13px monospace', fill: '#ffffff',
       backgroundColor: '#444444', padding: { x: 14, y: 7 }
@@ -960,17 +992,38 @@ export class GameScene extends Phaser.Scene {
       if (isReachable && !clickedUnit) {
         gs.pendingMoves[this.selectedUnit.id] = { q, r };
         this.selectedUnit.q = q; this.selectedUnit.r = r; this.selectedUnit.moved = true;
-        // Auto-enter attack mode if enemies are now in range
+        // Keep unit selected after move — show remaining actions
+        this.reachable = [];
         if (!this.selectedUnit.attacked) {
           const atk = getAttackableHexes(gs, this.selectedUnit, q, r);
           if (atk.length > 0) {
-            this.reachable = []; this.attackable = atk; this.mode = 'attack';
-            this._refresh(); return;
+            this.attackable = atk; this.mode = 'attack';
+          } else {
+            this.attackable = []; this.mode = 'select';
           }
+        } else {
+          this.attackable = []; this.mode = 'select';
         }
-        this._onCancel(); return;
+        // Engineers: auto-open build menu after moving
+        if (UNIT_TYPES[this.selectedUnit.type].canBuild) {
+          this._buildMenuOpen = true;
+          this._buildMenuJustOpened = true;
+        }
+        this._refresh();
+        if (this._buildMenuOpen) this._showBuildMenu();
+        return;
       }
-      this._onCancel();
+      // In move mode: clicking an enemy that's in attack range = auto-attack
+      if (clickedUnit && clickedUnit.owner !== gs.currentPlayer && !this.selectedUnit.attacked) {
+        const atk = getAttackableHexes(gs, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r);
+        const target = atk.find(a => a.q === q && a.r === r);
+        if (target) {
+          gs.pendingAttacks[this.selectedUnit.id] = target.targetId;
+          this.selectedUnit.attacked = true;
+          this.reachable = []; this.attackable = []; this.mode = 'select';
+          this._refresh(); return;
+        }
+      }
     }
 
     if (this.mode === 'attack') {
@@ -978,9 +1031,9 @@ export class GameScene extends Phaser.Scene {
       if (target) {
         gs.pendingAttacks[this.selectedUnit.id] = target.targetId;
         this.selectedUnit.attacked = true;
-        this._onCancel(); return;
+        this.reachable = []; this.attackable = []; this.mode = 'select';
+        this._refresh(); return;
       }
-      this._onCancel();
     }
 
     // Recruitment: click own building
@@ -1001,10 +1054,14 @@ export class GameScene extends Phaser.Scene {
     this._hideBuildMenu(); this._buildMenuOpen = false;
     this.selectedUnit = unit;
     this.attackable = [];
-    // Auto-enter move mode if unit hasn't moved
     if (!unit.moved) {
       this.reachable = getReachableHexes(this.gameState, unit, this.terrain, MAP_SIZE);
       this.mode = 'move';
+    } else if (!unit.attacked) {
+      this.reachable = [];
+      const atk = getAttackableHexes(this.gameState, unit, unit.q, unit.r);
+      if (atk.length > 0) { this.attackable = atk; this.mode = 'attack'; }
+      else { this.mode = 'select'; }
     } else {
       this.reachable = [];
       this.mode = 'select';
