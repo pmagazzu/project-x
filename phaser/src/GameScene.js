@@ -66,6 +66,7 @@ export class GameScene extends Phaser.Scene {
       engineerAutoBuild: true,  // auto-open build menu after engineer moves
       autoAttackMode:    true,  // auto-enter attack mode after move if enemies in range
       showContextMenu:   true,  // contextual action popup near selected unit
+      zoomSpeed:         1.0,   // scroll wheel zoom speed (0.5 = slow, 1.0 = default, 2.0 = fast)
     };
 
     // Recruitment panel state
@@ -1098,7 +1099,10 @@ export class GameScene extends Phaser.Scene {
     this.game.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
     this.input.on('wheel', (ptr, _o, _dx, dy) => {
-      const factor = dy > 0 ? 0.85 : 1.18;
+      const zs = this.settings.zoomSpeed ?? 1.0; // 1.0 = default, <1 = slower, >1 = faster
+      const inFactor  = 1 - (1 - 0.85) * zs;   // zoom-out step scaled by speed
+      const outFactor = 1 + (1.18 - 1)  * zs;   // zoom-in step scaled by speed
+      const factor = dy > 0 ? inFactor : outFactor;
       const newZoom = Phaser.Math.Clamp(cam.zoom * factor, 0.2, 4.0);
       const wBefore = cam.getWorldPoint(ptr.x, ptr.y);
       cam.setZoom(newZoom);
@@ -1108,7 +1112,9 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.wasd = this.input.keyboard.addKeys('W,A,S,D');
-    this.input.keyboard.on('keydown-ESC', () => this._toggleSettings());
+    this.input.keyboard.on('keydown-ESC',   () => this._toggleSettings());
+    this.input.keyboard.on('keydown-X',     () => { if (this.btnSubmit?.visible) this._onSubmit(); });
+    this.input.keyboard.on('keydown-SPACE', () => { if (this._splashDismiss) { this._splashDismiss(); this._splashDismiss = null; } });
   }
 
   // ── World → Screen coordinate conversion ─────────────────────────────────
@@ -1356,7 +1362,7 @@ export class GameScene extends Phaser.Scene {
     const panelW = 340, D = 210;
     const objs = [];
 
-    const bg = this.add.rectangle(w/2, h/2, panelW, 280, 0x111122, 0.97)
+    const bg = this.add.rectangle(w/2, h/2, panelW, 330, 0x111122, 0.97)
       .setStrokeStyle(2, 0x4466aa).setScrollFactor(0).setDepth(D);
     objs.push(bg);
     objs.push(this.add.text(w/2, h/2 - 120, '── SETTINGS ──', { font: 'bold 15px monospace', fill: '#88ccff' })
@@ -1395,7 +1401,31 @@ export class GameScene extends Phaser.Scene {
       makeRow();
     });
 
-    const closeBtn = this.add.text(w/2, h/2 + 105, '[ CLOSE ]', {
+    // Zoom speed control
+    const zy = h/2 + 68;
+    objs.push(this.add.text(w/2 - 140, zy, 'Scroll zoom speed', { font: '12px monospace', fill: '#cccccc' })
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(D+1));
+    const zoomSteps = [0.5, 0.75, 1.0, 1.5, 2.0];
+    const zoomLabels = ['Slow', 'Slow+', 'Default', 'Fast', 'Fast+'];
+    const makeZoom = () => {
+      if (this._zoomBtns) this._zoomBtns.forEach(b => b.destroy());
+      this._zoomBtns = [];
+      zoomSteps.forEach((spd, i) => {
+        const active = Math.abs(this.settings.zoomSpeed - spd) < 0.01;
+        const bx = w/2 - 80 + i * 46;
+        const zb = this.add.text(bx, zy + 22, zoomLabels[i], {
+          font: '10px monospace', fill: active ? '#ffee44' : '#888888',
+          backgroundColor: active ? '#443300' : '#222222', padding: { x: 5, y: 4 }
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
+        zb.on('pointerdown', () => { this.settings.zoomSpeed = spd; makeZoom(); });
+        this._zoomBtns.push(zb);
+        objs.push(zb);
+        this._addToUI([zb]);
+      });
+    };
+    makeZoom();
+
+    const closeBtn = this.add.text(w/2, h/2 + 130, '[ CLOSE ]', {
       font: 'bold 13px monospace', fill: '#ffffff', backgroundColor: '#444444', padding: { x: 14, y: 7 }
     }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
     closeBtn.on('pointerdown', () => this._closeSettings());
@@ -1764,20 +1794,21 @@ export class GameScene extends Phaser.Scene {
 
   // ── Pass / Resolution screens ─────────────────────────────────────────────
   _showSplash(objects, onDismiss) {
-    // Hide action buttons during splash
-    
     this.btnSubmit?.setVisible(false);
 
-    const btn = this.add.text(this.scale.width / 2, this.scale.height - 60, '[ CLICK TO CONTINUE ]', {
+    const btn = this.add.text(this.scale.width / 2, this.scale.height - 60, '[ CLICK or SPACE to continue ]', {
       font: 'bold 14px monospace', fill: '#ffffff',
       backgroundColor: '#334433', padding: { x: 16, y: 8 }
     }).setOrigin(0.5).setScrollFactor(0).setDepth(202).setInteractive({ useHandCursor: true });
     this._addToUI([btn]);
 
-    btn.on('pointerdown', () => {
-      [...objects, btn].forEach(o => o.destroy());
+    const dismiss = () => {
+      this._splashDismiss = null;
+      [...objects, btn].forEach(o => { try { o.destroy(); } catch(e){} });
       onDismiss();
-    });
+    };
+    this._splashDismiss = dismiss;
+    btn.on('pointerdown', dismiss);
     btn.on('pointerover', () => btn.setAlpha(0.8));
     btn.on('pointerout',  () => btn.setAlpha(1.0));
   }
