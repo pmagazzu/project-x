@@ -3,6 +3,7 @@ import {
   hexToWorld, worldToHex, hexVertices, isValid,
   MAP_SIZE, HEX_SIZE, getMapBounds
 } from './HexGrid.js';
+import { MenuScene } from './MenuScene.js';
 import {
   createGameState, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
@@ -13,12 +14,16 @@ import {
 } from './GameState.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
-const TERRAIN        = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2 };
+const TERRAIN        = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2, HILL: 3, SHALLOW: 4, OCEAN: 5, SAND: 6 };
+const TERRAIN_LABELS = ['Plains','Forest','Mountain','Hill','Shallow Water','Ocean','Sand'];
 const TERRAIN_COLORS = {
-  0: { fill: 0x8aaa55, stroke: 0x6a8a35 },  // plains: bright yellow-green
-  1: { fill: 0x1a4010, stroke: 0x0d2008 },  // forest: very dark green
-  2: { fill: 0x8a7a6a, stroke: 0x6a5a4a },  // mountain: warm grey
-  3: { fill: 0xb8a060, stroke: 0x9a8040 },  // hill: sandy brown/tan
+  0: { fill: 0x8aaa55, stroke: 0x6a8a35 },  // plains
+  1: { fill: 0x1a4010, stroke: 0x0d2008 },  // forest
+  2: { fill: 0x8a7a6a, stroke: 0x6a5a4a },  // mountain
+  3: { fill: 0xb8a060, stroke: 0x9a8040 },  // hill
+  4: { fill: 0x4499bb, stroke: 0x2277aa },  // shallow water
+  5: { fill: 0x0d2a4a, stroke: 0x071a2e },  // ocean
+  6: { fill: 0xd4b96a, stroke: 0xb09050 },  // sand/beach
 };
 const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
@@ -36,7 +41,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
-    this.gameState = createGameState();
+    // Read scenario config passed from MenuScene (or default)
+    const data = this.scene.settings.data || {};
+    this.scenario = data.scenario || 'default';
+    // Map sizes per scenario
+    const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 60, default: 25 };
+    this.mapSize   = MAP_SIZES[this.scenario] || MAP_SIZE;
+
+    this.gameState = createGameState(this.scenario);
     this.terrain   = this._generateTerrain();
 
     // Interaction state
@@ -60,7 +72,7 @@ export class GameScene extends Phaser.Scene {
     this.recruitBuilding = null;
 
     // Build terrain RenderTexture
-    const bounds  = getMapBounds();
+    const bounds  = getMapBounds(this.mapSize);
     this._bounds  = bounds;
     const padding = HEX_SIZE * 2;
     const rtW = Math.ceil(bounds.width  + padding * 2);
@@ -126,8 +138,8 @@ export class GameScene extends Phaser.Scene {
   // ── Terrain ──────────────────────────────────────────────────────────────
   _drawTerrainToRT() {
     const gfx = this.make.graphics({ x: 0, y: 0, add: false });
-    for (let q = 0; q < MAP_SIZE; q++) {
-      for (let r = 0; r < MAP_SIZE; r++) {
+    for (let q = 0; q < this.mapSize; q++) {
+      for (let r = 0; r < this.mapSize; r++) {
         const { x, y } = hexToWorld(q, r);
         this._drawHex(gfx, x, y, this.terrain[`${q},${r}`], false, false);
       }
@@ -261,7 +273,7 @@ export class GameScene extends Phaser.Scene {
       for (const { q, r } of this.attackable) fillHex(q, r, ATTACK_HIGHLIGHT, 0.3);
     }
 
-    if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r)) {
+    if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
       const { x, y } = hexToWorld(this.hoveredHex.q, this.hoveredHex.r);
       this._drawHex(this.highlightGfx, x, y, this.terrain[`${this.hoveredHex.q},${this.hoveredHex.r}`], false, true);
     }
@@ -512,16 +524,16 @@ export class GameScene extends Phaser.Scene {
   // ── Fog of war ────────────────────────────────────────────────────────────
   // Call at turn start to lock in fog for the planning phase
   _freezeFog() {
-    this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, MAP_SIZE, this.terrain);
+    this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
   }
 
   _redrawFog() {
     this.fogGfx.clear();
     // Fog is frozen at turn start — moving units during planning does NOT reveal new enemies
-    const fog = this._currentFog || computeFog(this.gameState, this.gameState.currentPlayer, MAP_SIZE, this.terrain);
+    const fog = this._currentFog || computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
 
-    for (let q = 0; q < MAP_SIZE; q++) {
-      for (let r = 0; r < MAP_SIZE; r++) {
+    for (let q = 0; q < this.mapSize; q++) {
+      for (let r = 0; r < this.mapSize; r++) {
         if (fog.has(`${q},${r}`)) continue;
         const { x, y } = hexToWorld(q, r);
         const verts = hexVertices(x, y);
@@ -546,6 +558,9 @@ export class GameScene extends Phaser.Scene {
     this.resIron = this._makeLabel(12, 11, '⚙ Iron: —', D);
     this.resOil  = this._makeLabel(160, 11, '🛢 Oil: —', D);
     this.turnLbl = this._makeLabel(w/2, 11, 'Turn 1 | Player 1 | PLANNING', D, true);
+
+    // Back to menu button
+    this.btnMenu = this._makeBtn(12, 11, '← MENU', 0x333333, () => this.scene.start('MenuScene'), D);
 
     // Settings gear button
     this.btnSettings = this._makeBtn(w - 160, 11, '⚙ Settings', 0x333355, () => this._toggleSettings(), D, 'right');
@@ -653,9 +668,9 @@ export class GameScene extends Phaser.Scene {
       status += pa         ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : '○ Can attack  ';
       if (u.dugIn) status += '🪖 Dug in';
       this.unitStatusTxt.setText(status);
-    } else if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r)) {
+    } else if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
       const key  = `${this.hoveredHex.q},${this.hoveredHex.r}`;
-      const t    = ['Plains','Forest','Mountain','Hill'][this.terrain[key]];
+      const t    = TERRAIN_LABELS[this.terrain[key]] || 'Plains';
       const res  = gs.resourceHexes[key];
       const bu   = buildingAt(gs, this.hoveredHex.q, this.hoveredHex.r);
       const hu   = unitAt(gs, this.hoveredHex.q, this.hoveredHex.r);
@@ -1034,7 +1049,7 @@ export class GameScene extends Phaser.Scene {
       } else {
         const world = cam.getWorldPoint(ptr.x, ptr.y);
         const hex   = worldToHex(world.x, world.y);
-        if (isValid(hex.q, hex.r)) {
+        if (isValid(hex.q, hex.r, this.mapSize)) {
           if (!this.hoveredHex || this.hoveredHex.q !== hex.q || this.hoveredHex.r !== hex.r) {
             this.hoveredHex = hex; this._redrawHighlights(); this._updateBottomPanel();
           }
@@ -1048,13 +1063,13 @@ export class GameScene extends Phaser.Scene {
         const hex   = worldToHex(world.x, world.y);
         // Also capture click pos so auto-menus can anchor here
         this._lastClickPos = { x: ptr.x, y: ptr.y };
-        if (isValid(hex.q, hex.r)) this._onHexClick(hex.q, hex.r);
+        if (isValid(hex.q, hex.r, this.mapSize)) this._onHexClick(hex.q, hex.r);
       }
       this._contextMenuClicked = false;
       if (ptr.button === 2 && !this._isDragging) {
         const world = cam.getWorldPoint(ptr.x, ptr.y);
         const hex   = worldToHex(world.x, world.y);
-        if (isValid(hex.q, hex.r)) {
+        if (isValid(hex.q, hex.r, this.mapSize)) {
           this._menuAnchor = { x: ptr.x, y: ptr.y }; // remember cursor pos for menu placement
           this._onHexRightClick(hex.q, hex.r);
         }
@@ -1498,7 +1513,7 @@ export class GameScene extends Phaser.Scene {
     this.selectedUnit = unit;
     const gs = this.gameState;
     if (!unit.moved) {
-      this.reachable  = getReachableHexes(gs, unit, this.terrain, MAP_SIZE);
+      this.reachable  = getReachableHexes(gs, unit, this.terrain, this.mapSize);
       this.mode = 'move';
     } else {
       this.reachable  = [];
@@ -1538,7 +1553,7 @@ export class GameScene extends Phaser.Scene {
   _onMoveMode() {
     if (!this.selectedUnit || this.selectedUnit.moved) return;
     this.mode = 'move';
-    this.reachable  = getReachableHexes(this.gameState, this.selectedUnit, this.terrain, MAP_SIZE);
+    this.reachable  = getReachableHexes(this.gameState, this.selectedUnit, this.terrain, this.mapSize);
     this.attackable = [];
     this._refresh();
   }
@@ -1557,7 +1572,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.selectedUnit || this.selectedUnit.attacked) return;
     this.mode = 'attack';
     this.reachable  = [];
-    this.attackable = getAttackRangeHexes(MAP_SIZE, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r, this.terrain);
+    this.attackable = getAttackRangeHexes(this.mapSize, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r, this.terrain);
     this._refresh();
   }
 
@@ -1846,7 +1861,7 @@ export class GameScene extends Phaser.Scene {
       yPos += 6;
       addLine(`Game over — thanks for playing Attrition`, '#888888');
       this._addToUI(objects);
-      this._showSplash(objects, () => { this.scene.restart(); });
+      this._showSplash(objects, () => { this.scene.start('MenuScene'); });
     } else {
       yPos += 6;
       addLine(`Turn ${this.gameState.turn} begins`, '#666666');
@@ -1862,39 +1877,87 @@ export class GameScene extends Phaser.Scene {
 
   // ── Terrain generation ────────────────────────────────────────────────────
   _generateTerrain() {
-    const map = {}, rng = this._seededRng(12345);
-    for (let q = 0; q < MAP_SIZE; q++)
-      for (let r = 0; r < MAP_SIZE; r++) map[`${q},${r}`] = 0;
-    for (let i = 0; i < 30; i++) {
-      const cq = Math.floor(rng() * MAP_SIZE), cr = Math.floor(rng() * MAP_SIZE);
-      for (let dq = -2; dq <= 2; dq++)
-        for (let dr = -2; dr <= 2; dr++)
-          if (isValid(cq+dq,cr+dr) && rng()>0.4) map[`${cq+dq},${cr+dr}`] = 1;
+    const ms = this.mapSize;
+    const map = {};
+    for (let q = 0; q < ms; q++)
+      for (let r = 0; r < ms; r++) map[`${q},${r}`] = 0;
+
+    if (this.scenario === 'combat') {
+      // All plains — nothing to do
+    } else if (this.scenario === 'naval') {
+      this._genNavalTerrain(map, ms);
+    } else {
+      // Standard procedural terrain (scout / grand / default)
+      const seed = this.scenario === 'grand' ? 99999 : 12345;
+      const rng = this._seededRng(seed);
+      const forestCount = this.scenario === 'grand' ? 80 : 30;
+      const hillCount   = this.scenario === 'grand' ? 50 : 20;
+      const mtCount     = this.scenario === 'grand' ? 25 : 10;
+      for (let i = 0; i < forestCount; i++) {
+        const cq = Math.floor(rng() * ms), cr = Math.floor(rng() * ms);
+        for (let dq = -2; dq <= 2; dq++)
+          for (let dr = -2; dr <= 2; dr++)
+            if (isValid(cq+dq, cr+dr, ms) && rng()>0.4) map[`${cq+dq},${cr+dr}`] = 1;
+      }
+      for (let i = 0; i < hillCount; i++) {
+        const cq = Math.floor(rng() * ms), cr = Math.floor(rng() * ms);
+        for (let dq = -2; dq <= 2; dq++)
+          for (let dr = -2; dr <= 2; dr++)
+            if (isValid(cq+dq, cr+dr, ms) && rng()>0.55) map[`${cq+dq},${cr+dr}`] = 3;
+      }
+      for (let i = 0; i < mtCount; i++) {
+        const cq = Math.floor(rng() * ms), cr = Math.floor(rng() * ms);
+        for (let dq = -1; dq <= 1; dq++)
+          for (let dr = -1; dr <= 1; dr++)
+            if (isValid(cq+dq, cr+dr, ms) && rng()>0.5) map[`${cq+dq},${cr+dr}`] = 2;
+      }
     }
-    // Hills (terrain 3) — rolling terrain, medium clusters
-    for (let i = 0; i < 20; i++) {
-      const cq = Math.floor(rng() * MAP_SIZE), cr = Math.floor(rng() * MAP_SIZE);
-      for (let dq = -2; dq <= 2; dq++)
-        for (let dr = -2; dr <= 2; dr++)
-          if (isValid(cq+dq,cr+dr) && rng()>0.55) map[`${cq+dq},${cr+dr}`] = 3;
-    }
-    // Mountains (terrain 2) — steep peaks, small clusters; overwrite hills
-    for (let i = 0; i < 10; i++) {
-      const cq = Math.floor(rng() * MAP_SIZE), cr = Math.floor(rng() * MAP_SIZE);
-      for (let dq = -1; dq <= 1; dq++)
-        for (let dr = -1; dr <= 1; dr++)
-          if (isValid(cq+dq,cr+dr) && rng()>0.5) map[`${cq+dq},${cr+dr}`] = 2;
-    }
-    // Buildings and unit spawn points must be on plains
+
+    // Force buildings & unit spawns to plains (or sand for naval)
     const gs = this.gameState;
-    for (const b of gs.buildings) map[`${b.q},${b.r}`] = 0;
-    for (const u of gs.units) map[`${u.q},${u.r}`] = 0;
-    // Also clear a 1-hex radius around HQs so starting areas are playable
+    const spawnType = this.scenario === 'naval' ? 6 : 0;
+    for (const b of gs.buildings) map[`${b.q},${b.r}`] = spawnType;
+    for (const u of gs.units)     map[`${u.q},${u.r}`] = spawnType;
     for (const b of gs.buildings.filter(b => b.type === 'HQ')) {
       for (const [dq, dr] of [[-1,0],[1,0],[0,-1],[0,1],[1,-1],[-1,1]])
-        if (isValid(b.q+dq, b.r+dr)) map[`${b.q+dq},${b.r+dr}`] = 0;
+        if (isValid(b.q+dq, b.r+dr, ms)) map[`${b.q+dq},${b.r+dr}`] = spawnType;
     }
     return map;
+  }
+
+  _genNavalTerrain(map, ms) {
+    // Start with all ocean
+    for (let q = 0; q < ms; q++)
+      for (let r = 0; r < ms; r++) map[`${q},${r}`] = 5; // OCEAN
+
+    const setIsland = (cq, cr, radius) => {
+      for (let dq = -radius; dq <= radius; dq++) {
+        for (let dr = -radius; dr <= radius; dr++) {
+          const nq = cq+dq, nr = cr+dr;
+          if (!isValid(nq, nr, ms)) continue;
+          const dist = Math.abs(dq) + Math.abs(dr) + Math.abs(-dq-dr);
+          const hexDist = dist / 2;
+          if (hexDist <= radius)     map[`${nq},${nr}`] = 6; // sand interior
+          else if (hexDist <= radius+1.5) map[`${nq},${nr}`] = 4; // shallow shore
+        }
+      }
+    };
+
+    const mh = Math.floor(ms * 0.6); // midpoint row
+
+    // Main islands at each end
+    setIsland(4,  Math.floor(mh * 0.55), 5);
+    setIsland(ms-5, Math.floor(mh * 0.45), 5);
+
+    // Scatter of small mid-ocean islands (deterministic positions)
+    const smalls = [
+      [Math.floor(ms*0.3), Math.floor(mh*0.35), 2],
+      [Math.floor(ms*0.45), Math.floor(mh*0.7),  3],
+      [Math.floor(ms*0.55), Math.floor(mh*0.25), 2],
+      [Math.floor(ms*0.65), Math.floor(mh*0.6),  2],
+      [Math.floor(ms*0.38), Math.floor(mh*0.5),  1],
+    ];
+    for (const [cq, cr, r] of smalls) setIsland(cq, cr, r);
   }
 
   _seededRng(seed) {

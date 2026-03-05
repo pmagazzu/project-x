@@ -51,8 +51,8 @@ function axialRound(q, r) {
   return { q: rq, r: rr };
 }
 
-export function isValid(q, r) {
-  return q >= 0 && q < MAP_SIZE && r >= 0 && r < MAP_SIZE;
+export function isValid(q, r, mapSize = MAP_SIZE) {
+  return q >= 0 && q < mapSize && r >= 0 && r < mapSize;
 }
 
 /**
@@ -74,10 +74,10 @@ export function hexVertices(cx, cy) {
  * Calculate the bounding box of the entire map in world coords.
  * Useful for sizing the RenderTexture and camera bounds.
  */
-export function getMapBounds() {
+export function getMapBounds(mapSize = MAP_SIZE) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (let q = 0; q < MAP_SIZE; q++) {
-    for (let r = 0; r < MAP_SIZE; r++) {
+  for (let q = 0; q < mapSize; q++) {
+    for (let r = 0; r < mapSize; r++) {
       const { x, y } = hexToWorld(q, r);
       const hw = HEX_SIZE;
       const hh = HEX_SIZE * ISO_SQUISH;

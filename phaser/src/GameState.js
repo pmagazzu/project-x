@@ -160,44 +160,114 @@ export function createBuilding(type, owner, q, r) {
   return { id: _nextId++, type, owner, q, r };
 }
 
-export function createGameState() {
+export function createGameState(scenario = 'default') {
+  _nextId = 1; // reset IDs on new game
   const state = {
     turn: 1, phase: 'planning', currentPlayer: 1,
+    scenario,
     players: {
       1: { iron: STARTING_IRON, oil: STARTING_OIL, submitted: false },
       2: { iron: STARTING_IRON, oil: STARTING_OIL, submitted: false },
     },
     units: [], buildings: [], resourceHexes: {},
     pendingMoves: {}, pendingAttacks: {}, pendingRecruits: [],
-    designs: { 1: [], 2: [] }, // custom unit design registry per player
+    designs: { 1: [], 2: [] },
   };
 
-  // Spawns — close for testing
-  state.units.push(createUnit('INFANTRY', 1, 9,  11));
-  state.units.push(createUnit('INFANTRY', 1, 10, 10));
-  state.units.push(createUnit('TANK',     1, 10, 11));
-  state.units.push(createUnit('ENGINEER', 1, 8,  11));
-  state.units.push(createUnit('ENGINEER', 1, 9,  10));
+  if (scenario === 'scout') {
+    // Two engineers each, far apart — explore and build
+    state.units.push(createUnit('ENGINEER', 1, 3, 4));
+    state.units.push(createUnit('ENGINEER', 1, 4, 4));
+    state.units.push(createUnit('ENGINEER', 2, 20, 19));
+    state.units.push(createUnit('ENGINEER', 2, 21, 19));
+    state.buildings.push(createBuilding('HQ', 1, 3, 5));
+    state.buildings.push(createBuilding('HQ', 2, 21, 20));
+    for (const [q,r] of [[12,11],[12,12],[10,13],[11,10],[13,11],[13,14],[9,9],[15,14]])
+      state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
+    for (const [q,r] of [[11,13],[12,9],[14,10],[13,15]])
+      state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
 
-  state.units.push(createUnit('INFANTRY', 2, 15, 12));
-  state.units.push(createUnit('INFANTRY', 2, 14, 13));
-  state.units.push(createUnit('TANK',     2, 14, 12));
-  state.units.push(createUnit('ENGINEER', 2, 16, 12));
-  state.units.push(createUnit('ENGINEER', 2, 15, 13));
+  } else if (scenario === 'naval') {
+    // Island bases, engineers to start — naval terrain, no water units yet
+    state.units.push(createUnit('ENGINEER', 1, 3, 3));
+    state.units.push(createUnit('ENGINEER', 1, 4, 3));
+    state.units.push(createUnit('ENGINEER', 2, 30, 20));
+    state.units.push(createUnit('ENGINEER', 2, 31, 20));
+    state.buildings.push(createBuilding('HQ', 1, 3, 4));
+    state.buildings.push(createBuilding('HQ', 2, 31, 21));
+    // Island resources
+    for (const [q,r] of [[4,5],[5,4],[5,5],[2,4],[3,6]])
+      state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
+    for (const [q,r] of [[30,19],[29,20],[31,19]])
+      state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
 
-  // HQ + Barracks
-  state.buildings.push(createBuilding('HQ',      1, 8,  12));
-  state.buildings.push(createBuilding('BARRACKS',1, 7,  12));
-  state.buildings.push(createBuilding('HQ',      2, 16, 11));
-  state.buildings.push(createBuilding('BARRACKS',2, 17, 11));
+  } else if (scenario === 'combat') {
+    // All unit types lined up on a plains map — combat testing
+    const p1q = 2, p2q = 17;
+    const types = ['INFANTRY','TANK','ARTILLERY','ENGINEER','RECON','ANTI_TANK','MORTAR','MEDIC'];
+    types.forEach((t, i) => {
+      state.units.push(createUnit(t, 1, p1q, i));
+      state.units.push(createUnit(t, 2, p2q, i));
+    });
+    state.buildings.push(createBuilding('HQ', 1, 0, 4));
+    state.buildings.push(createBuilding('HQ', 2, 19, 4));
+    state.players[1].iron = 20; state.players[1].oil = 10;
+    state.players[2].iron = 20; state.players[2].oil = 10;
 
-  // Resource hexes — iron
-  for (const [q, r] of [[12,11],[12,12],[10,13],[11,10],[13,11],[13,14],[9,9],[15,14]]) {
-    state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
-  }
-  // Resource hexes — oil
-  for (const [q, r] of [[11,13],[12,9],[14,10],[13,15]]) {
-    state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
+  } else if (scenario === 'grand') {
+    // Large map — full starting armies
+    state.units.push(createUnit('INFANTRY', 1, 4,  5));
+    state.units.push(createUnit('INFANTRY', 1, 5,  5));
+    state.units.push(createUnit('INFANTRY', 1, 4,  6));
+    state.units.push(createUnit('TANK',     1, 5,  6));
+    state.units.push(createUnit('TANK',     1, 6,  5));
+    state.units.push(createUnit('ARTILLERY',1, 3,  6));
+    state.units.push(createUnit('RECON',    1, 6,  4));
+    state.units.push(createUnit('ENGINEER', 1, 3,  5));
+    state.units.push(createUnit('ENGINEER', 1, 4,  7));
+    state.units.push(createUnit('ANTI_TANK',1, 5,  7));
+
+    state.units.push(createUnit('INFANTRY', 2, 53, 33));
+    state.units.push(createUnit('INFANTRY', 2, 52, 33));
+    state.units.push(createUnit('INFANTRY', 2, 53, 32));
+    state.units.push(createUnit('TANK',     2, 52, 32));
+    state.units.push(createUnit('TANK',     2, 51, 33));
+    state.units.push(createUnit('ARTILLERY',2, 54, 32));
+    state.units.push(createUnit('RECON',    2, 51, 34));
+    state.units.push(createUnit('ENGINEER', 2, 54, 33));
+    state.units.push(createUnit('ENGINEER', 2, 53, 31));
+    state.units.push(createUnit('ANTI_TANK',2, 52, 31));
+
+    state.buildings.push(createBuilding('HQ',      1, 3,  7));
+    state.buildings.push(createBuilding('BARRACKS', 1, 2,  7));
+    state.buildings.push(createBuilding('HQ',      2, 55, 31));
+    state.buildings.push(createBuilding('BARRACKS', 2, 56, 31));
+
+    for (const [q,r] of [[28,18],[29,18],[27,19],[30,17],[26,20],[31,18],[25,19],[32,17]])
+      state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
+    for (const [q,r] of [[28,20],[29,16],[27,17],[30,19]])
+      state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
+
+  } else {
+    // default — close combat test (original layout)
+    state.units.push(createUnit('INFANTRY', 1, 9,  11));
+    state.units.push(createUnit('INFANTRY', 1, 10, 10));
+    state.units.push(createUnit('TANK',     1, 10, 11));
+    state.units.push(createUnit('ENGINEER', 1, 8,  11));
+    state.units.push(createUnit('ENGINEER', 1, 9,  10));
+    state.units.push(createUnit('INFANTRY', 2, 15, 12));
+    state.units.push(createUnit('INFANTRY', 2, 14, 13));
+    state.units.push(createUnit('TANK',     2, 14, 12));
+    state.units.push(createUnit('ENGINEER', 2, 16, 12));
+    state.units.push(createUnit('ENGINEER', 2, 15, 13));
+    state.buildings.push(createBuilding('HQ',       1, 8,  12));
+    state.buildings.push(createBuilding('BARRACKS', 1, 7,  12));
+    state.buildings.push(createBuilding('HQ',       2, 16, 11));
+    state.buildings.push(createBuilding('BARRACKS', 2, 17, 11));
+    for (const [q,r] of [[12,11],[12,12],[10,13],[11,10],[13,11],[13,14],[9,9],[15,14]])
+      state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
+    for (const [q,r] of [[11,13],[12,9],[14,10],[13,15]])
+      state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
   }
 
   return state;
@@ -226,11 +296,13 @@ const HEAVY_UNITS = new Set(['TANK', 'ARTILLERY', 'ANTI_TANK', 'VEHICLE_DEPOT'])
 export function getMoveCost(terrainType, hasRoad, unitType = '') {
   if (hasRoad) return 0.5;
   if (terrainType === 1 && HEAVY_UNITS.has(unitType)) return 999; // forest: vehicles crawl (1 hex)
-  return [1, 2, 3, 2][terrainType] ?? 1; // plains, forest, mountain, hill
+  // 0=plains, 1=forest, 2=mountain, 3=hill, 4=shallow, 5=ocean, 6=sand(beach)
+  return [1, 2, 3, 2, 999, 999, 1][terrainType] ?? 1;
 }
 export function canEnterTerrain(unitType, terrainType) {
   if (terrainType === 2) return unitType === 'INFANTRY' || unitType === 'ENGINEER'; // mountains: foot only
-  return true; // hills, forest, plains: all allowed (vehicles pay extra for forest)
+  if (terrainType === 4 || terrainType === 5) return false; // shallow/ocean: no land units (no naval yet)
+  return true; // hills, forest, sand, plains: all allowed (vehicles pay extra for forest)
 }
 
 // Terrain that blocks line-of-sight beyond 1 hex (for future LOS system)
