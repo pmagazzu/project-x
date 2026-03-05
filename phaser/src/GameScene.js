@@ -88,7 +88,9 @@ export class GameScene extends Phaser.Scene {
     this.highlightGfx = this.add.graphics().setDepth(10);
     this.buildingGfx  = this.add.graphics().setDepth(15);
     this.unitGfx      = this.add.graphics().setDepth(20);
-    this.fogGfx       = this.add.graphics().setDepth(30);
+    // Fog: RenderTexture instead of Graphics — handles large maps (120×120+) without vertex overflow
+    this.fogRT = this.add.renderTexture(0, 0, rtW, rtH)
+      .setOrigin(0, 0).setPosition(bounds.minX - padding, bounds.minY - padding).setDepth(30);
 
     this._log = [];
 
@@ -104,7 +106,7 @@ export class GameScene extends Phaser.Scene {
     // (catches top bar, bottom panel, buttons, etc. without touching each line)
     const worldObjs = new Set([
       this.terrainRT, this.roadGfx, this.resourceGfx,
-      this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogGfx, this._uiLayer
+      this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT, this._uiLayer
     ]);
     for (const obj of [...this.children.list]) {
       if (!worldObjs.has(obj) && obj.scrollFactorX === 0) {
@@ -125,7 +127,7 @@ export class GameScene extends Phaser.Scene {
     this.uiCamera.transparent = true; // transparent background — must not cover world
     this.uiCamera.ignore([
       this.terrainRT, this.roadGfx, this.resourceGfx,
-      this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogGfx,
+      this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT,
     ]);
     this.scale.on('resize', (gs) => this.uiCamera.setSize(gs.width, gs.height));
 
@@ -528,21 +530,36 @@ export class GameScene extends Phaser.Scene {
   }
 
   _redrawFog() {
-    this.fogGfx.clear();
-    // Fog is frozen at turn start — moving units during planning does NOT reveal new enemies
+    // RenderTexture approach: fill entire map black, then erase visible hexes.
+    // O(visible) erase calls vs O(mapSize²) fill calls — critical for 120×120+ maps.
+    this.fogRT.clear();
+
     const fog = this._currentFog || computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
 
-    for (let q = 0; q < this.mapSize; q++) {
-      for (let r = 0; r < this.mapSize; r++) {
-        if (fog.has(`${q},${r}`)) continue;
-        const { x, y } = hexToWorld(q, r);
-        const verts = hexVertices(x, y);
-        this.fogGfx.fillStyle(0x000000, 0.62);
-        this.fogGfx.beginPath(); this.fogGfx.moveTo(verts[0].x, verts[0].y);
-        for (let i = 1; i < verts.length; i++) this.fogGfx.lineTo(verts[i].x, verts[i].y);
-        this.fogGfx.closePath(); this.fogGfx.fillPath();
-      }
+    // Fill entire RT black (fog)
+    const fillGfx = this.make.graphics({ add: false });
+    fillGfx.fillStyle(0x000000, 0.65);
+    fillGfx.fillRect(this.fogRT.x, this.fogRT.y, this.fogRT.width, this.fogRT.height);
+    this.fogRT.draw(fillGfx, 0, 0);
+    fillGfx.destroy();
+
+    if (fog.size === 0) return;
+
+    // Erase (punch out) visible hexes
+    const eraseGfx = this.make.graphics({ add: false });
+    eraseGfx.fillStyle(0xffffff, 1);
+    for (const key of fog) {
+      const [q, r] = key.split(',').map(Number);
+      const { x, y } = hexToWorld(q, r);
+      const verts = hexVertices(x, y);
+      eraseGfx.beginPath();
+      eraseGfx.moveTo(verts[0].x, verts[0].y);
+      for (let i = 1; i < verts.length; i++) eraseGfx.lineTo(verts[i].x, verts[i].y);
+      eraseGfx.closePath();
+      eraseGfx.fillPath();
     }
+    this.fogRT.erase(eraseGfx, 0, 0);
+    eraseGfx.destroy();
   }
 
   // ── Top bar ───────────────────────────────────────────────────────────────
