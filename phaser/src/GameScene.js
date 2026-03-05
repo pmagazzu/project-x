@@ -2357,7 +2357,12 @@ export class GameScene extends Phaser.Scene {
     const gs = this.gameState;
     const spawnType = this.scenario === 'naval' ? 6 : 0;
     for (const b of gs.buildings) map[`${b.q},${b.r}`] = spawnType;
-    for (const u of gs.units)     map[`${u.q},${u.r}`] = spawnType;
+    // Force land unit spawns to plain/sand — but skip naval units so they stay in water
+    for (const u of gs.units) {
+      if (!NAVAL_UNITS.has(u.type) && u.type !== 'COASTAL_BATTERY') {
+        map[`${u.q},${u.r}`] = spawnType;
+      }
+    }
     for (const b of gs.buildings.filter(b => b.type === 'HQ')) {
       for (const [dq, dr] of [[-1,0],[1,0],[0,-1],[0,1],[1,-1],[-1,1]])
         if (isValid(b.q+dq, b.r+dr, ms)) map[`${b.q+dq},${b.r+dr}`] = spawnType;
