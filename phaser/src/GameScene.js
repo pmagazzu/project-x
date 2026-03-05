@@ -27,6 +27,13 @@ const ATTACK_HIGHLIGHT = 0xff6600;
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
 
+  // Add game objects to the UI layer so the fixed uiCamera renders them
+  // (main world camera ignores _uiLayer so zoom never displaces HUD)
+  _addToUI(objs) {
+    if (!this._uiLayer) return;
+    for (const o of objs) { if (o && !o.destroyed) this._uiLayer.add(o); }
+  }
+
   create() {
     this.terrain   = this._generateTerrain();
     this.gameState = createGameState();
@@ -42,7 +49,7 @@ export class GameScene extends Phaser.Scene {
     this._dragStartScroll = { x: 0, y: 0 };
 
     // Recruitment panel state
-    this.recruitBuilding = null;  // building clicked for recruitment
+    this.recruitBuilding = null;
 
     // Build terrain RenderTexture
     const bounds  = getMapBounds();
@@ -55,7 +62,7 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0, 0).setPosition(bounds.minX - padding, bounds.minY - padding);
     this._drawTerrainToRT();
 
-    // Layers (depth order)
+    // World graphics layers (depth order)
     this.roadGfx      = this.add.graphics().setDepth(5);
     this.resourceGfx  = this.add.graphics().setDepth(8);
     this.highlightGfx = this.add.graphics().setDepth(10);
@@ -65,16 +72,41 @@ export class GameScene extends Phaser.Scene {
 
     this._log = [];
 
-    // UI panels
+    // UI Layer — all HUD/panel objects go here
+    this._uiLayer = this.add.layer().setDepth(99);
+
+    // Build static UI panels
     this._createTopBar();
     this._createBottomPanel();
     this._createRecruitPanel();
 
-    // Camera
+    // Move all scroll-factor-0 objects created so far into _uiLayer
+    // (catches top bar, bottom panel, buttons, etc. without touching each line)
+    const worldObjs = new Set([
+      this.terrainRT, this.roadGfx, this.resourceGfx,
+      this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogGfx, this._uiLayer
+    ]);
+    for (const obj of [...this.children.list]) {
+      if (!worldObjs.has(obj) && obj.scrollFactorX === 0) {
+        this._uiLayer.add(obj);
+      }
+    }
+
+    // Main (world) camera
     const cam = this.cameras.main;
     cam.centerOn((bounds.minX + bounds.maxX) / 2, (bounds.minY + bounds.maxY) / 2);
     cam.setZoom(1.0);
     cam.setBounds(bounds.minX - padding, bounds.minY - padding, rtW, rtH);
+    cam.ignore(this._uiLayer);
+
+    // Fixed UI camera — zoom=1, no scroll, ignores all world graphics
+    const sw = this.scale.width, sh = this.scale.height;
+    this.uiCamera = this.cameras.add(0, 0, sw, sh).setName('ui').setScroll(0, 0).setZoom(1);
+    this.uiCamera.ignore([
+      this.terrainRT, this.roadGfx, this.resourceGfx,
+      this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogGfx,
+    ]);
+    this.scale.on('resize', (gs) => this.uiCamera.setSize(gs.width, gs.height));
 
     this._setupInput();
     this._drawStaticLayers();
@@ -575,6 +607,7 @@ export class GameScene extends Phaser.Scene {
       }).setScrollFactor(0).setDepth(110);
       this._buildMenuBtns.push(lbl);
     }
+    this._addToUI(this._buildMenuBtns);
   }
 
   _hideBuildMenu() {
@@ -687,6 +720,7 @@ export class GameScene extends Phaser.Scene {
     const newH = closeBtnY - py + 40;
     bg.setSize(panelW, newH).setPosition(w/2, py + newH/2);
 
+    this._addToUI(objs);
     this.recruitPanel = { visible: true, objects: objs };
     this._updateButtons();
   }
@@ -740,6 +774,7 @@ export class GameScene extends Phaser.Scene {
       );
     };
 
+    this._addToUI(objs);
     this.designPanelObj = { objects: objs, rebuild };
     rebuild();
   }
@@ -839,6 +874,7 @@ export class GameScene extends Phaser.Scene {
     cancelBtn.on('pointerover', () => cancelBtn.setAlpha(0.8));
     cancelBtn.on('pointerout',  () => cancelBtn.setAlpha(1.0));
     objs.push(cancelBtn);
+    this._addToUI(objs);
   }
 
   _hideDesignPanel() {
@@ -1072,6 +1108,7 @@ export class GameScene extends Phaser.Scene {
       font: 'bold 14px monospace', fill: '#ffffff',
       backgroundColor: '#334433', padding: { x: 16, y: 8 }
     }).setOrigin(0.5).setScrollFactor(0).setDepth(202).setInteractive({ useHandCursor: true });
+    this._addToUI([btn]);
 
     btn.on('pointerdown', () => {
       [...objects, btn].forEach(o => o.destroy());
@@ -1086,6 +1123,7 @@ export class GameScene extends Phaser.Scene {
     const overlay = this.add.rectangle(w/2, h/2, w, h, 0x000000, 0.92).setScrollFactor(0).setDepth(200);
     const txt = this.add.text(w/2, h/2, msg, { font: 'bold 26px monospace', fill: '#ffffff' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201);
+    this._addToUI([overlay, txt]);
     this._showSplash([overlay, txt], () => this._refresh());
   }
 
@@ -1170,11 +1208,12 @@ export class GameScene extends Phaser.Scene {
       addLine(`🏆  PLAYER ${winner} WINS!`, '#ffdd44', true);
       yPos += 6;
       addLine(`Game over — thanks for playing Attrition`, '#888888');
-      // Winner splash: click to reload
+      this._addToUI(objects);
       this._showSplash(objects, () => { this.scene.restart(); });
     } else {
       yPos += 6;
       addLine(`Turn ${this.gameState.turn} begins`, '#666666');
+      this._addToUI(objects);
       this._showSplash(objects, () => this._refresh());
     }
   }
