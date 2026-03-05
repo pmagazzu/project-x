@@ -456,12 +456,20 @@ export class GameScene extends Phaser.Scene {
     const p   = gs.currentPlayer;
     const pl  = gs.players[p];
     const inc = calcIncome(gs, p);
-    const pending = gs.pendingRecruits.filter(r => r.owner === p).length;
+    const myOrders = gs.pendingRecruits.filter(r => r.owner === p);
     const modeStr = this.mode === 'move' ? 'MOVING' : this.mode === 'attack' ? 'ATTACKING' : 'PLANNING';
+    const queueStr = myOrders.length
+      ? '  |  ' + myOrders.map(r => {
+          const name = r.designId !== undefined
+            ? (gs.designs[p].find(d => d.id === r.designId)?.name || 'Unit')
+            : UNIT_TYPES[r.type]?.name || '?';
+          return `⚙${name}(${r.turnsLeft}t)`;
+        }).join(' ')
+      : '';
 
     this.resIron.setText(`⚙ ${pl.iron}  (+${inc.iron}/turn)`);
     this.resOil.setText(`🛢 ${pl.oil}  (+${inc.oil}/turn)`);
-    this.turnLbl.setText(`Turn ${gs.turn}  |  Player ${p}  |  ${modeStr}${pending ? `  [${pending} queued]` : ''}`);
+    this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  ${modeStr}${queueStr}`);
   }
 
   // ── Bottom panel ──────────────────────────────────────────────────────────
@@ -648,7 +656,8 @@ export class GameScene extends Phaser.Scene {
       const orderName = existingOrder.designId !== undefined
         ? (gs.designs[p].find(d => d.id === existingOrder.designId)?.name || 'Custom Unit')
         : UNIT_TYPES[existingOrder.type]?.name || '?';
-      const orderTxt = this.add.text(w/2, py + 48, `⏳ Queued: ${orderName}`, {
+      const turnsStr = existingOrder.turnsLeft > 0 ? ` — ${existingOrder.turnsLeft} turn${existingOrder.turnsLeft !== 1 ? 's' : ''} left` : ' — ready next turn';
+      const orderTxt = this.add.text(w/2, py + 48, `⏳ ${orderName}${turnsStr}`, {
         font: 'bold 12px monospace', fill: '#ffdd44', backgroundColor: '#333300', padding: { x: 10, y: 5 }
       }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
       objs.push(orderTxt);

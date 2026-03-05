@@ -11,14 +11,15 @@
 // accuracy    : shifts outcome score (attacker side)
 export const UNIT_TYPES = {
   //              name          mv  atk  hp  rng  cost                   shape      canDigIn canBuild canHeal sight | soft  hard  pierce armor def  eva  acc
-  INFANTRY:  { name:'Infantry',  move:2, attack:2, health:3, range:1, cost:{iron:2,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:3, hard_attack:1, pierce:1, armor:1, defense:1, evasion:0,  accuracy:0  },
-  TANK:      { name:'Tank',      move:4, attack:3, health:6, range:1, cost:{iron:4,oil:2}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:2, hard_attack:4, pierce:5, armor:6, defense:2, evasion:5,  accuracy:5  },
-  ARTILLERY: { name:'Artillery', move:1, attack:4, health:2, range:2, cost:{iron:3,oil:2}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:5, hard_attack:3, pierce:3, armor:1, defense:0, evasion:0,  accuracy:5  },
-  ENGINEER:  { name:'Engineer',  move:2, attack:1, health:2, range:1, cost:{iron:3,oil:0}, shape:'diamond',  canDigIn:false, canBuild:true,  canHeal:false, sight:2, soft_attack:1, hard_attack:0, pierce:1, armor:1, defense:0, evasion:0,  accuracy:-5 },
-  RECON:     { name:'Recon',     move:4, attack:1, health:2, range:1, cost:{iron:3,oil:1}, shape:'star',     canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:2, hard_attack:0, pierce:1, armor:1, defense:0, evasion:15, accuracy:5  },
-  ANTI_TANK: { name:'Anti-Tank', move:2, attack:1, health:2, range:1, cost:{iron:3,oil:0}, shape:'arrow',    canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:1, hard_attack:3, pierce:6, armor:1, defense:1, evasion:0,  accuracy:0  },
-  MORTAR:    { name:'Mortar',    move:2, attack:3, health:2, range:2, cost:{iron:2,oil:0}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:4, hard_attack:1, pierce:2, armor:1, defense:0, evasion:0,  accuracy:0  },
-  MEDIC:     { name:'Medic',     move:2, attack:0, health:2, range:0, cost:{iron:2,oil:0}, shape:'cross',    canDigIn:false, canBuild:false, canHeal:true,  sight:2, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0  },
+  //                                                                                                                                                                                          buildTime = turns to produce
+  INFANTRY:  { name:'Infantry',  move:2, attack:2, health:3, range:1, cost:{iron:2,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:3, hard_attack:1, pierce:1, armor:1, defense:1, evasion:0,  accuracy:0,  buildTime:1 },
+  TANK:      { name:'Tank',      move:4, attack:3, health:6, range:1, cost:{iron:4,oil:2}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:2, hard_attack:4, pierce:5, armor:6, defense:2, evasion:5,  accuracy:5,  buildTime:3 },
+  ARTILLERY: { name:'Artillery', move:1, attack:4, health:2, range:2, cost:{iron:3,oil:2}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:5, hard_attack:3, pierce:3, armor:1, defense:0, evasion:0,  accuracy:5,  buildTime:2 },
+  ENGINEER:  { name:'Engineer',  move:2, attack:1, health:2, range:1, cost:{iron:3,oil:0}, shape:'diamond',  canDigIn:false, canBuild:true,  canHeal:false, sight:2, soft_attack:1, hard_attack:0, pierce:1, armor:1, defense:0, evasion:0,  accuracy:-5, buildTime:1 },
+  RECON:     { name:'Recon',     move:4, attack:1, health:2, range:1, cost:{iron:3,oil:1}, shape:'star',     canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:2, hard_attack:0, pierce:1, armor:1, defense:0, evasion:15, accuracy:5,  buildTime:1 },
+  ANTI_TANK: { name:'Anti-Tank', move:2, attack:1, health:2, range:1, cost:{iron:3,oil:0}, shape:'arrow',    canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:1, hard_attack:3, pierce:6, armor:1, defense:1, evasion:0,  accuracy:0,  buildTime:2 },
+  MORTAR:    { name:'Mortar',    move:2, attack:3, health:2, range:2, cost:{iron:2,oil:0}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:4, hard_attack:1, pierce:2, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:2 },
+  MEDIC:     { name:'Medic',     move:2, attack:0, health:2, range:0, cost:{iron:2,oil:0}, shape:'cross',    canDigIn:false, canBuild:false, canHeal:true,  sight:2, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:1 },
 };
 
 // ── Module system ─────────────────────────────────────────────────────────
@@ -349,14 +350,15 @@ export function queueRecruit(state, player, unitType, buildingId) {
     const design = state.designs[player].find(d => d.id === unitType);
     state.players[player].iron -= design.trainCost.iron;
     state.players[player].oil  -= design.trainCost.oil;
-    state.pendingRecruits.push({ owner: player, designId: unitType, buildingId });
+    const buildTime = UNIT_TYPES[design.chassis]?.buildTime ?? 1;
+    state.pendingRecruits.push({ owner: player, designId: unitType, buildingId, turnsLeft: buildTime });
     return { ok: true };
   }
 
   const def = UNIT_TYPES[unitType];
   state.players[player].iron -= def.cost.iron;
   state.players[player].oil  -= def.cost.oil;
-  state.pendingRecruits.push({ owner: player, type: unitType, buildingId });
+  state.pendingRecruits.push({ owner: player, type: unitType, buildingId, turnsLeft: def.buildTime ?? 1 });
   return { ok: true };
 }
 
@@ -522,9 +524,12 @@ export function resolveTurn(state, terrain) {
     }
   }
 
-  // Phase 4: Spawn recruits adjacent to their building
-  const toSpawn = [...state.pendingRecruits];
-  state.pendingRecruits = [];
+  // Phase 4: Tick recruit timers — spawn when turnsLeft reaches 0
+  for (const recruit of state.pendingRecruits) {
+    recruit.turnsLeft = Math.max(0, (recruit.turnsLeft ?? 1) - 1);
+  }
+  const toSpawn = state.pendingRecruits.filter(r => r.turnsLeft <= 0);
+  state.pendingRecruits = state.pendingRecruits.filter(r => r.turnsLeft > 0);
   for (const recruit of toSpawn) {
     const b = state.buildings.find(b => b.id === recruit.buildingId);
     if (!b || b.owner !== recruit.owner) continue;
