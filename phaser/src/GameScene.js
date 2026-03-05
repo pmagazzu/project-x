@@ -235,6 +235,44 @@ export class GameScene extends Phaser.Scene {
         this.buildingGfx.fillTriangle(x, y - s*0.8, x - s*0.4, y + s*0.3, x + s*0.4, y + s*0.3);
         this.buildingGfx.fillCircle(x, y + s*0.3, s*0.4);
 
+      } else if (b.type === 'VEHICLE_DEPOT') {
+        // Vehicle Depot: wide low building (factory shape)
+        const bw = s * 2.2, bh = s * 1.0;
+        this.buildingGfx.fillStyle(0x000000);
+        this.buildingGfx.fillRect(x - bw/2 - 2, y - bh/2 - 2, bw + 4, bh + 4);
+        this.buildingGfx.fillStyle(0x334455);
+        this.buildingGfx.fillRect(x - bw/2, y - bh/2, bw, bh);
+        // Smokestacks
+        this.buildingGfx.fillStyle(color);
+        this.buildingGfx.fillRect(x - bw*0.3, y - bh/2 - s*0.7, s*0.35, s*0.75);
+        this.buildingGfx.fillRect(x + bw*0.1, y - bh/2 - s*0.5, s*0.35, s*0.55);
+        this.buildingGfx.lineStyle(1.5, 0xffffff, 0.6);
+        this.buildingGfx.strokeRect(x - bw/2, y - bh/2, bw, bh);
+
+      } else if (b.type === 'BUNKER') {
+        // Bunker: grey hexagonal low dome
+        const verts = hexVertices(x, y).map(v => ({ x: x + (v.x-x)*0.55, y: y + (v.y-y)*0.55 }));
+        this.buildingGfx.fillStyle(0x555544);
+        this.buildingGfx.beginPath(); this.buildingGfx.moveTo(verts[0].x, verts[0].y);
+        for (let i = 1; i < verts.length; i++) this.buildingGfx.lineTo(verts[i].x, verts[i].y);
+        this.buildingGfx.closePath(); this.buildingGfx.fillPath();
+        this.buildingGfx.lineStyle(2, color, 0.8);
+        this.buildingGfx.beginPath(); this.buildingGfx.moveTo(verts[0].x, verts[0].y);
+        for (let i = 1; i < verts.length; i++) this.buildingGfx.lineTo(verts[i].x, verts[i].y);
+        this.buildingGfx.closePath(); this.buildingGfx.strokePath();
+
+      } else if (b.type === 'OBS_POST') {
+        // Observation Post: tall thin tower
+        this.buildingGfx.fillStyle(0x000000);
+        this.buildingGfx.fillRect(x - s*0.18, y - s*1.4, s*0.36, s*1.6);
+        this.buildingGfx.fillStyle(color);
+        this.buildingGfx.fillRect(x - s*0.15, y - s*1.35, s*0.3, s*1.5);
+        // Platform on top
+        this.buildingGfx.fillStyle(0x88aacc);
+        this.buildingGfx.fillRect(x - s*0.45, y - s*1.5, s*0.9, s*0.25);
+        this.buildingGfx.lineStyle(1, 0xffffff, 0.7);
+        this.buildingGfx.strokeRect(x - s*0.45, y - s*1.5, s*0.9, s*0.25);
+
       } else if (b.type === 'BARRACKS') {
         // Barracks: brown rectangle with crenellations
         const bw = s * 1.8, bh = s * 1.2;
@@ -300,6 +338,26 @@ export class GameScene extends Phaser.Scene {
         this.unitGfx.lineStyle(2, 0x000000, alpha);
         this.unitGfx.strokeTriangle(x, y-r, x-r*0.7, y, x+r*0.7, y);
         this.unitGfx.strokeTriangle(x, y+r, x-r*0.7, y, x+r*0.7, y);
+      } else if (def.shape === 'star') {
+        // Recon: 4-point star
+        this.unitGfx.fillTriangle(x, y-r, x-r*0.35, y, x+r*0.35, y);
+        this.unitGfx.fillTriangle(x, y+r, x-r*0.35, y, x+r*0.35, y);
+        this.unitGfx.fillTriangle(x-r, y, x, y-r*0.35, x, y+r*0.35);
+        this.unitGfx.fillTriangle(x+r, y, x, y-r*0.35, x, y+r*0.35);
+      } else if (def.shape === 'arrow') {
+        // Anti-Tank: rightward arrow / wedge
+        this.unitGfx.fillTriangle(x+r, y, x-r*0.5, y-r*0.7, x-r*0.5, y+r*0.7);
+        this.unitGfx.lineStyle(2, 0x000000, alpha);
+        this.unitGfx.strokeTriangle(x+r, y, x-r*0.5, y-r*0.7, x-r*0.5, y+r*0.7);
+      } else if (def.shape === 'cross') {
+        // Medic: red cross
+        this.unitGfx.fillStyle(0xffffff, alpha);
+        this.unitGfx.fillCircle(x, y, r);
+        this.unitGfx.fillStyle(0xdd2222, alpha);
+        this.unitGfx.fillRect(x-r*0.2, y-r*0.7, r*0.4, r*1.4);
+        this.unitGfx.fillRect(x-r*0.7, y-r*0.2, r*1.4, r*0.4);
+        this.unitGfx.lineStyle(2, 0x000000, alpha);
+        this.unitGfx.strokeCircle(x, y, r);
       }
 
       // Health bar
@@ -335,12 +393,15 @@ export class GameScene extends Phaser.Scene {
   // ── Buttons ───────────────────────────────────────────────────────────────
   _createButtons() {
     const w = this.scale.width;
-    this.btnSubmit = this._makeButton(w-140, 12, 'SUBMIT TURN', 0x226622, () => this._onSubmit());
-    this.btnAttack = this._makeButton(w-270, 12, 'ATTACK',      0x882222, () => this._onAttackMode());
-    this.btnDigIn  = this._makeButton(w-370, 12, 'DIG IN',      0x8B5A2B, () => this._onDigIn());
-    this.btnBuild  = this._makeButton(w-480, 12, 'BUILD ROAD',  0x664422, () => this._onBuildRoad());
-    this.btnMine   = this._makeButton(w-600, 12, 'BUILD MINE',  0x557755, () => this._onBuildMine());
-    this.btnCancel = this._makeButton(w-710, 12, 'CANCEL',      0x444444, () => this._onCancel());
+    this.btnSubmit  = this._makeButton(w-140, 12, 'SUBMIT TURN',  0x226622, () => this._onSubmit());
+    this.btnAttack  = this._makeButton(w-270, 12, 'ATTACK',       0x882222, () => this._onAttackMode());
+    this.btnDigIn   = this._makeButton(w-360, 12, 'DIG IN',       0x8B5A2B, () => this._onDigIn());
+    this.btnBuild   = this._makeButton(w-460, 12, 'ROAD',         0x664422, () => this._onBuildRoad());
+    this.btnMine    = this._makeButton(w-540, 12, 'MINE/OIL',     0x557755, () => this._onBuildMine());
+    this.btnBunker  = this._makeButton(w-640, 12, 'BUNKER',       0x665544, () => this._onBuildStructure('BUNKER', 5));
+    this.btnDepot   = this._makeButton(w-740, 12, 'V.DEPOT',      0x334466, () => this._onBuildStructure('VEHICLE_DEPOT', 8));
+    this.btnObsPost = this._makeButton(w-840, 12, 'OBS.POST',     0x336688, () => this._onBuildStructure('OBS_POST', 3));
+    this.btnCancel  = this._makeButton(w-940, 12, 'CANCEL',       0x444444, () => this._onCancel());
   }
 
   _makeButton(x, y, label, color, cb) {
@@ -391,11 +452,19 @@ export class GameScene extends Phaser.Scene {
       this._buildingOil = false;
     }
 
-    // Build Road: engineer, any non-road non-building hex
-    const canBuildRoad = canAct && UNIT_TYPES[u.type].canBuild &&
-      !roadAt(gs, u.q, u.r) &&
-      gs.players[gs.currentPlayer].iron >= 1;
-    this.btnBuild.setVisible(canBuildRoad);
+    const isEngineer = canAct && UNIT_TYPES[u.type].canBuild;
+    const p = gs.currentPlayer;
+
+    this.btnBuild.setVisible(isEngineer && !roadAt(gs, u.q, u.r) && gs.players[p].iron >= 1);
+
+    const resCost = 4, res = gs.resourceHexes[`${u.q},${u.r}`];
+    const noBuilding = !buildingAt(gs, u.q, u.r);
+    this.btnMine.setVisible(isEngineer && !!res && noBuilding && gs.players[p].iron >= resCost);
+    if (isEngineer && res) this.btnMine.setText(res.type === 'OIL' ? 'OIL PUMP' : 'MINE');
+
+    this.btnBunker.setVisible(isEngineer && noBuilding && gs.players[p].iron >= 5);
+    this.btnDepot.setVisible(isEngineer && noBuilding && gs.players[p].iron >= 8 && gs.players[p].oil >= 2);
+    this.btnObsPost.setVisible(isEngineer && noBuilding && gs.players[p].iron >= 3);
   }
 
   // ── Recruitment panel ─────────────────────────────────────────────────────
@@ -617,6 +686,20 @@ export class GameScene extends Phaser.Scene {
     this._clearSelection();
   }
 
+  _onBuildStructure(type, ironCost) {
+    const gs = this.gameState, u = this.selectedUnit;
+    if (!u || !UNIT_TYPES[u.type].canBuild) return;
+    if (buildingAt(gs, u.q, u.r)) return;
+    const oilCost = type === 'VEHICLE_DEPOT' ? 2 : 0;
+    if (gs.players[gs.currentPlayer].iron < ironCost) return;
+    if (gs.players[gs.currentPlayer].oil  < oilCost)  return;
+    gs.players[gs.currentPlayer].iron -= ironCost;
+    gs.players[gs.currentPlayer].oil  -= oilCost;
+    gs.buildings.push(createBuilding(type, gs.currentPlayer, u.q, u.r));
+    u.moved = true; u.building = true;
+    this._clearSelection();
+  }
+
   _onBuildMine() {
     const gs  = this.gameState;
     const u   = this.selectedUnit;
@@ -650,7 +733,8 @@ export class GameScene extends Phaser.Scene {
   // ── Pass / Resolution screens ─────────────────────────────────────────────
   _showSplash(objects, onDismiss) {
     // Hide game buttons while splash is showing
-    [this.btnSubmit, this.btnAttack, this.btnDigIn, this.btnBuild, this.btnMine, this.btnCancel]
+    [this.btnSubmit, this.btnAttack, this.btnDigIn, this.btnBuild, this.btnMine,
+     this.btnBunker, this.btnDepot, this.btnObsPost, this.btnCancel]
       .forEach(b => b.setVisible(false));
 
     const btn = this.add.text(this.scale.width / 2, this.scale.height - 60, '[ CLICK TO CONTINUE ]', {

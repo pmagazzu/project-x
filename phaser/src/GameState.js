@@ -2,10 +2,14 @@
 // Phase 1: 2-player hotseat, iron + oil, 4 unit types, simultaneous turns (we-go)
 
 export const UNIT_TYPES = {
-  INFANTRY:  { name: 'Infantry',  move: 2, attack: 2, health: 3, range: 1, cost: { iron: 2, oil: 0 }, shape: 'circle',   canDigIn: true,  canBuild: false, sight: 2 },
-  TANK:      { name: 'Tank',      move: 4, attack: 3, health: 6, range: 1, cost: { iron: 4, oil: 2 }, shape: 'square',   canDigIn: false, canBuild: false, sight: 3 },
-  ARTILLERY: { name: 'Artillery', move: 1, attack: 4, health: 2, range: 2, cost: { iron: 3, oil: 2 }, shape: 'triangle', canDigIn: false, canBuild: false, sight: 2 },
-  ENGINEER:  { name: 'Engineer',  move: 2, attack: 1, health: 2, range: 1, cost: { iron: 3, oil: 0 }, shape: 'diamond',  canDigIn: false, canBuild: true,  sight: 2 },
+  INFANTRY:   { name: 'Infantry',   move: 2, attack: 2, health: 3, range: 1, cost: { iron: 2, oil: 0 }, shape: 'circle',   canDigIn: true,  canBuild: false, canHeal: false, sight: 2 },
+  TANK:       { name: 'Tank',       move: 4, attack: 3, health: 6, range: 1, cost: { iron: 4, oil: 2 }, shape: 'square',   canDigIn: false, canBuild: false, canHeal: false, sight: 3 },
+  ARTILLERY:  { name: 'Artillery',  move: 1, attack: 4, health: 2, range: 2, cost: { iron: 3, oil: 2 }, shape: 'triangle', canDigIn: false, canBuild: false, canHeal: false, sight: 2 },
+  ENGINEER:   { name: 'Engineer',   move: 2, attack: 1, health: 2, range: 1, cost: { iron: 3, oil: 0 }, shape: 'diamond',  canDigIn: false, canBuild: true,  canHeal: false, sight: 2 },
+  RECON:      { name: 'Recon',      move: 4, attack: 1, health: 2, range: 1, cost: { iron: 3, oil: 1 }, shape: 'star',     canDigIn: false, canBuild: false, canHeal: false, sight: 4 },
+  ANTI_TANK:  { name: 'Anti-Tank',  move: 1, attack: 1, health: 2, range: 1, cost: { iron: 3, oil: 0 }, shape: 'arrow',    canDigIn: true,  canBuild: false, canHeal: false, sight: 2 },
+  MORTAR:     { name: 'Mortar',     move: 1, attack: 3, health: 2, range: 2, cost: { iron: 2, oil: 0 }, shape: 'triangle', canDigIn: false, canBuild: false, canHeal: false, sight: 2 },
+  MEDIC:      { name: 'Medic',      move: 2, attack: 0, health: 2, range: 0, cost: { iron: 2, oil: 0 }, shape: 'cross',    canDigIn: false, canBuild: false, canHeal: true,  sight: 2 },
 };
 
 // ── Combat modifier notes (future) ────────────────────────────────────────
@@ -16,12 +20,14 @@ export const UNIT_TYPES = {
 // - Dug-in (infantry field): -1 incoming damage, lost on move
 
 export const BUILDING_TYPES = {
-  HQ:       { name: 'HQ',        ironPerTurn: 3, oilPerTurn: 0, canRecruit: ['ENGINEER'],    buildCost: null,              color: 0xffdd00 },
-  MINE:     { name: 'Iron Mine', ironPerTurn: 2, oilPerTurn: 0, canRecruit: [],              buildCost: { iron: 4, oil: 0 }, color: 0xaaaaaa },
-  OIL_PUMP: { name: 'Oil Pump',  ironPerTurn: 0, oilPerTurn: 2, canRecruit: [],              buildCost: { iron: 4, oil: 0 }, color: 0x222244 },
-  BARRACKS: { name: 'Barracks',  ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['INFANTRY'],    buildCost: { iron: 6, oil: 0 }, color: 0xaa6644 },
-  // Future: VEHICLE_DEPOT → TANK, ARTILLERY, etc.
-  ROAD:     { name: 'Road',      ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],              buildCost: { iron: 1, oil: 0 }, color: 0xccbbaa },
+  HQ:            { name: 'HQ',             ironPerTurn: 3, oilPerTurn: 0, canRecruit: ['ENGINEER','RECON'],                   buildCost: null,               color: 0xffdd00, sight: 0 },
+  MINE:          { name: 'Iron Mine',      ironPerTurn: 2, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 4, oil: 0 }, color: 0xaaaaaa, sight: 0 },
+  OIL_PUMP:      { name: 'Oil Pump',       ironPerTurn: 0, oilPerTurn: 2, canRecruit: [],                                        buildCost: { iron: 4, oil: 0 }, color: 0x222244, sight: 0 },
+  BARRACKS:      { name: 'Barracks',       ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['INFANTRY','ANTI_TANK','MORTAR','MEDIC'], buildCost: { iron: 6, oil: 0 }, color: 0xaa6644, sight: 0 },
+  VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['TANK','ARTILLERY'],                      buildCost: { iron: 8, oil: 2 }, color: 0x557799, sight: 0 },
+  BUNKER:        { name: 'Bunker',         ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 5, oil: 0 }, color: 0x888866, sight: 0 },
+  OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 3, oil: 0 }, color: 0x88aacc, sight: 3 },
+  ROAD:          { name: 'Road',           ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 1, oil: 0 }, color: 0xccbbaa, sight: 0 },
 };
 
 export const RESOURCE_TYPES = {
@@ -160,14 +166,21 @@ export function getAttackableHexes(state, unit, fromQ, fromR) {
 // ── Fog of war ─────────────────────────────────────────────────────────────
 export function computeFog(state, player, mapSize) {
   const visible = new Set();
-  for (const unit of state.units.filter(u => u.owner === player)) {
-    const sight = UNIT_TYPES[unit.type].sight;
-    const seen = new Set([`${unit.q},${unit.r}`]);
-    const queue = [{ q: unit.q, r: unit.r, steps: 0 }];
+
+  // Sight sources: friendly units + observation posts
+  const sources = [
+    ...state.units.filter(u => u.owner === player).map(u => ({ q: u.q, r: u.r, sight: UNIT_TYPES[u.type].sight })),
+    ...state.buildings.filter(b => b.owner === player && BUILDING_TYPES[b.type].sight > 0)
+                      .map(b => ({ q: b.q, r: b.r, sight: BUILDING_TYPES[b.type].sight })),
+  ];
+
+  for (const src of sources) {
+    const seen = new Set([`${src.q},${src.r}`]);
+    const queue = [{ q: src.q, r: src.r, steps: 0 }];
     while (queue.length > 0) {
       const { q, r, steps } = queue.shift();
       visible.add(`${q},${r}`);
-      if (steps >= sight) continue;
+      if (steps >= src.sight) continue;
       for (const [dq, dr] of HEX_NEIGHBORS) {
         const nq = q + dq, nr = r + dr;
         if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) continue;
@@ -245,6 +258,9 @@ export function resolveTurn(state, terrain) {
     if (dist > def.range) { events.push(`${UNIT_TYPES[attacker.type].name} (P${attacker.owner}) missed — target moved`); continue; }
     let dmg = Math.max(1, def.attack + Math.floor(Math.random() * 2) - 1);
     if (target.dugIn) dmg = Math.max(0, dmg - 1);
+    // Bunker: additional -1 damage reduction
+    const onBunker = state.buildings.find(b => b.type === 'BUNKER' && b.q === target.q && b.r === target.r && b.owner === target.owner);
+    if (onBunker) dmg = Math.max(0, dmg - 2);
     damage[targetId] = (damage[targetId] || 0) + dmg;
     events.push(`${UNIT_TYPES[attacker.type].name} (P${attacker.owner}) hits ${UNIT_TYPES[target.type].name} (P${target.owner}) for ${dmg}${target.dugIn?' (dug in)':''}`);
   }
@@ -253,6 +269,17 @@ export function resolveTurn(state, terrain) {
     if (t) { t.health -= dmg; if (t.health <= 0) events.push(`${UNIT_TYPES[t.type].name} (P${t.owner}) destroyed!`); }
   }
   state.units = state.units.filter(u => u.health > 0);
+
+  // Phase 2.5: Medic healing (before captures)
+  for (const medic of state.units.filter(u => u.type === 'MEDIC')) {
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const target = unitAt(state, medic.q + dq, medic.r + dr);
+      if (target && target.owner === medic.owner && target.health < target.maxHealth) {
+        target.health = Math.min(target.maxHealth, target.health + 1);
+        events.push(`Medic (P${medic.owner}) heals ${UNIT_TYPES[target.type].name}`);
+      }
+    }
+  }
 
   // Phase 3: Captures
   for (const b of state.buildings) {
