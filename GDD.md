@@ -114,6 +114,7 @@ All players plan simultaneously. When all players submit, the turn resolves.
 | Resource | Source | Used For |
 |---|---|---|
 | 🌾 Food | Farms on fertile hexes | Population growth, unit upkeep |
+| 🪵 Wood | Lumber camps on forest hexes | Tier 0-1 structures, early boats, rails, transports |
 | 🏭 Iron | Iron mines on iron deposits | Equipment, vehicles, buildings |
 | ⛽ Oil | Oil wells on oil deposits | Vehicles, aircraft, naval units |
 | 💰 Gold | Gold mines, trade | Commerce, advanced purchases |
@@ -135,6 +136,32 @@ All players plan simultaneously. When all players submit, the turn resolves.
   - **Soldiers** → consumed when training units
   - **Scientists** → generate research points per turn
 - Build housing to increase population cap
+
+### §6a — Wood Resource (Detailed Design)
+
+**Overview:** Wood is the primary early-game resource. Abundant and cheap to access, it anchors Tier 0-1 construction and gives new players something to do before iron infrastructure comes online. Late-game it finds a second life in rails and mass-transport logistics.
+
+**Source — Forest Hexes:**
+- Forest hexes visible on map; engineer builds a **Lumber Camp** on/adjacent to forest hex
+- Lumber Camp produces +2 wood/turn (no citizen cost in prototype)
+- Harvesting is *non-destructive* by default — forest remains
+- Optional mechanic (Tier 2+): **Clear-cut** — engineer action that permanently removes forest cover, yields a one-time +8 wood bonus, turns hex to plains (loses cover/movement penalty). Strategic tradeoff: short-term gain vs. permanent loss of defensive terrain and fog-of-war cover.
+
+**Used For:**
+| Tier | Uses |
+|---|---|
+| 0 | Basic Barracks (wooden shack), Watchtower, Pontoon Bridge, Lumber Camp itself |
+| 1 | Wooden Bunker (weaker than concrete), Dock (river/coastal boats), Supply Depot |
+| 2 | Railway segment (wood + iron), River Transport, basic Airstrip |
+| 3+ | Mass transit (troop trains), logistics hubs — wood as bulk filler alongside iron/oil |
+
+**Economy Notes:**
+- Wood is plentiful early — maps should have ample forest hexes near starting positions
+- Wood does NOT scale infinitely useful — by mid-game iron dominates military builds; wood is mainly a cost-reducer/alternative for structures
+- Rail construction (Tier 2) costs wood + iron per segment — wood represents ties/lumber, iron the rails. This keeps rails expensive and strategic.
+- Late-game wood surplus can be converted: e.g. a **Sawmill upgrade** that converts 3 wood → 1 iron/turn (minor but useful)
+
+**Prototype Scope:** Not implemented in Phase 1. Add in Phase 2 alongside tech tree and Lumber Camp building. Forest hexes already exist in terrain — no map changes needed.
 
 ---
 
