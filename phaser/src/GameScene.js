@@ -259,6 +259,15 @@ export class GameScene extends Phaser.Scene {
         this.unitGfx.strokeCircle(x, y, r + 5);
       }
 
+      // Incoming attack warning: red pulsing ring if targeted by a pending attack
+      const isTargeted = Object.values(this.gameState.pendingAttacks).includes(unit.id);
+      if (isTargeted) {
+        this.unitGfx.lineStyle(3, 0xff2222, 0.85);
+        this.unitGfx.strokeCircle(x, y, r + 9);
+        this.unitGfx.lineStyle(1.5, 0xff8888, 0.5);
+        this.unitGfx.strokeCircle(x, y, r + 13);
+      }
+
       if (def.shape === 'circle') {
         this.unitGfx.fillCircle(x, y, r);
         this.unitGfx.strokeCircle(x, y, r);
