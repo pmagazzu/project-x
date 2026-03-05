@@ -35,8 +35,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
-    this.terrain   = this._generateTerrain();
     this.gameState = createGameState();
+    this.terrain   = this._generateTerrain();
 
     // Interaction state
     this.hoveredHex   = null;
