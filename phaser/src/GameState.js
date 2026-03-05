@@ -188,29 +188,32 @@ export function createGameState(scenario = 'default') {
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
 
   } else if (scenario === 'naval') {
-    // Island bases, engineers to start — naval terrain, no water units yet
-    state.units.push(createUnit('ENGINEER', 1, 3, 3));
-    state.units.push(createUnit('ENGINEER', 1, 4, 3));
-    state.units.push(createUnit('ENGINEER', 2, 30, 20));
-    state.units.push(createUnit('ENGINEER', 2, 31, 20));
-    state.buildings.push(createBuilding('HQ', 1, 3, 4));
-    state.buildings.push(createBuilding('HQ', 2, 31, 21));
+    // Island bases — P1 at left island (axial ~4,20), P2 at right island (axial ~30,7)
+    // Island centers match _genNavalTerrain: islandRow=22, radius=5
+    // P1 center: q=4, r=20  |  P2 center: q=30, r=7
+    state.units.push(createUnit('ENGINEER', 1, 4, 19));
+    state.units.push(createUnit('ENGINEER', 1, 5, 19));
+    state.units.push(createUnit('ENGINEER', 2, 29, 8));
+    state.units.push(createUnit('ENGINEER', 2, 30, 8));
+    state.buildings.push(createBuilding('HQ', 1, 4, 20));
+    state.buildings.push(createBuilding('HQ', 2, 30, 7));
     // Island resources
-    for (const [q,r] of [[4,5],[5,4],[5,5],[2,4],[3,6]])
+    for (const [q,r] of [[3,20],[4,21],[5,20],[3,21],[5,19]])
       state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
-    for (const [q,r] of [[30,19],[29,20],[31,19]])
+    for (const [q,r] of [[29,7],[30,6],[31,7]])
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
 
   } else if (scenario === 'combat') {
-    // All unit types lined up on a plains map — combat testing
-    const p1q = 2, p2q = 17;
+    // All unit types lined up 5 tiles apart — centered on the 20×10 map
+    // Units at q=7 (P1) and q=12 (P2), 8 rows starting at r=1
+    const p1q = 7, p2q = 12;
     const types = ['INFANTRY','TANK','ARTILLERY','ENGINEER','RECON','ANTI_TANK','MORTAR','MEDIC'];
     types.forEach((t, i) => {
-      state.units.push(createUnit(t, 1, p1q, i));
-      state.units.push(createUnit(t, 2, p2q, i));
+      state.units.push(createUnit(t, 1, p1q, i + 1));
+      state.units.push(createUnit(t, 2, p2q, i + 1));
     });
-    state.buildings.push(createBuilding('HQ', 1, 0, 4));
-    state.buildings.push(createBuilding('HQ', 2, 19, 4));
+    state.buildings.push(createBuilding('HQ', 1, 5, 4));
+    state.buildings.push(createBuilding('HQ', 2, 14, 4));
     state.players[1].iron = 20; state.players[1].oil = 10;
     state.players[2].iron = 20; state.players[2].oil = 10;
 

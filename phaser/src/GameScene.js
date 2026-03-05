@@ -119,7 +119,11 @@ export class GameScene extends Phaser.Scene {
     const cam = this.cameras.main;
     cam.centerOn((bounds.minX + bounds.maxX) / 2, (bounds.minY + bounds.maxY) / 2);
     cam.setZoom(1.0);
-    cam.setBounds(bounds.minX - padding, bounds.minY - padding, rtW, rtH);
+    // Extend camera bounds by half a screen in each direction so players can
+    // center a corner base on-screen without hitting an invisible wall.
+    const sw0 = this.scale.width, sh0 = this.scale.height;
+    cam.setBounds(bounds.minX - padding - sw0 * 0.5, bounds.minY - padding - sh0 * 0.5,
+                  rtW + sw0, rtH + sh0);
     cam.ignore(this._uiLayer);
 
     // Fixed UI camera — zoom=1, no scroll, ignores all world graphics
@@ -2063,6 +2067,23 @@ export class GameScene extends Phaser.Scene {
     for (let q = 0; q < ms; q++)
       for (let r = 0; r < ms; r++) map[`${q},${r}`] = 5; // OCEAN
 
+    // ── Rectangular visual region via offset coordinates ──────────────────
+    // In flat-top axial hex grids, the q∈[0,ms) r∈[0,ms) grid is a parallelogram.
+    // We use "even-q offset" coords: offset_row = r + floor(q/2)
+    // The playable rectangle is q∈[0,ms), offset_row∈[rowMin, rowMax).
+    // Hexes outside this range stay OCEAN (impassable) — giving a rectangular map.
+    const RECT_H = Math.round(ms * 0.65); // visual row count
+    const rowMin = Math.round(ms * 0.1);
+    const rowMax = rowMin + RECT_H;
+
+    const inRect = (q, r) => {
+      const offsetRow = r + Math.floor(q / 2);
+      return q >= 0 && q < ms && offsetRow >= rowMin && offsetRow < rowMax;
+    };
+
+    // Helper: convert offset coords (col, offsetRow) → axial (q, r)
+    const offsetToAxial = (col, offsetRow) => ({ q: col, r: offsetRow - Math.floor(col / 2) });
+
     const setIsland = (cq, cr, radius) => {
       for (let dq = -radius; dq <= radius; dq++) {
         for (let dr = -radius; dr <= radius; dr++) {
@@ -2070,27 +2091,39 @@ export class GameScene extends Phaser.Scene {
           if (!isValid(nq, nr, ms)) continue;
           const dist = Math.abs(dq) + Math.abs(dr) + Math.abs(-dq-dr);
           const hexDist = dist / 2;
-          if (hexDist <= radius)     map[`${nq},${nr}`] = 6; // sand interior
+          if (hexDist <= radius)          map[`${nq},${nr}`] = 6; // sand interior
           else if (hexDist <= radius+1.5) map[`${nq},${nr}`] = 4; // shallow shore
         }
       }
     };
 
-    const mh = Math.floor(ms * 0.6); // midpoint row
+    // Island row: same offset row for both → same VISUAL height (symmetric left-right)
+    // Constraint: P2 island at col=ms-5 needs axial r = islandRow - floor((ms-5)/2) >= radius+1
+    const radius = 5;
+    const p2col = ms - 5;
+    const p2floorQ = Math.floor(p2col / 2);
+    const islandRow = Math.max(rowMin + Math.round(RECT_H * 0.5), p2floorQ + radius + 2);
 
-    // Main islands at each end
-    setIsland(4,  Math.floor(mh * 0.55), 5);
-    setIsland(ms-5, Math.floor(mh * 0.45), 5);
+    // P1 island: left side
+    const p1 = offsetToAxial(4, islandRow);
+    setIsland(p1.q, p1.r, radius);
 
-    // Scatter of small mid-ocean islands (deterministic positions)
+    // P2 island: right side, same visual height
+    const p2 = offsetToAxial(p2col, islandRow);
+    setIsland(p2.q, p2.r, radius);
+
+    // Small mid-ocean islands (offset row coords relative to islandRow)
     const smalls = [
-      [Math.floor(ms*0.3), Math.floor(mh*0.35), 2],
-      [Math.floor(ms*0.45), Math.floor(mh*0.7),  3],
-      [Math.floor(ms*0.55), Math.floor(mh*0.25), 2],
-      [Math.floor(ms*0.65), Math.floor(mh*0.6),  2],
-      [Math.floor(ms*0.38), Math.floor(mh*0.5),  1],
+      [Math.floor(ms*0.28), islandRow - 4, 2],
+      [Math.floor(ms*0.45), islandRow + 4, 3],
+      [Math.floor(ms*0.55), islandRow - 5, 2],
+      [Math.floor(ms*0.68), islandRow + 2, 2],
+      [Math.floor(ms*0.38), islandRow,     1],
     ];
-    for (const [cq, cr, r] of smalls) setIsland(cq, cr, r);
+    for (const [col, orow, rad] of smalls) {
+      const { q, r } = offsetToAxial(col, orow);
+      if (isValid(q, r, ms)) setIsland(q, r, rad);
+    }
   }
 
   _seededRng(seed) {
