@@ -11,7 +11,7 @@ import {
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, computeDesignStats,
-  NAVAL_UNITS, isStealthDetected
+  NAVAL_UNITS, SHALLOW_UNITS, canEnterTerrain, isStealthDetected
 } from './GameState.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -51,6 +51,8 @@ export class GameScene extends Phaser.Scene {
 
     this.gameState = createGameState(this.scenario);
     this.terrain   = this._generateTerrain();
+    // After terrain is known, relocate any naval unit that spawned on invalid terrain
+    this._fixNavalSpawns();
 
     // Interaction state
     this.hoveredHex   = null;
@@ -2316,6 +2318,38 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ── Terrain generation ────────────────────────────────────────────────────
+  // After terrain generation: if a naval unit is on invalid terrain, BFS to nearest valid hex.
+  _fixNavalSpawns() {
+    const gs = this.gameState;
+    for (const unit of gs.units) {
+      if (!NAVAL_UNITS.has(unit.type)) continue;
+      const ttype = this.terrain[`${unit.q},${unit.r}`] ?? 0;
+      if (canEnterTerrain(unit.type, ttype)) continue; // already valid
+
+      // BFS outward from spawn to find nearest valid water hex
+      const visited = new Set([`${unit.q},${unit.r}`]);
+      const queue = [{ q: unit.q, r: unit.r }];
+      let found = null;
+      outer: while (queue.length > 0) {
+        const { q, r } = queue.shift();
+        for (const [dq, dr] of [[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]]) {
+          const nq = q+dq, nr = r+dr;
+          if (nq < 0 || nr < 0 || nq >= this.mapSize || nr >= this.mapSize) continue;
+          const key = `${nq},${nr}`;
+          if (visited.has(key)) continue;
+          visited.add(key);
+          const tt = this.terrain[key] ?? 0;
+          if (canEnterTerrain(unit.type, tt) && !gs.units.find(u => u !== unit && u.q === nq && u.r === nr)) {
+            found = { q: nq, r: nr };
+            break outer;
+          }
+          queue.push({ q: nq, r: nr });
+        }
+      }
+      if (found) { unit.q = found.q; unit.r = found.r; }
+    }
+  }
+
   _generateTerrain() {
     const ms = this.mapSize;
     const map = {};
