@@ -118,6 +118,7 @@ export class GameScene extends Phaser.Scene {
 
     this._setupInput();
     this._drawStaticLayers();
+    this._freezeFog(); // lock fog for P1's first planning phase
     this._refresh();
   }
 
@@ -464,10 +465,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ── Fog of war ────────────────────────────────────────────────────────────
+  // Call at turn start to lock in fog for the planning phase
+  _freezeFog() {
+    this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, MAP_SIZE);
+  }
+
   _redrawFog() {
     this.fogGfx.clear();
-    const fog = computeFog(this.gameState, this.gameState.currentPlayer, MAP_SIZE);
-    this._currentFog = fog;
+    // Fog is frozen at turn start — moving units during planning does NOT reveal new enemies
+    const fog = this._currentFog || computeFog(this.gameState, this.gameState.currentPlayer, MAP_SIZE);
 
     for (let q = 0; q < MAP_SIZE; q++) {
       for (let r = 0; r < MAP_SIZE; r++) {
@@ -1660,7 +1666,7 @@ export class GameScene extends Phaser.Scene {
     const txt = this.add.text(w/2, h/2, msg, { font: 'bold 26px monospace', fill: '#ffffff' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201);
     this._addToUI([overlay, txt]);
-    this._showSplash([overlay, txt], () => this._refresh());
+    this._showSplash([overlay, txt], () => { this._freezeFog(); this._refresh(); });
   }
 
   _showResolution(events, winner) {
@@ -1750,7 +1756,7 @@ export class GameScene extends Phaser.Scene {
       yPos += 6;
       addLine(`Turn ${this.gameState.turn} begins`, '#666666');
       this._addToUI(objects);
-      this._showSplash(objects, () => this._refresh());
+      this._showSplash(objects, () => { this._freezeFog(); this._refresh(); });
     }
   }
 
@@ -1776,9 +1782,15 @@ export class GameScene extends Phaser.Scene {
         for (let dr = -1; dr <= 1; dr++)
           if (isValid(cq+dq,cr+dr) && rng()>0.5) map[`${cq+dq},${cr+dr}`] = 2;
     }
-    // Building hexes (HQ, Barracks etc) must be on plains — but resource deposits can be in forest
+    // Buildings and unit spawn points must be on plains
     const gs = this.gameState;
     for (const b of gs.buildings) map[`${b.q},${b.r}`] = 0;
+    for (const u of gs.units) map[`${u.q},${u.r}`] = 0;
+    // Also clear a 1-hex radius around HQs so starting areas are playable
+    for (const b of gs.buildings.filter(b => b.type === 'HQ')) {
+      for (const [dq, dr] of [[-1,0],[1,0],[0,-1],[0,1],[1,-1],[-1,1]])
+        if (isValid(b.q+dq, b.r+dr)) map[`${b.q+dq},${b.r+dr}`] = 0;
+    }
     return map;
   }
 
