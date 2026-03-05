@@ -1372,7 +1372,7 @@ export class GameScene extends Phaser.Scene {
     // Use stored cursor anchor (right-click origin); submenus reuse same anchor
     const anchor = this._menuAnchor || { x: sw / 2, y: sh / 2 };
 
-    const PAGE_SIZE = 6;
+    const PAGE_SIZE = 8;
     const btnH = 30, btnW = 180, gap = 3;
     const DEPTH = 150;
     const objs  = [];
@@ -1410,26 +1410,19 @@ export class GameScene extends Phaser.Scene {
         allOpts.push({ label: `${res.type==='OIL'?'Oil Pump   4⚙ 2🛢':'Mine        4⚙'}`,
                        cost: { iron:4,oil: res.type==='OIL'?2:0 }, enabled: res.type==='OIL'?(iron>=4&&oil>=2):iron>=4,
                        cb: () => this._onBuildMine(res.type) });
-      if (noBuilding)
-        allOpts.push({ label: `Barracks    6⚙`,  cost:{iron:6,oil:0},  enabled: iron>=6,  cb: () => this._onBuildStructure('BARRACKS',6) });
-      if (noBuilding)
-        allOpts.push({ label: `Bunker      5⚙`,  cost:{iron:5,oil:0},  enabled: iron>=5,  cb: () => this._onBuildStructure('BUNKER',5) });
-      if (noBuilding)
-        allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢`, cost:{iron:8,oil:2}, enabled: iron>=8&&oil>=2, cb: () => this._onBuildStructure('VEHICLE_DEPOT',8) });
-      if (noBuilding)
-        allOpts.push({ label: `Obs. Post   3⚙`,  cost:{iron:3,oil:0},  enabled: iron>=3,  cb: () => this._onBuildStructure('OBS_POST',3) });
-      // Naval buildings (any terrain for naval yard/dry dock, must be on/near coast)
-      if (noBuilding)
-        allOpts.push({ label: `Naval Yard  8⚙ 2🛢`, cost:{iron:8,oil:2}, enabled: iron>=8&&oil>=2, cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
-      if (noBuilding)
-        allOpts.push({ label: `Harbor      5⚙ 1🛢`, cost:{iron:5,oil:1}, enabled: iron>=5&&oil>=1, cb: () => this._onBuildStructure('HARBOR',5,1) });
-      if (noBuilding)
-        allOpts.push({ label: `Dry Dock   12⚙ 4🛢`, cost:{iron:12,oil:4}, enabled: iron>=12&&oil>=4, cb: () => this._onBuildStructure('DRY_DOCK',12,4) });
-      if (noBuilding)
-        allOpts.push({ label: `Naval Base 16⚙ 6🛢`, cost:{iron:16,oil:6}, enabled: iron>=16&&oil>=6, cb: () => this._onBuildStructure('NAVAL_BASE',16,6) });
-      // Coastal Battery — spawns as immobile unit
-      if (!unitAt(gs, unit.q, unit.r) || unitAt(gs, unit.q, unit.r)?.id === unit.id)
-        allOpts.push({ label: `Coast. Battery 6⚙ 1🛢`, cost:{iron:6,oil:1}, enabled: iron>=6&&oil>=1, cb: () => this._onBuildCoastalBattery() });
+      // Land military buildings
+      if (noBuilding) allOpts.push({ label: `Barracks    6⚙`,       cost:{iron:6,oil:0},  enabled: iron>=6,          cb: () => this._onBuildStructure('BARRACKS',6) });
+      if (noBuilding) allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢`, cost:{iron:8,oil:2},  enabled: iron>=8&&oil>=2,  cb: () => this._onBuildStructure('VEHICLE_DEPOT',8,2) });
+      // Naval buildings
+      if (noBuilding) allOpts.push({ label: `Naval Yard  8⚙ 2🛢`,   cost:{iron:8,oil:2},  enabled: iron>=8&&oil>=2,  cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
+      if (noBuilding) allOpts.push({ label: `Harbor      5⚙ 1🛢`,   cost:{iron:5,oil:1},  enabled: iron>=5&&oil>=1,  cb: () => this._onBuildStructure('HARBOR',5,1) });
+      if (noBuilding) allOpts.push({ label: `Dry Dock   12⚙ 4🛢`,   cost:{iron:12,oil:4}, enabled: iron>=12&&oil>=4, cb: () => this._onBuildStructure('DRY_DOCK',12,4) });
+      if (noBuilding) allOpts.push({ label: `Naval Base 16⚙ 6🛢`,   cost:{iron:16,oil:6}, enabled: iron>=16&&oil>=6, cb: () => this._onBuildStructure('NAVAL_BASE',16,6) });
+      // Defensive structures
+      if (noBuilding) allOpts.push({ label: `Bunker      5⚙`,       cost:{iron:5,oil:0},  enabled: iron>=5,          cb: () => this._onBuildStructure('BUNKER',5) });
+      if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙`,       cost:{iron:3,oil:0},  enabled: iron>=3,          cb: () => this._onBuildStructure('OBS_POST',3) });
+      // Coastal Battery — spawns as immobile unit (no building on hex required)
+      allOpts.push({ label: `Coast. Battery 6⚙ 1🛢`, cost:{iron:6,oil:1}, enabled: iron>=6&&oil>=1, cb: () => this._onBuildCoastalBattery() });
       // Future entries just go here — pagination handles overflow automatically
 
       const totalPages = Math.max(1, Math.ceil(allOpts.length / PAGE_SIZE));
