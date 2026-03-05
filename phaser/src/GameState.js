@@ -2,10 +2,18 @@
 // Phase 1: 2-player hotseat, iron only, 3 unit types, simultaneous turns (we-go)
 
 export const UNIT_TYPES = {
-  INFANTRY:  { name: 'Infantry',  move: 2, attack: 2, health: 3, range: 1, cost: 2,  shape: 'circle'   },
-  TANK:      { name: 'Tank',      move: 4, attack: 3, health: 6, range: 1, cost: 6,  shape: 'square'   },
-  ARTILLERY: { name: 'Artillery', move: 1, attack: 4, health: 2, range: 2, cost: 5,  shape: 'triangle' },
+  INFANTRY:  { name: 'Infantry',  move: 2, attack: 2, health: 3, range: 1, cost: 2,  shape: 'circle',   canDigIn: true,  canBuild: false },
+  TANK:      { name: 'Tank',      move: 4, attack: 3, health: 6, range: 1, cost: 6,  shape: 'square',   canDigIn: false, canBuild: false },
+  ARTILLERY: { name: 'Artillery', move: 1, attack: 4, health: 2, range: 2, cost: 5,  shape: 'triangle', canDigIn: false, canBuild: false },
+  ENGINEER:  { name: 'Engineer',  move: 2, attack: 1, health: 2, range: 1, cost: 3,  shape: 'diamond',  canDigIn: false, canBuild: true  },
 };
+
+// ── Combat modifier notes (not yet implemented) ────────────────────────────
+// - Attack after move: most units suffer -1 attack penalty (future)
+// - Spec ops / recon: no attack penalty after move (future)
+// - Stationary attack: neutral (baseline)
+// - Fortified attack: +1 defense for defender (future via trench building)
+// - Dug-in defense: +1 defense, lost on move (implemented below)
 
 export const PLAYER_COLORS = {
   1: 0x4488ff,  // blue
@@ -39,6 +47,8 @@ export function createUnit(type, owner, q, r) {
     maxHealth: def.health,
     moved: false,
     attacked: false,
+    dugIn: false,      // infantry only — minor defense bonus, lost on move
+    building: false,   // engineer is spending turn building
   };
 }
 
@@ -68,11 +78,15 @@ export function createGameState() {
   state.units.push(createUnit('INFANTRY', 1, 9,  11));
   state.units.push(createUnit('INFANTRY', 1, 10, 10));
   state.units.push(createUnit('TANK',     1, 10, 11));
+  state.units.push(createUnit('ENGINEER', 1, 8,  11));
+  state.units.push(createUnit('ENGINEER', 1, 9,  10));
 
   // Player 2: around (14, 12)
   state.units.push(createUnit('INFANTRY', 2, 15, 12));
   state.units.push(createUnit('INFANTRY', 2, 14, 13));
   state.units.push(createUnit('TANK',     2, 14, 12));
+  state.units.push(createUnit('ENGINEER', 2, 16, 12));
+  state.units.push(createUnit('ENGINEER', 2, 15, 13));
 
   // ── HQ buildings (behind starting units) ─────────────────────────────────
   state.buildings.push(createBuilding('HQ', 1, 8, 12));
@@ -181,6 +195,7 @@ export function resolveTurn(state) {
       const unit = state.units.find(u => u.id === parseInt(idStr));
       if (unit) {
         unit.q = dest.q; unit.r = dest.r;
+        unit.dugIn = false;  // moving removes dig-in
         events.push(`${UNIT_TYPES[unit.type].name} (P${unit.owner}) → (${dest.q},${dest.r})`);
       }
     }
@@ -193,9 +208,12 @@ export function resolveTurn(state) {
     const target   = state.units.find(u => u.id === targetId);
     if (!attacker || !target) continue;
     const def = UNIT_TYPES[attacker.type];
-    const dmg = Math.max(1, def.attack + Math.floor(Math.random() * 2) - 1);
+    let dmg = Math.max(1, def.attack + Math.floor(Math.random() * 2) - 1);
+    // Dug-in defense bonus: -1 damage (min 0)
+    if (target.dugIn) { dmg = Math.max(0, dmg - 1); }
     damage[targetId] = (damage[targetId] || 0) + dmg;
-    events.push(`${UNIT_TYPES[attacker.type].name} (P${attacker.owner}) hits ${UNIT_TYPES[target.type].name} (P${target.owner}) for ${dmg}`);
+    const dugInNote = target.dugIn ? ' (dug in -1)' : '';
+    events.push(`${UNIT_TYPES[attacker.type].name} (P${attacker.owner}) hits ${UNIT_TYPES[target.type].name} (P${target.owner}) for ${dmg}${dugInNote}`);
   }
   for (const [idStr, dmg] of Object.entries(damage)) {
     const target = state.units.find(u => u.id === parseInt(idStr));
@@ -222,10 +240,11 @@ export function resolveTurn(state) {
     events.push(`P${player} collects ${income} iron (total: ${state.players[player].iron})`);
   }
 
-  // Reset unit flags
+  // Reset unit action flags (dugIn persists turn-to-turn until unit moves)
   for (const unit of state.units) {
-    unit.moved   = false;
+    unit.moved    = false;
     unit.attacked = false;
+    unit.building = false;
   }
 
   // Reset turn

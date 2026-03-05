@@ -253,6 +253,12 @@ export class GameScene extends Phaser.Scene {
       this.unitGfx.fillStyle(color, alpha);
       this.unitGfx.lineStyle(2, 0x000000, alpha);
 
+      // Dug-in indicator: brown ring around unit
+      if (unit.dugIn) {
+        this.unitGfx.lineStyle(3, 0x8B5A2B, alpha);
+        this.unitGfx.strokeCircle(x, y, r + 5);
+      }
+
       if (def.shape === 'circle') {
         this.unitGfx.fillCircle(x, y, r);
         this.unitGfx.strokeCircle(x, y, r);
@@ -263,6 +269,12 @@ export class GameScene extends Phaser.Scene {
         const th = r * 1.2;
         this.unitGfx.fillTriangle(x, y - th, x - r, y + th * 0.5, x + r, y + th * 0.5);
         this.unitGfx.strokeTriangle(x, y - th, x - r, y + th * 0.5, x + r, y + th * 0.5);
+      } else if (def.shape === 'diamond') {
+        this.unitGfx.fillTriangle(x, y - r, x - r * 0.7, y, x + r * 0.7, y);
+        this.unitGfx.fillTriangle(x, y + r, x - r * 0.7, y, x + r * 0.7, y);
+        this.unitGfx.lineStyle(2, 0x000000, alpha);
+        this.unitGfx.strokeTriangle(x, y - r, x - r * 0.7, y, x + r * 0.7, y);
+        this.unitGfx.strokeTriangle(x, y + r, x - r * 0.7, y, x + r * 0.7, y);
       }
 
       // Health bar below unit
@@ -289,8 +301,9 @@ export class GameScene extends Phaser.Scene {
     const w = this.scale.width;
     this.btnSubmit = this._makeButton(w - 140, 12, 'SUBMIT TURN', 0x226622, () => this._onSubmit());
     this.btnAttack = this._makeButton(w - 290, 12, 'ATTACK',      0x882222, () => this._onAttackMode());
-    this.btnBuild  = this._makeButton(w - 420, 12, `BUILD MINE (${MINE_COST}⚙)`, 0x557755, () => this._onBuildMine());
-    this.btnCancel = this._makeButton(w - 570, 12, 'CANCEL',      0x444444, () => this._onCancel());
+    this.btnDigIn  = this._makeButton(w - 390, 12, 'DIG IN',      0x8B5A2B, () => this._onDigIn());
+    this.btnBuild  = this._makeButton(w - 500, 12, `BUILD MINE (${MINE_COST})`, 0x557755, () => this._onBuildMine());
+    this.btnCancel = this._makeButton(w - 610, 12, 'CANCEL',      0x444444, () => this._onCancel());
   }
 
   _makeButton(x, y, label, color, cb) {
@@ -314,6 +327,13 @@ export class GameScene extends Phaser.Scene {
 
     // Show Build Mine if: unit on a resource hex, no building there, enough iron
     this.btnAttack.setVisible(canAct && !this.selectedUnit.attacked && this.mode !== 'attack');
+
+    // Dig In: infantry only, not already dug in, hasn't moved this turn
+    const canDigIn = canAct &&
+      UNIT_TYPES[this.selectedUnit.type].canDigIn &&
+      !this.selectedUnit.dugIn &&
+      !this.selectedUnit.moved;
+    this.btnDigIn.setVisible(canDigIn);
 
     if (canAct) {
       const u   = this.selectedUnit;
@@ -476,6 +496,14 @@ export class GameScene extends Phaser.Scene {
     this._refresh();
   }
 
+  _onDigIn() {
+    const u = this.selectedUnit;
+    if (!u || !UNIT_TYPES[u.type].canDigIn || u.dugIn || u.moved) return;
+    u.dugIn  = true;
+    u.moved  = true;  // uses the move action for this turn
+    this._clearSelection();
+  }
+
   _onBuildMine() {
     const gs = this.gameState;
     const u  = this.selectedUnit;
@@ -567,7 +595,8 @@ export class GameScene extends Phaser.Scene {
       info = ` | Selected: ${def.name} HP:${u.health}/${u.maxHealth}`;
       info += u.moved ? ' [moved]' : ' [can move]';
       const pendingAtk = gs.pendingAttacks[u.id];
-      info += pendingAtk ? ' [⚔ attack queued]' : u.attacked ? ' [attacked]' : ' [can attack]';
+      info += pendingAtk ? ' [⚔ queued]' : u.attacked ? ' [attacked]' : ' [can attack]';
+      if (u.dugIn) info += ' [🪖 dug in]';
     } else if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r)) {
       const t = ['Plains','Forest','Mountain'][this.terrain[`${this.hoveredHex.q},${this.hoveredHex.r}`]];
       const u = unitAt(gs, this.hoveredHex.q, this.hoveredHex.r);
