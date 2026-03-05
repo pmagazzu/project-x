@@ -5,7 +5,7 @@ import {
 } from './HexGrid.js';
 import {
   createGameState, createBuilding, unitAt, buildingAt, roadAt,
-  getReachableHexes, getAttackableHexes, computeFog,
+  getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
   resolveTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
@@ -213,7 +213,16 @@ export class GameScene extends Phaser.Scene {
     };
 
     for (const { q, r } of this.reachable)   fillHex(q, r, MOVE_HIGHLIGHT,   0.25);
-    for (const { q, r } of this.attackable)  fillHex(q, r, ATTACK_HIGHLIGHT, 0.3);
+    // In attack mode: dim highlight for all range hexes, bright for hexes with known enemies
+    if (this.mode === 'attack' && this.selectedUnit) {
+      const gs = this.gameState;
+      for (const { q, r } of this.attackable) {
+        const hasEnemy = gs.units.some(u => u.q === q && u.r === r && u.owner !== gs.currentPlayer && !u.dead);
+        fillHex(q, r, ATTACK_HIGHLIGHT, hasEnemy ? 0.55 : 0.15);
+      }
+    } else {
+      for (const { q, r } of this.attackable) fillHex(q, r, ATTACK_HIGHLIGHT, 0.3);
+    }
 
     if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r)) {
       const { x, y } = hexToWorld(this.hoveredHex.q, this.hoveredHex.r);
@@ -346,8 +355,10 @@ export class GameScene extends Phaser.Scene {
         this.unitGfx.lineStyle(3, 0x8B5A2B, alpha);
         this.unitGfx.strokeCircle(x, y, r + 5);
       }
-      // Incoming attack warning
-      if (Object.values(gs.pendingAttacks).includes(unit.id)) {
+      // Incoming attack warning (check both unit-id and hex-targeted attacks)
+      const isTargeted = Object.values(gs.pendingAttacks).some(a =>
+        a === unit.id || (a?.hex && a.hex.q === unit.q && a.hex.r === unit.r));
+      if (isTargeted) {
         this.unitGfx.lineStyle(3, 0xff2222, 0.85);
         this.unitGfx.strokeCircle(x, y, r + 9);
       }
@@ -1298,12 +1309,11 @@ export class GameScene extends Phaser.Scene {
         }
         return;
       }
-      // In move mode: clicking an enemy that's in attack range = auto-attack
+      // In move mode: clicking an enemy in range = quick-fire at that hex
       if (clickedUnit && clickedUnit.owner !== gs.currentPlayer && !this.selectedUnit.attacked) {
-        const atk = getAttackableHexes(gs, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r);
-        const target = atk.find(a => a.q === q && a.r === r);
-        if (target) {
-          gs.pendingAttacks[this.selectedUnit.id] = target.targetId;
+        const range = UNIT_TYPES[this.selectedUnit.type].range;
+        if (hexDistance(this.selectedUnit.q, this.selectedUnit.r, q, r) <= range) {
+          gs.pendingAttacks[this.selectedUnit.id] = { hex: { q, r } };
           this.selectedUnit.attacked = true;
           this.reachable = []; this.attackable = []; this.mode = 'select';
           this._refresh(); return;
@@ -1312,9 +1322,10 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.mode === 'attack') {
-      const target = this.attackable.find(h => h.q === q && h.r === r);
-      if (target) {
-        gs.pendingAttacks[this.selectedUnit.id] = target.targetId;
+      const inRange = this.attackable.find(h => h.q === q && h.r === r);
+      if (inRange) {
+        // Always store as hex target (blind fire) — resolution looks up occupant at that moment
+        gs.pendingAttacks[this.selectedUnit.id] = { hex: { q, r } };
         this.selectedUnit.attacked = true;
         this.reachable = []; this.attackable = []; this.mode = 'select';
         this._refresh();
@@ -1392,7 +1403,8 @@ export class GameScene extends Phaser.Scene {
     if (!this.selectedUnit || this.selectedUnit.attacked) return;
     this.mode = 'attack';
     this.reachable  = [];
-    this.attackable = getAttackableHexes(this.gameState, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r);
+    // Show full range for blind fire; enemy-occupied hexes get a brighter highlight in _redrawHighlights
+    this.attackable = getAttackRangeHexes(MAP_SIZE, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r);
     this._refresh();
   }
 
@@ -1454,11 +1466,99 @@ export class GameScene extends Phaser.Scene {
       this._showPassScreen("Player 2's turn — take the controls");
     } else {
       gs.players[2].submitted = true;
-      const events = resolveTurn(gs, this.terrain);
-      const winner = checkWinner(gs);
-      this._showResolution(events, winner);
+      this._playResolutionAnimation();
     }
   }
+
+  // ── Animated resolution playback ──────────────────────────────────────────
+  async _playResolutionAnimation() {
+    const gs = this.gameState;
+    Object.values(this.actBtns || {}).forEach(b => b.setVisible(false));
+    this.btnSubmit?.setVisible(false);
+    this._hideContextMenu();
+    this._clearSelection();
+
+    // Snapshot pre-resolve positions for animation
+    const prePos = {};
+    for (const u of gs.units) prePos[u.id] = { q: u.q, r: u.r };
+
+    // Resolve everything (mutates state)
+    const events = resolveTurn(gs, this.terrain);
+    const winner = checkWinner(gs);
+
+    // Rebuild a map: unitId → post-move position (from events log / state)
+    const postPos = {};
+    for (const u of gs.units) postPos[u.id] = { q: u.q, r: u.r };
+
+    // ── Phase 1: Animate moves ───────────────────────────────────────────────
+    const moveAnims = gs.units
+      .filter(u => prePos[u.id] && (prePos[u.id].q !== postPos[u.id].q || prePos[u.id].r !== postPos[u.id].r));
+
+    if (moveAnims.length > 0) {
+      // Flash "MOVES" banner
+      const banner = this._makeBanner('⟶  MOVES RESOLVE');
+      await this._wait(600);
+      banner.destroy();
+
+      const MOVE_COLORS = { 1: 0x4488ff, 2: 0xff4444 };
+      const tweenPromises = moveAnims.map(u => new Promise(resolve => {
+        const from = hexToWorld(prePos[u.id].q, prePos[u.id].r);
+        const to   = hexToWorld(postPos[u.id].q, postPos[u.id].r);
+        const dot  = this.add.circle(from.x, from.y, 10, MOVE_COLORS[u.owner] || 0xffffff, 0.9).setDepth(50);
+        this.tweens.add({
+          targets: dot, x: to.x, y: to.y, duration: 500, ease: 'Sine.easeInOut',
+          onComplete: () => { dot.destroy(); resolve(); }
+        });
+      }));
+      await Promise.all(tweenPromises);
+      await this._wait(300);
+      this._redrawUnits();
+    }
+
+    // ── Phase 2: Animate attacks ─────────────────────────────────────────────
+    const combatLog = gs._lastCombatLog || [];
+    if (combatLog.length > 0) {
+      const banner = this._makeBanner('⚔  COMBAT RESOLVES');
+      await this._wait(600);
+      banner.destroy();
+
+      for (const entry of combatLog) {
+        if (entry.type === 'combat' || entry.type === 'miss' || entry.type === 'blind_miss') {
+          const targetUnit = entry.type === 'combat'
+            ? gs.units.find(u => u.owner === entry.targetOwner && UNIT_TYPES[u.type]?.name === entry.targetName)
+            : null;
+          const targetHex = entry.hex || (targetUnit ? { q: targetUnit.q, r: targetUnit.r } : null);
+          if (!targetHex) continue;
+
+          const { x, y } = hexToWorld(targetHex.q, targetHex.r);
+          // Flash ring on target hex
+          const ring = this.add.circle(x, y, 28, entry.type === 'combat' ? 0xff4400 : 0xffcc00, 0.7).setDepth(60);
+          const outcomeStr = entry.tier ? ` — ${entry.tier}` : entry.type === 'blind_miss' ? ' — empty hex' : ' — miss';
+          const lbl = this._makeBanner(`${entry.attackerName || '?'} ▶ ${entry.targetName || '?'}${outcomeStr}`, 0x221100);
+          this.tweens.add({ targets: ring, alpha: 0, scaleX: 2.5, scaleY: 2.5, duration: 600, ease: 'Quad.easeOut', onComplete: () => ring.destroy() });
+          await this._wait(800);
+          lbl.destroy();
+        }
+      }
+      this._redrawUnits();
+      await this._wait(300);
+    }
+
+    this._showResolution(events, winner);
+  }
+
+  _makeBanner(text, bg = 0x111122) {
+    const w = this.scale.width, h = this.scale.height;
+    const lbl = this.add.text(w / 2, h / 2 - 60, text, {
+      font: 'bold 18px monospace', fill: '#ffffff',
+      backgroundColor: `#${bg.toString(16).padStart(6,'0')}`,
+      padding: { x: 24, y: 12 }
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(200);
+    this._addToUI([lbl]);
+    return lbl;
+  }
+
+  _wait(ms) { return new Promise(r => this.time.delayedCall(ms, r)); }
 
   // ── Pass / Resolution screens ─────────────────────────────────────────────
   _showSplash(objects, onDismiss) {

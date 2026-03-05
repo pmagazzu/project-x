@@ -274,11 +274,23 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
   return result;
 }
 
+// Returns hexes occupied by visible enemies — used for "known target" highlighting
 export function getAttackableHexes(state, unit, fromQ, fromR) {
   const def = UNIT_TYPES[unit.type];
   return state.units
     .filter(u => u.owner !== unit.owner && hexDistance(fromQ, fromR, u.q, u.r) <= def.range)
     .map(u => ({ q: u.q, r: u.r, targetId: u.id }));
+}
+
+// Returns ALL hexes within attack range — for blind fire targeting
+export function getAttackRangeHexes(mapSize, unit, fromQ, fromR) {
+  const range = UNIT_TYPES[unit.type].range;
+  const result = [];
+  for (let q = 0; q < mapSize; q++)
+    for (let r = 0; r < mapSize; r++)
+      if (hexDistance(fromQ, fromR, q, r) >= 1 && hexDistance(fromQ, fromR, q, r) <= range)
+        result.push({ q, r });
+  return result;
 }
 
 // ── Fog of war ─────────────────────────────────────────────────────────────
@@ -392,13 +404,36 @@ export function resolveTurn(state, terrain) {
   // Phase 2: Attacks (post-move positions) — full GDD combat system
   const damage = {};
   const combatLog = []; // detailed breakdowns for UI
-  // Count how many attackers are targeting each unit (flanking bonus)
-  const attackerCount = {};
-  for (const targetId of Object.values(state.pendingAttacks)) {
-    attackerCount[targetId] = (attackerCount[targetId] || 0) + 1;
+
+  // Resolve hex-targeted (blind fire) attacks → look up what's there now
+  // pendingAttacks values can be: unitId (number) OR { hex: {q,r} }
+  const resolvedAttacks = {}; // attackerId → targetUnitId (or null for clean miss)
+  for (const [idStr, attack] of Object.entries(state.pendingAttacks)) {
+    if (typeof attack === 'object' && attack.hex) {
+      const unit = state.units.find(u => u.q === attack.hex.q && u.r === attack.hex.r && !u.dead);
+      const attacker = state.units.find(u => u.id === parseInt(idStr));
+      if (unit && attacker && unit.owner !== attacker.owner) {
+        resolvedAttacks[idStr] = unit.id;
+      } else {
+        // Blind fire hit empty hex
+        const attacker2 = state.units.find(u => u.id === parseInt(idStr));
+        const aDef = attacker2 ? UNIT_TYPES[attacker2.type] : null;
+        events.push(`${aDef?.name || 'Unit'} (P${attacker2?.owner}) fires at (${attack.hex.q},${attack.hex.r}) — no target`);
+        combatLog.push({ type: 'blind_miss', attackerName: aDef?.name, attackerOwner: attacker2?.owner, hex: attack.hex });
+      }
+    } else {
+      resolvedAttacks[idStr] = attack; // direct unit target
+    }
   }
 
-  for (const [idStr, targetId] of Object.entries(state.pendingAttacks)) {
+  // Count how many attackers are targeting each unit (flanking bonus)
+  const attackerCount = {};
+  for (const targetId of Object.values(resolvedAttacks)) {
+    if (targetId) attackerCount[targetId] = (attackerCount[targetId] || 0) + 1;
+  }
+
+  for (const [idStr, targetId] of Object.entries(resolvedAttacks)) {
+    if (!targetId) continue;
     const attacker = state.units.find(u => u.id === parseInt(idStr));
     const target   = state.units.find(u => u.id === targetId);
     if (!attacker || !target) continue;
