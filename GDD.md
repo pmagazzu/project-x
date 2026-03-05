@@ -656,3 +656,124 @@ When attacking, show side-by-side panel:
 - Right: enemy stats (filtered by intel level)
 - Preview: estimated outcome range based on known values
 - After resolution: full breakdown with all modifiers shown
+
+---
+
+## §28 — Unit Design System
+
+### Overview
+Players design custom unit types by selecting a **chassis** (base unit class) and adding **modules** (equipment, buffs, debuffs). Each design is registered once for a Gold + RP cost. After registration, that unit type can be trained repeatedly at its training cost. Players cannot design unlimited variants — design slots are limited by tech tier, forcing deliberate choices.
+
+### Design Registry
+- Registering a new design costs: **Gold + Research Points (RP)**
+- Design slots: Tier 0 tech = 2 slots per class; each tech tier adds +1 slot
+- Once registered, a design is permanent (can be retired to free a slot)
+- Enemy cannot see your designs — only unit shape is visible without intel
+
+### Base Design Cost by Unit Class
+| Class | Gold | RP | Iron | Oil | Food | Notes |
+|---|---|---|---|---|---|---|
+| Infantry | 3 | 1 | 1 | — | 2 | Living soldiers need food |
+| Vehicle (light) | 4 | 2 | 3 | 2 | — | Truck/car chassis |
+| Vehicle (heavy) | 6 | 3 | 5 | 3 | — | Tank/SPG chassis |
+| Naval (small) | 5 | 2 | 4 | 2 | 1 | Crew needs food |
+| Naval (large) | 8 | 4 | 8 | 4 | 3 | Large crew |
+| Aircraft | 6 | 3 | 4 | 4 | — | High oil demand |
+
+### Module System
+Each module added to a design costs **Gold (always) + the resource the module physically represents**. Modules either buff stats or debuff them (debuffs reduce per-unit *training* cost, not the design registration cost).
+
+#### Example Modules
+| Module | Tier | Buff | Gold | + Resource | Notes |
+|---|---|---|---|---|---|
+| Anti-Tank Rifle | 1 | +2 pierce | 1 | +1 iron | Infantry only |
+| Shaped Charge | 2 | +4 pierce, -1 soft_attack | 2 | +2 iron | Specialist tradeoff |
+| Better Engine | 1 | +1 move | 1 | +1 oil | Vehicles/naval |
+| Reinforced Armor | 2 | +2 armor | 2 | +3 steel | Requires Steelworks |
+| Crew Expansion | 1 | +1 max health | 1 | +1 food | Naval/infantry |
+| Optics Package | 2 | +1 sight, +5 accuracy | 2 | +1 electronics | Requires Electronics Lab |
+| Field Radio | 2 | shares sight with adjacent units | 2 | +1 electronics | — |
+| Extra Fuel Tank | 1 | +1 move, -1 defense | 1 | +1 oil | Tradeoff |
+| Red Ball (logistics) | 1 | +1 move | 1 | +2 oil/turn upkeep | Trucks only; burns fuel to move fast |
+
+#### Debuff Modules (reduce training cost)
+| Debuff | Effect | Training Saving |
+|---|---|---|
+| Skeleton Crew | -1 health, -1 defense | -2 food per unit trained |
+| Unreliable Engine | breakdown chance 10% | -1 oil per unit trained |
+| Light Armor | -2 armor | -2 iron per unit trained |
+| Open-Top | -1 defense vs infantry | -1 iron per unit trained |
+
+### Training Cost
+Training a registered design costs the **base class training cost + per-module training cost** each time a unit is built. Design cost is one-time; training cost recurs.
+
+### Example Designs
+
+**"Rifle Squad + AT"** (Infantry + Anti-Tank Rifle)
+- Design: 3 gold, 1 RP, 1 iron, 2 food + module (1 gold, 1 iron) = 4 gold, 1 RP, 2 iron, 2 food to register
+- Per-unit training: 2 iron, 2 food + 1 iron module = 2 iron, 2 food, 1 iron
+- Stats: soft_attack 3, hard_attack 1, pierce 3, armor 1 — looks like infantry, punches above its weight vs light vehicles
+
+**"Type-7 Submarine (Skeleton Crew)"** (Naval small + Skeleton Crew debuff)
+- Cheaper crew, riskier operation; saves 2 food per sub trained
+- Looks identical to any other sub without intel; enemy doesn't know it's glass cannon crewed
+
+**"Red Ball Express"** (Light Vehicle + Red Ball logistics buff)
+- +1 movement, costs +2 oil/turn upkeep, -1 defense
+- Historical flavor: fast supply trucks burning oil to keep the front moving
+- Worth it if you have oil surplus and need rapid redeployment
+
+---
+
+## §29 — Industrial Economy (Tiered Resources)
+
+### Overview
+The economy has three layers. Raw resources (Tier 0-1) are harvested directly. Refined materials (Tier 2) require factory buildings that convert raw inputs. Advanced components (Tier 3-5) require specialized research facilities and are gated behind the tech tree. Higher-tier units and buildings require higher-tier materials.
+
+### Resource Tiers
+
+| Tier | Resource | Produced By | Inputs | Used For |
+|---|---|---|---|---|
+| 0 | Iron | Iron Mine | iron deposit | everything basic |
+| 0 | Oil | Oil Pump | oil deposit | vehicles, fuel |
+| 0 | Wood | Lumber Camp | forest hex | T0-1 structures |
+| 0 | Food | Farm | fertile hex | infantry, crew, population |
+| 0 | Gold | Treasury/Trade | passive income | design, commerce |
+| 1 | Coal | Coal Mine | coal deposit | Steelworks fuel |
+| 2 | Steel | Steelworks | iron + coal | T3+ armor, heavy vehicles, fortifications |
+| 2 | Concrete | Concrete Plant | iron + stone | permanent fortifications, naval complexes |
+| 2 | Fuel (refined) | Refinery | oil | high-tier engines, aircraft |
+| 2 | Electronics | Electronics Lab | gold + RP | optics, radio, radar modules |
+| 3 | Advanced Alloys | Advanced Foundry | steel + coal + RP | T4+ heavy armor, aircraft frames |
+| 4 | Rocketry Components | Rocket Facility | steel + electronics + RP | artillery rockets, guided weapons |
+| 5 | Radar Systems | Radar Station | electronics + advanced alloys + RP | full map awareness, AA targeting |
+
+### Factory Buildings (Tier 2 Converters)
+These buildings consume raw resources each turn and output refined materials. They require workers (citizen allocation) and building materials to construct.
+
+| Building | Inputs/turn | Output/turn | Build Cost | Notes |
+|---|---|---|---|---|
+| Steelworks | 2 iron + 1 coal | 2 steel | 8 iron, 4 coal | Unlocks T3 heavy units |
+| Refinery | 3 oil | 2 fuel | 6 iron, 4 wood | Replaces oil for high-tier engines |
+| Concrete Plant | 2 iron + 2 stone | 2 concrete | 6 iron | Needed for naval complexes, bunkers T2+ |
+| Electronics Lab | 2 gold + 1 RP | 1 electronics | 8 iron, 2 steel | Unlocks optics/radio modules |
+
+### Tier 2 Buildings (require Tier 2 materials to construct)
+Building upgrade chains. Each tier requires higher-grade materials, more workers, more space.
+
+| Chain | T1 | T2 | T3 |
+|---|---|---|---|
+| Infantry | Barracks (wood+iron) | Large Army Base (steel+concrete) | Military Academy (+RP generation) |
+| Armor/Vehicle | Vehicle Depot (iron+oil) | Vehicle Plant (steel+oil) | Armored Corps HQ (steel+fuel) |
+| Naval | Dock (wood+iron) | Naval Yard (steel+concrete) | Naval Complex (steel+concrete+fuel) |
+| Air | Airstrip (wood+iron) | Airfield (steel+concrete) | Large Airfield (steel+fuel) |
+| Production | Foundry (iron) | Steelworks (iron+coal) | Advanced Foundry (steel+RP) |
+
+### Design Gating
+- **Tier 0-1 modules**: available immediately with basic research
+- **Tier 2 modules** (electronics, reinforced armor, optics): require the relevant factory building AND the tech tree unlock
+- **Tier 3+ modules**: require advanced facilities + specific tech branch completion
+- Players can't bolt a radar system onto a biplane without both the Radar Station building and the Avionics tech branch unlocked
+
+### Prototype Scope
+Phase 1: Iron + Oil only. Phase 2: Add Wood + Gold + Food. Phase 3: Add factory layer (Steelworks, Refinery). Full industrial chain in Phase 4+ alongside tech tree tiers 3-5.
