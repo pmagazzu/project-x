@@ -16,11 +16,12 @@ export const UNIT_TYPES = {
 // - Dug-in (infantry field): -1 incoming damage, lost on move
 
 export const BUILDING_TYPES = {
-  HQ:       { name: 'HQ',        ironPerTurn: 3, oilPerTurn: 0, canRecruit: ['INFANTRY','ENGINEER'],                      buildCost: null,              color: 0xffdd00 },
-  MINE:     { name: 'Iron Mine', ironPerTurn: 2, oilPerTurn: 0, canRecruit: [],                                            buildCost: { iron: 4, oil: 0 }, color: 0xaaaaaa },
-  OIL_PUMP: { name: 'Oil Pump',  ironPerTurn: 0, oilPerTurn: 2, canRecruit: [],                                            buildCost: { iron: 4, oil: 0 }, color: 0x222244 },
-  BARRACKS: { name: 'Barracks',  ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['INFANTRY','TANK','ARTILLERY','ENGINEER'],    buildCost: { iron: 6, oil: 0 }, color: 0xaa6644 },
-  ROAD:     { name: 'Road',      ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                            buildCost: { iron: 1, oil: 0 }, color: 0xccbbaa },
+  HQ:       { name: 'HQ',        ironPerTurn: 3, oilPerTurn: 0, canRecruit: ['ENGINEER'],    buildCost: null,              color: 0xffdd00 },
+  MINE:     { name: 'Iron Mine', ironPerTurn: 2, oilPerTurn: 0, canRecruit: [],              buildCost: { iron: 4, oil: 0 }, color: 0xaaaaaa },
+  OIL_PUMP: { name: 'Oil Pump',  ironPerTurn: 0, oilPerTurn: 2, canRecruit: [],              buildCost: { iron: 4, oil: 0 }, color: 0x222244 },
+  BARRACKS: { name: 'Barracks',  ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['INFANTRY'],    buildCost: { iron: 6, oil: 0 }, color: 0xaa6644 },
+  // Future: VEHICLE_DEPOT → TANK, ARTILLERY, etc.
+  ROAD:     { name: 'Road',      ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],              buildCost: { iron: 1, oil: 0 }, color: 0xccbbaa },
 };
 
 export const RESOURCE_TYPES = {
