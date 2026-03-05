@@ -102,6 +102,7 @@ export class GameScene extends Phaser.Scene {
     // Fixed UI camera — zoom=1, no scroll, ignores all world graphics
     const sw = this.scale.width, sh = this.scale.height;
     this.uiCamera = this.cameras.add(0, 0, sw, sh).setName('ui').setScroll(0, 0).setZoom(1);
+    this.uiCamera.transparent = true; // transparent background — must not cover world
     this.uiCamera.ignore([
       this.terrainRT, this.roadGfx, this.resourceGfx,
       this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogGfx,
