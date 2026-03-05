@@ -902,73 +902,72 @@ export function resolveTurn(state, terrain) {
 
   // Phase 2.6: Auto-road standing orders
   // Engineers with a roadOrder automatically advance one step and build road.
-  // Cancel conditions: enemy within 2 tiles, iron shortage, destination reached, engineer dead.
-  for (const unit of state.units.filter(u => u.type === 'ENGINEER' && u.roadOrder && !u.dead)) {
+  // Cancel conditions: enemy within 2 tiles, iron shortage, destination reached.
+  // Uses actual post-Phase-1 positions (enemies at their resolved locations).
+  const _autoRoadNextId = () => {
+    const maxId = Math.max(0, ...state.units.map(u => u.id || 0), ...state.buildings.map(b => isNaN(b.id) ? 0 : (b.id || 0)));
+    return maxId + 1;
+  };
+  for (const unit of state.units.filter(u => u.type === 'ENGINEER' && u.roadOrder)) {
     const order = unit.roadOrder;
     const owner = unit.owner;
 
-    // Cancel if enemy within 2 tiles (using display positions for consistency)
+    // Cancel if enemy within 2 tiles (post-Phase-1 positions)
     const threatened = state.units.some(e => {
-      if (e.dead || e.owner === owner) return false;
-      const eq = (e._origQ !== undefined) ? e._origQ : e.q;
-      const er = (e._origR !== undefined) ? e._origR : e.r;
-      return hexDistance(unit.q, unit.r, eq, er) <= 2;
+      if (e.owner === owner) return false;
+      return hexDistance(unit.q, unit.r, e.q, e.r) <= 2;
     });
     if (threatened) {
       events.push(`Engineer (P${owner}) auto-road cancelled — enemy nearby`);
-      delete unit.roadOrder;
-      continue;
+      delete unit.roadOrder; continue;
     }
 
     // Cancel if iron insufficient
     if (state.players[owner].iron < 1) {
       events.push(`Engineer (P${owner}) auto-road paused — no iron`);
-      delete unit.roadOrder;
-      continue;
+      delete unit.roadOrder; continue;
     }
 
     // Already at destination?
     if (unit.q === order.destQ && unit.r === order.destR) {
       events.push(`Engineer (P${owner}) auto-road complete`);
-      delete unit.roadOrder;
-      continue;
+      delete unit.roadOrder; continue;
     }
 
-    // Re-pathfind from current position each turn (handles dynamic obstacles)
-    const path = findPath(terrain, state._mapSize || 25, unit.q, unit.r, order.destQ, order.destR, 'ENGINEER');
+    // Re-pathfind from current position each turn
+    const mapSz = state._mapSize || 25;
+    const path = findPath(terrain, mapSz, unit.q, unit.r, order.destQ, order.destR, 'ENGINEER');
     if (!path || path.length === 0) {
-      events.push(`Engineer (P${owner}) auto-road blocked — no path`);
-      delete unit.roadOrder;
-      continue;
+      events.push(`Engineer (P${owner}) auto-road blocked — no path to (${order.destQ},${order.destR}) from (${unit.q},${unit.r})`);
+      delete unit.roadOrder; continue;
     }
 
     // Move one step along path
     const next = path[0];
     const nq = next.q, nr = next.r;
 
-    // Don't step on a unit (friendly or enemy)
-    if (unitAt(state, nq, nr)) {
-      // Skip this turn, keep order
-      events.push(`Engineer (P${owner}) auto-road stalled — hex occupied`);
-      continue;
+    // Don't step on a unit that isn't the engineer itself
+    const blocker = state.units.find(u => u.q === nq && u.r === nr && u.id !== unit.id && !u.embarked);
+    if (blocker) {
+      events.push(`Engineer (P${owner}) auto-road stalled — hex (${nq},${nr}) occupied by ${UNIT_TYPES[blocker.type]?.name}`);
+      continue; // keep order, try again next turn
     }
 
     unit.q = nq; unit.r = nr; unit.moved = true;
 
     // Build road on the new hex if none exists
     if (!roadAt(state, nq, nr)) {
-      state.buildings.push({ id: ++state._nextId, type: 'ROAD', q: nq, r: nr, owner });
+      state.buildings.push({ id: _autoRoadNextId(), type: 'ROAD', q: nq, r: nr, owner });
       state.players[owner].iron -= 1;
       events.push(`Engineer (P${owner}) auto-builds road at (${nq},${nr})`);
     } else {
-      // Already a road here — still move, no cost
-      events.push(`Engineer (P${owner}) advances along road at (${nq},${nr})`);
+      events.push(`Engineer (P${owner}) advances along existing road at (${nq},${nr})`);
     }
 
-    // Update stored path on the order (trim consumed step)
+    // Update stored path preview
     order.path = path.slice(1);
 
-    // If now at destination, clear order
+    // Clear order if destination reached
     if (nq === order.destQ && nr === order.destR) {
       events.push(`Engineer (P${owner}) auto-road order complete`);
       delete unit.roadOrder;
