@@ -921,7 +921,10 @@ export class GameScene extends Phaser.Scene {
       if (ptr.button === 2 && !this._isDragging) {
         const world = cam.getWorldPoint(ptr.x, ptr.y);
         const hex   = worldToHex(world.x, world.y);
-        if (isValid(hex.q, hex.r)) this._onHexRightClick(hex.q, hex.r);
+        if (isValid(hex.q, hex.r)) {
+          this._menuAnchor = { x: ptr.x, y: ptr.y }; // remember cursor pos for menu placement
+          this._onHexRightClick(hex.q, hex.r);
+        }
       }
       this._isDragging = false;
     });
@@ -989,9 +992,9 @@ export class GameScene extends Phaser.Scene {
     this._hideContextMenu();
     if (!this.settings.showContextMenu) return;
 
-    const wp = hexToWorld(unit.q, unit.r);
-    const { x: sx, y: sy } = this._worldToScreen(wp.x, wp.y);
     const sw = this.scale.width, sh = this.scale.height;
+    // Use stored cursor anchor (right-click origin); submenus reuse same anchor
+    const anchor = this._menuAnchor || { x: sw / 2, y: sh / 2 };
 
     const PAGE_SIZE = 6;
     const btnH = 30, btnW = 180, gap = 3;
@@ -1063,13 +1066,16 @@ export class GameScene extends Phaser.Scene {
       items.push({ label: '← BACK', color: 0x443322, enabled: true, cb: () => this._showContextMenu(unit, 'root', 0) });
     }
 
-    // ── Position menu near unit, clamped to screen ───────────────────────────
+    // ── Position menu at cursor, clamped to screen ───────────────────────────
     const rowCount = items.length + (title ? 1 : 0);
-    let px = sx + 40;
-    let py = sy - (rowCount * (btnH + gap)) / 2;
-    if (px + btnW > sw - 10) px = sx - btnW - 14;
+    const menuH = rowCount * (btnH + gap);
+    // Start just right of cursor; flip left if near right edge
+    let px = anchor.x + 12;
+    if (px + btnW > sw - 10) px = anchor.x - btnW - 12;
+    // Center vertically on cursor; clamp top/bottom
+    let py = anchor.y - menuH / 2;
     if (py < 50) py = 50;
-    if (py + rowCount * (btnH + gap) > sh - 130) py = sh - 130 - rowCount * (btnH + gap);
+    if (py + menuH > sh - 130) py = sh - 130 - menuH;
 
     // ── Title row ────────────────────────────────────────────────────────────
     let rowY = py;
