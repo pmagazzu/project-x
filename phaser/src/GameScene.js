@@ -570,26 +570,31 @@ export class GameScene extends Phaser.Scene {
   _redrawFog() {
     // RenderTexture approach: fill entire map black, then erase visible hexes.
     // O(visible) erase calls vs O(mapSize²) fill calls — critical for 120×120+ maps.
+    //
+    // IMPORTANT: RenderTexture draw/erase coords are in RT-LOCAL space, not world space.
+    // The RT is positioned at (fogRT.x, fogRT.y) in world space.
+    // All hex world coords must be offset by (-fogRT.x, -fogRT.y) when drawing into the RT.
     this.fogRT.clear();
 
     const fog = this._currentFog || computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
 
-    // Fill entire RT black (fog)
+    // Fill entire RT black (fog) — in local coordinates, so always (0,0,w,h)
     const fillGfx = this.make.graphics({ add: false });
     fillGfx.fillStyle(0x000000, 0.65);
-    fillGfx.fillRect(this.fogRT.x, this.fogRT.y, this.fogRT.width, this.fogRT.height);
+    fillGfx.fillRect(0, 0, this.fogRT.width, this.fogRT.height);
     this.fogRT.draw(fillGfx, 0, 0);
     fillGfx.destroy();
 
     if (fog.size === 0) return;
 
-    // Erase (punch out) visible hexes
+    // Erase (punch out) visible hexes — offset world coords into RT-local space
+    const ox = this.fogRT.x, oy = this.fogRT.y;
     const eraseGfx = this.make.graphics({ add: false });
     eraseGfx.fillStyle(0xffffff, 1);
     for (const key of fog) {
       const [q, r] = key.split(',').map(Number);
       const { x, y } = hexToWorld(q, r);
-      const verts = hexVertices(x, y);
+      const verts = hexVertices(x - ox, y - oy); // shift into RT-local space
       eraseGfx.beginPath();
       eraseGfx.moveTo(verts[0].x, verts[0].y);
       for (let i = 1; i < verts.length; i++) eraseGfx.lineTo(verts[i].x, verts[i].y);
