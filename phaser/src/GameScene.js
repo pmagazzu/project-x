@@ -10,7 +10,8 @@ import {
   findPath, resolveTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
-  designRegistrationCost, computeDesignStats
+  designRegistrationCost, computeDesignStats,
+  NAVAL_UNITS, isStealthDetected
 } from './GameState.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -218,15 +219,36 @@ export class GameScene extends Phaser.Scene {
 
   _redrawRoads() {
     this.roadGfx.clear();
-    for (const b of this.gameState.buildings) {
+    const gs = this.gameState;
+    const roadSet = new Set(gs.buildings.filter(b => b.type === 'ROAD').map(b => `${b.q},${b.r}`));
+    const HEX_NEIGHBORS_LOCAL = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+
+    for (const b of gs.buildings) {
       if (b.type !== 'ROAD') continue;
       const { x, y } = hexToWorld(b.q, b.r);
-      // Road: lighter overlay on hex
+      // Light hex fill
       const verts = hexVertices(x, y);
-      this.roadGfx.fillStyle(0xd4b896, 0.55);
+      this.roadGfx.fillStyle(0xd4b896, 0.35);
       this.roadGfx.beginPath(); this.roadGfx.moveTo(verts[0].x, verts[0].y);
       for (let i = 1; i < verts.length; i++) this.roadGfx.lineTo(verts[i].x, verts[i].y);
       this.roadGfx.closePath(); this.roadGfx.fillPath();
+
+      // Draw a thick brown line segment from center toward each adjacent road hex
+      this.roadGfx.lineStyle(4, 0xaa8855, 0.9);
+      for (const [dq, dr] of HEX_NEIGHBORS_LOCAL) {
+        const nq = b.q + dq, nr = b.r + dr;
+        if (!roadSet.has(`${nq},${nr}`)) continue;
+        const { x: nx, y: ny } = hexToWorld(nq, nr);
+        // Draw from center to midpoint between the two hex centers
+        const mx = (x + nx) / 2, my = (y + ny) / 2;
+        this.roadGfx.beginPath();
+        this.roadGfx.moveTo(x, y);
+        this.roadGfx.lineTo(mx, my);
+        this.roadGfx.strokePath();
+      }
+      // Center dot
+      this.roadGfx.fillStyle(0xaa8855, 0.95);
+      this.roadGfx.fillCircle(x, y, 4);
     }
   }
 
@@ -469,9 +491,16 @@ export class GameScene extends Phaser.Scene {
       const dispQ = (isEnemy && unit._origQ !== undefined) ? unit._origQ : unit.q;
       const dispR = (isEnemy && unit._origR !== undefined) ? unit._origR : unit.r;
 
+      // Skip embarked units (they're inside a transport)
+      if (unit.embarked) continue;
+
       // Hide enemy units in fog (use display position, not queued position)
       const key = `${dispQ},${dispR}`;
       if (isEnemy && fog && !fog.has(key)) continue;
+      // Stealth: hide stealthy enemy units unless detected
+      if (isEnemy && (UNIT_TYPES[unit.type]?.stealthy || 0) > 0) {
+        if (!isStealthDetected(gs, unit, gs.currentPlayer)) continue; // not detected — skip render
+      }
 
       const { x, y } = hexToWorld(dispQ, dispR);
       const color = PLAYER_COLORS[unit.owner];
@@ -539,6 +568,65 @@ export class GameScene extends Phaser.Scene {
         this.unitGfx.fillTriangle(x+r, y, x-r*0.5, y-r*0.7, x-r*0.5, y+r*0.7);
         this.unitGfx.lineStyle(2, 0x000000, alpha);
         this.unitGfx.strokeTriangle(x+r, y, x-r*0.5, y-r*0.7, x-r*0.5, y+r*0.7);
+      } else if (def.shape === 'boat_sm') {
+        // Patrol Boat: small elongated oval / hull
+        this.unitGfx.fillEllipse(x, y, r*2.2, r*1.0);
+        this.unitGfx.lineStyle(2, 0x000000, alpha); this.unitGfx.strokeEllipse(x, y, r*2.2, r*1.0);
+      } else if (def.shape === 'sub') {
+        // Submarine: thin elongated with rounded ends, darker
+        this.unitGfx.fillStyle(color, alpha * 0.85);
+        this.unitGfx.fillEllipse(x, y, r*2.6, r*0.8);
+        this.unitGfx.lineStyle(2, 0x000000, alpha);
+        this.unitGfx.strokeEllipse(x, y, r*2.6, r*0.8);
+        // Conning tower
+        this.unitGfx.fillStyle(color, alpha);
+        this.unitGfx.fillRect(x-r*0.15, y-r*0.7, r*0.3, r*0.5);
+      } else if (def.shape === 'destroyer') {
+        // Destroyer: elongated with pointed prow
+        this.unitGfx.fillTriangle(x+r*1.2, y, x-r*1.0, y-r*0.6, x-r*1.0, y+r*0.6);
+        this.unitGfx.lineStyle(2, 0x000000, alpha);
+        this.unitGfx.strokeTriangle(x+r*1.2, y, x-r*1.0, y-r*0.6, x-r*1.0, y+r*0.6);
+      } else if (def.shape === 'cruiser' || def.shape === 'cruiser_hv') {
+        // Cruiser: wider hull with superstructure block
+        const hw = def.shape === 'cruiser_hv' ? r*1.6 : r*1.3;
+        this.unitGfx.fillEllipse(x, y, hw*2, r*1.1);
+        this.unitGfx.lineStyle(2, 0x000000, alpha); this.unitGfx.strokeEllipse(x, y, hw*2, r*1.1);
+        // Superstructure
+        this.unitGfx.fillStyle(color, alpha * 0.7);
+        this.unitGfx.fillRect(x-r*0.4, y-r*0.7, r*0.8, r*0.55);
+      } else if (def.shape === 'battleship') {
+        // Battleship: large wide hull
+        this.unitGfx.fillEllipse(x, y, r*2.8, r*1.3);
+        this.unitGfx.lineStyle(3, 0x000000, alpha); this.unitGfx.strokeEllipse(x, y, r*2.8, r*1.3);
+        // Gun turret
+        this.unitGfx.fillStyle(color, alpha * 0.8);
+        this.unitGfx.fillCircle(x, y-r*0.3, r*0.4);
+      } else if (def.shape === 'transport') {
+        // Transport: wide boxy hull
+        this.unitGfx.fillRect(x-r*1.2, y-r*0.65, r*2.4, r*1.3);
+        this.unitGfx.lineStyle(2, 0x000000, alpha); this.unitGfx.strokeRect(x-r*1.2, y-r*0.65, r*2.4, r*1.3);
+        // Cargo hold indicator
+        if (unit.cargo && unit.cargo.length > 0) {
+          this.unitGfx.fillStyle(0xffdd44, alpha);
+          this.unitGfx.fillRect(x-r*0.3, y-r*0.2, r*0.6, r*0.5);
+        }
+      } else if (def.shape === 'landing') {
+        // Landing Craft: flat-bottomed box with ramp front
+        this.unitGfx.fillRect(x-r*0.9, y-r*0.6, r*1.8, r*1.1);
+        this.unitGfx.lineStyle(2, 0x000000, alpha); this.unitGfx.strokeRect(x-r*0.9, y-r*0.6, r*1.8, r*1.1);
+        // Ramp line
+        this.unitGfx.lineStyle(2, 0xffaa44, alpha);
+        this.unitGfx.beginPath(); this.unitGfx.moveTo(x+r*0.9, y-r*0.6); this.unitGfx.lineTo(x+r*0.9, y+r*0.5); this.unitGfx.strokePath();
+      } else if (def.shape === 'battery') {
+        // Coastal Battery: fortified emplacement — octagon + gun barrel
+        const bs = r * 0.85;
+        this.unitGfx.fillRect(x-bs, y-bs*0.7, bs*2, bs*1.4);
+        this.unitGfx.lineStyle(3, 0x000000, alpha); this.unitGfx.strokeRect(x-bs, y-bs*0.7, bs*2, bs*1.4);
+        // Gun barrel pointing right
+        this.unitGfx.lineStyle(4, 0x333333, alpha);
+        this.unitGfx.beginPath(); this.unitGfx.moveTo(x, y); this.unitGfx.lineTo(x+r*1.5, y); this.unitGfx.strokePath();
+        // Muzzle
+        this.unitGfx.fillStyle(0x333333, alpha); this.unitGfx.fillCircle(x+r*1.5, y, 3);
       } else if (def.shape === 'cross') {
         // Medic: red cross
         this.unitGfx.fillStyle(0xffffff, alpha);
@@ -1201,9 +1289,25 @@ export class GameScene extends Phaser.Scene {
     const gs   = this.gameState;
     const def  = UNIT_TYPES[unit.type];
     const actions = [];
+    const isImmobile = def.immobile || unit.immobile;
 
-    if (!unit.moved && !unit.suppressed) {
+    if (!unit.moved && !unit.suppressed && !isImmobile) {
       actions.push({ label: 'MOVE',   key: 'move',   enabled: true,  color: 0x1a5c8a, cb: () => this._onMoveMode() });
+    }
+
+    // Transport: LOAD (board adjacent land units) / UNLOAD (disembark to adjacent hex)
+    if (def.capacity) {
+      const cargo = unit.cargo || [];
+      const cap = def.capacity;
+      const maxLoad = cap.infantry + cap.vehicle;
+      if (cargo.length < maxLoad) {
+        actions.push({ label: `LOAD UNIT (${cargo.length}/${maxLoad})`, key: 'load', enabled: true, color: 0x336699,
+          cb: () => this._enterLoadMode(unit) });
+      }
+      if (cargo.length > 0) {
+        actions.push({ label: `UNLOAD (${cargo.length})`, key: 'unload', enabled: true, color: 0x226644,
+          cb: () => this._enterUnloadMode(unit) });
+      }
     }
     if (!unit.attacked && !unit.suppressed && def.attack > 0) {
       const visibleEnemies = getAttackableHexes(gs, unit, unit.q, unit.r, this._currentFog);
@@ -1314,6 +1418,18 @@ export class GameScene extends Phaser.Scene {
         allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢`, cost:{iron:8,oil:2}, enabled: iron>=8&&oil>=2, cb: () => this._onBuildStructure('VEHICLE_DEPOT',8) });
       if (noBuilding)
         allOpts.push({ label: `Obs. Post   3⚙`,  cost:{iron:3,oil:0},  enabled: iron>=3,  cb: () => this._onBuildStructure('OBS_POST',3) });
+      // Naval buildings (any terrain for naval yard/dry dock, must be on/near coast)
+      if (noBuilding)
+        allOpts.push({ label: `Naval Yard  8⚙ 2🛢`, cost:{iron:8,oil:2}, enabled: iron>=8&&oil>=2, cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
+      if (noBuilding)
+        allOpts.push({ label: `Harbor      5⚙ 1🛢`, cost:{iron:5,oil:1}, enabled: iron>=5&&oil>=1, cb: () => this._onBuildStructure('HARBOR',5,1) });
+      if (noBuilding)
+        allOpts.push({ label: `Dry Dock   12⚙ 4🛢`, cost:{iron:12,oil:4}, enabled: iron>=12&&oil>=4, cb: () => this._onBuildStructure('DRY_DOCK',12,4) });
+      if (noBuilding)
+        allOpts.push({ label: `Naval Base 16⚙ 6🛢`, cost:{iron:16,oil:6}, enabled: iron>=16&&oil>=6, cb: () => this._onBuildStructure('NAVAL_BASE',16,6) });
+      // Coastal Battery — spawns as immobile unit
+      if (!unitAt(gs, unit.q, unit.r) || unitAt(gs, unit.q, unit.r)?.id === unit.id)
+        allOpts.push({ label: `Coast. Battery 6⚙ 1🛢`, cost:{iron:6,oil:1}, enabled: iron>=6&&oil>=1, cb: () => this._onBuildCoastalBattery() });
       // Future entries just go here — pagination handles overflow automatically
 
       const totalPages = Math.max(1, Math.ceil(allOpts.length / PAGE_SIZE));
@@ -1516,6 +1632,59 @@ export class GameScene extends Phaser.Scene {
     const clickedUnit     = unitAt(gs, q, r);
     const clickedBuilding = buildingAt(gs, q, r);
 
+    // ── Transport load mode ──────────────────────────────────────────────
+    if (this.mode === 'transport_load') {
+      const transport = this._transportUnit;
+      if (transport && clickedUnit && clickedUnit.owner === gs.currentPlayer && clickedUnit !== transport) {
+        const dist = hexDistance(transport.q, transport.r, q, r);
+        if (dist <= 1) {
+          if (!transport.cargo) transport.cargo = [];
+          const def = UNIT_TYPES[transport.type];
+          const cap = def.capacity;
+          // Check capacity: count infantry vs vehicles in cargo
+          const loadedInf = (transport.cargo || []).filter(id => {
+            const u2 = gs.units.find(u => u.id === id);
+            return u2 && !NAVAL_UNITS.has(u2.type) && !['TANK','ARTILLERY','ANTI_TANK','VEHICLE_DEPOT'].includes(u2.type);
+          }).length;
+          const loadedVeh = transport.cargo.length - loadedInf;
+          const isVehicle = ['TANK','ARTILLERY','ANTI_TANK'].includes(clickedUnit.type);
+          const ok = isVehicle ? loadedVeh < cap.vehicle : loadedInf < cap.infantry;
+          if (ok) {
+            transport.cargo.push(clickedUnit.id);
+            clickedUnit.embarked = true; // hidden from map
+          }
+        }
+      }
+      this._cancelTransportMode();
+      return;
+    }
+
+    // ── Transport unload mode ────────────────────────────────────────────
+    if (this.mode === 'transport_unload') {
+      const transport = this._transportUnit;
+      if (transport && transport.cargo && transport.cargo.length > 0) {
+        const dist = hexDistance(transport.q, transport.r, q, r);
+        if (dist <= 1) {
+          const ttype = this.terrain[`${q},${r}`] ?? 0;
+          // Can only disembark on land/sand
+          if (ttype <= 3 || ttype === 6) {
+            // Unload first cargo unit to clicked hex (if empty)
+            if (!unitAt(gs, q, r)) {
+              const unitId = transport.cargo.shift();
+              const cargoUnit = gs.units.find(u => u.id === unitId);
+              if (cargoUnit) {
+                cargoUnit.q = q; cargoUnit.r = r;
+                cargoUnit.embarked = false;
+                cargoUnit.moved = true; // used its move this turn
+              }
+            }
+          }
+        }
+      }
+      this._cancelTransportMode();
+      return;
+    }
+
     // ── Auto-road destination mode ───────────────────────────────────────
     if (this.mode === 'road_dest') {
       const unit = this._roadOrderUnit;
@@ -1628,7 +1797,8 @@ export class GameScene extends Phaser.Scene {
     this._hideContextMenu();
     this.selectedUnit = unit;
     const gs = this.gameState;
-    if (!unit.moved) {
+    const isImmobile = UNIT_TYPES[unit.type]?.immobile || unit.immobile;
+    if (!unit.moved && !isImmobile) {
       this.reachable  = getReachableHexes(gs, unit, this.terrain, this.mapSize);
       this.mode = 'move';
     } else {
@@ -1646,8 +1816,9 @@ export class GameScene extends Phaser.Scene {
 
   // Right-click: open context menu when clicking ON a friendly unit; deselect everywhere else
   _onHexRightClick(q, r) {
-    // Cancel road-dest mode on right-click
+    // Cancel special modes on right-click
     if (this.mode === 'road_dest') { this._cancelRoadDestMode(); return; }
+    if (this.mode === 'transport_load' || this.mode === 'transport_unload') { this._cancelTransportMode(); return; }
     const gs = this.gameState;
     const clickedUnit = gs.units.find(u => u.q === q && u.r === r && !u.dead);
     if (clickedUnit && clickedUnit.owner === gs.currentPlayer) {
@@ -1725,18 +1896,51 @@ export class GameScene extends Phaser.Scene {
     this.mode = 'road_dest';
     // Show a HUD tip
     if (this._roadDestHint) { try { this._roadDestHint.destroy(); } catch(e){} }
-    this._roadDestHint = this.add.text(this.scale.width / 2, 80,
-      '📍 Click destination for AUTO-ROAD order  (Right-click to cancel)',
-      { fontSize: '14px', color: '#ffdd88', backgroundColor: '#222', padding: { x:8, y:4 } })
-      .setOrigin(0.5, 0).setScrollFactor(0).setDepth(200);
-    this._uiLayer.add(this._roadDestHint);
+    this._showHint('📍 Click destination for AUTO-ROAD order  (Right-click to cancel)');
     this._refresh();
   }
 
   _cancelRoadDestMode() {
     this.mode = 'select';
     this._roadOrderUnit = null;
+    this._clearHint();
+    this._refresh();
+  }
+
+  // ── Transport load/unload ─────────────────────────────────────────────────
+  _enterLoadMode(transport) {
+    this._hideContextMenu();
+    this._transportUnit = transport;
+    this.mode = 'transport_load';
+    this._showHint('🚢 Click adjacent LAND UNIT to board  (Right-click to cancel)');
+    this._refresh();
+  }
+
+  _enterUnloadMode(transport) {
+    this._hideContextMenu();
+    this._transportUnit = transport;
+    this.mode = 'transport_unload';
+    this._showHint('🚢 Click adjacent hex to disembark cargo  (Right-click to cancel)');
+    this._refresh();
+  }
+
+  _showHint(text) {
+    if (this._hintText) { try { this._hintText.destroy(); } catch(e){} }
+    this._hintText = this.add.text(this.scale.width / 2, 80, text,
+      { fontSize: '14px', color: '#ffdd88', backgroundColor: '#222', padding: { x:8, y:4 } })
+      .setOrigin(0.5, 0).setScrollFactor(0).setDepth(200);
+    this._uiLayer.add(this._hintText);
+  }
+
+  _clearHint() {
+    if (this._hintText) { try { this._hintText.destroy(); } catch(e){} this._hintText = null; }
     if (this._roadDestHint) { try { this._roadDestHint.destroy(); } catch(e){} this._roadDestHint = null; }
+  }
+
+  _cancelTransportMode() {
+    this.mode = 'select';
+    this._transportUnit = null;
+    this._clearHint();
     this._refresh();
   }
 
@@ -1753,11 +1957,10 @@ export class GameScene extends Phaser.Scene {
     this._clearSelection();
   }
 
-  _onBuildStructure(type, ironCost) {
+  _onBuildStructure(type, ironCost, oilCost = 0) {
     const gs = this.gameState, u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
     if (buildingAt(gs, u.q, u.r)) return;
-    const oilCost = type === 'VEHICLE_DEPOT' ? 2 : 0;
     if (gs.players[gs.currentPlayer].iron < ironCost) return;
     if (gs.players[gs.currentPlayer].oil  < oilCost)  return;
     gs.players[gs.currentPlayer].iron -= ironCost;
@@ -1765,6 +1968,28 @@ export class GameScene extends Phaser.Scene {
     gs.buildings.push(createBuilding(type, gs.currentPlayer, u.q, u.r));
     u.moved = true; u.building = true;
     this._clearSelection();
+  }
+
+  _onBuildCoastalBattery() {
+    const gs = this.gameState, u = this.selectedUnit;
+    if (!u || !UNIT_TYPES[u.type].canBuild) return;
+    const p = gs.currentPlayer;
+    if (gs.players[p].iron < 6 || gs.players[p].oil < 1) return;
+    gs.players[p].iron -= 6; gs.players[p].oil -= 1;
+    const def = UNIT_TYPES['COASTAL_BATTERY'];
+    // Assign ID using state counter (same pattern as createUnit)
+    if (!gs._nextUnitId) gs._nextUnitId = Math.max(...gs.units.map(u2 => u2.id), ...gs.buildings.map(b => b.id), 0) + 1;
+    const battery = {
+      id: gs._nextUnitId++,
+      type: 'COASTAL_BATTERY', owner: p,
+      q: u.q, r: u.r,
+      health: def.health, maxHealth: def.health,
+      moved: true, attacked: false, dugIn: false, building: false, immobile: true,
+    };
+    gs.units.push(battery);
+    u.moved = true; u.building = true;
+    this._hideContextMenu();
+    this._refresh();
   }
 
   _onBuildMine(resType) {

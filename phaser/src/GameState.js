@@ -25,6 +25,29 @@ export const UNIT_TYPES = {
   ANTI_TANK: { name:'Anti-Tank', move:2, attack:1, health:2, range:3, cost:{iron:3,oil:0}, shape:'arrow',    canDigIn:true,  canBuild:false, canHeal:false, sight:3, soft_attack:1, hard_attack:3, pierce:6, armor:1, defense:1, evasion:0,  accuracy:0,  buildTime:2 },
   MORTAR:    { name:'Mortar',    move:2, attack:3, health:2, range:4, cost:{iron:2,oil:0}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:4, hard_attack:1, pierce:2, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:2 },
   MEDIC:     { name:'Medic',     move:2, attack:0, health:2, range:0, cost:{iron:2,oil:0}, shape:'cross',    canDigIn:false, canBuild:false, canHeal:true,  sight:2, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:1 },
+
+  // ── Naval units ──────────────────────────────────────────────────────────
+  // naval:true       = can traverse ocean (type 5) and shallow (type 4)
+  // canEnterShallow  = can enter shallow water (type 4) hexes
+  // canEnterSand     = can land on sand/beach (type 6) hexes — amphibious
+  // stealthy:N       = detection difficulty (enemy needs detection >= N/2 to spot)
+  // detection:N      = sonar/sight range for revealing stealthy units
+  // naval_attack:N   = effectiveness vs land targets (replaces soft/hard vs land)
+  // immobile:true    = cannot move (coastal battery, fortifications)
+  // capacity:{infantry,vehicle} = how many embarked units this transport holds
+  //
+  PATROL_BOAT:   { name:'Patrol Boat',    move:4, attack:2, health:2, range:2, cost:{iron:2,oil:1}, shape:'boat_sm',  canDigIn:false, canBuild:false, canHeal:false, sight:5,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:0, detection:1, naval_attack:1, soft_attack:2, hard_attack:1, pierce:2, armor:1, defense:0, evasion:5,  accuracy:0,  buildTime:1 },
+  SUBMARINE:     { name:'Submarine',      move:3, attack:3, health:4, range:3, cost:{iron:4,oil:2}, shape:'sub',      canDigIn:false, canBuild:false, canHeal:false, sight:3,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:5, detection:0, naval_attack:0, soft_attack:1, hard_attack:4, pierce:6, armor:2, defense:1, evasion:10, accuracy:5,  buildTime:3 },
+  DESTROYER:     { name:'Destroyer',      move:3, attack:3, health:5, range:3, cost:{iron:5,oil:2}, shape:'destroyer', canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:2, naval_attack:2, soft_attack:3, hard_attack:2, pierce:3, armor:2, defense:1, evasion:5,  accuracy:5,  buildTime:3 },
+  CRUISER_LT:    { name:'Light Cruiser',  move:3, attack:3, health:6, range:4, cost:{iron:6,oil:3}, shape:'cruiser',   canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:3, soft_attack:3, hard_attack:3, pierce:3, armor:3, defense:2, evasion:3,  accuracy:5,  buildTime:4 },
+  CRUISER_HV:    { name:'Heavy Cruiser',  move:2, attack:4, health:8, range:5, cost:{iron:8,oil:4}, shape:'cruiser_hv',canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:5, soft_attack:4, hard_attack:4, pierce:4, armor:5, defense:2, evasion:1,  accuracy:5,  buildTime:5 },
+  BATTLESHIP:    { name:'Battleship',     move:1, attack:5, health:12, range:7, cost:{iron:12,oil:6},shape:'battleship',canDigIn:false,canBuild:false, canHeal:false, sight:5,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:7, soft_attack:5, hard_attack:5, pierce:5, armor:8, defense:3, evasion:0,  accuracy:5,  buildTime:7 },
+  LANDING_CRAFT: { name:'Landing Craft',  move:2, attack:0, health:2, range:0, cost:{iron:2,oil:1}, shape:'landing',   canDigIn:false,canBuild:false, canHeal:false, sight:2,  naval:true, canEnterShallow:true,  canEnterSand:true,  stealthy:0, detection:0, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:2, capacity:{infantry:1,vehicle:0} },
+  TRANSPORT_SM:  { name:'Transport (S)',  move:2, attack:0, health:3, range:0, cost:{iron:3,oil:1}, shape:'transport', canDigIn:false,canBuild:false, canHeal:false, sight:2,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:0, detection:0, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:2, capacity:{infantry:2,vehicle:1} },
+  TRANSPORT_MD:  { name:'Transport (M)',  move:2, attack:0, health:4, range:0, cost:{iron:5,oil:2}, shape:'transport', canDigIn:false,canBuild:false, canHeal:false, sight:2,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:0, detection:0, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:2, defense:0, evasion:0,  accuracy:0,  buildTime:3, capacity:{infantry:4,vehicle:2} },
+  TRANSPORT_LG:  { name:'Transport (L)',  move:2, attack:0, health:5, range:0, cost:{iron:7,oil:3}, shape:'transport', canDigIn:false,canBuild:false, canHeal:false, sight:2,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:0, detection:0, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:2, defense:0, evasion:0,  accuracy:0,  buildTime:4, capacity:{infantry:6,vehicle:4} },
+  // Coastal Battery — built by engineer, immobile, fires at water and land targets
+  COASTAL_BATTERY:{ name:'Coastal Battery', move:0, attack:4, health:4, range:6, cost:{iron:6,oil:1}, shape:'battery', canDigIn:false,canBuild:false, canHeal:false, sight:5, naval:false, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:0, naval_attack:4, soft_attack:4, hard_attack:3, pierce:4, armor:3, defense:2, evasion:0, accuracy:5, buildTime:0, immobile:true },
 };
 
 // ── Module system ─────────────────────────────────────────────────────────
@@ -45,15 +68,33 @@ export const MODULES = {
 
 // Which building trains which chassis types (for design registration)
 export const CHASSIS_BUILDINGS = {
-  INFANTRY:  'BARRACKS',
-  TANK:      'VEHICLE_DEPOT',
-  ARTILLERY: 'VEHICLE_DEPOT',
-  ENGINEER:  'HQ',
-  RECON:     'HQ',
-  ANTI_TANK: 'BARRACKS',
-  MORTAR:    'BARRACKS',
-  MEDIC:     'BARRACKS',
+  INFANTRY:        'BARRACKS',
+  TANK:            'VEHICLE_DEPOT',
+  ARTILLERY:       'VEHICLE_DEPOT',
+  ENGINEER:        'HQ',
+  RECON:           'HQ',
+  ANTI_TANK:       'BARRACKS',
+  MORTAR:          'BARRACKS',
+  MEDIC:           'BARRACKS',
+  // Naval
+  PATROL_BOAT:     'NAVAL_YARD',
+  SUBMARINE:       'NAVAL_YARD',
+  LANDING_CRAFT:   'NAVAL_YARD',
+  TRANSPORT_SM:    'NAVAL_YARD',
+  TRANSPORT_MD:    'NAVAL_YARD',
+  TRANSPORT_LG:    'NAVAL_YARD',
+  DESTROYER:       'DRY_DOCK',
+  CRUISER_LT:      'DRY_DOCK',
+  CRUISER_HV:      'DRY_DOCK',
+  BATTLESHIP:      'NAVAL_BASE',
 };
+
+// Naval unit types set (for movement/terrain checks)
+export const NAVAL_UNITS = new Set(['PATROL_BOAT','SUBMARINE','DESTROYER','CRUISER_LT','CRUISER_HV','BATTLESHIP','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG']);
+// Units that can enter shallow water (type 4)
+export const SHALLOW_UNITS = new Set(['PATROL_BOAT','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG']);
+// Units that can land on sand/beach (type 6) — amphibious disembark
+export const AMPHIBIOUS_UNITS = new Set(['LANDING_CRAFT']);
 
 export const MAX_DESIGNS_PER_PLAYER = 4; // design slots per player
 export const DESIGN_BASE_COST = { iron: 3, oil: 0 }; // flat registration fee + module costs
@@ -133,6 +174,11 @@ export const BUILDING_TYPES = {
   BUNKER:        { name: 'Bunker',         ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 5, oil: 0 }, color: 0x888866, sight: 0 },
   OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 3, oil: 0 }, color: 0x88aacc, sight: 3 },
   ROAD:          { name: 'Road',           ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 1, oil: 0 }, color: 0xccbbaa, sight: 0 },
+  // Naval buildings
+  NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['PATROL_BOAT','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 0 },
+  HARBOR:        { name: 'Harbor',         ironPerTurn: 1, oilPerTurn: 1, canRecruit: [],                                        buildCost: { iron: 5, oil: 1 }, color: 0x4488cc, sight: 0, repairsNaval: true },
+  DRY_DOCK:      { name: 'Dry Dock',       ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['DESTROYER','CRUISER_LT','CRUISER_HV'],   buildCost: { iron:12, oil: 4 }, color: 0x225588, sight: 0 },
+  NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, canRecruit: ['BATTLESHIP'],                            buildCost: { iron:16, oil: 6 }, color: 0x113366, sight: 2 },
 };
 
 export const RESOURCE_TYPES = {
@@ -197,11 +243,20 @@ export function createGameState(scenario = 'default') {
     state.units.push(createUnit('ENGINEER', 2, 30, 8));
     state.buildings.push(createBuilding('HQ', 1, 4, 20));
     state.buildings.push(createBuilding('HQ', 2, 30, 7));
+    state.buildings.push(createBuilding('NAVAL_YARD', 1, 5, 21));
+    state.buildings.push(createBuilding('NAVAL_YARD', 2, 29, 6));
+    // Starting naval units
+    state.units.push(createUnit('PATROL_BOAT', 1, 6, 21));
+    state.units.push(createUnit('PATROL_BOAT', 1, 6, 22));
+    state.units.push(createUnit('PATROL_BOAT', 2, 28, 6));
+    state.units.push(createUnit('PATROL_BOAT', 2, 28, 5));
     // Island resources
     for (const [q,r] of [[3,20],[4,21],[5,20],[3,21],[5,19]])
       state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
     for (const [q,r] of [[29,7],[30,6],[31,7]])
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
+    state.players[1].iron = 25; state.players[1].oil = 8;
+    state.players[2].iron = 25; state.players[2].oil = 8;
 
   } else if (scenario === 'combat') {
     // All unit types lined up 5 tiles apart — centered on the 20×10 map
@@ -351,15 +406,32 @@ const HEAVY_UNITS = new Set(['TANK', 'ARTILLERY', 'ANTI_TANK', 'VEHICLE_DEPOT'])
 // terrain: 0=plains, 1=forest, 2=mountain, 3=hill
 // Move costs: plains=1, forest=2(infantry)/999(vehicles), mountain=3(foot only), hill=2(all)
 export function getMoveCost(terrainType, hasRoad, unitType = '') {
+  // Naval units: ocean/shallow cost 1, can't enter land terrain
+  if (NAVAL_UNITS.has(unitType)) {
+    if (terrainType === 5) return 1; // ocean: free sailing
+    if (terrainType === 4) return SHALLOW_UNITS.has(unitType) ? 1 : 999; // shallow: lighter ships only
+    if (terrainType === 6) return AMPHIBIOUS_UNITS.has(unitType) ? 1 : 999; // sand: amphibious only
+    return 999; // land terrain: impassable for naval
+  }
   if (hasRoad) return 0.5;
   if (terrainType === 1 && HEAVY_UNITS.has(unitType)) return 999; // forest: vehicles crawl (1 hex)
   // 0=plains, 1=forest, 2=mountain, 3=hill, 4=shallow, 5=ocean, 6=sand(beach)
   return [1, 2, 3, 2, 999, 999, 1][terrainType] ?? 1;
 }
 export function canEnterTerrain(unitType, terrainType) {
+  // Naval units: can only enter water/beach terrain
+  if (NAVAL_UNITS.has(unitType)) {
+    if (terrainType === 5) return true;  // ocean: all naval
+    if (terrainType === 4) return SHALLOW_UNITS.has(unitType); // shallow: lighter ships only
+    if (terrainType === 6) return AMPHIBIOUS_UNITS.has(unitType); // sand: amphibious only
+    return false; // no land terrain for naval
+  }
+  // Coastal Battery — immobile, treated as a unit that never moves
+  if (unitType === 'COASTAL_BATTERY') return false;
+  // Land units
   if (terrainType === 2) return unitType === 'INFANTRY' || unitType === 'ENGINEER'; // mountains: foot only
-  if (terrainType === 4 || terrainType === 5) return false; // shallow/ocean: no land units (no naval yet)
-  return true; // hills, forest, sand, plains: all allowed (vehicles pay extra for forest)
+  if (terrainType === 4 || terrainType === 5) return false; // shallow/ocean: no land units
+  return true; // hills, forest, sand, plains: all land units allowed
 }
 
 // Terrain that blocks line-of-sight beyond 1 hex (for future LOS system)
@@ -501,6 +573,26 @@ export function getAttackRangeHexes(mapSize, unit, fromQ, fromR, terrain) {
 // ── Fog of war ─────────────────────────────────────────────────────────────
 // terrain: optional map `"q,r" → terrainType` (0=plains,1=forest,2=mountain)
 // LOS rules: forest costs 2 sight points to pass through; mountain blocks sight beyond the hex itself.
+// ── Sub stealth detection ──────────────────────────────────────────────────
+// Returns true if the enemy unit (stealthy) is spotted by any of player's units.
+// Detection roll: attacker.detection vs unit.stealth.
+// Visibility if: adjacent to enemy unit (always reveals), OR
+//   any own unit with detection > 0 is within detection range AND roll passes.
+export function isStealthDetected(state, stealthyUnit, byPlayer) {
+  const stealthVal = UNIT_TYPES[stealthyUnit.type]?.stealthy || 0;
+  if (!stealthVal) return true; // not stealthy — always visible
+  for (const u of state.units.filter(u => u.owner === byPlayer)) {
+    const dist = hexDistance(u.q, u.r, stealthyUnit.q, stealthyUnit.r);
+    if (dist <= 1) return true; // adjacent always spots
+    const det = UNIT_TYPES[u.type]?.detection || 0;
+    if (det > 0 && dist <= det + 2) {
+      // Detection check: detection success if det >= stealthVal/2
+      if (det * 2 >= stealthVal) return true;
+    }
+  }
+  return false;
+}
+
 export function computeFog(state, player, mapSize, terrain) {
   const visible = new Set();
 
@@ -676,9 +768,19 @@ export function resolveTurn(state, terrain) {
       continue;
     }
 
+    // Naval vs land: ships attacking land targets use naval_attack stat (lower effectiveness)
+    const attackerIsNaval = NAVAL_UNITS.has(attacker.type) || attacker.type === 'COASTAL_BATTERY';
+    const targetIsNaval   = NAVAL_UNITS.has(target.type);
+    const targetTerrain   = (state._terrain && state._terrain[`${target.q},${target.r}`]) ?? 0;
+    const targetOnLand    = targetTerrain <= 3 || targetTerrain === 6; // plains/forest/mtn/hill/sand
+    // Ships attacking land: use naval_attack, halved effectiveness
+    const navalVsLand = attackerIsNaval && targetOnLand && !targetIsNaval;
+    const navalVsNaval = attackerIsNaval && targetIsNaval;
+
     // Determine if target is armored (armor > 2 = armored)
     const isArmored = tDef.armor > 2;
-    const baseAttack = isArmored ? aDef.hard_attack : aDef.soft_attack;
+    let baseAttack = isArmored ? aDef.hard_attack : aDef.soft_attack;
+    if (navalVsLand) baseAttack = Math.floor((aDef.naval_attack || 1) * 0.6); // naval bombardment: 60% naval_attack
 
     // Pierce vs armor ratio
     let pierceRatio = 1;
@@ -777,13 +879,23 @@ export function resolveTurn(state, terrain) {
   state.units = state.units.filter(u => u.health > 0);
   state._lastCombatLog = combatLog; // stored for UI to read
 
-  // Phase 2.5: Medic healing (before captures)
+  // Phase 2.5: Medic healing + Harbor naval repair
   for (const medic of state.units.filter(u => u.type === 'MEDIC')) {
     for (const [dq, dr] of HEX_NEIGHBORS) {
       const target = unitAt(state, medic.q + dq, medic.r + dr);
       if (target && target.owner === medic.owner && target.health < target.maxHealth) {
         target.health = Math.min(target.maxHealth, target.health + 1);
         events.push(`Medic (P${medic.owner}) heals ${UNIT_TYPES[target.type].name}`);
+      }
+    }
+  }
+  // Harbor: repair 1hp to naval units docked on or adjacent to harbor
+  for (const harbor of state.buildings.filter(b => b.type === 'HARBOR')) {
+    for (const [dq, dr] of [[0,0], ...HEX_NEIGHBORS]) {
+      const target = unitAt(state, harbor.q + dq, harbor.r + dr);
+      if (target && target.owner === harbor.owner && NAVAL_UNITS.has(target.type) && target.health < target.maxHealth) {
+        target.health = Math.min(target.maxHealth, target.health + 1);
+        events.push(`Harbor (P${harbor.owner}) repairs ${UNIT_TYPES[target.type].name}`);
       }
     }
   }
