@@ -403,11 +403,17 @@ export class GameScene extends Phaser.Scene {
     const fog = this._currentFog;
 
     for (const unit of gs.units) {
-      // Hide enemy units in fog
-      const key = `${unit.q},${unit.r}`;
-      if (unit.owner !== gs.currentPlayer && fog && !fog.has(key)) continue;
+      // Enemy units with pending moves: show at their ORIGINAL (turn-start) position
+      // so P2 can't see where P1 moved their units during planning (we-go integrity)
+      const isEnemy = unit.owner !== gs.currentPlayer;
+      const dispQ = (isEnemy && unit._origQ !== undefined) ? unit._origQ : unit.q;
+      const dispR = (isEnemy && unit._origR !== undefined) ? unit._origR : unit.r;
 
-      const { x, y } = hexToWorld(unit.q, unit.r);
+      // Hide enemy units in fog (use display position, not queued position)
+      const key = `${dispQ},${dispR}`;
+      if (isEnemy && fog && !fog.has(key)) continue;
+
+      const { x, y } = hexToWorld(dispQ, dispR);
       const color = PLAYER_COLORS[unit.owner];
       const dim   = (unit.owner !== gs.currentPlayer);
       const alpha = dim ? 0.6 : 1.0;
@@ -421,14 +427,14 @@ export class GameScene extends Phaser.Scene {
       }
       // Incoming attack warning (check both unit-id and hex-targeted attacks)
       const isTargeted = Object.values(gs.pendingAttacks).some(a =>
-        a === unit.id || (a?.hex && a.hex.q === unit.q && a.hex.r === unit.r));
+        a === unit.id || (a?.hex && a.hex.q === dispQ && a.hex.r === dispR));
       if (isTargeted) {
         this.unitGfx.lineStyle(3, 0xff2222, 0.85);
         this.unitGfx.strokeCircle(x, y, r + 9);
       }
 
       // Attack-available indicator: pulsing crosshair on enemies the selected unit can attack
-      const isAttackTarget = this.attackable.some(h => h.q === unit.q && h.r === unit.r);
+      const isAttackTarget = this.attackable.some(h => h.q === dispQ && h.r === dispR);
       if (isAttackTarget && unit.owner !== gs.currentPlayer) {
         const cr = r + 7;
         // Outer ring
