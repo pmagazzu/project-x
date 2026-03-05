@@ -575,21 +575,11 @@ export class GameScene extends Phaser.Scene {
     this.unitStatsTxt = this._makeLabel(14, h - panH + 30, '', D);
     this.unitStatusTxt = this._makeLabel(14, h - panH + 70, '', D);
 
-    // Right: action buttons (3×2 grid)
-    const ax = w - 390, ay = h - panH + 8;
+    // Right: action buttons background (buttons rebuilt dynamically in _updateBottomPanel)
     this.actionBg = this.add.rectangle(w - 200, h - panH/2, 390, panH, 0x111111, 0.92)
       .setStrokeStyle(1, 0x444444).setScrollFactor(0).setDepth(D);
 
-    const bw = 118, bh = 42, gap = 4;
-    this.actBtns = {
-      move:    this._makeActionBtn(ax,           ay,        'MOVE',      0x1a5c8a, () => this._onMoveMode()),
-      attack:  this._makeActionBtn(ax+bw+gap,    ay,        'ATTACK',    0x882222, () => this._onAttackMode()),
-      cancel:  this._makeActionBtn(ax+2*(bw+gap),ay,        'CANCEL',    0x444444, () => this._onCancel()),
-      digin:   this._makeActionBtn(ax,           ay+bh+gap, 'DIG IN',    0x8B5A2B, () => this._onDigIn()),
-      build:   this._makeActionBtn(ax+bw+gap,    ay+bh+gap, 'BUILD ▼',   0x557755, () => this._toggleBuildMenu()),
-      more:    this._makeActionBtn(ax+2*(bw+gap),ay+bh+gap, 'MORE',      0x333333, () => {}),
-    };
-
+    this._dynBtns = [];
     this._contextMenuUnit = null;
   }
 
@@ -643,22 +633,33 @@ export class GameScene extends Phaser.Scene {
       this.unitStatusTxt.setText('Click a unit to select it');
     }
 
-    // Action buttons visibility
-    const isEngineer = canAct && UNIT_TYPES[u.type].canBuild;
-    const p = gs.currentPlayer;
+    // Rebuild dynamic action buttons from _getUnitActions
+    this._dynBtns.forEach(b => { try { b.destroy(); } catch(e){} });
+    this._dynBtns = [];
 
-    this.actBtns.move.setVisible(canAct && !u.moved && !u.suppressed);
-    this.actBtns.attack.setVisible(canAct && !u.attacked && !u.suppressed && this.mode !== 'attack');
-    this.actBtns.cancel.setVisible(!!u || this.mode !== 'select');
-    this.actBtns.digin.setVisible(canAct && UNIT_TYPES[u.type].canDigIn && !u.dugIn && !u.moved);
-    this.actBtns.build.setVisible(isEngineer);
-    this.actBtns.more.setVisible(false);
-
-    // Highlight active mode button
-    this.actBtns.move.setAlpha(this.mode === 'move' ? 1.0 : 0.75);
-    this.actBtns.attack.setAlpha(this.mode === 'attack' ? 1.0 : 0.75);
-
+    if (canAct) {
+      const w2 = this.scale.width, h2 = this.scale.height;
+      const panH2 = 120;
+      const bw = 118, bh = 42, gap = 4;
+      const ax = w2 - 390, ay = h2 - panH2 + 8;
+      const actions = this._getUnitActions(u);
+      const maxBtns = 6;
+      const shown   = actions.slice(0, maxBtns);
+      shown.forEach((a, i) => {
+        const col = i % 3, row = Math.floor(i / 3);
+        const btn = this._makeActionBtn(
+          ax + col * (bw + gap),
+          ay + row * (bh + gap),
+          a.label,
+          a.color,
+          a.enabled ? a.cb : () => {}
+        );
+        if (!a.enabled) btn.setAlpha(0.4);
+        this._uiLayer.add(btn);
+        this._dynBtns.push(btn);
+      });
     }
+  }
 
   // Build options are now served through _showContextMenu(unit, 'build', page)
   _hideBuildMenu() { /* legacy no-op — build menu is now part of context menu */ }
@@ -1462,7 +1463,7 @@ export class GameScene extends Phaser.Scene {
     this._refresh();
   }
 
-  // Right-click: open context menu for own unit, or inspect enemy
+  // Right-click: open context menu for own unit, or deselect if out of range
   _onHexRightClick(q, r) {
     const gs = this.gameState;
     const clickedUnit = gs.units.find(u => u.q === q && u.r === r && !u.dead);
@@ -1470,8 +1471,14 @@ export class GameScene extends Phaser.Scene {
       if (this.selectedUnit !== clickedUnit) this._selectUnit(clickedUnit);
       this._showContextMenu(clickedUnit);
     } else if (this.selectedUnit && this.selectedUnit.owner === gs.currentPlayer) {
-      // Right-click on empty/enemy hex while unit selected — show menu for selected unit
-      this._showContextMenu(this.selectedUnit);
+      // Right-click on empty/enemy hex — deselect if outside move+attack range
+      const inReach  = this.reachable.some(h => h.q === q && h.r === r);
+      const inAttack = this.attackable.some(h => h.q === q && h.r === r);
+      if (!inReach && !inAttack) {
+        this._clearSelection();
+      } else {
+        this._showContextMenu(this.selectedUnit);
+      }
     }
   }
 
@@ -1591,7 +1598,7 @@ export class GameScene extends Phaser.Scene {
   // ── Animated resolution playback ──────────────────────────────────────────
   async _playResolutionAnimation() {
     const gs = this.gameState;
-    Object.values(this.actBtns || {}).forEach(b => b.setVisible(false));
+    
     this.btnSubmit?.setVisible(false);
     this._hideContextMenu();
     this._clearSelection();
@@ -1681,7 +1688,7 @@ export class GameScene extends Phaser.Scene {
   // ── Pass / Resolution screens ─────────────────────────────────────────────
   _showSplash(objects, onDismiss) {
     // Hide action buttons during splash
-    Object.values(this.actBtns || {}).forEach(b => b.setVisible(false));
+    
     this.btnSubmit?.setVisible(false);
 
     const btn = this.add.text(this.scale.width / 2, this.scale.height - 60, '[ CLICK TO CONTINUE ]', {
