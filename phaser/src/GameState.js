@@ -287,16 +287,25 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
 
 // Returns hexes occupied by visible enemies — used for "known target" highlighting
 // fog: optional Set of visible hex keys `"q,r"` — if provided, only enemies in fog-visible hexes are returned
+// Enemy units with pending moves are treated as being at their ORIGINAL (turn-start) position —
+// prevents revealing where enemies moved to before the turn resolves.
 export function getAttackableHexes(state, unit, fromQ, fromR, fog) {
   const def = UNIT_TYPES[unit.type];
   return state.units
     .filter(u => {
       if (u.owner === unit.owner || u.dead) return false;
-      if (hexDistance(fromQ, fromR, u.q, u.r) > def.range) return false;
-      if (fog && !fog.has(`${u.q},${u.r}`)) return false; // hidden in fog
+      // Use display position (orig if moved) — same as what the player sees
+      const dq = (u._origQ !== undefined) ? u._origQ : u.q;
+      const dr = (u._origR !== undefined) ? u._origR : u.r;
+      if (hexDistance(fromQ, fromR, dq, dr) > def.range) return false;
+      if (fog && !fog.has(`${dq},${dr}`)) return false; // hidden in fog
       return true;
     })
-    .map(u => ({ q: u.q, r: u.r, targetId: u.id }));
+    .map(u => {
+      const dq = (u._origQ !== undefined) ? u._origQ : u.q;
+      const dr = (u._origR !== undefined) ? u._origR : u.r;
+      return { q: dq, r: dr, targetId: u.id };
+    });
 }
 
 // Returns ALL hexes within attack range — for blind fire targeting
