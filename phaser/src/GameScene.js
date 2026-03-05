@@ -485,8 +485,8 @@ export class GameScene extends Phaser.Scene {
       this.unitStatsTxt.setText(`HP: ${u.health}/${u.maxHealth}  ATK: ${def.attack}  MOV: ${def.move}  RNG: ${def.range}  SIGHT: ${def.sight}`);
       const pa = gs.pendingAttacks[u.id];
       let status = '';
-      status += u.moved    ? '✓ Moved  ' : '○ Can move  ';
-      status += pa         ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : '○ Can attack  ';
+      status += u.suppressed ? '⚡ SUPPRESSED  ' : u.moved ? '✓ Moved  ' : '○ Can move  ';
+      status += pa         ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : '○ Can attack  ';
       if (u.dugIn) status += '🪖 Dug in';
       this.unitStatusTxt.setText(status);
     } else if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r)) {
@@ -508,8 +508,8 @@ export class GameScene extends Phaser.Scene {
     const isEngineer = canAct && UNIT_TYPES[u.type].canBuild;
     const p = gs.currentPlayer;
 
-    this.actBtns.move.setVisible(canAct && !u.moved);
-    this.actBtns.attack.setVisible(canAct && !u.attacked && this.mode !== 'attack');
+    this.actBtns.move.setVisible(canAct && !u.moved && !u.suppressed);
+    this.actBtns.attack.setVisible(canAct && !u.attacked && !u.suppressed && this.mode !== 'attack');
     this.actBtns.cancel.setVisible(!!u || this.mode !== 'select');
     this.actBtns.digin.setVisible(canAct && UNIT_TYPES[u.type].canDigIn && !u.dugIn && !u.moved);
     this.actBtns.build.setVisible(isEngineer);
@@ -966,12 +966,13 @@ export class GameScene extends Phaser.Scene {
     if (winner) {
       yPos += 10;
       addLine(`🏆  PLAYER ${winner} WINS!`, '#ffdd44', true);
+      yPos += 6;
+      addLine(`Game over — thanks for playing Attrition`, '#888888');
+      // Winner splash: click to reload
+      this._showSplash(objects, () => { this.scene.restart(); });
     } else {
       yPos += 6;
       addLine(`Turn ${this.gameState.turn} begins`, '#666666');
-    }
-
-    if (!winner) {
       this._showSplash(objects, () => this._refresh());
     }
   }
