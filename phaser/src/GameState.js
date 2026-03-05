@@ -227,25 +227,25 @@ export function createGameState(scenario = 'default') {
     state.units.push(createUnit('ENGINEER', 1, 4,  7));
     state.units.push(createUnit('ANTI_TANK',1, 5,  7));
 
-    state.units.push(createUnit('INFANTRY', 2, 53, 33));
-    state.units.push(createUnit('INFANTRY', 2, 52, 33));
-    state.units.push(createUnit('INFANTRY', 2, 53, 32));
-    state.units.push(createUnit('TANK',     2, 52, 32));
-    state.units.push(createUnit('TANK',     2, 51, 33));
-    state.units.push(createUnit('ARTILLERY',2, 54, 32));
-    state.units.push(createUnit('RECON',    2, 51, 34));
-    state.units.push(createUnit('ENGINEER', 2, 54, 33));
-    state.units.push(createUnit('ENGINEER', 2, 53, 31));
-    state.units.push(createUnit('ANTI_TANK',2, 52, 31));
+    state.units.push(createUnit('INFANTRY', 2, 113, 68));
+    state.units.push(createUnit('INFANTRY', 2, 112, 68));
+    state.units.push(createUnit('INFANTRY', 2, 113, 67));
+    state.units.push(createUnit('TANK',     2, 112, 67));
+    state.units.push(createUnit('TANK',     2, 111, 68));
+    state.units.push(createUnit('ARTILLERY',2, 114, 67));
+    state.units.push(createUnit('RECON',    2, 111, 69));
+    state.units.push(createUnit('ENGINEER', 2, 114, 68));
+    state.units.push(createUnit('ENGINEER', 2, 113, 66));
+    state.units.push(createUnit('ANTI_TANK',2, 112, 66));
 
-    state.buildings.push(createBuilding('HQ',      1, 3,  7));
-    state.buildings.push(createBuilding('BARRACKS', 1, 2,  7));
-    state.buildings.push(createBuilding('HQ',      2, 55, 31));
-    state.buildings.push(createBuilding('BARRACKS', 2, 56, 31));
+    state.buildings.push(createBuilding('HQ',       1, 3,   7));
+    state.buildings.push(createBuilding('BARRACKS',  1, 2,   7));
+    state.buildings.push(createBuilding('HQ',       2, 115, 66));
+    state.buildings.push(createBuilding('BARRACKS',  2, 116, 66));
 
-    for (const [q,r] of [[28,18],[29,18],[27,19],[30,17],[26,20],[31,18],[25,19],[32,17]])
+    for (const [q,r] of [[58,38],[59,38],[57,39],[60,37],[56,40],[61,38],[55,39],[62,37]])
       state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
-    for (const [q,r] of [[28,20],[29,16],[27,17],[30,19]])
+    for (const [q,r] of [[58,40],[59,36],[57,37],[60,39]])
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
 
   } else {

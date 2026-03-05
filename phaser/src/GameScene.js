@@ -45,7 +45,7 @@ export class GameScene extends Phaser.Scene {
     const data = this.scene.settings.data || {};
     this.scenario = data.scenario || 'default';
     // Map sizes per scenario
-    const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 60, default: 25 };
+    const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, default: 25 };
     this.mapSize   = MAP_SIZES[this.scenario] || MAP_SIZE;
 
     this.gameState = createGameState(this.scenario);
