@@ -269,8 +269,14 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
       const isFirstStep = cost === 0;
       const withinBudget = newCost <= maxMove || (isFirstStep && maxMove >= 1);
       if (!withinBudget) continue;
-      // Enemy units: can't pass through or end on
-      const occupant = unitAt(state, nq, nr);
+      // Enemy units: block movement only at their DISPLAY position (origQ/origR if they moved).
+      // Using actual positions would leak P2's planned moves to P1 during planning phase.
+      const occupant = state.units.find(u => {
+        if (u.dead) return false;
+        const dq = (u._origQ !== undefined) ? u._origQ : u.q;
+        const dr = (u._origR !== undefined) ? u._origR : u.r;
+        return dq === nq && dr === nr;
+      });
       if (occupant && occupant.owner !== unit.owner) continue;
       if (!dist.has(key) || newCost < dist.get(key)) {
         dist.set(key, newCost);
