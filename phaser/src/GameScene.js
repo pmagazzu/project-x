@@ -7,7 +7,7 @@ import {
   createGameState, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, computeFog,
   resolveTurn, checkWinner, calcIncome, queueRecruit,
-  UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES, MINE_COST
+  UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES
 } from './GameState.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
