@@ -2324,6 +2324,7 @@ export class GameScene extends Phaser.Scene {
     for (const unit of gs.units) {
       if (!NAVAL_UNITS.has(unit.type)) continue;
       const ttype = this.terrain[`${unit.q},${unit.r}`] ?? 0;
+      console.log(`[spawn] ${unit.type} owner=${unit.owner} at (${unit.q},${unit.r}) terrain=${ttype} valid=${canEnterTerrain(unit.type, ttype)}`);
       if (canEnterTerrain(unit.type, ttype)) continue; // already valid
 
       // BFS outward from spawn to find nearest valid water hex
@@ -2346,7 +2347,8 @@ export class GameScene extends Phaser.Scene {
           queue.push({ q: nq, r: nr });
         }
       }
-      if (found) { unit.q = found.q; unit.r = found.r; }
+      if (found) { console.log(`[spawn] → relocated to (${found.q},${found.r})`); unit.q = found.q; unit.r = found.r; }
+      else { console.warn(`[spawn] → NO valid hex found for ${unit.type}!`); }
     }
   }
 
