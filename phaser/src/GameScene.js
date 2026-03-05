@@ -958,6 +958,32 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
+  // ── Smart build shortcut ──────────────────────────────────────────────────
+  // Returns {label, enabled, cb} for the single most obvious build action at
+  // the engineer's current hex, or null if no clear winner (→ show submenu).
+  _getSmartBuild(unit) {
+    const gs = this.gameState, p = gs.currentPlayer;
+    const noBuilding = !buildingAt(gs, unit.q, unit.r);
+    const res = gs.resourceHexes[`${unit.q},${unit.r}`];
+    const iron = gs.players[p].iron, oil = gs.players[p].oil;
+
+    // Priority 1: resource hex with no building → Mine / Oil Pump
+    if (res && noBuilding) {
+      if (res.type === 'OIL') {
+        const ok = iron >= 4 && oil >= 2;
+        return { label: `OIL PUMP  4⚙ 2🛢`, enabled: ok, cb: () => this._onBuildMine('OIL') };
+      } else {
+        const ok = iron >= 4;
+        return { label: `MINE      4⚙`, enabled: ok, cb: () => this._onBuildMine(res.type) };
+      }
+    }
+    // Priority 2: no road on this hex → Road
+    if (!roadAt(gs, unit.q, unit.r) && noBuilding) {
+      return { label: `ROAD      1⚙`, enabled: iron >= 1, cb: () => this._onBuildRoad() };
+    }
+    return null; // no obvious single option → show full submenu
+  }
+
   // ── Unit action framework ─────────────────────────────────────────────────
   // Returns array of {label, key, enabled, color, cb} for the selected unit.
   // Add special abilities here when ready — just push to the array.
@@ -977,7 +1003,21 @@ export class GameScene extends Phaser.Scene {
       actions.push({ label: 'DIG IN', key: 'digin',  enabled: true,  color: 0x8B5A2B, cb: () => this._onDigIn() });
     }
     if (def.canBuild) {
-      actions.push({ label: 'BUILD ▸', key: 'build',  enabled: true,  color: 0x335533, cb: () => this._showContextMenu(unit, 'build', 0) });
+      const smart = this._getSmartBuild(unit);
+      if (smart) {
+        // Promote the obvious action directly into the root menu
+        actions.push({ label: smart.label, key: 'build', enabled: smart.enabled, color: 0x2a6644,
+          cb: () => { if (smart.enabled) { this._hideContextMenu(); smart.cb(); } }
+        });
+        // Still offer the full submenu below it for other options
+        actions.push({ label: 'BUILD ▸', key: 'build_more', enabled: true, color: 0x224433,
+          cb: () => this._showContextMenu(unit, 'build', 0)
+        });
+      } else {
+        actions.push({ label: 'BUILD ▸', key: 'build', enabled: true, color: 0x335533,
+          cb: () => this._showContextMenu(unit, 'build', 0)
+        });
+      }
     }
     if (def.canHeal) {
       actions.push({ label: 'HEAL',   key: 'heal',   enabled: true,  color: 0x229944, cb: () => {} }); // passive — shows status
