@@ -213,10 +213,16 @@ export function hexDistance(q1, r1, q2, r2) {
 }
 
 // ── Terrain movement ───────────────────────────────────────────────────────
+// Wheeled/tracked vehicles that are badly hampered by forest
+const HEAVY_UNITS = new Set(['TANK', 'ARTILLERY', 'ANTI_TANK', 'VEHICLE_DEPOT']);
+
 // terrain: 0=plains, 1=forest, 2=mountain
-export function getMoveCost(terrainType, hasRoad) {
-  if (hasRoad) return 0.5; // roads are faster than plains (2 hexes per 1 move point)
-  return [1, 2, 3][terrainType] ?? 1;
+export function getMoveCost(terrainType, hasRoad, unitType = '') {
+  if (hasRoad) return 0.5; // roads cut through any terrain
+  const isHeavy = HEAVY_UNITS.has(unitType);
+  if (terrainType === 1) return isHeavy ? 99 : 2; // forest: vehicles stuck (99=whole budget), infantry cost 2
+  if (terrainType === 2) return 3;                  // mountain: everyone slow (infantry/engineer only via canEnterTerrain)
+  return 1; // plains
 }
 export function canEnterTerrain(unitType, terrainType) {
   if (terrainType === 2) return unitType === 'INFANTRY' || unitType === 'ENGINEER';
@@ -241,11 +247,13 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
       const ttype = terrain[`${nq},${nr}`] ?? 0;
       if (!canEnterTerrain(unit.type, ttype)) continue;
       const hasRoad = !!roadAt(state, nq, nr);
-      const moveCost = getMoveCost(ttype, hasRoad);
+      const moveCost = getMoveCost(ttype, hasRoad, unit.type);
       // Guarantee minimum 1-hex move: even if terrain is expensive, can always enter
       // adjacent hex if it's the first step (cost===0) and unit has any move budget.
+      // Exception: heavy units cannot enter forest at all (cost=99 effectively blocks them)
       const newCost = cost + moveCost;
-      const withinBudget = newCost <= maxMove || (cost === 0 && maxMove >= 1);
+      const isForestBlock = ttype === 1 && HEAVY_UNITS.has(unit.type) && !hasRoad;
+      const withinBudget = (!isForestBlock && newCost <= maxMove) || (!isForestBlock && cost === 0 && maxMove >= 1);
       if (!withinBudget) continue;
       const key = `${nq},${nr}`;
       if (dist.has(key) && dist.get(key) <= newCost) continue;
