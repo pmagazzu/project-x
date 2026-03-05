@@ -320,7 +320,9 @@ export function getAttackRangeHexes(mapSize, unit, fromQ, fromR) {
 }
 
 // ── Fog of war ─────────────────────────────────────────────────────────────
-export function computeFog(state, player, mapSize) {
+// terrain: optional map `"q,r" → terrainType` (0=plains,1=forest,2=mountain)
+// LOS rules: forest costs 2 sight points to pass through; mountain blocks sight beyond the hex itself.
+export function computeFog(state, player, mapSize, terrain) {
   const visible = new Set();
 
   // Sight sources: friendly units + observation posts
@@ -331,19 +333,40 @@ export function computeFog(state, player, mapSize) {
   ];
 
   for (const src of sources) {
-    const seen = new Set([`${src.q},${src.r}`]);
-    const queue = [{ q: src.q, r: src.r, steps: 0 }];
+    // Use Dijkstra-style expansion tracking accumulated sight cost
+    const cost = new Map();
+    const startKey = `${src.q},${src.r}`;
+    cost.set(startKey, 0);
+    const queue = [{ q: src.q, r: src.r, spent: 0 }];
     while (queue.length > 0) {
-      const { q, r, steps } = queue.shift();
-      visible.add(`${q},${r}`);
-      if (steps >= src.sight) continue;
+      queue.sort((a, b) => a.spent - b.spent);
+      const { q, r, spent } = queue.shift();
+      const key = `${q},${r}`;
+      if (spent > (cost.get(key) ?? Infinity)) continue; // stale entry
+      visible.add(key);
+      if (spent >= src.sight) continue;
+
       for (const [dq, dr] of HEX_NEIGHBORS) {
         const nq = q + dq, nr = r + dr;
         if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) continue;
-        const key = `${nq},${nr}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        queue.push({ q: nq, r: nr, steps: steps + 1 });
+        const nkey = `${nq},${nr}`;
+        const t = terrain ? (terrain[nkey] ?? 0) : 0;
+
+        // Mountains: always visible themselves but block sight beyond
+        const stepCost = t === 2 ? src.sight : // entering mountain exhausts all remaining sight
+                         t === 1 ? 2          : // forest costs 2 sight points
+                         1;                     // plains / road: 1 sight point
+
+        const newSpent = spent + stepCost;
+        if (newSpent > src.sight) {
+          // Can see the blocking tile itself (not beyond)
+          if (t !== 0) visible.add(nkey); // reveal the mountain/forest edge
+          continue;
+        }
+        if (newSpent < (cost.get(nkey) ?? Infinity)) {
+          cost.set(nkey, newSpent);
+          queue.push({ q: nq, r: nr, spent: newSpent });
+        }
       }
     }
   }

@@ -512,13 +512,13 @@ export class GameScene extends Phaser.Scene {
   // ── Fog of war ────────────────────────────────────────────────────────────
   // Call at turn start to lock in fog for the planning phase
   _freezeFog() {
-    this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, MAP_SIZE);
+    this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, MAP_SIZE, this.terrain);
   }
 
   _redrawFog() {
     this.fogGfx.clear();
     // Fog is frozen at turn start — moving units during planning does NOT reveal new enemies
-    const fog = this._currentFog || computeFog(this.gameState, this.gameState.currentPlayer, MAP_SIZE);
+    const fog = this._currentFog || computeFog(this.gameState, this.gameState.currentPlayer, MAP_SIZE, this.terrain);
 
     for (let q = 0; q < MAP_SIZE; q++) {
       for (let r = 0; r < MAP_SIZE; r++) {
