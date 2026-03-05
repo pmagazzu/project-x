@@ -973,7 +973,7 @@ export class GameScene extends Phaser.Scene {
     if (def.canDigIn && !unit.dugIn && !unit.moved) {
       actions.push({ label: 'DIG IN', key: 'digin',  enabled: true,  color: 0x8B5A2B, cb: () => this._onDigIn() });
     }
-    if (def.canBuild && unit.moved) {
+    if (def.canBuild) {
       actions.push({ label: 'BUILD ▸', key: 'build',  enabled: true,  color: 0x335533, cb: () => this._showContextMenu(unit, 'build', 0) });
     }
     if (def.canHeal) {
