@@ -1557,7 +1557,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.selectedUnit || this.selectedUnit.attacked) return;
     this.mode = 'attack';
     this.reachable  = [];
-    this.attackable = getAttackRangeHexes(MAP_SIZE, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r);
+    this.attackable = getAttackRangeHexes(MAP_SIZE, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r, this.terrain);
     this._refresh();
   }
 

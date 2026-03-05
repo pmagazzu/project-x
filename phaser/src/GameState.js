@@ -9,6 +9,10 @@
 // defense     : flat reduction applied to incoming damage
 // evasion     : shifts outcome score upward (fast/recon units)
 // accuracy    : shifts outcome score (attacker side)
+// ── indirectFire flag: unit can fire over terrain (artillery-style arc) ────
+// These units bypass LOS terrain blocking in fire-at-tile mode.
+const INDIRECT_FIRE = new Set(['ARTILLERY', 'MORTAR']);
+
 export const UNIT_TYPES = {
   //              name          mv  atk  hp  rng  cost                   shape      canDigIn canBuild canHeal sight | soft  hard  pierce armor def  eva  acc
   //                                                                                                                                                                                          buildTime = turns to produce
@@ -308,14 +312,54 @@ export function getAttackableHexes(state, unit, fromQ, fromR, fog) {
     });
 }
 
+// ── Line-of-sight helpers ─────────────────────────────────────────────────
+// Returns all hexes on the line from (q1,r1) to (q2,r2) using cube-coord lerp.
+function hexLine(q1, r1, q2, r2) {
+  const N = hexDistance(q1, r1, q2, r2);
+  if (N === 0) return [{ q: q1, r: r1 }];
+  const s1 = -q1 - r1, s2 = -q2 - r2;
+  const hexes = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const fx = q1 + (q2 - q1) * t + 1e-6;
+    const fy = r1 + (r2 - r1) * t + 1e-6;
+    const fz = s1 + (s2 - s1) * t - 2e-6;
+    let rx = Math.round(fx), ry = Math.round(fy), rz = Math.round(fz);
+    const dx = Math.abs(rx - fx), dy = Math.abs(ry - fy), dz = Math.abs(rz - fz);
+    if (dx > dy && dx > dz) rx = -ry - rz;
+    else if (dy > dz) ry = -rx - rz;
+    hexes.push({ q: rx, r: ry });
+  }
+  return hexes;
+}
+
+// Returns true if there is an unobstructed LOS between two hexes.
+// Intermediate hexes (not the source or target) that are forest or mountain block LOS.
+function hasLOS(fromQ, fromR, toQ, toR, terrain) {
+  if (!terrain) return true;
+  const line = hexLine(fromQ, fromR, toQ, toR);
+  for (let i = 1; i < line.length - 1; i++) {
+    const t = terrain[`${line[i].q},${line[i].r}`] ?? 0;
+    if (t === 1 || t === 2) return false; // forest (1) or mountain (2) blocks
+  }
+  return true;
+}
+
 // Returns ALL hexes within attack range — for blind fire targeting
-export function getAttackRangeHexes(mapSize, unit, fromQ, fromR) {
+// terrain: optional — if provided, LOS is checked (indirect-fire units bypass this)
+export function getAttackRangeHexes(mapSize, unit, fromQ, fromR, terrain) {
   const range = UNIT_TYPES[unit.type].range;
+  const indirect = INDIRECT_FIRE.has(unit.type);
   const result = [];
-  for (let q = 0; q < mapSize; q++)
-    for (let r = 0; r < mapSize; r++)
-      if (hexDistance(fromQ, fromR, q, r) >= 1 && hexDistance(fromQ, fromR, q, r) <= range)
-        result.push({ q, r });
+  for (let q = 0; q < mapSize; q++) {
+    for (let r = 0; r < mapSize; r++) {
+      const dist = hexDistance(fromQ, fromR, q, r);
+      if (dist < 1 || dist > range) continue;
+      // Direct-fire units need clear LOS; indirect fire (arty/mortar) always allowed
+      if (!indirect && terrain && !hasLOS(fromQ, fromR, q, r, terrain)) continue;
+      result.push({ q, r });
+    }
+  }
   return result;
 }
 
