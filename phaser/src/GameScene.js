@@ -642,17 +642,30 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ── Pass / Resolution screens ─────────────────────────────────────────────
+  _showSplash(objects, onDismiss) {
+    // Hide game buttons while splash is showing
+    [this.btnSubmit, this.btnAttack, this.btnDigIn, this.btnBuild, this.btnMine, this.btnCancel]
+      .forEach(b => b.setVisible(false));
+
+    const btn = this.add.text(this.scale.width / 2, this.scale.height - 60, '[ CLICK TO CONTINUE ]', {
+      font: 'bold 14px monospace', fill: '#ffffff',
+      backgroundColor: '#334433', padding: { x: 16, y: 8 }
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(202).setInteractive({ useHandCursor: true });
+
+    btn.on('pointerdown', () => {
+      [...objects, btn].forEach(o => o.destroy());
+      onDismiss();
+    });
+    btn.on('pointerover', () => btn.setAlpha(0.8));
+    btn.on('pointerout',  () => btn.setAlpha(1.0));
+  }
+
   _showPassScreen(msg) {
     const w = this.scale.width, h = this.scale.height;
     const overlay = this.add.rectangle(w/2, h/2, w, h, 0x000000, 0.92).setScrollFactor(0).setDepth(200);
-    const txt = this.add.text(w/2, h/2 - 20, msg, { font: 'bold 26px monospace', fill: '#ffffff' })
+    const txt = this.add.text(w/2, h/2, msg, { font: 'bold 26px monospace', fill: '#ffffff' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(201);
-    const sub = this.add.text(w/2, h/2 + 30, 'Click anywhere to continue', { font: '15px monospace', fill: '#888888' })
-      .setOrigin(0.5).setScrollFactor(0).setDepth(201);
-    this.input.once('pointerdown', () => {
-      overlay.destroy(); txt.destroy(); sub.destroy();
-      this._refresh();
-    });
+    this._showSplash([overlay, txt], () => this._refresh());
   }
 
   _showResolution(events, winner) {
@@ -661,16 +674,12 @@ export class GameScene extends Phaser.Scene {
     let text = `── Turn ${this.gameState.turn - 1} Resolution ──\n\n${events.join('\n') || '(No actions)'}`;
     if (winner) text += `\n\n🏆 PLAYER ${winner} WINS!`;
     else text += `\n\nTurn ${this.gameState.turn} begins`;
-    const txt = this.add.text(w/2, h/2, text, {
+    const txt = this.add.text(w/2, h/2 - 20, text, {
       font: '13px monospace', fill: '#ffffff', align: 'center', wordWrap: { width: w - 80 }
     }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
+
     if (!winner) {
-      this.add.text(w/2, h - 60, 'Click anywhere to continue', { font: '13px monospace', fill: '#888888' })
-        .setOrigin(0.5).setScrollFactor(0).setDepth(201);
-      this.input.once('pointerdown', () => {
-        overlay.destroy(); txt.destroy();
-        this._refresh();
-      });
+      this._showSplash([overlay, txt], () => this._refresh());
     }
   }
 
