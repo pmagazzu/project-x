@@ -265,16 +265,22 @@ export class GameScene extends Phaser.Scene {
         this.unitGfx.strokeTriangle(x, y - th, x - r, y + th * 0.5, x + r, y + th * 0.5);
       }
 
-      // Health pip dots below unit
-      const pip = 4;
-      const totalPips = unit.maxHealth;
-      const startX = x - (totalPips * (pip + 2)) / 2;
-      for (let i = 0; i < unit.maxHealth; i++) {
-        const px = startX + i * (pip + 2) + pip / 2;
-        const py = y + r + 6;
-        this.unitGfx.fillStyle(i < unit.health ? 0x00ff44 : 0x333333, alpha);
-        this.unitGfx.fillCircle(px, py, pip / 2);
-      }
+      // Health bar below unit
+      const barW = HEX_SIZE * 0.9;
+      const barH = 5;
+      const bx   = x - barW / 2;
+      const by   = y + r + 5;
+      const pct  = unit.health / unit.maxHealth;
+      // Background
+      this.unitGfx.fillStyle(0x222222, alpha);
+      this.unitGfx.fillRect(bx, by, barW, barH);
+      // Fill (green → yellow → red based on health %)
+      const barColor = pct > 0.6 ? 0x44ff44 : pct > 0.3 ? 0xffcc00 : 0xff3333;
+      this.unitGfx.fillStyle(barColor, alpha);
+      this.unitGfx.fillRect(bx, by, barW * pct, barH);
+      // HP text
+      this.unitGfx.lineStyle(1, 0x000000, alpha * 0.5);
+      this.unitGfx.strokeRect(bx, by, barW, barH);
     }
   }
 
@@ -304,10 +310,11 @@ export class GameScene extends Phaser.Scene {
     const hasUnit = !!this.selectedUnit;
     const canAct  = hasUnit && this.selectedUnit.owner === gs.currentPlayer;
 
-    this.btnAttack.setVisible(canAct && !this.selectedUnit.attacked);
     this.btnCancel.setVisible(hasUnit || this.mode !== 'select');
 
     // Show Build Mine if: unit on a resource hex, no building there, enough iron
+    this.btnAttack.setVisible(canAct && !this.selectedUnit.attacked && this.mode !== 'attack');
+
     if (canAct) {
       const u   = this.selectedUnit;
       const key = `${u.q},${u.r}`;
@@ -559,7 +566,8 @@ export class GameScene extends Phaser.Scene {
       const def = UNIT_TYPES[u.type];
       info = ` | Selected: ${def.name} HP:${u.health}/${u.maxHealth}`;
       info += u.moved ? ' [moved]' : ' [can move]';
-      info += u.attacked ? ' [attacked]' : ' [can attack]';
+      const pendingAtk = gs.pendingAttacks[u.id];
+      info += pendingAtk ? ' [⚔ attack queued]' : u.attacked ? ' [attacked]' : ' [can attack]';
     } else if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r)) {
       const t = ['Plains','Forest','Mountain'][this.terrain[`${this.hoveredHex.q},${this.hoveredHex.r}`]];
       const u = unitAt(gs, this.hoveredHex.q, this.hoveredHex.r);
