@@ -997,7 +997,11 @@ export function resolveTurn(state, terrain) {
   for (const recruit of toSpawn) {
     const b = state.buildings.find(b => b.id === recruit.buildingId);
     if (!b || b.owner !== recruit.owner) continue;
-    const spawnHex = findFreeAdjacentHex(state, b.q, b.r);
+    // Determine the chassis type for terrain-aware spawn placement
+    const spawnChassis = recruit.designId !== undefined
+      ? (state.designs[recruit.owner].find(d => d.id === recruit.designId)?.chassis ?? null)
+      : (recruit.type ?? null);
+    const spawnHex = findFreeAdjacentHex(state, b.q, b.r, spawnChassis, state._terrain);
     if (spawnHex) {
       if (recruit.designId !== undefined) {
         // Custom design spawn
@@ -1038,10 +1042,16 @@ export function resolveTurn(state, terrain) {
   return events;
 }
 
-function findFreeAdjacentHex(state, q, r) {
+function findFreeAdjacentHex(state, q, r, unitType = null, terrain = null) {
   for (const [dq, dr] of HEX_NEIGHBORS) {
     const nq = q + dq, nr = r + dr;
-    if (!unitAt(state, nq, nr) && !buildingAt(state, nq, nr)) return { q: nq, r: nr };
+    if (unitAt(state, nq, nr) || buildingAt(state, nq, nr)) continue;
+    // If unitType and terrain provided, check that the unit can actually stand here
+    if (unitType && terrain) {
+      const ttype = terrain[`${nq},${nr}`] ?? 0;
+      if (!canEnterTerrain(unitType, ttype)) continue;
+    }
+    return { q: nq, r: nr };
   }
   return null;
 }
