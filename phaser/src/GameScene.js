@@ -61,23 +61,11 @@ export class GameScene extends Phaser.Scene {
     this.unitGfx      = this.add.graphics().setDepth(20);
     this.fogGfx       = this.add.graphics().setDepth(30);
 
-    // HUD
-    this.hudText = this.add.text(12, 8, '', {
-      font: '13px monospace', fill: '#cccccc',
-      backgroundColor: '#00000099', padding: { x: 8, y: 4 }
-    }).setScrollFactor(0).setDepth(100);
-
-    // Event log
-    this.logText = this.add.text(12, 0, '', {
-      font: '12px monospace', fill: '#aaaaaa',
-      backgroundColor: '#00000099', padding: { x: 6, y: 4 }
-    }).setScrollFactor(0).setDepth(100);
     this._log = [];
 
-    // Buttons
-    this._createButtons();
-
-    // Recruitment panel (hidden initially)
+    // UI panels
+    this._createTopBar();
+    this._createBottomPanel();
     this._createRecruitPanel();
 
     // Camera
@@ -161,9 +149,8 @@ export class GameScene extends Phaser.Scene {
     this._redrawBuildings();
     this._redrawUnits();
     this._redrawFog();
-    this._updateHUD();
-    this._updateButtons();
-    this._updateLogPosition();
+    this._updateTopBar();
+    this._updateBottomPanel();
   }
 
   // ── Highlights ────────────────────────────────────────────────────────────
@@ -390,81 +377,202 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  // ── Buttons ───────────────────────────────────────────────────────────────
-  _createButtons() {
+  // ── Top bar ───────────────────────────────────────────────────────────────
+  _createTopBar() {
     const w = this.scale.width;
-    this.btnSubmit  = this._makeButton(w-140, 12, 'SUBMIT TURN',  0x226622, () => this._onSubmit());
-    this.btnAttack  = this._makeButton(w-270, 12, 'ATTACK',       0x882222, () => this._onAttackMode());
-    this.btnDigIn   = this._makeButton(w-360, 12, 'DIG IN',       0x8B5A2B, () => this._onDigIn());
-    this.btnBuild   = this._makeButton(w-460, 12, 'ROAD',         0x664422, () => this._onBuildRoad());
-    this.btnMine    = this._makeButton(w-540, 12, 'MINE/OIL',     0x557755, () => this._onBuildMine());
-    this.btnBunker  = this._makeButton(w-640, 12, 'BUNKER',       0x665544, () => this._onBuildStructure('BUNKER', 5));
-    this.btnDepot   = this._makeButton(w-740, 12, 'V.DEPOT',      0x334466, () => this._onBuildStructure('VEHICLE_DEPOT', 8));
-    this.btnObsPost = this._makeButton(w-840, 12, 'OBS.POST',     0x336688, () => this._onBuildStructure('OBS_POST', 3));
-    this.btnCancel  = this._makeButton(w-940, 12, 'CANCEL',       0x444444, () => this._onCancel());
+    const D = 100;
+
+    // Background
+    this.topBarBg = this.add.rectangle(w/2, 22, w, 44, 0x111111, 0.92)
+      .setScrollFactor(0).setDepth(D);
+
+    // Resource cells
+    this.resIron = this._makeLabel(12, 11, '⚙ Iron: —', D);
+    this.resOil  = this._makeLabel(160, 11, '🛢 Oil: —', D);
+    this.turnLbl = this._makeLabel(w/2, 11, 'Turn 1 | Player 1 | PLANNING', D, true);
+
+    // Submit button (always visible in top-right)
+    this.btnSubmit = this._makeBtn(w - 10, 11, 'SUBMIT TURN', 0x226622, () => this._onSubmit(), D, 'right');
   }
 
-  _makeButton(x, y, label, color, cb) {
+  _makeLabel(x, y, text, depth, center = false) {
+    return this.add.text(x, y, text, {
+      font: '13px monospace', fill: '#dddddd',
+      backgroundColor: '#222222cc', padding: { x: 6, y: 4 }
+    }).setOrigin(center ? 0.5 : 0, 0).setScrollFactor(0).setDepth(depth);
+  }
+
+  _makeBtn(x, y, label, color, cb, depth = 100, origin = 'left') {
+    const ox = origin === 'right' ? 1 : 0;
     const btn = this.add.text(x, y, label, {
-      font: 'bold 12px monospace', fill: '#ffffff',
+      font: 'bold 13px monospace', fill: '#ffffff',
       backgroundColor: `#${color.toString(16).padStart(6,'0')}`,
-      padding: { x: 8, y: 5 }
-    }).setScrollFactor(0).setDepth(100).setInteractive({ useHandCursor: true });
+      padding: { x: 10, y: 6 }
+    }).setOrigin(ox, 0).setScrollFactor(0).setDepth(depth).setInteractive({ useHandCursor: true });
     btn.on('pointerdown', cb);
     btn.on('pointerover', () => btn.setAlpha(0.8));
     btn.on('pointerout',  () => btn.setAlpha(1.0));
     return btn;
   }
 
-  _updateButtons() {
-    const gs      = this.gameState;
-    const hasUnit = !!this.selectedUnit;
-    const canAct  = hasUnit && this.selectedUnit.owner === gs.currentPlayer;
-    const u       = this.selectedUnit;
+  _updateTopBar() {
+    const gs  = this.gameState;
+    const p   = gs.currentPlayer;
+    const pl  = gs.players[p];
+    const inc = calcIncome(gs, p);
+    const pending = gs.pendingRecruits.filter(r => r.owner === p).length;
+    const modeStr = this.mode === 'move' ? 'MOVING' : this.mode === 'attack' ? 'ATTACKING' : 'PLANNING';
 
-    this.btnSubmit.setVisible(true);
+    this.resIron.setText(`⚙ ${pl.iron}  (+${inc.iron}/turn)`);
+    this.resOil.setText(`🛢 ${pl.oil}  (+${inc.oil}/turn)`);
+    this.turnLbl.setText(`Turn ${gs.turn}  |  Player ${p}  |  ${modeStr}${pending ? `  [${pending} queued]` : ''}`);
+  }
 
-    this.btnAttack.setVisible(canAct && !u.attacked && this.mode !== 'attack');
-    this.btnCancel.setVisible(hasUnit || this.mode !== 'select' || !!this.recruitBuilding);
+  // ── Bottom panel ──────────────────────────────────────────────────────────
+  _createBottomPanel() {
+    const w = this.scale.width, h = this.scale.height;
+    const panH = 120, D = 100;
 
-    const canDigIn = canAct && UNIT_TYPES[u.type].canDigIn && !u.dugIn && !u.moved;
-    this.btnDigIn.setVisible(canDigIn);
+    // Left: unit info panel
+    this.unitPanel = this.add.rectangle(200, h - panH/2, 390, panH, 0x111111, 0.92)
+      .setStrokeStyle(1, 0x444444).setScrollFactor(0).setDepth(D);
+    this.unitNameTxt = this._makeLabel(14, h - panH + 8, '', D);
+    this.unitStatsTxt = this._makeLabel(14, h - panH + 30, '', D);
+    this.unitStatusTxt = this._makeLabel(14, h - panH + 70, '', D);
 
-    // Build Mine: engineer on iron resource hex, no existing building
-    const canBuildMine = canAct && UNIT_TYPES[u.type].canBuild &&
-      this.gameState.resourceHexes[`${u.q},${u.r}`]?.type === 'IRON' &&
-      !buildingAt(gs, u.q, u.r) &&
-      gs.players[gs.currentPlayer].iron >= 4;
-    this.btnMine.setVisible(canBuildMine);
+    // Right: action buttons (3×2 grid)
+    const ax = w - 390, ay = h - panH + 8;
+    this.actionBg = this.add.rectangle(w - 200, h - panH/2, 390, panH, 0x111111, 0.92)
+      .setStrokeStyle(1, 0x444444).setScrollFactor(0).setDepth(D);
 
-    // Build Oil Pump button (reuse build button label logic)
-    const canBuildOil = canAct && UNIT_TYPES[u.type].canBuild &&
-      this.gameState.resourceHexes[`${u.q},${u.r}`]?.type === 'OIL' &&
-      !buildingAt(gs, u.q, u.r) &&
-      gs.players[gs.currentPlayer].iron >= 4;
-    // We'll repurpose btnMine for any resource build
-    if (canBuildOil) {
-      this.btnMine.setVisible(true);
-      this.btnMine.setText('BUILD OIL PUMP');
-      this._buildingOil = true;
+    const bw = 118, bh = 42, gap = 4;
+    this.actBtns = {
+      move:    this._makeActionBtn(ax,           ay,        'MOVE',      0x1a5c8a, () => this._onMoveMode()),
+      attack:  this._makeActionBtn(ax+bw+gap,    ay,        'ATTACK',    0x882222, () => this._onAttackMode()),
+      cancel:  this._makeActionBtn(ax+2*(bw+gap),ay,        'CANCEL',    0x444444, () => this._onCancel()),
+      digin:   this._makeActionBtn(ax,           ay+bh+gap, 'DIG IN',    0x8B5A2B, () => this._onDigIn()),
+      build:   this._makeActionBtn(ax+bw+gap,    ay+bh+gap, 'BUILD ▼',   0x557755, () => this._toggleBuildMenu()),
+      more:    this._makeActionBtn(ax+2*(bw+gap),ay+bh+gap, 'MORE',      0x333333, () => {}),
+    };
+
+    // Build submenu (hidden by default)
+    this._buildMenuOpen = false;
+    this._buildMenuBtns = [];
+  }
+
+  _makeActionBtn(x, y, label, color, cb) {
+    const w = 118, h = 42;
+    const btn = this.add.text(x, y, label, {
+      font: 'bold 13px monospace', fill: '#ffffff',
+      backgroundColor: `#${color.toString(16).padStart(6,'0')}`,
+      padding: { x: 0, y: 0 }, fixedWidth: w, fixedHeight: h, align: 'center'
+    }).setScrollFactor(0).setDepth(101).setInteractive({ useHandCursor: true });
+    btn.on('pointerdown', cb);
+    btn.on('pointerover', () => btn.setAlpha(0.8));
+    btn.on('pointerout',  () => btn.setAlpha(1.0));
+    return btn;
+  }
+
+  _updateBottomPanel() {
+    const gs  = this.gameState;
+    const u   = this.selectedUnit;
+    const canAct = u && u.owner === gs.currentPlayer;
+
+    // Unit info
+    if (u) {
+      const def = UNIT_TYPES[u.type];
+      this.unitNameTxt.setText(`[ ${def.name} ]  P${u.owner}`);
+      this.unitStatsTxt.setText(`HP: ${u.health}/${u.maxHealth}  ATK: ${def.attack}  MOV: ${def.move}  RNG: ${def.range}  SIGHT: ${def.sight}`);
+      const pa = gs.pendingAttacks[u.id];
+      let status = '';
+      status += u.moved    ? '✓ Moved  ' : '○ Can move  ';
+      status += pa         ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : '○ Can attack  ';
+      if (u.dugIn) status += '🪖 Dug in';
+      this.unitStatusTxt.setText(status);
+    } else if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r)) {
+      const key  = `${this.hoveredHex.q},${this.hoveredHex.r}`;
+      const t    = ['Plains','Forest','Mountain'][this.terrain[key]];
+      const res  = gs.resourceHexes[key];
+      const bu   = buildingAt(gs, this.hoveredHex.q, this.hoveredHex.r);
+      const hu   = unitAt(gs, this.hoveredHex.q, this.hoveredHex.r);
+      this.unitNameTxt.setText(`(${this.hoveredHex.q}, ${this.hoveredHex.r})  ${t}${res ? `  [${RESOURCE_TYPES[res.type].name}]` : ''}`);
+      this.unitStatsTxt.setText(bu ? `Building: ${BUILDING_TYPES[bu.type].name}  (P${bu.owner})` : '');
+      this.unitStatusTxt.setText(hu ? `Unit: P${hu.owner} ${UNIT_TYPES[hu.type].name}  HP: ${hu.health}/${hu.maxHealth}` : '');
     } else {
-      this.btnMine.setText('BUILD MINE');
-      this._buildingOil = false;
+      this.unitNameTxt.setText('No unit selected');
+      this.unitStatsTxt.setText('');
+      this.unitStatusTxt.setText('Click a unit to select it');
     }
 
+    // Action buttons visibility
     const isEngineer = canAct && UNIT_TYPES[u.type].canBuild;
     const p = gs.currentPlayer;
 
-    this.btnBuild.setVisible(isEngineer && !roadAt(gs, u.q, u.r) && gs.players[p].iron >= 1);
+    this.actBtns.move.setVisible(canAct && !u.moved);
+    this.actBtns.attack.setVisible(canAct && !u.attacked && this.mode !== 'attack');
+    this.actBtns.cancel.setVisible(!!u || this.mode !== 'select');
+    this.actBtns.digin.setVisible(canAct && UNIT_TYPES[u.type].canDigIn && !u.dugIn && !u.moved);
+    this.actBtns.build.setVisible(isEngineer);
+    this.actBtns.more.setVisible(false);
 
-    const resCost = 4, res = gs.resourceHexes[`${u.q},${u.r}`];
+    // Highlight active mode button
+    this.actBtns.move.setAlpha(this.mode === 'move' ? 1.0 : 0.75);
+    this.actBtns.attack.setAlpha(this.mode === 'attack' ? 1.0 : 0.75);
+
+    // Rebuild build menu if open
+    if (this._buildMenuOpen) this._showBuildMenu();
+  }
+
+  _toggleBuildMenu() {
+    this._buildMenuOpen = !this._buildMenuOpen;
+    if (this._buildMenuOpen) this._showBuildMenu();
+    else this._hideBuildMenu();
+  }
+
+  _showBuildMenu() {
+    this._hideBuildMenu();
+    const gs = this.gameState, u = this.selectedUnit;
+    if (!u) return;
+    const p = gs.currentPlayer;
     const noBuilding = !buildingAt(gs, u.q, u.r);
-    this.btnMine.setVisible(isEngineer && !!res && noBuilding && gs.players[p].iron >= resCost);
-    if (isEngineer && res) this.btnMine.setText(res.type === 'OIL' ? 'OIL PUMP' : 'MINE');
+    const res = gs.resourceHexes[`${u.q},${u.r}`];
+    const w = this.scale.width, h = this.scale.height;
 
-    this.btnBunker.setVisible(isEngineer && noBuilding && gs.players[p].iron >= 5);
-    this.btnDepot.setVisible(isEngineer && noBuilding && gs.players[p].iron >= 8 && gs.players[p].oil >= 2);
-    this.btnObsPost.setVisible(isEngineer && noBuilding && gs.players[p].iron >= 3);
+    const options = [];
+    if (!roadAt(gs, u.q, u.r) && gs.players[p].iron >= 1)
+      options.push({ label: `Road (1⚙)`, cb: () => this._onBuildRoad() });
+    if (res && noBuilding && gs.players[p].iron >= 4)
+      options.push({ label: `${res.type === 'OIL' ? 'Oil Pump' : 'Mine'} (4⚙)`, cb: () => this._onBuildMine(res.type) });
+    if (noBuilding && gs.players[p].iron >= 5)
+      options.push({ label: `Bunker (5⚙)`, cb: () => this._onBuildStructure('BUNKER', 5) });
+    if (noBuilding && gs.players[p].iron >= 8 && gs.players[p].oil >= 2)
+      options.push({ label: `Vehicle Depot (8⚙ 2🛢)`, cb: () => this._onBuildStructure('VEHICLE_DEPOT', 8) });
+    if (noBuilding && gs.players[p].iron >= 3)
+      options.push({ label: `Obs. Post (3⚙)`, cb: () => this._onBuildStructure('OBS_POST', 3) });
+
+    const startY = h - 120 - options.length * 38 - 8;
+    options.forEach((opt, i) => {
+      const btn = this.add.text(w - 390, startY + i * 38, opt.label, {
+        font: '13px monospace', fill: '#ccffcc',
+        backgroundColor: '#224422', padding: { x: 10, y: 8 }
+      }).setScrollFactor(0).setDepth(110).setInteractive({ useHandCursor: true });
+      btn.on('pointerdown', () => { this._hideBuildMenu(); this._buildMenuOpen = false; opt.cb(); });
+      btn.on('pointerover', () => btn.setAlpha(0.8));
+      btn.on('pointerout',  () => btn.setAlpha(1.0));
+      this._buildMenuBtns.push(btn);
+    });
+
+    if (options.length === 0) {
+      const lbl = this.add.text(w - 390, startY, 'Nothing to build here', {
+        font: '12px monospace', fill: '#888888', backgroundColor: '#222222', padding: { x: 10, y: 8 }
+      }).setScrollFactor(0).setDepth(110);
+      this._buildMenuBtns.push(lbl);
+    }
+  }
+
+  _hideBuildMenu() {
+    for (const b of this._buildMenuBtns) b.destroy();
+    this._buildMenuBtns = [];
   }
 
   // ── Recruitment panel ─────────────────────────────────────────────────────
@@ -537,7 +645,6 @@ export class GameScene extends Phaser.Scene {
     }
     this.recruitPanel = { visible: false, objects: [] };
     this.recruitBuilding = null;
-    this._updateButtons();
   }
 
   // ── Input ─────────────────────────────────────────────────────────────────
@@ -566,7 +673,7 @@ export class GameScene extends Phaser.Scene {
         const hex   = worldToHex(world.x, world.y);
         if (isValid(hex.q, hex.r)) {
           if (!this.hoveredHex || this.hoveredHex.q !== hex.q || this.hoveredHex.r !== hex.r) {
-            this.hoveredHex = hex; this._redrawHighlights(); this._updateHUD();
+            this.hoveredHex = hex; this._redrawHighlights(); this._updateBottomPanel();
           }
         } else if (this.hoveredHex) { this.hoveredHex = null; this._redrawHighlights(); }
       }
@@ -614,6 +721,14 @@ export class GameScene extends Phaser.Scene {
       if (isReachable && !clickedUnit) {
         gs.pendingMoves[this.selectedUnit.id] = { q, r };
         this.selectedUnit.q = q; this.selectedUnit.r = r; this.selectedUnit.moved = true;
+        // Auto-enter attack mode if enemies are now in range
+        if (!this.selectedUnit.attacked) {
+          const atk = getAttackableHexes(gs, this.selectedUnit, q, r);
+          if (atk.length > 0) {
+            this.reachable = []; this.attackable = atk; this.mode = 'attack';
+            this._refresh(); return;
+          }
+        }
         this._onCancel(); return;
       }
       this._onCancel();
@@ -644,10 +759,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   _selectUnit(unit) {
+    this._hideBuildMenu(); this._buildMenuOpen = false;
     this.selectedUnit = unit;
-    this.reachable  = unit.moved ? [] : getReachableHexes(this.gameState, unit, this.terrain, MAP_SIZE);
-    this.attackable = unit.attacked ? [] : [];  // shown only in attack mode
-    this.mode = unit.moved ? 'select' : 'move';
+    this.attackable = [];
+    // Auto-enter move mode if unit hasn't moved
+    if (!unit.moved) {
+      this.reachable = getReachableHexes(this.gameState, unit, this.terrain, MAP_SIZE);
+      this.mode = 'move';
+    } else {
+      this.reachable = [];
+      this.mode = 'select';
+    }
     this._refresh();
   }
 
@@ -656,7 +778,15 @@ export class GameScene extends Phaser.Scene {
     this._refresh();
   }
 
-  _onCancel() { this._clearSelection(); this._hideRecruitPanel(); }
+  _onCancel() { this._hideBuildMenu(); this._buildMenuOpen = false; this._clearSelection(); this._hideRecruitPanel(); }
+
+  _onMoveMode() {
+    if (!this.selectedUnit || this.selectedUnit.moved) return;
+    this.mode = 'move';
+    this.reachable  = getReachableHexes(this.gameState, this.selectedUnit, this.terrain, MAP_SIZE);
+    this.attackable = [];
+    this._refresh();
+  }
 
   _onAttackMode() {
     if (!this.selectedUnit || this.selectedUnit.attacked) return;
@@ -700,7 +830,7 @@ export class GameScene extends Phaser.Scene {
     this._clearSelection();
   }
 
-  _onBuildMine() {
+  _onBuildMine(resType) {
     const gs  = this.gameState;
     const u   = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
@@ -708,7 +838,7 @@ export class GameScene extends Phaser.Scene {
     if (!res || buildingAt(gs, u.q, u.r)) return;
     if (gs.players[gs.currentPlayer].iron < 4) return;
     gs.players[gs.currentPlayer].iron -= 4;
-    const btype = this._buildingOil ? 'OIL_PUMP' : 'MINE';
+    const btype = (resType || res.type) === 'OIL' ? 'OIL_PUMP' : 'MINE';
     gs.buildings.push(createBuilding(btype, gs.currentPlayer, u.q, u.r));
     u.moved = true; u.building = true;
     this._clearSelection();
@@ -732,10 +862,9 @@ export class GameScene extends Phaser.Scene {
 
   // ── Pass / Resolution screens ─────────────────────────────────────────────
   _showSplash(objects, onDismiss) {
-    // Hide game buttons while splash is showing
-    [this.btnSubmit, this.btnAttack, this.btnDigIn, this.btnBuild, this.btnMine,
-     this.btnBunker, this.btnDepot, this.btnObsPost, this.btnCancel]
-      .forEach(b => b.setVisible(false));
+    // Hide action buttons during splash
+    Object.values(this.actBtns || {}).forEach(b => b.setVisible(false));
+    this.btnSubmit?.setVisible(false);
 
     const btn = this.add.text(this.scale.width / 2, this.scale.height - 60, '[ CLICK TO CONTINUE ]', {
       font: 'bold 14px monospace', fill: '#ffffff',
@@ -773,51 +902,9 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  // ── HUD ───────────────────────────────────────────────────────────────────
-  _updateHUD() {
-    const gs  = this.gameState;
-    const p   = gs.currentPlayer;
-    const pl  = gs.players[p];
-    const inc = calcIncome(gs, p);
-    let info  = '';
-
-    if (this.selectedUnit) {
-      const u = this.selectedUnit, def = UNIT_TYPES[u.type];
-      info = `  |  ${def.name} HP:${u.health}/${u.maxHealth}`;
-      info += u.moved ? ' [moved]' : ' [can move]';
-      const pa = gs.pendingAttacks[u.id];
-      info += pa ? ' [⚔queued]' : u.attacked ? ' [attacked]' : ' [can attack]';
-      if (u.dugIn) info += ' [dug in]';
-    } else if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r)) {
-      const key = `${this.hoveredHex.q},${this.hoveredHex.r}`;
-      const t = ['Plains','Forest','Mountain'][this.terrain[key]];
-      const res = gs.resourceHexes[key];
-      const u   = unitAt(gs, this.hoveredHex.q, this.hoveredHex.r);
-      const b   = buildingAt(gs, this.hoveredHex.q, this.hoveredHex.r);
-      info = `  |  (${this.hoveredHex.q},${this.hoveredHex.r}) ${t}`;
-      if (res) info += ` [${RESOURCE_TYPES[res.type].name}]`;
-      if (b)   info += ` — ${BUILDING_TYPES[b.type].name}`;
-      if (u)   info += ` — P${u.owner} ${UNIT_TYPES[u.type].name} HP:${u.health}`;
-    }
-
-    const modeStr = this.mode === 'move' ? 'MOVING' : this.mode === 'attack' ? 'ATTACKING' : 'SELECT';
-    const pending = gs.pendingRecruits.filter(r => r.owner === p).length;
-    const pendingStr = pending ? `  [${pending} recruiting]` : '';
-
-    this.hudText.setText(
-      `Attrition | P${p} | ⚙${pl.iron}(+${inc.iron}) 🛢${pl.oil}(+${inc.oil}) | Turn:${gs.turn} | ${modeStr}${pendingStr}${info}`
-    );
-  }
-
-  _updateLogPosition() {
-    this.logText.setPosition(12, this.scale.height - this.logText.height - 8);
-  }
-
   _pushLog(msg) {
     this._log.push(msg);
     if (this._log.length > 5) this._log.shift();
-    this.logText.setText(this._log.join('\n'));
-    this._updateLogPosition();
   }
 
   // ── Terrain generation ────────────────────────────────────────────────────
