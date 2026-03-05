@@ -194,11 +194,7 @@ export class GameScene extends Phaser.Scene {
     this._updateTopBar();
     this._updateBottomPanel();
     this.btnSubmit?.setVisible(true);
-    // Refresh context menu position (unit may have moved or camera changed)
-    if (this.selectedUnit) {
-      this._hideContextMenu();
-      this._showContextMenu(this.selectedUnit);
-    }
+    // Context menu is right-click only; no auto-refresh needed
   }
 
   // ── Highlights ────────────────────────────────────────────────────────────
@@ -979,9 +975,17 @@ export class GameScene extends Phaser.Scene {
         const hex   = worldToHex(world.x, world.y);
         if (isValid(hex.q, hex.r)) this._onHexClick(hex.q, hex.r);
       }
+      if (ptr.button === 2 && !this._isDragging) {
+        const world = cam.getWorldPoint(ptr.x, ptr.y);
+        const hex   = worldToHex(world.x, world.y);
+        if (isValid(hex.q, hex.r)) this._onHexRightClick(hex.q, hex.r);
+      }
       this._buildMenuJustOpened = false;
       this._isDragging = false;
     });
+
+    // Suppress browser context menu so right-click works in-game
+    this.game.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
     this.input.on('wheel', (ptr, _o, _dx, dy) => {
       const factor = dy > 0 ? 0.85 : 1.18;
@@ -1164,11 +1168,8 @@ export class GameScene extends Phaser.Scene {
     if (this.wasd.S.isDown) cam.scrollY += speed;
     if (this.wasd.A.isDown) cam.scrollX -= speed;
     if (this.wasd.D.isDown) cam.scrollX += speed;
-    // Update context menu position while panning with WASD
-    if (wasdMoving && this.selectedUnit) {
-      this._hideContextMenu();
-      this._showContextMenu(this.selectedUnit);
-    }
+    // Context menu is right-click only; close it if panning away
+    if (wasdMoving && this._contextMenuObjs) this._hideContextMenu();
   }
 
   // ── Click handling ────────────────────────────────────────────────────────
@@ -1200,7 +1201,6 @@ export class GameScene extends Phaser.Scene {
           this._buildMenuJustOpened = true;
         }
         this._refresh();
-        this._showContextMenu(this.selectedUnit);
         if (this._buildMenuOpen) this._showBuildMenu();
         return;
       }
@@ -1224,7 +1224,6 @@ export class GameScene extends Phaser.Scene {
         this.selectedUnit.attacked = true;
         this.reachable = []; this.attackable = []; this.mode = 'select';
         this._refresh();
-        this._showContextMenu(this.selectedUnit);
         return;
       }
     }
@@ -1247,21 +1246,37 @@ export class GameScene extends Phaser.Scene {
     this._hideBuildMenu(); this._buildMenuOpen = false;
     this._hideContextMenu();
     this.selectedUnit = unit;
-    this.attackable = [];
     if (!unit.moved) {
-      this.reachable = getReachableHexes(this.gameState, unit, this.terrain, MAP_SIZE);
+      this.reachable  = getReachableHexes(this.gameState, unit, this.terrain, MAP_SIZE);
+      // Show attackable enemies overlaid on move range (informational, not attack-mode)
+      this.attackable = !unit.attacked
+        ? getAttackableHexes(this.gameState, unit, unit.q, unit.r)
+        : [];
       this.mode = 'move';
     } else if (!unit.attacked) {
-      this.reachable = [];
-      const atk = getAttackableHexes(this.gameState, unit, unit.q, unit.r);
-      if (atk.length > 0 && this.settings.autoAttackMode) { this.attackable = atk; this.mode = 'attack'; }
-      else { this.mode = 'select'; }
+      this.reachable  = [];
+      this.attackable = getAttackableHexes(this.gameState, unit, unit.q, unit.r);
+      this.mode = 'attack';
     } else {
-      this.reachable = [];
+      this.reachable  = [];
+      this.attackable = [];
       this.mode = 'select';
     }
     this._refresh();
-    this._showContextMenu(unit);
+    // No context menu on left-click — use right-click for that
+  }
+
+  // Right-click: open context menu for own unit, or inspect enemy
+  _onHexRightClick(q, r) {
+    const gs = this.gameState;
+    const clickedUnit = gs.units.find(u => u.q === q && u.r === r && !u.dead);
+    if (clickedUnit && clickedUnit.owner === gs.currentPlayer) {
+      if (this.selectedUnit !== clickedUnit) this._selectUnit(clickedUnit);
+      this._showContextMenu(clickedUnit);
+    } else if (this.selectedUnit && this.selectedUnit.owner === gs.currentPlayer) {
+      // Right-click on empty/enemy hex while unit selected — show menu for selected unit
+      this._showContextMenu(this.selectedUnit);
+    }
   }
 
   _clearSelection() {
