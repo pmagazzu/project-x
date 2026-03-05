@@ -913,11 +913,14 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointerup', (ptr) => {
-      if (ptr.button === 0 && !this._isDragging && !this._panelOpenAtMouseDown) {
+      if (ptr.button === 0 && !this._isDragging && !this._panelOpenAtMouseDown && !this._contextMenuClicked) {
         const world = cam.getWorldPoint(ptr.x, ptr.y);
         const hex   = worldToHex(world.x, world.y);
+        // Also capture click pos so auto-menus can anchor here
+        this._lastClickPos = { x: ptr.x, y: ptr.y };
         if (isValid(hex.q, hex.r)) this._onHexClick(hex.q, hex.r);
       }
+      this._contextMenuClicked = false;
       if (ptr.button === 2 && !this._isDragging) {
         const world = cam.getWorldPoint(ptr.x, ptr.y);
         const hex   = worldToHex(world.x, world.y);
@@ -1099,7 +1102,11 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH)
         .setInteractive({ useHandCursor: item.enabled });
       if (item.enabled) {
-        btn.on('pointerdown', () => { this._hideContextMenu(); item.cb(); });
+        btn.on('pointerdown', () => {
+          this._contextMenuClicked = true; // prevent pointerup from firing _onHexClick
+          this._hideContextMenu();
+          item.cb();
+        });
         btn.on('pointerover', () => btn.setAlpha(0.85));
         btn.on('pointerout',  () => btn.setAlpha(1.0));
       }
@@ -1231,10 +1238,8 @@ export class GameScene extends Phaser.Scene {
         this._refresh();
         // Engineer auto-build: pop open the build submenu after moving
         if (UNIT_TYPES[this.selectedUnit.type].canBuild && this.settings.engineerAutoBuild) {
-          // Anchor menu to the engineer's current screen position
-          const wp = hexToWorld(this.selectedUnit.q, this.selectedUnit.r);
-          const sp = this._worldToScreen(wp.x, wp.y);
-          this._menuAnchor = { x: sp.x, y: sp.y };
+          // Anchor to where the player clicked to move the engineer
+          this._menuAnchor = this._lastClickPos || this._menuAnchor || { x: this.scale.width/2, y: this.scale.height/2 };
           this._showContextMenu(this.selectedUnit, 'build', 0);
         }
         return;
