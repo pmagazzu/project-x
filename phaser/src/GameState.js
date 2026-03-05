@@ -246,10 +246,13 @@ export function createGameState(scenario = 'default') {
     state.buildings.push(createBuilding('NAVAL_YARD', 1, 5, 21));
     state.buildings.push(createBuilding('NAVAL_YARD', 2, 29, 6));
     // Starting naval units
-    state.units.push(createUnit('PATROL_BOAT', 1, 6, 21));
-    state.units.push(createUnit('PATROL_BOAT', 1, 6, 22));
-    state.units.push(createUnit('PATROL_BOAT', 2, 28, 6));
-    state.units.push(createUnit('PATROL_BOAT', 2, 28, 5));
+    // Patrol boats spawn in open ocean just east of P1 island and west of P2 island
+    // P1 island center=(4,20) radius=5; distance 7+ = ocean
+    state.units.push(createUnit('PATROL_BOAT', 1, 11, 20));
+    state.units.push(createUnit('PATROL_BOAT', 1, 11, 21));
+    // P2 island center=(30,7) radius=5; distance 7+ = ocean
+    state.units.push(createUnit('PATROL_BOAT', 2, 23, 7));
+    state.units.push(createUnit('PATROL_BOAT', 2, 23, 6));
     // Island resources
     for (const [q,r] of [[3,20],[4,21],[5,20],[3,21],[5,19]])
       state.resourceHexes[`${q},${r}`] = { type: 'IRON' };

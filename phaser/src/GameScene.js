@@ -474,6 +474,67 @@ export class GameScene extends Phaser.Scene {
         }
         this.buildingGfx.lineStyle(1.5, 0xffffff, 0.7);
         this.buildingGfx.strokeRect(x - bw/2, y - bh/2, bw, bh);
+
+      } else if (b.type === 'NAVAL_YARD') {
+        // Naval Yard: blue rectangle with a mast/crane arm
+        const bw = s * 2.0, bh = s * 1.0;
+        this.buildingGfx.fillStyle(0x000000);
+        this.buildingGfx.fillRect(x - bw/2 - 2, y - bh/2 - 2, bw + 4, bh + 4);
+        this.buildingGfx.fillStyle(0x1a3a5c);
+        this.buildingGfx.fillRect(x - bw/2, y - bh/2, bw, bh);
+        // Crane arm
+        this.buildingGfx.fillStyle(color);
+        this.buildingGfx.fillRect(x - bw*0.05, y - bh/2 - s*1.2, s*0.2, s*1.2);
+        this.buildingGfx.fillRect(x - bw*0.05 - s*0.6, y - bh/2 - s*1.1, s*0.65, s*0.15);
+        this.buildingGfx.lineStyle(1.5, 0x88ccff, 0.8);
+        this.buildingGfx.strokeRect(x - bw/2, y - bh/2, bw, bh);
+
+      } else if (b.type === 'HARBOR') {
+        // Harbor: dark pier shape with dock arms
+        const bw = s * 1.6, bh = s * 0.7;
+        this.buildingGfx.fillStyle(0x000000);
+        this.buildingGfx.fillRect(x - bw/2 - 2, y - bh/2 - 2, bw + 4, bh + 4);
+        this.buildingGfx.fillStyle(0x2a4a3a);
+        this.buildingGfx.fillRect(x - bw/2, y - bh/2, bw, bh);
+        // Dock arms
+        this.buildingGfx.fillStyle(color);
+        this.buildingGfx.fillRect(x - bw*0.45, y - bh/2 - s*0.5, s*0.2, s*0.55);
+        this.buildingGfx.fillRect(x + bw*0.25, y - bh/2 - s*0.5, s*0.2, s*0.55);
+        this.buildingGfx.lineStyle(1.5, 0x44ff88, 0.7);
+        this.buildingGfx.strokeRect(x - bw/2, y - bh/2, bw, bh);
+
+      } else if (b.type === 'DRY_DOCK') {
+        // Dry Dock: wide U-shaped structure
+        const bw = s * 2.2, bh = s * 1.2;
+        this.buildingGfx.fillStyle(0x000000);
+        this.buildingGfx.fillRect(x - bw/2 - 2, y - bh/2 - 2, bw + 4, bh + 4);
+        this.buildingGfx.fillStyle(0x2a2a4a);
+        this.buildingGfx.fillRect(x - bw/2, y - bh/2, bw, bh);
+        // Inner dock channel
+        this.buildingGfx.fillStyle(0x112233);
+        this.buildingGfx.fillRect(x - bw*0.25, y - bh/2 + s*0.2, bw*0.5, bh*0.7);
+        this.buildingGfx.lineStyle(2, color, 0.9);
+        this.buildingGfx.strokeRect(x - bw/2, y - bh/2, bw, bh);
+
+      } else if (b.type === 'NAVAL_BASE') {
+        // Naval Base: large compound — double rect with flag
+        const bw = s * 2.4, bh = s * 1.4;
+        this.buildingGfx.fillStyle(0x000000);
+        this.buildingGfx.fillRect(x - bw/2 - 2, y - bh/2 - 2, bw + 4, bh + 4);
+        this.buildingGfx.fillStyle(0x1a2a3a);
+        this.buildingGfx.fillRect(x - bw/2, y - bh/2, bw, bh);
+        // Inner divider
+        this.buildingGfx.lineStyle(1, 0x334455, 0.8);
+        this.buildingGfx.lineBetween(x, y - bh/2, x, y + bh/2);
+        // Flagpole
+        this.buildingGfx.fillStyle(0xffffff);
+        this.buildingGfx.fillRect(x - bw*0.35, y - bh/2 - s*1.0, s*0.12, s*1.1);
+        this.buildingGfx.fillStyle(color);
+        this.buildingGfx.fillTriangle(x - bw*0.35 + s*0.12, y - bh/2 - s*0.95,
+          x - bw*0.35 + s*0.12, y - bh/2 - s*0.55,
+          x - bw*0.35 + s*0.55, y - bh/2 - s*0.75);
+        this.buildingGfx.lineStyle(2, color, 1.0);
+        this.buildingGfx.strokeRect(x - bw/2, y - bh/2, bw, bh);
       }
     }
   }
@@ -1775,18 +1836,20 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Recruitment: click own building
+    // Own unit on hex? Always select unit first (even if building is also there)
+    if (clickedUnit && clickedUnit.owner === gs.currentPlayer) {
+      this._selectUnit(clickedUnit);
+      return;
+    }
+
+    // Recruitment: click own building (no unit present)
     if (clickedBuilding && clickedBuilding.owner === gs.currentPlayer &&
         clickedBuilding.type !== 'ROAD' && BUILDING_TYPES[clickedBuilding.type].canRecruit.length > 0) {
       this._showRecruitPanel(clickedBuilding);
       return;
     }
 
-    if (clickedUnit && clickedUnit.owner === gs.currentPlayer) {
-      this._selectUnit(clickedUnit);
-    } else {
-      this._clearSelection();
-    }
+    this._clearSelection();
   }
 
   _selectUnit(unit) {
