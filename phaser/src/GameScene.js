@@ -1795,6 +1795,11 @@ export class GameScene extends Phaser.Scene {
       addLine('(No combat this turn)', '#888888');
     } else {
       for (const entry of combatLog) {
+        if (entry.type === 'blind_miss') {
+          addLine(`${entry.attackerName} (P${entry.attackerOwner}) → (${entry.hex?.q},${entry.hex?.r})  [EMPTY HEX — no target]`, '#887744', true);
+          yPos += 4;
+          continue;
+        }
         if (entry.type === 'miss') {
           addLine(`${entry.attackerName} (P${entry.attackerOwner}) → ${entry.targetName} (P${entry.targetOwner})  [OUT OF RANGE]`, '#888888', true);
           yPos += 4;
