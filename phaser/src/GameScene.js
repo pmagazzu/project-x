@@ -478,6 +478,8 @@ export class GameScene extends Phaser.Scene {
         this._isDragging = false;
         this._dragStart = { x: ptr.x, y: ptr.y };
         this._dragStartScroll = { x: cam.scrollX, y: cam.scrollY };
+        // Snapshot panel state at mousedown — so pointerup knows not to re-open it
+        this._panelOpenAtMouseDown = !!this.recruitPanel?.visible;
       }
     });
 
@@ -500,7 +502,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointerup', (ptr) => {
-      if (ptr.button === 0 && !this._isDragging && !this.recruitPanel?.visible) {
+      if (ptr.button === 0 && !this._isDragging && !this._panelOpenAtMouseDown) {
         const world = cam.getWorldPoint(ptr.x, ptr.y);
         const hex   = worldToHex(world.x, world.y);
         if (isValid(hex.q, hex.r)) this._onHexClick(hex.q, hex.r);
