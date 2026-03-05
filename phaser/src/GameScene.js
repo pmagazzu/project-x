@@ -1231,6 +1231,10 @@ export class GameScene extends Phaser.Scene {
         this._refresh();
         // Engineer auto-build: pop open the build submenu after moving
         if (UNIT_TYPES[this.selectedUnit.type].canBuild && this.settings.engineerAutoBuild) {
+          // Anchor menu to the engineer's current screen position
+          const wp = hexToWorld(this.selectedUnit.q, this.selectedUnit.r);
+          const sp = this._worldToScreen(wp.x, wp.y);
+          this._menuAnchor = { x: sp.x, y: sp.y };
           this._showContextMenu(this.selectedUnit, 'build', 0);
         }
         return;
