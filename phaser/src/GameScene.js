@@ -4,8 +4,8 @@ import {
   MAP_SIZE, HEX_SIZE, ISO_SQUISH, getMapBounds
 } from './HexGrid.js';
 import {
-  createGameState, unitAt, getReachableHexes, getAttackableHexes,
-  resolveTurn, checkWinner, UNIT_TYPES, PLAYER_COLORS
+  createGameState, unitAt, buildingAt, getReachableHexes, getAttackableHexes,
+  resolveTurn, checkWinner, calcIncome, UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES
 } from './GameState.js';
 
 const TERRAIN = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2 };
@@ -53,6 +53,10 @@ export class GameScene extends Phaser.Scene {
     // Highlight layer (world space, scrolls with camera)
     this.highlightGfx = this.add.graphics().setDepth(10);
 
+    // Resource + building layer (world space)
+    this.resourceGfx = this.add.graphics().setDepth(12);
+    this.buildingGfx = this.add.graphics().setDepth(15);
+
     // Unit layer (world space)
     this.unitGfx = this.add.graphics().setDepth(20);
 
@@ -79,6 +83,7 @@ export class GameScene extends Phaser.Scene {
     cam.setBounds(bounds.minX - pad, bounds.minY - pad, rtW, rtH);
 
     this._setupInput();
+    this._drawResources();
     this._refresh();
   }
 
@@ -93,6 +98,50 @@ export class GameScene extends Phaser.Scene {
     }
     this.terrainRT.draw(gfx, 0, 0);
     gfx.destroy();
+  }
+
+  // Resource deposits — drawn once (static markers on terrain)
+  _drawResources() {
+    this.resourceGfx.clear();
+    const gs = this.gameState;
+    for (const [key] of Object.entries(gs.resourceHexes)) {
+      const [q, r] = key.split(',').map(Number);
+      const { x, y } = hexToWorld(q, r);
+      // Small grey diamond to indicate iron deposit
+      const s = HEX_SIZE * 0.22;
+      this.resourceGfx.fillStyle(0xbbbbcc, 0.75);
+      this.resourceGfx.fillTriangle(x, y - s, x - s, y, x + s, y);
+      this.resourceGfx.fillTriangle(x, y + s, x - s, y, x + s, y);
+    }
+  }
+
+  // Buildings — redraw each turn (ownership can change)
+  _redrawBuildings() {
+    this.buildingGfx.clear();
+    const gs = this.gameState;
+    for (const b of gs.buildings) {
+      const { x, y } = hexToWorld(b.q, b.r);
+      const def   = BUILDING_TYPES[b.type];
+      const color = b.owner ? PLAYER_COLORS[b.owner] : 0x888888;
+      const s     = HEX_SIZE * 0.28;
+
+      if (b.type === 'HQ') {
+        // HQ: filled pentagon-ish (just use a star shape via two triangles)
+        this.buildingGfx.fillStyle(color, 0.9);
+        this.buildingGfx.fillRect(x - s, y - s * 0.7, s * 2, s * 1.5);
+        // Flag notch on top
+        this.buildingGfx.fillTriangle(x - s, y - s * 0.7, x + s, y - s * 0.7, x, y - s * 1.6);
+        this.buildingGfx.lineStyle(2, 0x000000, 0.8);
+        this.buildingGfx.strokeRect(x - s, y - s * 0.7, s * 2, s * 1.5);
+      } else if (b.type === 'MINE') {
+        // Mine: small pickaxe-like cross
+        this.buildingGfx.fillStyle(color, 0.85);
+        this.buildingGfx.fillRect(x - s * 0.3, y - s, s * 0.6, s * 2);
+        this.buildingGfx.fillRect(x - s, y - s * 0.3, s * 2, s * 0.6);
+        this.buildingGfx.lineStyle(1, 0x000000, 0.6);
+        this.buildingGfx.strokeRect(x - s * 0.3, y - s, s * 0.6, s * 2);
+      }
+    }
   }
 
   _drawHex(gfx, cx, cy, terrain, isSelected, isHovered) {
@@ -119,6 +168,7 @@ export class GameScene extends Phaser.Scene {
   // ── Full redraw (highlights + units) ─────────────────────────────────────
   _refresh() {
     this._redrawHighlights();
+    this._redrawBuildings();
     this._redrawUnits();
     this._updateHUD();
     this._updateButtons();
@@ -480,9 +530,10 @@ export class GameScene extends Phaser.Scene {
       if (u) info += ` — P${u.owner} ${UNIT_TYPES[u.type].name} HP:${u.health}`;
     }
 
+    const income  = calcIncome(gs, p);
     const modeStr = this.mode === 'move' ? 'MOVING' : this.mode === 'attack' ? 'ATTACKING' : 'SELECT';
     this.hudText.setText(
-      `Attrition | Player ${p} | Iron: ${iron} | Turn: ${gs.turn} | ${modeStr}${info}`
+      `Attrition | Player ${p} | Iron: ${iron} (+${income}/turn) | Turn: ${gs.turn} | ${modeStr}${info}`
     );
   }
 

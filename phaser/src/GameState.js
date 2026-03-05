@@ -2,9 +2,9 @@
 // Phase 1: 2-player hotseat, iron only, 3 unit types, simultaneous turns (we-go)
 
 export const UNIT_TYPES = {
-  INFANTRY:  { name: 'Infantry',  move: 2, attack: 2, health: 3, range: 1, cost: 2, shape: 'circle' },
-  TANK:      { name: 'Tank',      move: 4, attack: 4, health: 5, range: 1, cost: 6, shape: 'square' },
-  ARTILLERY: { name: 'Artillery', move: 1, attack: 5, health: 2, range: 2, cost: 5, shape: 'triangle' },
+  INFANTRY:  { name: 'Infantry',  move: 2, attack: 2, health: 3, range: 1, cost: 2,  shape: 'circle'   },
+  TANK:      { name: 'Tank',      move: 4, attack: 3, health: 6, range: 1, cost: 6,  shape: 'square'   },
+  ARTILLERY: { name: 'Artillery', move: 1, attack: 4, health: 2, range: 2, cost: 5,  shape: 'triangle' },
 };
 
 export const PLAYER_COLORS = {
@@ -12,8 +12,18 @@ export const PLAYER_COLORS = {
   2: 0xff4444,  // red
 };
 
-export const STARTING_IRON = 20;
-export const IRON_PER_TURN = 5;
+export const BUILDING_TYPES = {
+  HQ:   { name: 'HQ',       ironPerTurn: 3, color: 0xffdd00 },
+  MINE: { name: 'Iron Mine', ironPerTurn: 2, color: 0xaaaaaa },
+};
+
+// Resource hex types
+export const RESOURCE_TYPES = {
+  IRON: { name: 'Iron Deposit', color: 0xbbbbbb, income: 0 }, // income comes from building on it
+};
+
+export const STARTING_IRON = 15;
+export const BASE_IRON_PER_TURN = 3;
 
 let _nextId = 1;
 
@@ -31,29 +41,56 @@ export function createUnit(type, owner, q, r) {
   };
 }
 
+export function createBuilding(type, owner, q, r) {
+  return { id: _nextId++, type, owner, q, r };
+}
+
 export function createGameState() {
   const state = {
     turn: 1,
-    phase: 'planning',   // 'planning' | 'resolution'
-    currentPlayer: 1,    // whose planning turn it is (1 or 2)
+    phase: 'planning',
+    currentPlayer: 1,
     players: {
       1: { iron: STARTING_IRON, submitted: false },
       2: { iron: STARTING_IRON, submitted: false },
     },
     units: [],
-    pendingMoves: {},    // unitId -> {q, r} — planned moves this turn
-    pendingAttacks: {},  // unitId -> targetId — planned attacks this turn
+    buildings: [],
+    resourceHexes: {},   // "q,r" -> { type: 'IRON' }
+    pendingMoves: {},
+    pendingAttacks: {},
     log: [],
   };
 
-  // Place starting units — Player 1 top-left, Player 2 bottom-right
-  state.units.push(createUnit('INFANTRY', 1, 2, 2));
-  state.units.push(createUnit('INFANTRY', 1, 3, 2));
-  state.units.push(createUnit('TANK',     1, 2, 3));
+  // ── Spawn units near center, ~10 hexes apart ──────────────────────────────
+  // Player 1: top-left cluster around (7, 7)
+  state.units.push(createUnit('INFANTRY', 1, 6, 7));
+  state.units.push(createUnit('INFANTRY', 1, 7, 6));
+  state.units.push(createUnit('TANK',     1, 7, 7));
 
-  state.units.push(createUnit('INFANTRY', 2, 20, 20));
-  state.units.push(createUnit('INFANTRY', 2, 21, 20));
-  state.units.push(createUnit('TANK',     2, 20, 21));
+  // Player 2: bottom-right cluster around (17, 17)
+  state.units.push(createUnit('INFANTRY', 2, 18, 17));
+  state.units.push(createUnit('INFANTRY', 2, 17, 18));
+  state.units.push(createUnit('TANK',     2, 17, 17));
+
+  // ── HQ buildings ──────────────────────────────────────────────────────────
+  state.buildings.push(createBuilding('HQ', 1, 7, 7));
+  state.buildings.push(createBuilding('HQ', 2, 17, 17));
+
+  // ── Resource hexes (iron deposits scattered around map) ───────────────────
+  const ironSpots = [
+    [12, 12], [12, 11], [11, 12],   // center cluster
+    [8,  10], [9,  8],               // near P1
+    [16, 14], [15, 16],              // near P2
+    [12, 7],  [7,  13],              // flanks
+  ];
+  for (const [q, r] of ironSpots) {
+    state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
+  }
+
+  // Start with mines on resource hexes nearest each HQ
+  state.buildings.push(createBuilding('MINE', 1, 9, 8));
+  state.buildings.push(createBuilding('MINE', 2, 15, 16));
 
   return state;
 }
@@ -63,25 +100,28 @@ export function unitAt(state, q, r) {
   return state.units.find(u => u.q === q && u.r === r) || null;
 }
 
+/** Get building at hex (q, r), or null */
+export function buildingAt(state, q, r) {
+  return state.buildings.find(b => b.q === q && b.r === r) || null;
+}
+
 /** Axial hex distance */
 export function hexDistance(q1, r1, q2, r2) {
   return (Math.abs(q1 - q2) + Math.abs(q1 + r1 - q2 - r2) + Math.abs(r1 - r2)) / 2;
 }
 
-/** Get all hexes reachable by a unit (BFS, ignores enemies for now) */
+/** Get all hexes reachable by a unit (BFS) */
 export function getReachableHexes(state, unit, mapSize) {
   const def = UNIT_TYPES[unit.type];
   const range = def.move;
   const visited = new Map();
   const queue = [{ q: unit.q, r: unit.r, steps: 0 }];
   visited.set(`${unit.q},${unit.r}`, 0);
-
   const result = [];
 
   while (queue.length > 0) {
     const { q, r, steps } = queue.shift();
     if (steps > 0) result.push({ q, r });
-
     if (steps >= range) continue;
 
     for (const [dq, dr] of HEX_NEIGHBORS) {
@@ -89,98 +129,109 @@ export function getReachableHexes(state, unit, mapSize) {
       if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) continue;
       const key = `${nq},${nr}`;
       if (visited.has(key)) continue;
-      // Can't move through enemy units
       const occupant = unitAt(state, nq, nr);
       if (occupant && occupant.owner !== unit.owner) continue;
-      // Can't move to hex occupied by friendly (unless it's our starting hex)
       if (occupant && occupant.id !== unit.id) continue;
       visited.set(key, steps + 1);
       queue.push({ q: nq, r: nr, steps: steps + 1 });
     }
   }
-
   return result;
 }
 
-/** Get hexes attackable from a unit's current (or planned) position */
+/** Get hexes attackable from a position */
 export function getAttackableHexes(state, unit, fromQ, fromR) {
   const def = UNIT_TYPES[unit.type];
-  const range = def.range;
   const result = [];
-
   for (const u of state.units) {
     if (u.owner === unit.owner) continue;
-    if (hexDistance(fromQ, fromR, u.q, u.r) <= range) {
+    if (hexDistance(fromQ, fromR, u.q, u.r) <= def.range) {
       result.push({ q: u.q, r: u.r, targetId: u.id });
     }
   }
-
   return result;
 }
 
-/** Resolve all pending moves and attacks, return a log of events */
+/** Calculate iron income for a player this turn */
+export function calcIncome(state, player) {
+  let income = BASE_IRON_PER_TURN;
+  for (const b of state.buildings) {
+    if (b.owner === player) {
+      income += BUILDING_TYPES[b.type].ironPerTurn;
+    }
+  }
+  return income;
+}
+
+/** Resolve all pending moves and attacks */
 export function resolveTurn(state) {
   const events = [];
 
-  // Apply moves (check for collision — if two units move to same hex, neither moves)
+  // Apply moves (collision check)
   const destinations = {};
   for (const [idStr, dest] of Object.entries(state.pendingMoves)) {
     const key = `${dest.q},${dest.r}`;
     if (destinations[key]) {
-      // Collision — cancel both
-      events.push(`Move collision at (${dest.q},${dest.r}) — both moves cancelled`);
-      destinations[key] = null; // mark as cancelled
+      destinations[key] = null;
+      events.push(`Move collision at (${dest.q},${dest.r}) — cancelled`);
     } else {
       destinations[key] = idStr;
     }
   }
-
   for (const [idStr, dest] of Object.entries(state.pendingMoves)) {
     const key = `${dest.q},${dest.r}`;
     if (destinations[key] === idStr) {
       const unit = state.units.find(u => u.id === parseInt(idStr));
       if (unit) {
-        unit.q = dest.q;
-        unit.r = dest.r;
-        events.push(`${UNIT_TYPES[unit.type].name} (P${unit.owner}) moved to (${dest.q},${dest.r})`);
+        unit.q = dest.q; unit.r = dest.r;
+        events.push(`${UNIT_TYPES[unit.type].name} (P${unit.owner}) → (${dest.q},${dest.r})`);
       }
     }
   }
 
-  // Resolve attacks (simultaneous — calculate damage before removing units)
+  // Resolve attacks (simultaneous)
   const damage = {};
   for (const [idStr, targetId] of Object.entries(state.pendingAttacks)) {
     const attacker = state.units.find(u => u.id === parseInt(idStr));
     const target   = state.units.find(u => u.id === targetId);
     if (!attacker || !target) continue;
-
     const def = UNIT_TYPES[attacker.type];
-    // Simple damage: attacker.attack ± 1 random
-    const dmg = Math.max(1, def.attack + Math.floor(Math.random() * 3) - 1);
+    const dmg = Math.max(1, def.attack + Math.floor(Math.random() * 2) - 1);
     damage[targetId] = (damage[targetId] || 0) + dmg;
-    events.push(`${UNIT_TYPES[attacker.type].name} (P${attacker.owner}) attacks ${UNIT_TYPES[target.type].name} (P${target.owner}) for ${dmg} dmg`);
+    events.push(`${UNIT_TYPES[attacker.type].name} (P${attacker.owner}) hits ${UNIT_TYPES[target.type].name} (P${target.owner}) for ${dmg}`);
   }
-
   for (const [idStr, dmg] of Object.entries(damage)) {
     const target = state.units.find(u => u.id === parseInt(idStr));
     if (target) {
       target.health -= dmg;
-      if (target.health <= 0) {
-        events.push(`${UNIT_TYPES[target.type].name} (P${target.owner}) destroyed!`);
-      }
+      if (target.health <= 0) events.push(`${UNIT_TYPES[target.type].name} (P${target.owner}) destroyed!`);
+    }
+  }
+  state.units = state.units.filter(u => u.health > 0);
+
+  // Capture buildings: if a unit is on a building owned by the enemy, capture it
+  for (const building of state.buildings) {
+    const unit = unitAt(state, building.q, building.r);
+    if (unit && unit.owner !== building.owner) {
+      events.push(`P${unit.owner} captures ${BUILDING_TYPES[building.type].name} at (${building.q},${building.r})!`);
+      building.owner = unit.owner;
     }
   }
 
-  // Remove dead units
-  state.units = state.units.filter(u => u.health > 0);
+  // Collect iron income
+  for (const player of [1, 2]) {
+    const income = calcIncome(state, player);
+    state.players[player].iron += income;
+    events.push(`P${player} collects ${income} iron (total: ${state.players[player].iron})`);
+  }
 
-  // Reset unit action flags for next turn
+  // Reset unit flags
   for (const unit of state.units) {
     unit.moved   = false;
     unit.attacked = false;
   }
 
-  // Reset turn state
+  // Reset turn
   state.pendingMoves   = {};
   state.pendingAttacks = {};
   state.players[1].submitted = false;
@@ -189,19 +240,18 @@ export function resolveTurn(state) {
   state.phase = 'planning';
   state.turn++;
 
-  // Income
-  state.players[1].iron += IRON_PER_TURN;
-  state.players[2].iron += IRON_PER_TURN;
-
   return events;
 }
 
-/** Check win condition: a player wins if the other has no units */
+/** Check win condition */
 export function checkWinner(state) {
-  const p1Units = state.units.filter(u => u.owner === 1).length;
-  const p2Units = state.units.filter(u => u.owner === 2).length;
-  if (p1Units === 0) return 2;
-  if (p2Units === 0) return 1;
+  const p1 = state.units.filter(u => u.owner === 1).length;
+  const p2 = state.units.filter(u => u.owner === 2).length;
+  // Also win if enemy HQ captured
+  const p1HQ = state.buildings.find(b => b.type === 'HQ' && b.owner === 1);
+  const p2HQ = state.buildings.find(b => b.type === 'HQ' && b.owner === 2);
+  if (!p2HQ || p2 === 0) return 1;
+  if (!p1HQ || p1 === 0) return 2;
   return null;
 }
 
