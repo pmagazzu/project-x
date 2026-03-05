@@ -243,11 +243,19 @@ export class GameScene extends Phaser.Scene {
       // Direct attack: only visible enemy hexes, bright
       for (const { q, r } of this.attackable) fillHex(q, r, ATTACK_HIGHLIGHT, 0.6);
     } else if (this.mode === 'attack') {
-      // Blind fire: dim all range hexes, bright where known enemies are visible
+      // Blind fire: dim all range hexes, bright only where fog-visible enemies are at their DISPLAY position
       const gs = this.gameState;
+      const fog = this._currentFog;
       for (const { q, r } of this.attackable) {
-        const hasEnemy = gs.units.some(u => u.q === q && u.r === r && u.owner !== gs.currentPlayer && !u.dead);
-        fillHex(q, r, ATTACK_HIGHLIGHT, hasEnemy ? 0.5 : 0.12);
+        const hasVisibleEnemy = gs.units.some(u => {
+          if (u.owner === gs.currentPlayer || u.dead) return false;
+          const dq = (u._origQ !== undefined) ? u._origQ : u.q;
+          const dr = (u._origR !== undefined) ? u._origR : u.r;
+          if (dq !== q || dr !== r) return false;
+          if (fog && !fog.has(`${dq},${dr}`)) return false; // hidden in fog
+          return true;
+        });
+        fillHex(q, r, ATTACK_HIGHLIGHT, hasVisibleEnemy ? 0.5 : 0.12);
       }
     } else {
       for (const { q, r } of this.attackable) fillHex(q, r, ATTACK_HIGHLIGHT, 0.3);
