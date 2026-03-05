@@ -174,7 +174,13 @@ export function resolveTurn(state) {
   // Remove dead units
   state.units = state.units.filter(u => u.health > 0);
 
-  // Reset for next turn
+  // Reset unit action flags for next turn
+  for (const unit of state.units) {
+    unit.moved   = false;
+    unit.attacked = false;
+  }
+
+  // Reset turn state
   state.pendingMoves   = {};
   state.pendingAttacks = {};
   state.players[1].submitted = false;
