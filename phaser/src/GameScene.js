@@ -229,12 +229,15 @@ export class GameScene extends Phaser.Scene {
     };
 
     for (const { q, r } of this.reachable)   fillHex(q, r, MOVE_HIGHLIGHT,   0.25);
-    // In attack mode: dim highlight for all range hexes, bright for hexes with known enemies
-    if (this.mode === 'attack' && this.selectedUnit) {
+    if (this.mode === 'attack_direct') {
+      // Direct attack: only visible enemy hexes, bright
+      for (const { q, r } of this.attackable) fillHex(q, r, ATTACK_HIGHLIGHT, 0.6);
+    } else if (this.mode === 'attack') {
+      // Blind fire: dim all range hexes, bright where known enemies are visible
       const gs = this.gameState;
       for (const { q, r } of this.attackable) {
         const hasEnemy = gs.units.some(u => u.q === q && u.r === r && u.owner !== gs.currentPlayer && !u.dead);
-        fillHex(q, r, ATTACK_HIGHLIGHT, hasEnemy ? 0.55 : 0.15);
+        fillHex(q, r, ATTACK_HIGHLIGHT, hasEnemy ? 0.5 : 0.12);
       }
     } else {
       for (const { q, r } of this.attackable) fillHex(q, r, ATTACK_HIGHLIGHT, 0.3);
@@ -1076,9 +1079,19 @@ export class GameScene extends Phaser.Scene {
     if (!unit.moved && !unit.suppressed) {
       actions.push({ label: 'MOVE',   key: 'move',   enabled: true,  color: 0x1a5c8a, cb: () => this._onMoveMode() });
     }
-    if (!unit.attacked && !unit.suppressed) {
-      const atk = getAttackableHexes(gs, unit, unit.q, unit.r);
-      actions.push({ label: 'ATTACK', key: 'attack', enabled: atk.length > 0, color: 0x882222, cb: () => this._onAttackMode() });
+    if (!unit.attacked && !unit.suppressed && def.attack > 0) {
+      const visibleEnemies = getAttackableHexes(gs, unit, unit.q, unit.r);
+      const hasRange = def.range > 0;
+      // ATTACK — only if confirmed visible enemy in range (direct fire, no penalty)
+      if (visibleEnemies.length > 0) {
+        actions.push({ label: 'ATTACK', key: 'attack', enabled: true, color: 0x882222,
+          cb: () => this._onDirectAttackMode() });
+      }
+      // FIRE AT TILE — always available (blind fire, accuracy debuff, shows full range)
+      if (hasRange) {
+        actions.push({ label: 'FIRE AT TILE', key: 'fire_tile', enabled: true, color: 0x663311,
+          cb: () => this._onAttackMode() });
+      }
     }
     if (def.canDigIn && !unit.dugIn && !unit.moved) {
       actions.push({ label: 'DIG IN', key: 'digin',  enabled: true,  color: 0x8B5A2B, cb: () => this._onDigIn() });
@@ -1372,11 +1385,12 @@ export class GameScene extends Phaser.Scene {
         }
         return;
       }
-      // In move mode: clicking an enemy in range = quick-fire at that hex
+      // In move mode: clicking a visible enemy in range = quick direct fire
       if (clickedUnit && clickedUnit.owner !== gs.currentPlayer && !this.selectedUnit.attacked) {
         const range = UNIT_TYPES[this.selectedUnit.type].range;
         if (hexDistance(this.selectedUnit.q, this.selectedUnit.r, q, r) <= range) {
-          gs.pendingAttacks[this.selectedUnit.id] = { hex: { q, r } };
+          // Direct fire — store unit ID (no blind fire penalty)
+          gs.pendingAttacks[this.selectedUnit.id] = clickedUnit.id;
           this.selectedUnit.attacked = true;
           this.reachable = []; this.attackable = []; this.mode = 'select';
           this._refresh(); return;
@@ -1384,10 +1398,22 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Direct attack mode — only valid enemy hexes, no blind fire penalty
+    if (this.mode === 'attack_direct') {
+      const target = this.attackable.find(h => h.q === q && h.r === r);
+      if (target) {
+        gs.pendingAttacks[this.selectedUnit.id] = target.targetId; // unit ID, direct
+        this.selectedUnit.attacked = true;
+        this.reachable = []; this.attackable = []; this.mode = 'select';
+        this._refresh();
+        return;
+      }
+    }
+
     if (this.mode === 'attack') {
       const inRange = this.attackable.find(h => h.q === q && h.r === r);
       if (inRange) {
-        // Always store as hex target (blind fire) — resolution looks up occupant at that moment
+        // Blind fire — hex target, accuracy debuff applied in resolution
         gs.pendingAttacks[this.selectedUnit.id] = { hex: { q, r } };
         this.selectedUnit.attacked = true;
         this.reachable = []; this.attackable = []; this.mode = 'select';
@@ -1413,24 +1439,17 @@ export class GameScene extends Phaser.Scene {
   _selectUnit(unit) {
     this._hideContextMenu();
     this.selectedUnit = unit;
+    // Never auto-enter attack mode — player chooses via action menu
     if (!unit.moved) {
       this.reachable  = getReachableHexes(this.gameState, unit, this.terrain, MAP_SIZE);
-      // Show attackable enemies overlaid on move range (informational, not attack-mode)
-      this.attackable = !unit.attacked
-        ? getAttackableHexes(this.gameState, unit, unit.q, unit.r)
-        : [];
+      this.attackable = []; // no auto-highlight; use ATTACK / FIRE AT TILE from menu
       this.mode = 'move';
-    } else if (!unit.attacked) {
-      this.reachable  = [];
-      this.attackable = getAttackableHexes(this.gameState, unit, unit.q, unit.r);
-      this.mode = 'attack';
     } else {
       this.reachable  = [];
       this.attackable = [];
       this.mode = 'select';
     }
     this._refresh();
-    // No context menu on left-click — use right-click for that
   }
 
   // Right-click: open context menu for own unit, or inspect enemy
@@ -1462,11 +1481,20 @@ export class GameScene extends Phaser.Scene {
     this._refresh();
   }
 
+  // Direct attack — only visible enemies, no blind fire penalty
+  _onDirectAttackMode() {
+    if (!this.selectedUnit || this.selectedUnit.attacked) return;
+    this.mode = 'attack_direct';
+    this.reachable  = [];
+    this.attackable = getAttackableHexes(this.gameState, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r);
+    this._refresh();
+  }
+
+  // Blind fire — full tile range, applies accuracy debuff on resolution
   _onAttackMode() {
     if (!this.selectedUnit || this.selectedUnit.attacked) return;
     this.mode = 'attack';
     this.reachable  = [];
-    // Show full range for blind fire; enemy-occupied hexes get a brighter highlight in _redrawHighlights
     this.attackable = getAttackRangeHexes(MAP_SIZE, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r);
     this._refresh();
   }
