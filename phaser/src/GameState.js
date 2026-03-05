@@ -16,8 +16,8 @@ export const UNIT_TYPES = {
   ARTILLERY: { name:'Artillery', move:1, attack:4, health:2, range:2, cost:{iron:3,oil:2}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:5, hard_attack:3, pierce:3, armor:1, defense:0, evasion:0,  accuracy:5  },
   ENGINEER:  { name:'Engineer',  move:2, attack:1, health:2, range:1, cost:{iron:3,oil:0}, shape:'diamond',  canDigIn:false, canBuild:true,  canHeal:false, sight:2, soft_attack:1, hard_attack:0, pierce:1, armor:1, defense:0, evasion:0,  accuracy:-5 },
   RECON:     { name:'Recon',     move:4, attack:1, health:2, range:1, cost:{iron:3,oil:1}, shape:'star',     canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:2, hard_attack:0, pierce:1, armor:1, defense:0, evasion:15, accuracy:5  },
-  ANTI_TANK: { name:'Anti-Tank', move:1, attack:1, health:2, range:1, cost:{iron:3,oil:0}, shape:'arrow',    canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:1, hard_attack:3, pierce:6, armor:1, defense:1, evasion:0,  accuracy:0  },
-  MORTAR:    { name:'Mortar',    move:1, attack:3, health:2, range:2, cost:{iron:2,oil:0}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:4, hard_attack:1, pierce:2, armor:1, defense:0, evasion:0,  accuracy:0  },
+  ANTI_TANK: { name:'Anti-Tank', move:2, attack:1, health:2, range:1, cost:{iron:3,oil:0}, shape:'arrow',    canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:1, hard_attack:3, pierce:6, armor:1, defense:1, evasion:0,  accuracy:0  },
+  MORTAR:    { name:'Mortar',    move:2, attack:3, health:2, range:2, cost:{iron:2,oil:0}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:4, hard_attack:1, pierce:2, armor:1, defense:0, evasion:0,  accuracy:0  },
   MEDIC:     { name:'Medic',     move:2, attack:0, health:2, range:0, cost:{iron:2,oil:0}, shape:'cross',    canDigIn:false, canBuild:false, canHeal:true,  sight:2, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0  },
 };
 
@@ -214,7 +214,7 @@ export function hexDistance(q1, r1, q2, r2) {
 // ── Terrain movement ───────────────────────────────────────────────────────
 // terrain: 0=plains, 1=forest, 2=mountain
 export function getMoveCost(terrainType, hasRoad) {
-  if (hasRoad) return 1;
+  if (hasRoad) return 0.5; // roads are faster than plains (2 hexes per 1 move point)
   return [1, 2, 3][terrainType] ?? 1;
 }
 export function canEnterTerrain(unitType, terrainType) {
@@ -226,7 +226,6 @@ export function canEnterTerrain(unitType, terrainType) {
 export function getReachableHexes(state, unit, terrain, mapSize) {
   const maxMove = UNIT_TYPES[unit.type].move;
   const dist = new Map();
-  // Simple priority queue (array sorted by cost — fine for small maps)
   const queue = [{ q: unit.q, r: unit.r, cost: 0 }];
   dist.set(`${unit.q},${unit.r}`, 0);
   const result = [];
@@ -234,7 +233,6 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
   while (queue.length > 0) {
     queue.sort((a, b) => a.cost - b.cost);
     const { q, r, cost } = queue.shift();
-    if (cost > 0) result.push({ q, r });
 
     for (const [dq, dr] of HEX_NEIGHBORS) {
       const nq = q + dq, nr = r + dr;
@@ -242,16 +240,29 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
       const ttype = terrain[`${nq},${nr}`] ?? 0;
       if (!canEnterTerrain(unit.type, ttype)) continue;
       const hasRoad = !!roadAt(state, nq, nr);
-      const newCost = cost + getMoveCost(ttype, hasRoad);
-      if (newCost > maxMove) continue;
+      const moveCost = getMoveCost(ttype, hasRoad);
+      // Guarantee minimum 1-hex move: even if terrain is expensive, can always enter
+      // adjacent hex if it's the first step (cost===0) and unit has any move budget.
+      const newCost = cost + moveCost;
+      const withinBudget = newCost <= maxMove || (cost === 0 && maxMove >= 1);
+      if (!withinBudget) continue;
       const key = `${nq},${nr}`;
       if (dist.has(key) && dist.get(key) <= newCost) continue;
+      // Enemy units: can't pass through or end on
       const occupant = unitAt(state, nq, nr);
       if (occupant && occupant.owner !== unit.owner) continue;
-      if (occupant && occupant.id !== unit.id) continue;
+      // Friendly units: can pass through but not end on (only block as destination)
       dist.set(key, newCost);
       queue.push({ q: nq, r: nr, cost: newCost });
     }
+  }
+
+  // Collect all reachable hexes — exclude any that have a unit on them (can't end there)
+  for (const [key] of dist) {
+    const [q, r] = key.split(',').map(Number);
+    if (q === unit.q && r === unit.r) continue; // skip origin
+    const occupant = unitAt(state, q, r);
+    if (!occupant || occupant.id === unit.id) result.push({ q, r });
   }
   return result;
 }
