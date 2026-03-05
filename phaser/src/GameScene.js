@@ -236,6 +236,41 @@ export class GameScene extends Phaser.Scene {
       for (let i = 1; i < verts.length; i++) this.highlightGfx.lineTo(verts[i].x, verts[i].y);
       this.highlightGfx.closePath(); this.highlightGfx.strokePath();
     }
+
+    // ── Pending move arrows (own units with queued moves) ───────────────────
+    const gs = this.gameState;
+    for (const u of gs.units) {
+      if (u.owner !== gs.currentPlayer || !u.moved || u._origQ === undefined) continue;
+      const from = hexToWorld(u._origQ, u._origR);
+      const to   = hexToWorld(u.q, u.r);
+      const color = PLAYER_COLORS[u.owner] || 0xffffff;
+      // Dashed line from origin to destination
+      this.highlightGfx.lineStyle(2, color, 0.6);
+      this.highlightGfx.beginPath();
+      // Draw dashed manually (4 segments)
+      const steps = 8;
+      for (let i = 0; i < steps; i++) {
+        const t0 = i / steps, t1 = (i + 0.5) / steps;
+        if (i % 2 === 0) {
+          this.highlightGfx.moveTo(from.x + (to.x - from.x) * t0, from.y + (to.y - from.y) * t0);
+          this.highlightGfx.lineTo(from.x + (to.x - from.x) * t1, from.y + (to.y - from.y) * t1);
+        }
+      }
+      this.highlightGfx.strokePath();
+      // Arrowhead at destination
+      const angle = Math.atan2(to.y - from.y, to.x - from.x);
+      const aLen = 10;
+      this.highlightGfx.lineStyle(2, color, 0.9);
+      this.highlightGfx.beginPath();
+      this.highlightGfx.moveTo(to.x, to.y);
+      this.highlightGfx.lineTo(to.x - aLen * Math.cos(angle - 0.4), to.y - aLen * Math.sin(angle - 0.4));
+      this.highlightGfx.moveTo(to.x, to.y);
+      this.highlightGfx.lineTo(to.x - aLen * Math.cos(angle + 0.4), to.y - aLen * Math.sin(angle + 0.4));
+      this.highlightGfx.strokePath();
+      // Ghost circle at origin to show where unit came from
+      this.highlightGfx.lineStyle(1.5, color, 0.3);
+      this.highlightGfx.strokeCircle(from.x, from.y, 10);
+    }
   }
 
   // ── Buildings ─────────────────────────────────────────────────────────────
@@ -1049,6 +1084,10 @@ export class GameScene extends Phaser.Scene {
     }
     // Hook: special abilities (future — unit.abilities array)
     // (unit.abilities || []).forEach(ab => actions.push({ label: ab.name, key: ab.key, enabled: ab.canUse(gs, unit), color: 0x664488, cb: () => ab.use(gs, unit) }));
+    // Undo move — only if moved but not yet attacked
+    if (unit.moved && !unit.attacked && unit._origQ !== undefined && gs.pendingMoves[unit.id]) {
+      actions.push({ label: '↩ UNDO MOVE', key: 'undo', enabled: true, color: 0x554422, cb: () => this._onUndoMove() });
+    }
     actions.push({ label: 'WAIT',   key: 'wait',   enabled: true,  color: 0x444444, cb: () => this._clearSelection() });
 
     return actions;
@@ -1285,6 +1324,9 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'move') {
       const isReachable = this.reachable.some(h => h.q === q && h.r === r);
       if (isReachable && !clickedUnit) {
+        // Store original position for undo / arrow drawing
+        this.selectedUnit._origQ = this.selectedUnit.q;
+        this.selectedUnit._origR = this.selectedUnit.r;
         gs.pendingMoves[this.selectedUnit.id] = { q, r };
         this.selectedUnit.q = q; this.selectedUnit.r = r; this.selectedUnit.moved = true;
         // Keep unit selected after move — show remaining actions
@@ -1405,6 +1447,23 @@ export class GameScene extends Phaser.Scene {
     this.reachable  = [];
     // Show full range for blind fire; enemy-occupied hexes get a brighter highlight in _redrawHighlights
     this.attackable = getAttackRangeHexes(MAP_SIZE, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r);
+    this._refresh();
+  }
+
+  _onUndoMove() {
+    const u = this.selectedUnit, gs = this.gameState;
+    if (!u || !u.moved || u.attacked || u._origQ === undefined) return;
+    // Restore original position
+    u.q = u._origQ; u.r = u._origR;
+    u.moved = false;
+    u.building = false;
+    delete u._origQ; delete u._origR;
+    delete gs.pendingMoves[u.id];
+    // Also clear any pending attacks that depended on this move
+    delete gs.pendingAttacks[u.id];
+    u.attacked = false;
+    this._clearSelection();
+    this._redrawRoads(); // in case a road was staged
     this._refresh();
   }
 

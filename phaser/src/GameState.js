@@ -604,7 +604,10 @@ export function resolveTurn(state, terrain) {
   }
 
   // Reset
-  for (const unit of state.units) { unit.moved = false; unit.attacked = false; unit.building = false; unit.suppressed = false; }
+  for (const unit of state.units) {
+    unit.moved = false; unit.attacked = false; unit.building = false; unit.suppressed = false;
+    delete unit._origQ; delete unit._origR; // clear undo anchors
+  }
   state.pendingMoves = {}; state.pendingAttacks = {};
   state.players[1].submitted = false; state.players[2].submitted = false;
   state.currentPlayer = 1; state.phase = 'planning'; state.turn++;
