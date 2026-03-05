@@ -1,5 +1,8 @@
 import Phaser from 'phaser';
-import { hexToScreen, hexVertices, isValid, MAP_SIZE, HEX_SIZE, ISO_SQUISH } from './HexGrid.js';
+import {
+  hexToWorld, worldToHex, hexVertices, isValid,
+  MAP_SIZE, HEX_SIZE, ISO_SQUISH, getMapBounds
+} from './HexGrid.js';
 
 const TERRAIN = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2 };
 
@@ -11,9 +14,8 @@ const TERRAIN_COLORS = {
 
 const SELECTED_STROKE = 0xffe066;
 const HOVER_STROKE    = 0xaaddff;
-
-const ZOOM_MIN = 0.3;
-const ZOOM_MAX = 4.0;
+const STROKE_WIDTH    = 1;
+const HIGHLIGHT_WIDTH = 2.5;
 
 export class GameScene extends Phaser.Scene {
   constructor() {
@@ -24,182 +26,188 @@ export class GameScene extends Phaser.Scene {
     this.terrain = this._generateTerrain();
     this.selectedHex = null;
     this.hoveredHex  = null;
+    this._isDragging = false;
+    this._dragStart  = { x: 0, y: 0 };
 
-    // Calculate world bounds of all hexes
-    this._calcWorldBounds();
+    const bounds = getMapBounds();
+    this._bounds = bounds;
 
-    // Bake all terrain into a RenderTexture (drawn once)
-    this._createTerrainTexture();
+    // ── Terrain RenderTexture ──────────────────────────────────────────────
+    // Draw all tiles once into a texture. Camera scrolls over it — no redraw
+    // needed on pan/zoom.
+    const padding = HEX_SIZE * 2;
+    this._rtOffsetX = -bounds.minX + padding;
+    this._rtOffsetY = -bounds.minY + padding;
+    const rtW = Math.ceil(bounds.width  + padding * 2);
+    const rtH = Math.ceil(bounds.height + padding * 2);
 
-    // Highlight overlay for hover/selection (moves with camera in world space)
+    this.terrainRT = this.add.renderTexture(0, 0, rtW, rtH);
+    this.terrainRT.setOrigin(0, 0);
+    // Position RT so world coords align: RT top-left = (bounds.minX - padding, bounds.minY - padding)
+    this.terrainRT.setPosition(bounds.minX - padding, bounds.minY - padding);
+
+    this._drawTerrainToRT();
+
+    // ── Highlight Graphics (scrolls with camera) ───────────────────────────
     this.highlightGfx = this.add.graphics();
+    this.highlightGfx.setDepth(10);
 
-    // HUD — fixed to screen, not world
+    // ── HUD (fixed to screen — ignore camera) ─────────────────────────────
     this.hudText = this.add.text(12, 8, '', {
       font: '14px monospace',
       fill: '#cccccc',
       backgroundColor: '#00000099',
       padding: { x: 8, y: 4 }
-    }).setDepth(10).setScrollFactor(0);
+    }).setScrollFactor(0).setDepth(100);
 
-    // Center camera on map middle
-    const center = hexToScreen(Math.floor(MAP_SIZE / 2), Math.floor(MAP_SIZE / 2));
-    this.cameras.main.centerOn(center.x, center.y);
+    // ── Camera setup ──────────────────────────────────────────────────────
+    const cam = this.cameras.main;
+    const mapCenterX = (bounds.minX + bounds.maxX) / 2;
+    const mapCenterY = (bounds.minY + bounds.maxY) / 2;
+    cam.centerOn(mapCenterX, mapCenterY);
+    cam.setZoom(1.0);
+
+    // Optional: set camera bounds so you can't pan past the map
+    cam.setBounds(
+      bounds.minX - padding,
+      bounds.minY - padding,
+      rtW,
+      rtH
+    );
 
     this._setupInput();
     this._updateHUD();
   }
 
-  // ---- World bounds ----
-  _calcWorldBounds() {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (let q = 0; q < MAP_SIZE; q++) {
-      for (let r = 0; r < MAP_SIZE; r++) {
-        const { x, y } = hexToScreen(q, r);
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-    const pad = HEX_SIZE + 2;
-    this.worldMinX = minX - pad;
-    this.worldMinY = minY - pad * ISO_SQUISH;
-    this.worldMaxX = maxX + pad;
-    this.worldMaxY = maxY + pad * ISO_SQUISH;
-  }
-
-  // ---- Bake terrain into RenderTexture ----
-  _createTerrainTexture() {
-    const w = this.worldMaxX - this.worldMinX;
-    const h = this.worldMaxY - this.worldMinY;
-    const rt = this.add.renderTexture(this.worldMinX, this.worldMinY, w, h);
-    rt.setOrigin(0, 0);
-
-    const gfx = this.make.graphics();
+  // ── Terrain drawing (once at startup) ────────────────────────────────────
+  _drawTerrainToRT() {
+    // Draw into an offscreen Graphics, then stamp it into the RenderTexture
+    const gfx = this.make.graphics({ x: 0, y: 0, add: false });
 
     for (let q = 0; q < MAP_SIZE; q++) {
       for (let r = 0; r < MAP_SIZE; r++) {
         const terrain = this.terrain[`${q},${r}`];
-        const { x, y } = hexToScreen(q, r);
-        const tx = x - this.worldMinX;
-        const ty = y - this.worldMinY;
-
-        const colors = TERRAIN_COLORS[terrain];
-        const verts = hexVertices(tx, ty, 1.0);
-
-        gfx.fillStyle(colors.fill);
-        gfx.beginPath();
-        gfx.moveTo(verts[0].x, verts[0].y);
-        for (let i = 1; i < verts.length; i++) gfx.lineTo(verts[i].x, verts[i].y);
-        gfx.closePath();
-        gfx.fillPath();
-
-        gfx.lineStyle(1, colors.stroke);
-        gfx.beginPath();
-        gfx.moveTo(verts[0].x, verts[0].y);
-        for (let i = 1; i < verts.length; i++) gfx.lineTo(verts[i].x, verts[i].y);
-        gfx.closePath();
-        gfx.strokePath();
+        const { x, y } = hexToWorld(q, r);
+        // Offset into RT local coords
+        const lx = x + this._rtOffsetX + this._bounds.minX;
+        const ly = y + this._rtOffsetY + this._bounds.minY;
+        // Wait — RT.draw uses world coords. Since RT is positioned at
+        // (bounds.minX - padding, bounds.minY - padding), we draw in world
+        // coords directly.
+        this._drawHexOnGfx(gfx, x, y, terrain, false, false);
       }
     }
 
-    rt.draw(gfx);
+    this.terrainRT.draw(gfx, 0, 0);
     gfx.destroy();
-    this.terrainRT = rt;
   }
 
-  // ---- Highlight drawing (only 1-2 hexes) ----
-  _drawHighlights() {
+  _drawHexOnGfx(gfx, cx, cy, terrain, isSelected, isHovered) {
+    const colors = TERRAIN_COLORS[terrain];
+    const strokeColor = isSelected ? SELECTED_STROKE : isHovered ? HOVER_STROKE : colors.stroke;
+    const strokeW = (isSelected || isHovered) ? HIGHLIGHT_WIDTH : STROKE_WIDTH;
+    const verts = hexVertices(cx, cy);
+
+    gfx.fillStyle(colors.fill);
+    gfx.beginPath();
+    gfx.moveTo(verts[0].x, verts[0].y);
+    for (let i = 1; i < verts.length; i++) gfx.lineTo(verts[i].x, verts[i].y);
+    gfx.closePath();
+    gfx.fillPath();
+
+    gfx.lineStyle(strokeW, strokeColor);
+    gfx.beginPath();
+    gfx.moveTo(verts[0].x, verts[0].y);
+    for (let i = 1; i < verts.length; i++) gfx.lineTo(verts[i].x, verts[i].y);
+    gfx.closePath();
+    gfx.strokePath();
+  }
+
+  // ── Highlight layer — only redraws 1–2 tiles ─────────────────────────────
+  _redrawHighlights() {
     this.highlightGfx.clear();
 
-    const drawHex = (q, r, strokeColor, strokeWidth) => {
-      const { x, y } = hexToScreen(q, r);
-      const verts = hexVertices(x, y, 1.0);
+    const toHighlight = [];
+    if (this.hoveredHex  && isValid(this.hoveredHex.q,  this.hoveredHex.r))  toHighlight.push({ hex: this.hoveredHex,  sel: false });
+    if (this.selectedHex && isValid(this.selectedHex.q, this.selectedHex.r)) toHighlight.push({ hex: this.selectedHex, sel: true  });
 
-      this.highlightGfx.lineStyle(strokeWidth, strokeColor);
-      this.highlightGfx.beginPath();
-      this.highlightGfx.moveTo(verts[0].x, verts[0].y);
-      for (let i = 1; i < verts.length; i++) this.highlightGfx.lineTo(verts[i].x, verts[i].y);
-      this.highlightGfx.closePath();
-      this.highlightGfx.strokePath();
-    };
-
-    if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r)) {
-      drawHex(this.hoveredHex.q, this.hoveredHex.r, HOVER_STROKE, 1.5);
-    }
-    if (this.selectedHex && isValid(this.selectedHex.q, this.selectedHex.r)) {
-      drawHex(this.selectedHex.q, this.selectedHex.r, SELECTED_STROKE, 2.5);
+    for (const { hex, sel } of toHighlight) {
+      const terrain = this.terrain[`${hex.q},${hex.r}`];
+      const { x, y } = hexToWorld(hex.q, hex.r);
+      const isHov = !sel && this.hoveredHex?.q === hex.q && this.hoveredHex?.r === hex.r;
+      this._drawHexOnGfx(this.highlightGfx, x, y, terrain, sel, isHov);
     }
   }
 
-  // ---- Input ----
+  // ── Input ────────────────────────────────────────────────────────────────
   _setupInput() {
     const cam = this.cameras.main;
-    let dragState = null;
 
-    // Left-click drag for pan, click for select
+    // Left-click drag to pan
     this.input.on('pointerdown', (ptr) => {
       if (ptr.button === 0) {
-        dragState = {
-          startX: ptr.x, startY: ptr.y,
-          camScrollX: cam.scrollX, camScrollY: cam.scrollY,
-          dragging: false
-        };
+        this._isDragging = false;
+        this._dragStart = { x: ptr.x, y: ptr.y };
+        this._dragStartScroll = { x: cam.scrollX, y: cam.scrollY };
+        this._pointerDownPos = { x: ptr.x, y: ptr.y };
       }
     });
 
     this.input.on('pointermove', (ptr) => {
-      if (ptr.isDown && ptr.button === 0 && dragState) {
-        const dx = ptr.x - dragState.startX;
-        const dy = ptr.y - dragState.startY;
-        if (!dragState.dragging && Math.hypot(dx, dy) > 5) {
-          dragState.dragging = true;
+      if (ptr.isDown && ptr.button === 0) {
+        const dx = ptr.x - this._dragStart.x;
+        const dy = ptr.y - this._dragStart.y;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+          this._isDragging = true;
         }
-        if (dragState.dragging) {
-          cam.scrollX = dragState.camScrollX - dx / cam.zoom;
-          cam.scrollY = dragState.camScrollY - dy / cam.zoom;
+        if (this._isDragging) {
+          cam.setScroll(
+            this._dragStartScroll.x - dx / cam.zoom,
+            this._dragStartScroll.y - dy / cam.zoom
+          );
         }
-      } else if (!ptr.isDown) {
-        // Hover
-        const worldPt = cam.getWorldPoint(ptr.x, ptr.y);
-        const hex = this._worldToHex(worldPt.x, worldPt.y);
+      } else {
+        // Hover detection
+        const world = cam.getWorldPoint(ptr.x, ptr.y);
+        const hex = worldToHex(world.x, world.y);
+        const wasHov = this.hoveredHex;
         if (isValid(hex.q, hex.r)) {
-          if (!this.hoveredHex || this.hoveredHex.q !== hex.q || this.hoveredHex.r !== hex.r) {
+          if (!wasHov || wasHov.q !== hex.q || wasHov.r !== hex.r) {
             this.hoveredHex = hex;
-            this._drawHighlights();
+            this._redrawHighlights();
           }
-        } else if (this.hoveredHex) {
+        } else if (wasHov) {
           this.hoveredHex = null;
-          this._drawHighlights();
+          this._redrawHighlights();
         }
       }
     });
 
     this.input.on('pointerup', (ptr) => {
-      if (ptr.button === 0 && dragState) {
-        if (!dragState.dragging) {
-          // Click — select tile
-          const worldPt = cam.getWorldPoint(ptr.x, ptr.y);
-          const hex = this._worldToHex(worldPt.x, worldPt.y);
-          if (isValid(hex.q, hex.r)) {
-            this.selectedHex = hex;
-            this._drawHighlights();
-            this._updateHUD();
-          }
+      if (ptr.button === 0 && !this._isDragging) {
+        // It was a click (not a drag) — select tile
+        const world = cam.getWorldPoint(ptr.x, ptr.y);
+        const hex = worldToHex(world.x, world.y);
+        if (isValid(hex.q, hex.r)) {
+          this.selectedHex = hex;
+          this._redrawHighlights();
+          this._updateHUD();
         }
-        dragState = null;
       }
+      this._isDragging = false;
     });
 
-    // Scroll wheel zoom — keep point under cursor fixed
-    this.input.on('wheel', (ptr, objs, dx, dy) => {
-      const before = cam.getWorldPoint(ptr.x, ptr.y);
+    // Scroll zoom — keep cursor position fixed in world space
+    this.input.on('wheel', (ptr, _objs, _dx, dy) => {
       const factor = dy > 0 ? 0.85 : 1.18;
-      cam.zoom = Phaser.Math.Clamp(cam.zoom * factor, ZOOM_MIN, ZOOM_MAX);
-      const after = cam.getWorldPoint(ptr.x, ptr.y);
-      cam.scrollX += before.x - after.x;
-      cam.scrollY += before.y - after.y;
+      const newZoom = Phaser.Math.Clamp(cam.zoom * factor, 0.2, 4.0);
+
+      // Zoom toward cursor
+      const worldBefore = cam.getWorldPoint(ptr.x, ptr.y);
+      cam.setZoom(newZoom);
+      const worldAfter = cam.getWorldPoint(ptr.x, ptr.y);
+      cam.scrollX += worldBefore.x - worldAfter.x;
+      cam.scrollY += worldBefore.y - worldAfter.y;
     });
 
     // WASD pan
@@ -209,34 +217,24 @@ export class GameScene extends Phaser.Scene {
   update() {
     const cam = this.cameras.main;
     const speed = 6 / cam.zoom;
-    if (this.wasd.W.isDown) cam.scrollY -= speed;
-    if (this.wasd.S.isDown) cam.scrollY += speed;
-    if (this.wasd.A.isDown) cam.scrollX -= speed;
-    if (this.wasd.D.isDown) cam.scrollX += speed;
+    let moved = false;
+    if (this.wasd.W.isDown) { cam.scrollY -= speed; moved = true; }
+    if (this.wasd.S.isDown) { cam.scrollY += speed; moved = true; }
+    if (this.wasd.A.isDown) { cam.scrollX -= speed; moved = true; }
+    if (this.wasd.D.isDown) { cam.scrollX += speed; moved = true; }
+    // No redraw needed — camera moves, RT follows automatically
   }
 
-  // ---- World-to-hex conversion ----
-  _worldToHex(wx, wy) {
-    const unsquishedY = wy / ISO_SQUISH;
-    const q = (2 / 3) * wx / HEX_SIZE;
-    const r = (-1 / 3 * wx + Math.sqrt(3) / 3 * unsquishedY) / HEX_SIZE;
-    return this._axialRound(q, r);
+  _updateHUD() {
+    const sel = this.selectedHex;
+    const terrain = sel ? ['Plains', 'Forest', 'Mountain'][this.terrain[`${sel.q},${sel.r}`]] : '—';
+    this.hudText.setText(
+      `Attrition  |  Player 1  |  Iron: 50  |  Turn: 1  |  PLANNING\n` +
+      `Selected: ${sel ? `(${sel.q}, ${sel.r}) — ${terrain}` : 'none'}  |  drag/WASD to pan  |  scroll to zoom`
+    );
   }
 
-  _axialRound(q, r) {
-    const s = -q - r;
-    let rq = Math.round(q);
-    let rr = Math.round(r);
-    let rs = Math.round(s);
-    const dq = Math.abs(rq - q);
-    const dr = Math.abs(rr - r);
-    const ds = Math.abs(rs - s);
-    if (dq > dr && dq > ds) rq = -rr - rs;
-    else if (dr > ds) rr = -rq - rs;
-    return { q: rq, r: rr };
-  }
-
-  // ---- Terrain generation ----
+  // ── Terrain generation ───────────────────────────────────────────────────
   _generateTerrain() {
     const map = {};
     const rng = this._seededRng(12345);
@@ -280,14 +278,5 @@ export class GameScene extends Phaser.Scene {
       s = (s * 1664525 + 1013904223) & 0xffffffff;
       return (s >>> 0) / 0xffffffff;
     };
-  }
-
-  _updateHUD() {
-    const sel = this.selectedHex;
-    const terrain = sel ? ['Plains', 'Forest', 'Mountain'][this.terrain[`${sel.q},${sel.r}`]] : '—';
-    this.hudText.setText(
-      `Attrition  |  Player 1  |  Iron: 50  |  Turn: 1  |  PLANNING\n` +
-      `Selected: ${sel ? `(${sel.q}, ${sel.r}) — ${terrain}` : 'none'}  |  WASD/drag to pan  |  scroll to zoom`
-    );
   }
 }
