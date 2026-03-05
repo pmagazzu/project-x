@@ -534,7 +534,13 @@ export class GameScene extends Phaser.Scene {
     // Unit info
     if (u) {
       const def = UNIT_TYPES[u.type];
-      this.unitNameTxt.setText(`[ ${def.name} ]  P${u.owner}`);
+      // Own units: show custom design name if applicable; enemy: chassis type only (no deception)
+      const isOwnUnit = u.owner === gs.currentPlayer;
+      const displayName = isOwnUnit && u.designId !== undefined
+        ? (gs.designs[u.owner]?.find(d => d.id === u.designId)?.name || def.name)
+        : def.name;
+      const nameLabel = isOwnUnit && u.designId !== undefined ? `★ ${displayName}` : `[ ${displayName} ]`;
+      this.unitNameTxt.setText(`${nameLabel}  P${u.owner}`);
       this.unitStatsTxt.setText(`HP: ${u.health}/${u.maxHealth}  ATK: ${def.attack}  MOV: ${def.move}  RNG: ${def.range}  SIGHT: ${def.sight}`);
       const pa = gs.pendingAttacks[u.id];
       let status = '';
@@ -743,24 +749,30 @@ export class GameScene extends Phaser.Scene {
 
     let selectedChassis = validChassis[0] || null;
     let selectedModules = new Set();
+    let designName = ''; // set by player; defaults to chassis name on register
 
     const objs = [];
     const rebuild = () => {
       for (const o of objs) o.destroy();
       objs.length = 0;
-      this._renderDesignPanel(building, validChassis, selectedChassis, selectedModules, p, objs,
+      this._renderDesignPanel(building, validChassis, selectedChassis, selectedModules, p, objs, designName,
         (chassis) => { selectedChassis = chassis; selectedModules = new Set(); rebuild(); },
         (modKey)  => { selectedModules.has(modKey) ? selectedModules.delete(modKey) : selectedModules.add(modKey); rebuild(); },
         () => {
-          // Confirm design
+          // Open name prompt before registering
+          const chassis = selectedChassis;
+          const defaultName = `${UNIT_TYPES[chassis].name} Mk.${gs.designs[p].length + 1}`;
+          const entered = window.prompt(`Name this design (your eyes only):\n(Enemy sees only chassis type: "${UNIT_TYPES[chassis].name}")`, designName || defaultName);
+          if (entered === null) return; // cancelled
+          designName = entered.trim() || defaultName;
           const modules = [...selectedModules];
           const cost = designRegistrationCost(modules);
           if (gs.players[p].iron < cost.iron) return;
           if (gs.players[p].oil  < cost.oil)  return;
           if (gs.designs[p].length >= MAX_DESIGNS_PER_PLAYER) return;
-          const result = registerDesign(gs, p, selectedChassis, modules);
+          const result = registerDesign(gs, p, chassis, modules, designName);
           if (result.ok) {
-            this._pushLog(`P${p} designed ${UNIT_TYPES[selectedChassis].name} (${modules.length} mods)`);
+            this._pushLog(`P${p} registered design: "${designName}"`);
             this._hideDesignPanel();
             this._showRecruitPanel(building);
             this._refresh();
@@ -775,7 +787,7 @@ export class GameScene extends Phaser.Scene {
     rebuild();
   }
 
-  _renderDesignPanel(building, validChassis, selectedChassis, selectedModules, player, objs, onChassis, onModule, onConfirm, onClose) {
+  _renderDesignPanel(building, validChassis, selectedChassis, selectedModules, player, objs, designName, onChassis, onModule, onConfirm, onClose) {
     const gs = this.gameState;
     const w  = this.scale.width, h = this.scale.height;
     const panelW = 580, D = 202;
@@ -795,6 +807,8 @@ export class GameScene extends Phaser.Scene {
     };
 
     line('── UNIT DESIGNER ──', '#88ccff', true);
+    const nameDisplay = designName || (selectedChassis ? `${UNIT_TYPES[selectedChassis].name} Mk.${gs.designs[player].length + 1}` : 'New Design');
+    line(`Name: "${nameDisplay}"  (set on Register)`, '#ffdd88');
     line(`Slots: ${gs.designs[player].length}/${MAX_DESIGNS_PER_PLAYER}  |  Iron: ${gs.players[player].iron}  Oil: ${gs.players[player].oil}`, '#888888');
     y += 4;
 
@@ -850,7 +864,7 @@ export class GameScene extends Phaser.Scene {
     line(`Register cost: ⚙${cost.iron}${cost.oil > 0 ? ` 🛢${cost.oil}` : ''}  ${!canAfford ? '(NOT ENOUGH)' : slotsFull ? '(SLOTS FULL)' : '(affordable)'}`, canAfford && !slotsFull ? '#88ff88' : '#ff6666');
     y += 4;
 
-    const confirmBtn = this.add.text(w/2 - 70, y, '[ REGISTER DESIGN ]', {
+    const confirmBtn = this.add.text(w/2 - 70, y, '[ NAME & REGISTER ]', {
       font: 'bold 12px monospace', fill: (canAfford && !slotsFull) ? '#000000' : '#555555',
       backgroundColor: (canAfford && !slotsFull) ? '#44aa44' : '#222222', padding: { x: 12, y: 8 }
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(D+1);
