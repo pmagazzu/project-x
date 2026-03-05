@@ -254,6 +254,10 @@ export class GameScene extends Phaser.Scene {
 
   // ── Full refresh ──────────────────────────────────────────────────────────
   _refresh() {
+    // Recompute fog based on current unit positions (own units may have moved during planning).
+    // We-go integrity is maintained by _origQ/_origR on enemy units — enemy display positions
+    // are locked to turn-start regardless of fog recomputation.
+    this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
     this._redrawHighlights();
     this._redrawBuildings();
     this._redrawUnits();
@@ -1412,6 +1416,16 @@ export class GameScene extends Phaser.Scene {
     }
     if (def.canHeal) {
       actions.push({ label: 'HEAL',   key: 'heal',   enabled: true,  color: 0x229944, cb: () => {} }); // passive — shows status
+    }
+    // Engineer (or any unit) standing on a building with canRecruit: show USE BUILDING button
+    if (def.canBuild) {
+      const bldg = buildingAt(gs, unit.q, unit.r);
+      if (bldg && bldg.owner === gs.currentPlayer && bldg.type !== 'ROAD' &&
+          BUILDING_TYPES[bldg.type].canRecruit.length > 0) {
+        actions.push({ label: `USE ${BUILDING_TYPES[bldg.type].name.toUpperCase()} ▸`, key: 'use_building', enabled: true, color: 0x225577,
+          cb: () => { this._clearSelection(); this._showRecruitPanel(bldg); }
+        });
+      }
     }
     // Hook: special abilities (future — unit.abilities array)
     // (unit.abilities || []).forEach(ab => actions.push({ label: ab.name, key: ab.key, enabled: ab.canUse(gs, unit), color: 0x664488, cb: () => ab.use(gs, unit) }));
