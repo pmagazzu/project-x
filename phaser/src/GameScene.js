@@ -157,16 +157,10 @@ export class GameScene extends Phaser.Scene {
       repl(unitTextureKey(type, 2), clean);
     }
 
-    // Terrain tile art refs (use user assets when available, else fallback to procedural)
-    this._tileOverride = {
-      0: pick('ua_clean_grass_tile'),
-      1: pick('ua_clean_forest_tile', 'ua_clean_grass_hill'),
-      2: pick('ua_clean_mountain_tile'),
-      3: pick('ua_clean_hill_tile', 'ua_clean_grass_hill'),
-      4: pick('ua_clean_water_shallow_tile'),
-      5: pick('ua_clean_ocean_deep_tile'),
-      6: pick('ua_clean_sand_tile', 'ua_clean_sand_hill'),
-    };
+    // Terrain tile overrides OFF for now.
+    // Incoming AI tile exports still include hidden checker/editor artifacts.
+    // Keep stable procedural terrain; use user art only for units/buildings.
+    this._tileOverride = null;
   }
 
   // Add game objects to the UI layer so the fixed uiCamera renders them
