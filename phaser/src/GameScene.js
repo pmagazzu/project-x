@@ -1359,6 +1359,19 @@ export class GameScene extends Phaser.Scene {
   // ── Unit action framework ─────────────────────────────────────────────────
   // Returns array of {label, key, enabled, color, cb} for the selected unit.
   // Add special abilities here when ready — just push to the array.
+  _isCoastalHex(q, r) {
+    // Coast = land hex adjacent to ocean/shallow water
+    const t = this.terrain[`${q},${r}`] ?? 0;
+    if (t === 4 || t === 5) return false; // building must be on land
+    const N = [[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];
+    return N.some(([dq, dr]) => {
+      const nq = q + dq, nr = r + dr;
+      if (!isValid(nq, nr, this.mapSize)) return false;
+      const nt = this.terrain[`${nq},${nr}`] ?? 0;
+      return nt === 4 || nt === 5;
+    });
+  }
+
   _getUnitActions(unit) {
     const gs   = this.gameState;
     const def  = UNIT_TYPES[unit.type];
@@ -1481,6 +1494,7 @@ export class GameScene extends Phaser.Scene {
       const noBuilding = !existingBuilding || existingBuilding.type === 'ROAD';
       const res = gs.resourceHexes[`${unit.q},${unit.r}`];
       const iron = gs.players[p].iron, oil = gs.players[p].oil;
+      const coastal = this._isCoastalHex(unit.q, unit.r);
 
       // All possible build options — add more here as the game grows
       const allOpts = [];
@@ -1499,11 +1513,11 @@ export class GameScene extends Phaser.Scene {
       // Land military buildings
       if (noBuilding) allOpts.push({ label: `Barracks    6⚙`,       cost:{iron:6,oil:0},  enabled: iron>=6,          cb: () => this._onBuildStructure('BARRACKS',6) });
       if (noBuilding) allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢`, cost:{iron:8,oil:2},  enabled: iron>=8&&oil>=2,  cb: () => this._onBuildStructure('VEHICLE_DEPOT',8,2) });
-      // Naval buildings
-      if (noBuilding) allOpts.push({ label: `Naval Yard  8⚙ 2🛢`,   cost:{iron:8,oil:2},  enabled: iron>=8&&oil>=2,  cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
-      if (noBuilding) allOpts.push({ label: `Harbor      5⚙ 1🛢`,   cost:{iron:5,oil:1},  enabled: iron>=5&&oil>=1,  cb: () => this._onBuildStructure('HARBOR',5,1) });
-      if (noBuilding) allOpts.push({ label: `Dry Dock   12⚙ 4🛢`,   cost:{iron:12,oil:4}, enabled: iron>=12&&oil>=4, cb: () => this._onBuildStructure('DRY_DOCK',12,4) });
-      if (noBuilding) allOpts.push({ label: `Naval Base 16⚙ 6🛢`,   cost:{iron:16,oil:6}, enabled: iron>=16&&oil>=6, cb: () => this._onBuildStructure('NAVAL_BASE',16,6) });
+      // Naval buildings (coastal land only)
+      if (noBuilding) allOpts.push({ label: `Naval Yard  8⚙ 2🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:8,oil:2},  enabled: coastal && iron>=8&&oil>=2,  cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
+      if (noBuilding) allOpts.push({ label: `Harbor      5⚙ 1🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:5,oil:1},  enabled: coastal && iron>=5&&oil>=1,  cb: () => this._onBuildStructure('HARBOR',5,1) });
+      if (noBuilding) allOpts.push({ label: `Dry Dock   12⚙ 4🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:12,oil:4}, enabled: coastal && iron>=12&&oil>=4, cb: () => this._onBuildStructure('DRY_DOCK',12,4) });
+      if (noBuilding) allOpts.push({ label: `Naval Base 16⚙ 6🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:16,oil:6}, enabled: coastal && iron>=16&&oil>=6, cb: () => this._onBuildStructure('NAVAL_BASE',16,6) });
       // Defensive structures
       if (noBuilding) allOpts.push({ label: `Bunker      5⚙`,       cost:{iron:5,oil:0},  enabled: iron>=5,          cb: () => this._onBuildStructure('BUNKER',5) });
       if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙`,       cost:{iron:3,oil:0},  enabled: iron>=3,          cb: () => this._onBuildStructure('OBS_POST',3) });
@@ -2042,6 +2056,14 @@ export class GameScene extends Phaser.Scene {
     const gs = this.gameState, u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
     if (buildingAt(gs, u.q, u.r)) return;
+    // Naval facilities must be on coastal land (adjacent to shallow/ocean)
+    const NAVAL_FACILITIES = new Set(['NAVAL_YARD','HARBOR','DRY_DOCK','NAVAL_BASE']);
+    if (NAVAL_FACILITIES.has(type) && !this._isCoastalHex(u.q, u.r)) {
+      this._log.unshift('Build failed: naval facilities require a coastal hex');
+      this._log = this._log.slice(0, 8);
+      this._refresh();
+      return;
+    }
     if (gs.players[gs.currentPlayer].iron < ironCost) return;
     if (gs.players[gs.currentPlayer].oil  < oilCost)  return;
     gs.players[gs.currentPlayer].iron -= ironCost;
@@ -2150,30 +2172,36 @@ export class GameScene extends Phaser.Scene {
     // ── Phase 2: Animate attacks ─────────────────────────────────────────────
     const combatLog = gs._lastCombatLog || [];
     if (combatLog.length > 0) {
-      const banner = this._makeBanner('⚔  COMBAT RESOLVES');
+      const banner = this._makeBanner('⚔  COMBAT RESOLVES — SPACE/CLICK TO STEP', 0x221100);
       await this._wait(600);
       banner.destroy();
 
-      for (const entry of combatLog) {
-        if (entry.type === 'combat' || entry.type === 'miss' || entry.type === 'blind_miss') {
-          const targetUnit = entry.type === 'combat'
-            ? gs.units.find(u => u.owner === entry.targetOwner && UNIT_TYPES[u.type]?.name === entry.targetName)
-            : null;
-          const targetHex = entry.hex || (targetUnit ? { q: targetUnit.q, r: targetUnit.r } : null);
-          if (!targetHex) continue;
+      const steps = combatLog.filter(e => e.type === 'combat' || e.type === 'miss' || e.type === 'blind_miss');
+      for (let i = 0; i < steps.length; i++) {
+        const entry = steps[i];
+        const targetUnit = entry.type === 'combat'
+          ? gs.units.find(u => u.owner === entry.targetOwner && UNIT_TYPES[u.type]?.name === entry.targetName)
+          : null;
+        const targetHex = entry.hex || (targetUnit ? { q: targetUnit.q, r: targetUnit.r } : null);
+        if (!targetHex) continue;
 
-          const { x, y } = hexToWorld(targetHex.q, targetHex.r);
-          // Flash ring on target hex
-          const ring = this.add.circle(x, y, 28, entry.type === 'combat' ? 0xff4400 : 0xffcc00, 0.7).setDepth(60);
-          const outcomeStr = entry.tier ? ` — ${entry.tier}` : entry.type === 'blind_miss' ? ' — empty hex' : ' — miss';
-          const lbl = this._makeBanner(`${entry.attackerName || '?'} ▶ ${entry.targetName || '?'}${outcomeStr}`, 0x221100);
-          this.tweens.add({ targets: ring, alpha: 0, scaleX: 2.5, scaleY: 2.5, duration: 600, ease: 'Quad.easeOut', onComplete: () => ring.destroy() });
-          await this._wait(800);
-          lbl.destroy();
-        }
+        const { x, y } = hexToWorld(targetHex.q, targetHex.r);
+        // Pan camera to the combat hex
+        await new Promise(res => this.cameras.main.pan(x, y, 350, 'Sine.easeInOut', false, (_cam, p) => { if (p >= 1) res(); }));
+
+        // Flash ring on target hex
+        const ring = this.add.circle(x, y, 28, entry.type === 'combat' ? 0xff4400 : 0xffcc00, 0.7).setDepth(60);
+        const detail = entry.type === 'combat'
+          ? `score:${entry.score} dmg:${entry.dmg}/${entry.attackerDmg} pierce:${entry.pierceRatio.toFixed(2)}`
+          : (entry.type === 'blind_miss' ? 'empty hex' : 'out of range');
+        const outcomeStr = entry.tier ? ` — ${entry.tier}` : entry.type === 'blind_miss' ? ' — empty hex' : ' — miss';
+        const lbl = this._makeBanner(`[${i+1}/${steps.length}] ${entry.attackerName || '?'} ▶ ${entry.targetName || '?'}${outcomeStr}\n${detail}`, 0x221100);
+        this.tweens.add({ targets: ring, alpha: 0, scaleX: 2.5, scaleY: 2.5, duration: 600, ease: 'Quad.easeOut', onComplete: () => ring.destroy() });
+        await this._waitForAdvance();
+        lbl.destroy();
       }
       this._redrawUnits();
-      await this._wait(300);
+      await this._wait(200);
     }
 
     this._showResolution(events, winner);
@@ -2191,6 +2219,26 @@ export class GameScene extends Phaser.Scene {
   }
 
   _wait(ms) { return new Promise(r => this.time.delayedCall(ms, r)); }
+
+  _waitForAdvance() {
+    return new Promise(resolve => {
+      const hint = this.add.text(this.scale.width / 2, this.scale.height - 56, '[ SPACE or CLICK → NEXT COMBAT ]', {
+        font: 'bold 13px monospace', fill: '#ffffff', backgroundColor: '#333333', padding: { x: 12, y: 6 }
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(205);
+      this._addToUI([hint]);
+
+      const done = () => {
+        try { hint.destroy(); } catch (e) {}
+        this.input.keyboard.off('keydown-SPACE', onSpace);
+        this.input.off('pointerdown', onClick);
+        resolve();
+      };
+      const onSpace = () => done();
+      const onClick = () => done();
+      this.input.keyboard.once('keydown-SPACE', onSpace);
+      this.input.once('pointerdown', onClick);
+    });
+  }
 
   // ── Pass / Resolution screens ─────────────────────────────────────────────
   _showSplash(objects, onDismiss) {
