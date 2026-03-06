@@ -11,7 +11,7 @@ import {
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, computeDesignStats,
-  NAVAL_UNITS, SHALLOW_UNITS, canEnterTerrain, isStealthDetected
+  NAVAL_UNITS, SHALLOW_UNITS, canEnterTerrain, getMoveAPPerHex, getActionAPCost, isStealthDetected
 } from './GameState.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -933,11 +933,13 @@ export class GameScene extends Phaser.Scene {
         : def.name;
       const nameLabel = isOwnUnit && u.designId !== undefined ? `★ ${displayName}` : `[ ${displayName} ]`;
       this.unitNameTxt.setText(`${nameLabel}  P${u.owner}`);
-      this.unitStatsTxt.setText(`HP: ${u.health}/${u.maxHealth}  ATK: ${def.attack}  MOV: ${def.move}  RNG: ${def.range}  SIGHT: ${def.sight}`);
+      this.unitStatsTxt.setText(`HP: ${u.health}/${u.maxHealth}  AP: ${u.ap ?? 0}/${u.apMax ?? 100}  ATK: ${def.attack}  MOV: ${def.move}  RNG: ${def.range}  SIGHT: ${def.sight}`);
       const pa = gs.pendingAttacks[u.id];
       let status = '';
-      status += u.suppressed ? '⚡ SUPPRESSED  ' : u.moved ? '✓ Moved  ' : '○ Can move  ';
-      status += pa         ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : '○ Can attack  ';
+      const canMoveAP = (u.ap ?? 0) >= getMoveAPPerHex(u.type);
+      const canFireAP = (u.ap ?? 0) >= getActionAPCost(u.type, 'fire');
+      status += u.suppressed ? '⚡ SUPPRESSED  ' : u.moved ? '✓ Moved  ' : (canMoveAP ? '○ Can move  ' : '✗ No AP to move  ');
+      status += pa         ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : (canFireAP ? '○ Can attack  ' : '✗ No AP to fire  ');
       if (u.dugIn) status += '🪖 Dug in';
       this.unitStatusTxt.setText(status);
     } else if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
@@ -1429,8 +1431,9 @@ export class GameScene extends Phaser.Scene {
     const actions = [];
     const isImmobile = def.immobile || unit.immobile;
 
+    const moveApMin = getMoveAPPerHex(unit.type);
     if (!unit.moved && !unit.suppressed && !isImmobile) {
-      actions.push({ label: 'MOVE',   key: 'move',   enabled: true,  color: 0x1a5c8a, cb: () => this._onMoveMode() });
+      actions.push({ label: `MOVE (${moveApMin} AP/hex)`,   key: 'move',   enabled: (unit.ap ?? 0) >= moveApMin,  color: 0x1a5c8a, cb: () => this._onMoveMode() });
     }
 
     // Transport: LOAD (board adjacent land units) / UNLOAD (disembark to adjacent hex)
@@ -1438,31 +1441,35 @@ export class GameScene extends Phaser.Scene {
       const cargo = unit.cargo || [];
       const cap = def.capacity;
       const maxLoad = cap.infantry + cap.vehicle;
+      const loadAp = getActionAPCost(unit.type, 'load');
+      const unloadAp = getActionAPCost(unit.type, 'unload');
       if (cargo.length < maxLoad) {
-        actions.push({ label: `LOAD UNIT (${cargo.length}/${maxLoad})`, key: 'load', enabled: true, color: 0x336699,
+        actions.push({ label: `LOAD UNIT (${cargo.length}/${maxLoad}) [${loadAp} AP]`, key: 'load', enabled: (unit.ap ?? 0) >= loadAp, color: 0x336699,
           cb: () => this._enterLoadMode(unit) });
       }
       if (cargo.length > 0) {
-        actions.push({ label: `UNLOAD (${cargo.length})`, key: 'unload', enabled: true, color: 0x226644,
+        actions.push({ label: `UNLOAD (${cargo.length}) [${unloadAp} AP]`, key: 'unload', enabled: (unit.ap ?? 0) >= unloadAp, color: 0x226644,
           cb: () => this._enterUnloadMode(unit) });
       }
     }
     if (!unit.attacked && !unit.suppressed && def.attack > 0) {
+      const fireAp = getActionAPCost(unit.type, 'fire');
       const visibleEnemies = getAttackableHexes(gs, unit, unit.q, unit.r, this._currentFog);
       const hasRange = def.range > 0;
       // ATTACK — only if confirmed visible enemy in range (direct fire, no penalty)
       if (visibleEnemies.length > 0) {
-        actions.push({ label: 'ATTACK', key: 'attack', enabled: true, color: 0x882222,
+        actions.push({ label: `ATTACK [${fireAp} AP]`, key: 'attack', enabled: (unit.ap ?? 0) >= fireAp, color: 0x882222,
           cb: () => this._onDirectAttackMode() });
       }
       // FIRE AT TILE — always available (blind fire, accuracy debuff, shows full range)
       if (hasRange) {
-        actions.push({ label: 'FIRE AT TILE', key: 'fire_tile', enabled: true, color: 0x663311,
+        actions.push({ label: `FIRE AT TILE [${fireAp} AP]`, key: 'fire_tile', enabled: (unit.ap ?? 0) >= fireAp, color: 0x663311,
           cb: () => this._onAttackMode() });
       }
     }
     if (def.canDigIn && !unit.dugIn && !unit.moved) {
-      actions.push({ label: 'DIG IN', key: 'digin',  enabled: true,  color: 0x8B5A2B, cb: () => this._onDigIn() });
+      const digAp = getActionAPCost(unit.type, 'digIn');
+      actions.push({ label: `DIG IN [${digAp} AP]`, key: 'digin',  enabled: (unit.ap ?? 0) >= digAp,  color: 0x8B5A2B, cb: () => this._onDigIn() });
     }
     if (unit.roadOrder) {
       actions.push({ label: '✕ CANCEL ROAD ORDER', key: 'cancel_road', enabled: true, color: 0x662222,
@@ -1546,11 +1553,12 @@ export class GameScene extends Phaser.Scene {
       const res = gs.resourceHexes[`${unit.q},${unit.r}`];
       const iron = gs.players[p].iron, oil = gs.players[p].oil;
       const coastal = this._isCoastalHex(unit.q, unit.r);
+      const buildAp = getActionAPCost(unit.type, 'build');
 
       // All possible build options — add more here as the game grows
       const allOpts = [];
       if (!roadAt(gs, unit.q, unit.r))
-        allOpts.push({ label: `Road        1⚙`,  cost: { iron:1,oil:0 }, enabled: iron>=1,  cb: () => this._onBuildRoad() });
+        allOpts.push({ label: `Road        1⚙ [${buildAp}AP]`,  cost: { iron:1,oil:0 }, enabled: iron>=1 && (unit.ap ?? 0) >= buildAp,  cb: () => this._onBuildRoad() });
       // Auto-road standing order (engineer pathfinds to destination, builds each turn)
       if (unit.roadOrder) {
         allOpts.push({ label: `✕ CANCEL ROAD ORDER`, cost: null, enabled: true, cb: () => { delete unit.roadOrder; this._hideContextMenu(); this._refresh(); } });
@@ -1558,22 +1566,22 @@ export class GameScene extends Phaser.Scene {
         allOpts.push({ label: `AUTO-ROAD →`, cost: null, enabled: true, cb: () => this._enterRoadDestMode(unit) });
       }
       if (res && noBuilding)
-        allOpts.push({ label: `${res.type==='OIL'?'Oil Pump   4⚙ 2🛢':'Mine        4⚙'}`,
-                       cost: { iron:4,oil: res.type==='OIL'?2:0 }, enabled: res.type==='OIL'?(iron>=4&&oil>=2):iron>=4,
+        allOpts.push({ label: `${res.type==='OIL'?'Oil Pump   4⚙ 2🛢':'Mine        4⚙'} [${buildAp}AP]`,
+                       cost: { iron:4,oil: res.type==='OIL'?2:0 }, enabled: (res.type==='OIL'?(iron>=4&&oil>=2):iron>=4) && (unit.ap ?? 0) >= buildAp,
                        cb: () => this._onBuildMine(res.type) });
       // Land military buildings
-      if (noBuilding) allOpts.push({ label: `Barracks    6⚙`,       cost:{iron:6,oil:0},  enabled: iron>=6,          cb: () => this._onBuildStructure('BARRACKS',6) });
-      if (noBuilding) allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢`, cost:{iron:8,oil:2},  enabled: iron>=8&&oil>=2,  cb: () => this._onBuildStructure('VEHICLE_DEPOT',8,2) });
+      if (noBuilding) allOpts.push({ label: `Barracks    6⚙ [${buildAp}AP]`,       cost:{iron:6,oil:0},  enabled: iron>=6 && (unit.ap ?? 0) >= buildAp,          cb: () => this._onBuildStructure('BARRACKS',6) });
+      if (noBuilding) allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢 [${buildAp}AP]`, cost:{iron:8,oil:2},  enabled: iron>=8&&oil>=2 && (unit.ap ?? 0) >= buildAp,  cb: () => this._onBuildStructure('VEHICLE_DEPOT',8,2) });
       // Naval buildings (coastal land only)
-      if (noBuilding) allOpts.push({ label: `Naval Yard  8⚙ 2🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:8,oil:2},  enabled: coastal && iron>=8&&oil>=2,  cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
-      if (noBuilding) allOpts.push({ label: `Harbor      5⚙ 1🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:5,oil:1},  enabled: coastal && iron>=5&&oil>=1,  cb: () => this._onBuildStructure('HARBOR',5,1) });
-      if (noBuilding) allOpts.push({ label: `Dry Dock   12⚙ 4🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:12,oil:4}, enabled: coastal && iron>=12&&oil>=4, cb: () => this._onBuildStructure('DRY_DOCK',12,4) });
-      if (noBuilding) allOpts.push({ label: `Naval Base 16⚙ 6🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:16,oil:6}, enabled: coastal && iron>=16&&oil>=6, cb: () => this._onBuildStructure('NAVAL_BASE',16,6) });
+      if (noBuilding) allOpts.push({ label: `Naval Yard  8⚙ 2🛢 ${coastal?'':'[COAST]'} [${buildAp}AP]`,   cost:{iron:8,oil:2},  enabled: coastal && iron>=8&&oil>=2 && (unit.ap ?? 0) >= buildAp,  cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
+      if (noBuilding) allOpts.push({ label: `Harbor      5⚙ 1🛢 ${coastal?'':'[COAST]'} [${buildAp}AP]`,   cost:{iron:5,oil:1},  enabled: coastal && iron>=5&&oil>=1 && (unit.ap ?? 0) >= buildAp,  cb: () => this._onBuildStructure('HARBOR',5,1) });
+      if (noBuilding) allOpts.push({ label: `Dry Dock   12⚙ 4🛢 ${coastal?'':'[COAST]'} [${buildAp}AP]`,   cost:{iron:12,oil:4}, enabled: coastal && iron>=12&&oil>=4 && (unit.ap ?? 0) >= buildAp, cb: () => this._onBuildStructure('DRY_DOCK',12,4) });
+      if (noBuilding) allOpts.push({ label: `Naval Base 16⚙ 6🛢 ${coastal?'':'[COAST]'} [${buildAp}AP]`,   cost:{iron:16,oil:6}, enabled: coastal && iron>=16&&oil>=6 && (unit.ap ?? 0) >= buildAp, cb: () => this._onBuildStructure('NAVAL_BASE',16,6) });
       // Defensive structures
-      if (noBuilding) allOpts.push({ label: `Bunker      5⚙`,       cost:{iron:5,oil:0},  enabled: iron>=5,          cb: () => this._onBuildStructure('BUNKER',5) });
-      if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙`,       cost:{iron:3,oil:0},  enabled: iron>=3,          cb: () => this._onBuildStructure('OBS_POST',3) });
+      if (noBuilding) allOpts.push({ label: `Bunker      5⚙ [${buildAp}AP]`,       cost:{iron:5,oil:0},  enabled: iron>=5 && (unit.ap ?? 0) >= buildAp,          cb: () => this._onBuildStructure('BUNKER',5) });
+      if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙ [${buildAp}AP]`,       cost:{iron:3,oil:0},  enabled: iron>=3 && (unit.ap ?? 0) >= buildAp,          cb: () => this._onBuildStructure('OBS_POST',3) });
       // Coastal Battery — spawns as immobile unit (no building on hex required)
-      allOpts.push({ label: `Coast. Battery 6⚙ 1🛢`, cost:{iron:6,oil:1}, enabled: iron>=6&&oil>=1, cb: () => this._onBuildCoastalBattery() });
+      allOpts.push({ label: `Coast. Battery 6⚙ 1🛢 [${buildAp}AP]`, cost:{iron:6,oil:1}, enabled: iron>=6&&oil>=1 && (unit.ap ?? 0) >= buildAp, cb: () => this._onBuildCoastalBattery() });
       // Future entries just go here — pagination handles overflow automatically
 
       const totalPages = Math.max(1, Math.ceil(allOpts.length / PAGE_SIZE));
@@ -1779,7 +1787,8 @@ export class GameScene extends Phaser.Scene {
     // ── Transport load mode ──────────────────────────────────────────────
     if (this.mode === 'transport_load') {
       const transport = this._transportUnit;
-      if (transport && clickedUnit && clickedUnit.owner === gs.currentPlayer && clickedUnit !== transport) {
+      const loadAp = transport ? getActionAPCost(transport.type, 'load') : 0;
+      if (transport && (transport.ap ?? 0) >= loadAp && clickedUnit && clickedUnit.owner === gs.currentPlayer && clickedUnit !== transport) {
         const dist = hexDistance(transport.q, transport.r, q, r);
         if (dist <= 1) {
           if (!transport.cargo) transport.cargo = [];
@@ -1796,6 +1805,7 @@ export class GameScene extends Phaser.Scene {
           if (ok) {
             transport.cargo.push(clickedUnit.id);
             clickedUnit.embarked = true; // hidden from map
+            transport.ap = Math.max(0, (transport.ap ?? 0) - loadAp);
           }
         }
       }
@@ -1806,7 +1816,8 @@ export class GameScene extends Phaser.Scene {
     // ── Transport unload mode ────────────────────────────────────────────
     if (this.mode === 'transport_unload') {
       const transport = this._transportUnit;
-      if (transport && transport.cargo && transport.cargo.length > 0) {
+      const unloadAp = transport ? getActionAPCost(transport.type, 'unload') : 0;
+      if (transport && (transport.ap ?? 0) >= unloadAp && transport.cargo && transport.cargo.length > 0) {
         const dist = hexDistance(transport.q, transport.r, q, r);
         if (dist <= 1) {
           const ttype = this.terrain[`${q},${r}`] ?? 0;
@@ -1820,6 +1831,7 @@ export class GameScene extends Phaser.Scene {
                 cargoUnit.q = q; cargoUnit.r = r;
                 cargoUnit.embarked = false;
                 cargoUnit.moved = true; // used its move this turn
+                transport.ap = Math.max(0, (transport.ap ?? 0) - unloadAp);
               }
             }
           }
@@ -1848,9 +1860,23 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'move') {
       const isReachable = this.reachable.some(h => h.q === q && h.r === r);
       if (isReachable && !clickedUnit) {
+        // AP-gated move cost: per-hex AP by unit type
+        const path = findPath(this.terrain, this.mapSize, this.selectedUnit.q, this.selectedUnit.r, q, r, this.selectedUnit.type) || [];
+        const moveSteps = path.length || hexDistance(this.selectedUnit.q, this.selectedUnit.r, q, r);
+        const moveApCost = Math.max(1, moveSteps) * getMoveAPPerHex(this.selectedUnit.type);
+        if ((this.selectedUnit.ap ?? 0) < moveApCost) {
+          this._log.unshift(`Not enough AP to move (${moveApCost} AP needed)`);
+          this._log = this._log.slice(0, 8);
+          this._refresh();
+          return;
+        }
+
         // Store original position for undo / arrow drawing
         this.selectedUnit._origQ = this.selectedUnit.q;
         this.selectedUnit._origR = this.selectedUnit.r;
+        this.selectedUnit._apMoveCost = moveApCost;
+        this.selectedUnit.ap = Math.max(0, (this.selectedUnit.ap ?? 0) - moveApCost);
+
         gs.pendingMoves[this.selectedUnit.id] = { q, r };
         this.selectedUnit.q = q; this.selectedUnit.r = r; this.selectedUnit.moved = true;
         // Keep unit selected after move — show remaining actions
@@ -1879,8 +1905,11 @@ export class GameScene extends Phaser.Scene {
       if (clickedUnit && clickedUnit.owner !== gs.currentPlayer && !this.selectedUnit.attacked) {
         const range = UNIT_TYPES[this.selectedUnit.type].range;
         if (hexDistance(this.selectedUnit.q, this.selectedUnit.r, q, r) <= range) {
+          const fireAp = getActionAPCost(this.selectedUnit.type, 'fire');
+          if ((this.selectedUnit.ap ?? 0) < fireAp) return;
           // Direct fire — store unit ID (no blind fire penalty)
           gs.pendingAttacks[this.selectedUnit.id] = clickedUnit.id;
+          this.selectedUnit.ap = Math.max(0, (this.selectedUnit.ap ?? 0) - fireAp);
           this.selectedUnit.attacked = true;
           this.reachable = []; this.attackable = []; this.mode = 'select';
           this._refresh(); return;
@@ -1892,7 +1921,10 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'attack_direct') {
       const target = this.attackable.find(h => h.q === q && h.r === r);
       if (target) {
+        const fireAp = getActionAPCost(this.selectedUnit.type, 'fire');
+        if ((this.selectedUnit.ap ?? 0) < fireAp) return;
         gs.pendingAttacks[this.selectedUnit.id] = target.targetId; // unit ID, direct
+        this.selectedUnit.ap = Math.max(0, (this.selectedUnit.ap ?? 0) - fireAp);
         this.selectedUnit.attacked = true;
         this.reachable = []; this.attackable = []; this.mode = 'select';
         this._refresh();
@@ -1903,8 +1935,11 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'attack') {
       const inRange = this.attackable.find(h => h.q === q && h.r === r);
       if (inRange) {
+        const fireAp = getActionAPCost(this.selectedUnit.type, 'fire');
+        if ((this.selectedUnit.ap ?? 0) < fireAp) return;
         // Blind fire — hex target, accuracy debuff applied in resolution
         gs.pendingAttacks[this.selectedUnit.id] = { hex: { q, r } };
+        this.selectedUnit.ap = Math.max(0, (this.selectedUnit.ap ?? 0) - fireAp);
         this.selectedUnit.attacked = true;
         this.reachable = []; this.attackable = []; this.mode = 'select';
         this._refresh();
@@ -1916,7 +1951,10 @@ export class GameScene extends Phaser.Scene {
     if (this.selectedUnit && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
       const attackTarget = this.attackable.find(h => h.q === q && h.r === r);
       if (attackTarget && clickedUnit && clickedUnit.owner !== gs.currentPlayer) {
+        const fireAp = getActionAPCost(this.selectedUnit.type, 'fire');
+        if ((this.selectedUnit.ap ?? 0) < fireAp) return;
         gs.pendingAttacks[this.selectedUnit.id] = attackTarget.targetId;
+        this.selectedUnit.ap = Math.max(0, (this.selectedUnit.ap ?? 0) - fireAp);
         this.selectedUnit.attacked = true;
         this.attackable = []; this.mode = 'select';
         this._refresh(); return;
@@ -1987,6 +2025,7 @@ export class GameScene extends Phaser.Scene {
 
   _onMoveMode() {
     if (!this.selectedUnit || this.selectedUnit.moved) return;
+    if ((this.selectedUnit.ap ?? 0) < getMoveAPPerHex(this.selectedUnit.type)) return;
     this.mode = 'move';
     this.reachable  = getReachableHexes(this.gameState, this.selectedUnit, this.terrain, this.mapSize);
     this.attackable = [];
@@ -1996,6 +2035,7 @@ export class GameScene extends Phaser.Scene {
   // Direct attack — only visible enemies, no blind fire penalty
   _onDirectAttackMode() {
     if (!this.selectedUnit || this.selectedUnit.attacked) return;
+    if ((this.selectedUnit.ap ?? 0) < getActionAPCost(this.selectedUnit.type, 'fire')) return;
     this.mode = 'attack_direct';
     this.reachable  = [];
     this.attackable = getAttackableHexes(this.gameState, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r, this._currentFog);
@@ -2005,6 +2045,7 @@ export class GameScene extends Phaser.Scene {
   // Blind fire — full tile range, applies accuracy debuff on resolution
   _onAttackMode() {
     if (!this.selectedUnit || this.selectedUnit.attacked) return;
+    if ((this.selectedUnit.ap ?? 0) < getActionAPCost(this.selectedUnit.type, 'fire')) return;
     this.mode = 'attack';
     this.reachable  = [];
     this.attackable = getAttackRangeHexes(this.mapSize, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r, this.terrain);
@@ -2018,7 +2059,8 @@ export class GameScene extends Phaser.Scene {
     u.q = u._origQ; u.r = u._origR;
     u.moved = false;
     u.building = false;
-    delete u._origQ; delete u._origR;
+    if (u._apMoveCost) u.ap = Math.min(u.apMax ?? 100, (u.ap ?? 0) + u._apMoveCost);
+    delete u._origQ; delete u._origR; delete u._apMoveCost;
     delete gs.pendingMoves[u.id];
     // Also clear any pending attacks that depended on this move
     delete gs.pendingAttacks[u.id];
@@ -2031,6 +2073,9 @@ export class GameScene extends Phaser.Scene {
   _onDigIn() {
     const u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canDigIn || u.dugIn || u.moved) return;
+    const digAp = getActionAPCost(u.type, 'digIn');
+    if ((u.ap ?? 0) < digAp) return;
+    u.ap = Math.max(0, (u.ap ?? 0) - digAp);
     u.dugIn = true; u.moved = true;
     this._clearSelection();
   }
@@ -2094,9 +2139,12 @@ export class GameScene extends Phaser.Scene {
     const gs = this.gameState;
     const u  = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
+    const buildAp = getActionAPCost(u.type, 'build');
+    if ((u.ap ?? 0) < buildAp) return;
     if (roadAt(gs, u.q, u.r)) return;
     if (gs.players[gs.currentPlayer].iron < 1) return;
     gs.players[gs.currentPlayer].iron -= 1;
+    u.ap = Math.max(0, (u.ap ?? 0) - buildAp);
     gs.buildings.push(createBuilding('ROAD', gs.currentPlayer, u.q, u.r));
     u.moved = true; u.building = true;
     this._redrawRoads();
@@ -2106,6 +2154,8 @@ export class GameScene extends Phaser.Scene {
   _onBuildStructure(type, ironCost, oilCost = 0) {
     const gs = this.gameState, u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
+    const buildAp = getActionAPCost(u.type, 'build');
+    if ((u.ap ?? 0) < buildAp) return;
     if (buildingAt(gs, u.q, u.r)) return;
     // Naval facilities must be on coastal land (adjacent to shallow/ocean)
     const NAVAL_FACILITIES = new Set(['NAVAL_YARD','HARBOR','DRY_DOCK','NAVAL_BASE']);
@@ -2119,6 +2169,7 @@ export class GameScene extends Phaser.Scene {
     if (gs.players[gs.currentPlayer].oil  < oilCost)  return;
     gs.players[gs.currentPlayer].iron -= ironCost;
     gs.players[gs.currentPlayer].oil  -= oilCost;
+    u.ap = Math.max(0, (u.ap ?? 0) - buildAp);
     gs.buildings.push(createBuilding(type, gs.currentPlayer, u.q, u.r));
     u.moved = true; u.building = true;
     this._clearSelection();
@@ -2127,9 +2178,12 @@ export class GameScene extends Phaser.Scene {
   _onBuildCoastalBattery() {
     const gs = this.gameState, u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
+    const buildAp = getActionAPCost(u.type, 'build');
+    if ((u.ap ?? 0) < buildAp) return;
     const p = gs.currentPlayer;
     if (gs.players[p].iron < 6 || gs.players[p].oil < 1) return;
     gs.players[p].iron -= 6; gs.players[p].oil -= 1;
+    u.ap = Math.max(0, (u.ap ?? 0) - buildAp);
     const def = UNIT_TYPES['COASTAL_BATTERY'];
     // Assign ID using state counter (same pattern as createUnit)
     if (!gs._nextUnitId) gs._nextUnitId = Math.max(...gs.units.map(u2 => u2.id), ...gs.buildings.map(b => b.id), 0) + 1;
@@ -2138,6 +2192,7 @@ export class GameScene extends Phaser.Scene {
       type: 'COASTAL_BATTERY', owner: p,
       q: u.q, r: u.r,
       health: def.health, maxHealth: def.health,
+      apMax: 100, ap: 100,
       moved: true, attacked: false, dugIn: false, building: false, immobile: true,
     };
     gs.units.push(battery);
@@ -2150,10 +2205,13 @@ export class GameScene extends Phaser.Scene {
     const gs  = this.gameState;
     const u   = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
+    const buildAp = getActionAPCost(u.type, 'build');
+    if ((u.ap ?? 0) < buildAp) return;
     const res = gs.resourceHexes[`${u.q},${u.r}`];
     if (!res || buildingAt(gs, u.q, u.r)) return;
     if (gs.players[gs.currentPlayer].iron < 4) return;
     gs.players[gs.currentPlayer].iron -= 4;
+    u.ap = Math.max(0, (u.ap ?? 0) - buildAp);
     const btype = (resType || res.type) === 'OIL' ? 'OIL_PUMP' : 'MINE';
     gs.buildings.push(createBuilding(btype, gs.currentPlayer, u.q, u.r));
     u.moved = true; u.building = true;

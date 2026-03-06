@@ -193,12 +193,37 @@ export const STARTING_OIL       = 4;
 export const BASE_IRON_PER_TURN = 3;
 export const BASE_OIL_PER_TURN  = 0;
 
+// ── Action Points (AP) ─────────────────────────────────────────────────────
+export const BASE_AP = 100;
+const MOVE_AP_PER_HEX = {
+  INFANTRY: 22, ENGINEER: 22, RECON: 18, MEDIC: 22,
+  TANK: 34, ARTILLERY: 75, ANTI_TANK: 55, MORTAR: 40,
+  PATROL_BOAT: 24, SUBMARINE: 30, DESTROYER: 36, CRUISER_LT: 45, CRUISER_HV: 55, BATTLESHIP: 70,
+  LANDING_CRAFT: 28, TRANSPORT_SM: 30, TRANSPORT_MD: 36, TRANSPORT_LG: 45, COASTAL_BATTERY: 999,
+};
+const ACTION_AP = {
+  default: { fire: 45, digIn: 40, build: 60, load: 30, unload: 30 },
+  ARTILLERY: { fire: 40 },
+  BATTLESHIP: { fire: 45 },
+  RECON: { fire: 35 },
+  COASTAL_BATTERY: { fire: 35 },
+};
+export function getMoveAPPerHex(unitType) {
+  return MOVE_AP_PER_HEX[unitType] ?? 25;
+}
+export function getActionAPCost(unitType, action) {
+  const base = ACTION_AP.default[action] ?? 40;
+  const ov = ACTION_AP[unitType]?.[action];
+  return ov ?? base;
+}
+
 let _nextId = 1;
 
 export function createUnit(type, owner, q, r) {
   const def = UNIT_TYPES[type];
   return { id: _nextId++, type, owner, q, r,
     health: def.health, maxHealth: def.health,
+    apMax: BASE_AP, ap: BASE_AP,
     moved: false, attacked: false, dugIn: false, building: false };
 }
 
@@ -1115,7 +1140,9 @@ export function resolveTurn(state, terrain) {
   // Reset
   for (const unit of state.units) {
     unit.moved = false; unit.attacked = false; unit.building = false; unit.suppressed = false;
-    delete unit._origQ; delete unit._origR; // clear undo anchors
+    unit.apMax = unit.apMax || BASE_AP;
+    unit.ap = unit.apMax;
+    delete unit._origQ; delete unit._origR; delete unit._apMoveCost; // clear undo anchors
   }
   state.pendingMoves = {}; state.pendingAttacks = {};
   state.players[1].submitted = false; state.players[2].submitted = false;
