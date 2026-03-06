@@ -783,8 +783,10 @@ export function resolveTurn(state, terrain) {
 
     combatLog.push({
       type: 'combat', panic: true, hex: { q: clash.q, r: clash.r },
-      attackerName: aDef.name, attackerOwner: a.owner,
-      targetName: bDef.name, targetOwner: b.owner,
+      attackerName: aDef.name, attackerType: a.type, attackerOwner: a.owner,
+      targetName: bDef.name, targetType: b.type, targetOwner: b.owner,
+      attackerHex: { q: a.q, r: a.r }, targetHex: { q: b.q, r: b.r },
+      attackerHPBefore: a.health, targetHPBefore: b.health,
       isArmored: (bDef.armor || 0) > 2, baseAttack: aPower, pierce: aDef.pierce || 1, armor: bDef.armor || 1,
       pierceRatio: 1, accuracy: 0, evasion: 0, terrainMod: 0, dugInMod: 0, bunkerMod: 0, flankMod: 0,
       roll, blindFirePenalty: 0, score, tier, dmg, attackerDmg, suppressed: false, blindFire: false,
@@ -806,7 +808,7 @@ export function resolveTurn(state, terrain) {
         const attacker2 = state.units.find(u => u.id === parseInt(idStr));
         const aDef = attacker2 ? UNIT_TYPES[attacker2.type] : null;
         events.push(`${aDef?.name || 'Unit'} (P${attacker2?.owner}) fires at (${attack.hex.q},${attack.hex.r}) — no target`);
-        combatLog.push({ type: 'blind_miss', attackerName: aDef?.name, attackerOwner: attacker2?.owner, hex: attack.hex });
+        combatLog.push({ type: 'blind_miss', attackerName: aDef?.name, attackerType: attacker2?.type, attackerOwner: attacker2?.owner, attackerHex: attacker2 ? { q: attacker2.q, r: attacker2.r } : null, hex: attack.hex, targetHex: attack.hex });
       }
     } else {
       resolvedAttacks[idStr] = { id: attack, blindFire: false }; // direct unit target
@@ -831,7 +833,7 @@ export function resolveTurn(state, terrain) {
     const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
     if (dist > aDef.range) {
       events.push(`${aDef.name} (P${attacker.owner}) missed — target moved out of range`);
-      combatLog.push({ type: 'miss', attackerName: aDef.name, attackerOwner: attacker.owner, targetName: tDef.name, targetOwner: target.owner, targetHex: { q: target.q, r: target.r } });
+      combatLog.push({ type: 'miss', attackerName: aDef.name, attackerType: attacker.type, attackerOwner: attacker.owner, targetName: tDef.name, targetType: target.type, targetOwner: target.owner, attackerHex: { q: attacker.q, r: attacker.r }, targetHex: { q: target.q, r: target.r } });
       continue;
     }
 
@@ -924,11 +926,12 @@ export function resolveTurn(state, terrain) {
 
     const entry = {
       type: 'combat',
-      attackerName: aDef.name, attackerOwner: attacker.owner,
-      targetName: tDef.name,   targetOwner: target.owner,
+      attackerName: aDef.name, attackerType: attacker.type, attackerOwner: attacker.owner,
+      targetName: tDef.name, targetType: target.type, targetOwner: target.owner,
       attackerId: attacker.id, targetId: target.id,
       attackerHex: { q: attacker.q, r: attacker.r },
       targetHex: { q: target.q, r: target.r },
+      attackerHPBefore: attacker.health, targetHPBefore: target.health,
       isArmored, baseAttack, pierce: aDef.pierce, armor: tDef.armor, pierceRatio,
       accuracy: aDef.accuracy, evasion: tDef.evasion,
       terrainMod, dugInMod, bunkerMod, flankMod, roll, blindFirePenalty,

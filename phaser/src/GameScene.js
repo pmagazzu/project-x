@@ -2172,6 +2172,7 @@ export class GameScene extends Phaser.Scene {
       const banner = this._makeBanner('⚔  COMBAT RESOLVES — SPACE/CLICK TO STEP', 0x221100);
       await this._wait(600);
       banner.destroy();
+      await this._wait(1000); // brief beat between movement and combat
 
       const steps = combatLog.filter(e => e.type === 'combat' || e.type === 'miss' || e.type === 'blind_miss');
       for (let i = 0; i < steps.length; i++) {
@@ -2183,10 +2184,20 @@ export class GameScene extends Phaser.Scene {
         // Pan camera to the combat hex
         await new Promise(res => this.cameras.main.pan(x, y, 350, 'Sine.easeInOut', false, (_cam, p) => { if (p >= 1) res(); }));
 
-        // Flash ring on target hex
+        // Shots-fired animation (attacker -> target) if attacker hex known
+        if (entry.attackerHex) {
+          const from = hexToWorld(entry.attackerHex.q, entry.attackerHex.r);
+          const shot = this.add.line(0, 0, from.x, from.y, x, y, 0xffee88, 0.95).setOrigin(0, 0).setDepth(59);
+          this.tweens.add({ targets: shot, alpha: 0, duration: 250, onComplete: () => shot.destroy() });
+          await this._wait(260);
+        }
+
+        // Flash ring on target hex, then show outcome card
         const ring = this.add.circle(x, y, 28, entry.type === 'combat' ? 0xff4400 : 0xffcc00, 0.7).setDepth(60);
+        this.tweens.add({ targets: ring, alpha: 0, scaleX: 2.5, scaleY: 2.5, duration: 500, ease: 'Quad.easeOut', onComplete: () => ring.destroy() });
+        await this._wait(240);
+
         const card = this._showCombatCard(entry, i + 1, steps.length);
-        this.tweens.add({ targets: ring, alpha: 0, scaleX: 2.5, scaleY: 2.5, duration: 600, ease: 'Quad.easeOut', onComplete: () => ring.destroy() });
         await this._waitForAdvance();
         card.forEach(o => { try { o.destroy(); } catch (e) {} });
       }
@@ -2213,20 +2224,21 @@ export class GameScene extends Phaser.Scene {
   _showCombatCard(entry, idx, total) {
     const objs = [];
     const cx = this.scale.width * 0.5;
-    const y = 24;
-    const w = Math.min(920, this.scale.width - 24);
-    const h = 196;
+    const y = 20;
+    const w = Math.min(960, this.scale.width - 24);
+    const h = 228;
     const left = cx - w * 0.5 + 14;
 
-    const panel = this.add.rectangle(cx, y, w, h, 0x0b0f16, 0.95)
+    const panel = this.add.rectangle(cx, y, w, h, 0x0b0f16, 0.96)
       .setOrigin(0.5, 0).setScrollFactor(0).setDepth(206)
       .setStrokeStyle(2, 0x334455, 0.95);
     objs.push(panel);
 
-    const add = (txt, yy, color = '#d9e2ef', size = 12, bold = false) => {
-      const t = this.add.text(left, y + yy, txt, {
+    const add = (txt, xx, yy, color = '#d9e2ef', size = 12, bold = false, align = 'left') => {
+      const t = this.add.text(xx, y + yy, txt, {
         font: `${bold ? 'bold ' : ''}${size}px monospace`,
         fill: color,
+        align,
       }).setOrigin(0, 0).setScrollFactor(0).setDepth(207);
       objs.push(t);
     };
@@ -2239,19 +2251,46 @@ export class GameScene extends Phaser.Scene {
       'Overwhelming': '#57ffd2',
     })[entry.tier] || '#ffffff';
 
-    add(`[${idx}/${total}] ${entry.panic ? 'PANIC CLASH' : 'COMBAT'}  ${entry.attackerName || '?'} (P${entry.attackerOwner || '?'})  vs  ${entry.targetName || '?'} (P${entry.targetOwner || '?'})`, 8, '#ffffff', 13, true);
+    const glyph = (type='') => {
+      const m = {
+        INFANTRY:'●', ENGINEER:'◆', RECON:'✶', TANK:'■', ARTILLERY:'▲', ANTI_TANK:'➤', MORTAR:'△', MEDIC:'✚',
+        PATROL_BOAT:'◖', SUBMARINE:'▭', DESTROYER:'◉', CRUISER_LT:'⬒', CRUISER_HV:'⬓', BATTLESHIP:'⬔',
+        LANDING_CRAFT:'⟂', TRANSPORT_SM:'◫', TRANSPORT_MD:'◫', TRANSPORT_LG:'◫', COASTAL_BATTERY:'▣'
+      };
+      return m[type] || '◌';
+    };
 
+    add(`[${idx}/${total}] ${entry.panic ? 'PANIC CLASH' : 'COMBAT'} — movement already resolved`, left, 8, '#ffffff', 13, true);
+
+    const colW = (w - 36) * 0.5;
+    const col2 = left + colW + 12;
+
+    // Attacker card
+    add(`ATTACKER`, left, 34, '#89c2ff', 12, true);
+    add(`${glyph(entry.attackerType)}  ${entry.attackerName || '?'} (P${entry.attackerOwner || '?'})`, left, 52, '#ffffff', 12, true);
     if (entry.type === 'combat') {
-      add(`RESULT: ${entry.tier}    SCORE: ${entry.score}    DAMAGE: defender -${entry.dmg}, attacker -${entry.attackerDmg}`, 32, tierColor, 12, true);
-      add(`BASE: atk=${entry.baseAttack}   pierce=${entry.pierce} vs armor=${entry.armor}   ratio=${Number(entry.pierceRatio || 0).toFixed(2)}`, 56, '#a9d7ff');
-      add(`MODS: +acc ${entry.accuracy || 0}   -eva ${entry.evasion || 0}   -terrain ${entry.terrainMod || 0}   -dug-in ${entry.dugInMod || 0}   -bunker ${entry.bunkerMod || 0}   +flank ${entry.flankMod || 0}`, 80, '#ffd9a8');
-      add(`RNG: ${entry.roll >= 0 ? '+' : ''}${entry.roll || 0}${entry.blindFirePenalty ? `   blind-fire -${entry.blindFirePenalty}` : ''}${entry.panic ? '   panic-clash' : ''}`, 104, '#b9ffba');
-      add(`FORMULA: score = 50 + mods + roll  → tier thresholds [<20, <40, <60, <80, >=80]`, 128, '#cfcfcf');
-      add(`NOTE: Movement already resolved. Combat uses post-move positions.`, 152, '#aaaaaa');
+      add(`HP: ${entry.attackerHPBefore ?? '?'}   BaseAtk: ${entry.baseAttack}`, left, 72, '#cfe8ff');
+      add(`Acc: ${entry.accuracy || 0}   Roll: ${entry.roll >= 0 ? '+' : ''}${entry.roll || 0}`, left, 90, '#cfe8ff');
+    }
+
+    // Defender card
+    add(`DEFENDER`, col2, 34, '#ffaaaa', 12, true);
+    add(`${glyph(entry.targetType)}  ${entry.targetName || '?'} (P${entry.targetOwner || '?'})`, col2, 52, '#ffffff', 12, true);
+    if (entry.type === 'combat') {
+      add(`HP: ${entry.targetHPBefore ?? '?'}   Armor: ${entry.armor}   Evasion: ${entry.evasion || 0}`, col2, 72, '#ffdede');
+      add(`Terrain: -${entry.terrainMod || 0}  DugIn: -${entry.dugInMod || 0}  Bunker: -${entry.bunkerMod || 0}`, col2, 90, '#ffdede');
+    }
+
+    // Outcome + math
+    if (entry.type === 'combat') {
+      add(`PIERCE CHECK: ${entry.pierce} vs ${entry.armor}  →  ratio ${Number(entry.pierceRatio || 0).toFixed(2)}`, left, 124, '#a9d7ff');
+      add(`MODIFIERS: +flank ${entry.flankMod || 0}${entry.blindFirePenalty ? `   blind-fire -${entry.blindFirePenalty}` : ''}${entry.panic ? '   panic-clash' : ''}`, left, 142, '#ffd9a8');
+      add(`FINAL: score ${entry.score}  →  ${entry.tier}  |  damage: defender -${entry.dmg}, attacker -${entry.attackerDmg}`, left, 164, tierColor, 12, true);
+      add(`Thresholds: <20 Catastrophic, <40 Repelled, <60 Neutral, <80 Effective, >=80 Overwhelming`, left, 186, '#b7b7b7');
     } else if (entry.type === 'miss') {
-      add('RESULT: MISS (target moved out of range after movement phase).', 52, '#dddddd', 12, true);
+      add('RESULT: MISS — target moved out of range after movement phase.', left, 132, '#dddddd', 12, true);
     } else if (entry.type === 'blind_miss') {
-      add('RESULT: BLIND FIRE MISS (empty target hex).', 52, '#dddddd', 12, true);
+      add('RESULT: BLIND FIRE MISS — empty target hex.', left, 132, '#dddddd', 12, true);
     }
 
     this._addToUI(objs);
