@@ -2139,6 +2139,8 @@ export class GameScene extends Phaser.Scene {
     gs._mapSize = this.mapSize; // needed by auto-road phase
     const events = resolveTurn(gs, this.terrain);
     const winner = checkWinner(gs);
+    const finalUnits = gs.units;
+    const playbackUnits = (gs._unitsAfterMoves || gs.units).map(u => ({ ...u }));
 
     // ── Phase 1: Animate moves ───────────────────────────────────────────────
     // Use explicit resolveTurn move log so movement always plays before combat,
@@ -2163,6 +2165,8 @@ export class GameScene extends Phaser.Scene {
       }));
       await Promise.all(tweenPromises);
       await this._wait(300);
+      // Show post-move state BEFORE combat damage is revealed
+      gs.units = playbackUnits;
       this._redrawUnits();
       await this._waitForAdvance('[ SPACE or CLICK → START COMBAT ]');
     }
@@ -2175,9 +2179,7 @@ export class GameScene extends Phaser.Scene {
       banner.destroy();
       await this._wait(1000);
 
-      // Playback from post-move snapshot so health bars don’t pre-resolve.
-      const finalUnits = gs.units;
-      const playbackUnits = (gs._unitsAfterMoves || gs.units).map(u => ({ ...u }));
+      // Ensure combat playback starts from post-move (pre-damage) snapshot.
       gs.units = playbackUnits;
       this._redrawUnits();
 
