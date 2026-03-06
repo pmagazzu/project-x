@@ -2191,8 +2191,8 @@ export class GameScene extends Phaser.Scene {
         // Pan camera to the combat hex
         await new Promise(res => this.cameras.main.pan(x, y, 350, 'Sine.easeInOut', false, (_cam, p) => { if (p >= 1) res(); }));
 
-        // Explicit attacker/defender markers + shot line
-        let atkMarker = null, defMarker = null, shot = null;
+        // Explicit attacker/defender markers + slower shot animation
+        let atkMarker = null, defMarker = null;
         if (entry.attackerHex) {
           const from = hexToWorld(entry.attackerHex.q, entry.attackerHex.r);
           atkMarker = this.add.circle(from.x, from.y, 16, 0x2f88ff, 0.35).setDepth(58)
@@ -2203,18 +2203,27 @@ export class GameScene extends Phaser.Scene {
             .setOrigin(0.5).setDepth(58);
           const defTxt = this.add.text(x, y - 24, 'DEFENDER', { font: 'bold 10px monospace', fill: '#ffaaaa' })
             .setOrigin(0.5).setDepth(58);
-          shot = this.add.line(0, 0, from.x, from.y, x, y, 0xffee88, 0.95).setOrigin(0, 0).setDepth(59);
-          this.tweens.add({ targets: shot, alpha: 0, duration: 250, onComplete: () => shot?.destroy() });
-          await this._wait(260);
+
+          // Beam + projectile dot (clear travel direction)
+          const beam = this.add.line(0, 0, from.x, from.y, x, y, 0xffee88, 0.4).setOrigin(0, 0).setDepth(59);
+          const proj = this.add.circle(from.x, from.y, 5, 0xffee88, 1.0).setDepth(60);
+          await new Promise(res => {
+            this.tweens.add({
+              targets: proj, x, y, duration: 460, ease: 'Sine.easeInOut',
+              onComplete: () => { try { proj.destroy(); beam.destroy(); } catch (e) {} res(); }
+            });
+          });
+
           atkTxt.destroy(); defTxt.destroy();
         }
 
         // Flash impact on defender
         const ring = this.add.circle(x, y, 28, entry.type === 'combat' ? 0xff4400 : 0xffcc00, 0.7).setDepth(60);
-        this.tweens.add({ targets: ring, alpha: 0, scaleX: 2.5, scaleY: 2.5, duration: 600, ease: 'Quad.easeOut', onComplete: () => ring.destroy() });
-        await this._wait(240);
+        await new Promise(res => {
+          this.tweens.add({ targets: ring, alpha: 0, scaleX: 2.5, scaleY: 2.5, duration: 520, ease: 'Quad.easeOut', onComplete: () => { ring.destroy(); res(); } });
+        });
 
-        // Apply this step damage now (after shot/impact), then redraw bars.
+        // Apply this step damage only after shot + impact fully complete, then redraw bars.
         if (entry.type === 'combat') {
           const tgt = gs.units.find(u => u.id === entry.targetId);
           const atk = gs.units.find(u => u.id === entry.attackerId);
