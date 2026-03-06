@@ -617,8 +617,10 @@ export function computeFog(state, player, mapSize, terrain) {
   // Sight sources: friendly units + observation posts
   const sources = [
     ...state.units.filter(u => u.owner === player).map(u => ({ q: u.q, r: u.r, sight: UNIT_TYPES[u.type].sight })),
-    ...state.buildings.filter(b => b.owner === player && BUILDING_TYPES[b.type].sight > 0)
-                      .map(b => ({ q: b.q, r: b.r, sight: BUILDING_TYPES[b.type].sight })),
+    // Buildings: minimum 1 sight for all owned non-road structures, plus any higher per-type sight.
+    ...state.buildings
+      .filter(b => b.owner === player && b.type !== 'ROAD')
+      .map(b => ({ q: b.q, r: b.r, sight: Math.max(1, BUILDING_TYPES[b.type]?.sight || 0) })),
   ];
 
   for (const src of sources) {
