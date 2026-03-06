@@ -96,6 +96,45 @@ export const SHALLOW_UNITS = new Set(['PATROL_BOAT','SUBMARINE','LANDING_CRAFT',
 // Units that can land on sand/beach (type 6) — amphibious disembark
 export const AMPHIBIOUS_UNITS = new Set(['LANDING_CRAFT']);
 
+const BUILDING_TIER = {
+  HQ: 1, BARRACKS: 1, VEHICLE_DEPOT: 1,
+  NAVAL_YARD: 1, DRY_DOCK: 2, NAVAL_BASE: 3,
+};
+const DOMAIN_TIER_BUILDINGS = {
+  ground:  ['BARRACKS', 'BARRACKS', 'BARRACKS'],
+  vehicle: ['VEHICLE_DEPOT', 'VEHICLE_DEPOT', 'VEHICLE_DEPOT'],
+  naval:   ['NAVAL_YARD', 'DRY_DOCK', 'NAVAL_BASE'],
+  air:     ['HQ', 'HQ', 'HQ'], // placeholder until air facilities exist
+};
+
+function chassisDomain(chassis) {
+  if (NAVAL_UNITS.has(chassis)) return 'naval';
+  if (['TANK', 'ARTILLERY'].includes(chassis)) return 'vehicle';
+  if (['INFANTRY','ENGINEER','RECON','ANTI_TANK','MORTAR','MEDIC'].includes(chassis)) return 'ground';
+  return 'ground';
+}
+
+export function getDesignTier(moduleKeys = []) {
+  let tier = 1;
+  for (const key of moduleKeys) {
+    const mod = MODULES[key];
+    if (!mod) continue;
+    tier = Math.max(tier, mod.tier || 1);
+  }
+  return tier;
+}
+
+export function getRequiredBuildingForDesign(design) {
+  if (!design) return null;
+  const domain = chassisDomain(design.chassis);
+  const moduleTier = getDesignTier(design.modules || []);
+  const baseBld = CHASSIS_BUILDINGS[design.chassis];
+  const baseTier = BUILDING_TIER[baseBld] || 1;
+  const reqTier = Math.max(baseTier, moduleTier);
+  const ladder = DOMAIN_TIER_BUILDINGS[domain] || DOMAIN_TIER_BUILDINGS.ground;
+  return ladder[Math.min(3, Math.max(1, reqTier)) - 1] || baseBld;
+}
+
 export const MAX_DESIGNS_PER_PLAYER = 4; // design slots per player
 export const DESIGN_BASE_COST = { iron: 3, oil: 0 }; // flat registration fee + module costs
 
@@ -722,8 +761,12 @@ export function canRecruit(state, player, unitType, buildingId) {
   if (typeof unitType === 'number') {
     const design = state.designs[player].find(d => d.id === unitType);
     if (!design) return { ok: false, reason: 'Design not found' };
-    const expectedBuilding = CHASSIS_BUILDINGS[design.chassis];
-    if (b.type !== expectedBuilding) return { ok: false, reason: 'Wrong building for this design' };
+    const expectedBuilding = getRequiredBuildingForDesign(design) || CHASSIS_BUILDINGS[design.chassis];
+    if (b.type !== expectedBuilding) {
+      const bName = BUILDING_TYPES[expectedBuilding]?.name || expectedBuilding;
+      const dTier = getDesignTier(design.modules || []);
+      return { ok: false, reason: `Requires ${bName} (tier ${dTier} design)` };
+    }
     if (state.players[player].iron < design.trainCost.iron) return { ok: false, reason: `Need ${design.trainCost.iron} iron` };
     if (state.players[player].oil  < design.trainCost.oil)  return { ok: false, reason: `Need ${design.trainCost.oil} oil` };
     return { ok: true };
