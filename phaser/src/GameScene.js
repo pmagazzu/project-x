@@ -626,10 +626,12 @@ export class GameScene extends Phaser.Scene {
 
     for (const unit of gs.units) {
       // Enemy units with pending moves: show at their ORIGINAL (turn-start) position
-      // so P2 can't see where P1 moved their units during planning (we-go integrity)
+      // so P2 can't see where P1 moved during planning (we-go integrity).
+      // During resolution playback, disable this lock so movement/combat phases show true positions.
       const isEnemy = unit.owner !== gs.currentPlayer;
-      const dispQ = (isEnemy && unit._origQ !== undefined) ? unit._origQ : unit.q;
-      const dispR = (isEnemy && unit._origR !== undefined) ? unit._origR : unit.r;
+      const lockEnemyDisplay = !this._isResolvingPlayback;
+      const dispQ = (lockEnemyDisplay && isEnemy && unit._origQ !== undefined) ? unit._origQ : unit.q;
+      const dispR = (lockEnemyDisplay && isEnemy && unit._origR !== undefined) ? unit._origR : unit.r;
 
       // Skip embarked units (they're inside a transport)
       if (unit.embarked) continue;
@@ -2258,6 +2260,7 @@ export class GameScene extends Phaser.Scene {
   // ── Animated resolution playback ──────────────────────────────────────────
   async _playResolutionAnimation() {
     const gs = this.gameState;
+    this._isResolvingPlayback = true;
     
     this.btnSubmit?.setVisible(false);
     this._hideContextMenu();
@@ -2378,6 +2381,7 @@ export class GameScene extends Phaser.Scene {
       await this._wait(200);
     }
 
+    this._isResolvingPlayback = false;
     this._showResolution(events, winner);
   }
 
