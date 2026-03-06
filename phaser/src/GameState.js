@@ -780,7 +780,9 @@ export function resolveTurn(state, terrain) {
 
     combatLog.push({
       type: 'combat', panic: true, hex: { q: clash.q, r: clash.r },
+      attackerId: a.id, attackerType: a.type, attackerHex: { q: a.q, r: a.r },
       attackerName: aDef.name, attackerOwner: a.owner,
+      targetId: b.id, targetType: b.type, targetHex: { q: b.q, r: b.r },
       targetName: bDef.name, targetOwner: b.owner,
       isArmored: (bDef.armor || 0) > 2, baseAttack: aPower, pierce: aDef.pierce || 1, armor: bDef.armor || 1,
       pierceRatio: 1, accuracy: 0, evasion: 0, terrainMod: 0, dugInMod: 0, bunkerMod: 0, flankMod: 0,
@@ -803,7 +805,7 @@ export function resolveTurn(state, terrain) {
         const attacker2 = state.units.find(u => u.id === parseInt(idStr));
         const aDef = attacker2 ? UNIT_TYPES[attacker2.type] : null;
         events.push(`${aDef?.name || 'Unit'} (P${attacker2?.owner}) fires at (${attack.hex.q},${attack.hex.r}) — no target`);
-        combatLog.push({ type: 'blind_miss', attackerName: aDef?.name, attackerOwner: attacker2?.owner, hex: attack.hex });
+        combatLog.push({ type: 'blind_miss', attackerId: attacker2?.id, attackerType: attacker2?.type, attackerHex: attacker2 ? { q: attacker2.q, r: attacker2.r } : null, attackerName: aDef?.name, attackerOwner: attacker2?.owner, hex: attack.hex, targetHex: attack.hex });
       }
     } else {
       resolvedAttacks[idStr] = { id: attack, blindFire: false }; // direct unit target
@@ -828,7 +830,7 @@ export function resolveTurn(state, terrain) {
     const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
     if (dist > aDef.range) {
       events.push(`${aDef.name} (P${attacker.owner}) missed — target moved out of range`);
-      combatLog.push({ type: 'miss', attackerName: aDef.name, attackerOwner: attacker.owner, targetName: tDef.name, targetOwner: target.owner });
+      combatLog.push({ type: 'miss', attackerId: attacker.id, attackerType: attacker.type, attackerHex: { q: attacker.q, r: attacker.r }, attackerName: aDef.name, attackerOwner: attacker.owner, targetId: target.id, targetType: target.type, targetHex: { q: target.q, r: target.r }, targetName: tDef.name, targetOwner: target.owner });
       continue;
     }
 
@@ -921,7 +923,9 @@ export function resolveTurn(state, terrain) {
 
     const entry = {
       type: 'combat',
+      attackerId: attacker.id, attackerType: attacker.type, attackerHex: { q: attacker.q, r: attacker.r },
       attackerName: aDef.name, attackerOwner: attacker.owner,
+      targetId: target.id, targetType: target.type, targetHex: { q: target.q, r: target.r },
       targetName: tDef.name,   targetOwner: target.owner,
       isArmored, baseAttack, pierce: aDef.pierce, armor: tDef.armor, pierceRatio,
       accuracy: aDef.accuracy, evasion: tDef.evasion,
