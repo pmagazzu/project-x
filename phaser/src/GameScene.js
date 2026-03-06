@@ -2174,6 +2174,14 @@ export class GameScene extends Phaser.Scene {
       banner.destroy();
       await this._wait(1000); // brief beat between movement and combat
 
+      // Render map using post-move snapshot (before combat damage/deaths)
+      const finalUnits = gs.units;
+      const playbackUnits = (gs._unitsAfterMoves || []).map(u => ({ ...u }));
+      if (playbackUnits.length > 0) {
+        gs.units = playbackUnits;
+        this._redrawUnits();
+      }
+
       const steps = combatLog.filter(e => e.type === 'combat' || e.type === 'miss' || e.type === 'blind_miss');
       for (let i = 0; i < steps.length; i++) {
         const entry = steps[i];
@@ -2197,10 +2205,23 @@ export class GameScene extends Phaser.Scene {
         this.tweens.add({ targets: ring, alpha: 0, scaleX: 2.5, scaleY: 2.5, duration: 500, ease: 'Quad.easeOut', onComplete: () => ring.destroy() });
         await this._wait(240);
 
+        // Apply this step's damage on playback snapshot so the map evolves in-order
+        if (entry.type === 'combat' && playbackUnits.length > 0) {
+          const tgt = playbackUnits.find(u => u.id === entry.targetId);
+          const atk = playbackUnits.find(u => u.id === entry.attackerId);
+          if (tgt) tgt.health -= (entry.dmg || 0);
+          if (atk) atk.health -= (entry.attackerDmg || 0);
+          gs.units = playbackUnits.filter(u => u.health > 0);
+          this._redrawUnits();
+        }
+
         const card = this._showCombatCard(entry, i + 1, steps.length);
         await this._waitForAdvance();
         card.forEach(o => { try { o.destroy(); } catch (e) {} });
       }
+
+      // Restore final resolved unit state
+      gs.units = finalUnits;
       this._redrawUnits();
       await this._wait(200);
     }
