@@ -266,6 +266,9 @@ export class GameScene extends Phaser.Scene {
     // We-go integrity is maintained by _origQ/_origR on enemy units — enemy display positions
     // are locked to turn-start regardless of fog recomputation.
     this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
+    // Keep static layers in sync with newly built roads / captured resource structures
+    this._redrawRoads();
+    this._redrawResources();
     this._redrawHighlights();
     this._redrawBuildings();
     this._redrawUnits();
