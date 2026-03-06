@@ -750,7 +750,10 @@ export function resolveTurn(state, terrain) {
     if (ids.length === 1 && ids[0] === parseInt(idStr)) {
       const unit = state.units.find(u => u.id === parseInt(idStr));
       if (unit) {
-        const fromQ = unit.q, fromR = unit.r;
+        // During planning, units are already displayed at planned q/r.
+        // For resolution playback we need TRUE start-of-turn positions from _origQ/_origR.
+        const fromQ = (unit._origQ !== undefined) ? unit._origQ : unit.q;
+        const fromR = (unit._origR !== undefined) ? unit._origR : unit.r;
         unit.q = dest.q; unit.r = dest.r; unit.dugIn = false;
         moveLog.push({ unitId: unit.id, owner: unit.owner, from: { q: fromQ, r: fromR }, to: { q: dest.q, r: dest.r } });
         events.push(`${UNIT_TYPES[unit.type].name} (P${unit.owner}) → (${dest.q},${dest.r})`);
