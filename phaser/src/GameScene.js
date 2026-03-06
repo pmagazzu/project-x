@@ -183,6 +183,15 @@ export class GameScene extends Phaser.Scene {
     gfx.beginPath(); gfx.moveTo(verts[0].x, verts[0].y);
     for (let i = 1; i < verts.length; i++) gfx.lineTo(verts[i].x, verts[i].y);
     gfx.closePath(); gfx.strokePath();
+    // Plains/grass: add pixel-noise variation for richer look
+    if (terrain === 0 && !isHovered && !isSelected) {
+      for (let i = 0; i < 20; i++) {
+        const ox = ((i * 13 + cx) % 22) - 11;
+        const oy = ((i * 7 + cy) % 16) - 8;
+        gfx.fillStyle((i % 3 === 0) ? 0x98be63 : 0x7ea650, 0.35);
+        gfx.fillRect(cx + ox, cy + oy, 2, 2);
+      }
+    }
     // Forest: draw small tree triangles
     if (terrain === 1 && !isHovered && !isSelected) {
       gfx.fillStyle(0x2a6018, 0.9);
@@ -199,13 +208,19 @@ export class GameScene extends Phaser.Scene {
       gfx.moveTo(cx+1, cy+5); gfx.lineTo(cx+7, cy-3); gfx.lineTo(cx+13, cy+5);
       gfx.strokePath();
     }
-    // Hill: draw smooth rounded bump curves
+    // Hill: layered contour + sparse grass pixels
     if (terrain === 3 && !isHovered && !isSelected) {
-      gfx.lineStyle(2, 0xffffff, 0.25);
+      gfx.lineStyle(2, 0xffffff, 0.2);
       gfx.beginPath();
-      gfx.moveTo(cx-10, cy+4); gfx.lineTo(cx-5, cy-4); gfx.lineTo(cx, cy+4);
-      gfx.moveTo(cx-2, cy+4); gfx.lineTo(cx+4, cy-3); gfx.lineTo(cx+10, cy+4);
+      gfx.moveTo(cx-11, cy+4); gfx.lineTo(cx-6, cy-5); gfx.lineTo(cx, cy+3);
+      gfx.moveTo(cx-1, cy+4); gfx.lineTo(cx+5, cy-4); gfx.lineTo(cx+11, cy+4);
       gfx.strokePath();
+      for (let i = 0; i < 12; i++) {
+        const ox = ((i * 9 + cx) % 18) - 9;
+        const oy = ((i * 5 + cy) % 12) - 6;
+        gfx.fillStyle(0xb99f61, 0.3);
+        gfx.fillRect(cx + ox, cy + oy, 2, 2);
+      }
     }
   }
 

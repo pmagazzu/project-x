@@ -52,8 +52,24 @@ function drawUnitByShape(g, shape, s, color) {
   const light = 0xb8c4d0;
 
   if (shape === 'circle') {
-    g.fillStyle(light, 0.95); g.fillCircle(cx, cy - 5, 4);
-    g.fillStyle(dark, 1); g.fillRect(cx + 2, cy - 6, 6, 2); // rifle
+    // Infantry squad mini-diorama: 3 figures + rifles (inspired by provided refs)
+    const helm = 0x6f7766, cloth = 0x2d332c, skin = 0xd7b495, rifle = 0x4a3425;
+    // standing left
+    g.fillStyle(cloth, 1); g.fillRect(cx - 8, cy - 1, 4, 7);
+    g.fillStyle(helm, 1);  g.fillRect(cx - 8, cy - 6, 4, 3);
+    g.fillStyle(skin, 1);  g.fillRect(cx - 7, cy - 3, 2, 2);
+    g.fillStyle(rifle, 1); g.fillRect(cx - 7, cy + 0, 8, 1);
+    // standing right
+    g.fillStyle(cloth, 1); g.fillRect(cx + 4, cy - 2, 4, 8);
+    g.fillStyle(helm, 1);  g.fillRect(cx + 4, cy - 7, 4, 3);
+    g.fillStyle(skin, 1);  g.fillRect(cx + 5, cy - 4, 2, 2);
+    g.fillStyle(rifle, 1); g.fillRect(cx + 2, cy + 0, 7, 1);
+    // prone
+    g.fillStyle(cloth, 1); g.fillRect(cx - 1, cy + 4, 8, 2);
+    g.fillStyle(helm, 1);  g.fillRect(cx + 6, cy + 3, 3, 2);
+    g.fillStyle(rifle, 1); g.fillRect(cx - 4, cy + 5, 7, 1);
+    // light accents
+    g.fillStyle(0xa3ad98, 0.9); g.fillRect(cx - 8, cy - 1, 1, 3); g.fillRect(cx + 4, cy - 2, 1, 3);
   } else if (shape === 'square') {
     g.fillStyle(light, 0.95); g.fillRect(cx - 5, cy - 7, 10, 10);
     g.fillStyle(dark, 1); g.fillRect(cx + 4, cy - 4, 6, 2);
@@ -83,14 +99,40 @@ function drawUnitByShape(g, shape, s, color) {
     g.fillStyle(light, 0.95);
     g.fillTriangle(cx - 7, cy, cx + 6, cy - 6, cx + 6, cy + 6);
   } else if (shape === 'boat' || shape === 'sub' || shape === 'destroyer' || shape === 'cruiser' || shape === 'battleship' || shape === 'transport') {
-    g.fillStyle(light, 0.95);
-    g.fillTriangle(cx - 9, cy + 4, cx + 8, cy + 2, cx + 10, cy - 1);
-    g.fillRect(cx - 8, cy - 3, 16, 7);
-    if (shape !== 'sub') {
-      g.fillStyle(dark, 1); g.fillRect(cx - 1, cy - 9, 3, 7);
-      g.fillRect(cx + 3, cy - 6, 4, 4);
+    const deck = 0x8d7a5e;
+    if (shape === 'sub') {
+      g.fillStyle(0x1e232a, 0.98); g.fillEllipse(cx, cy + 1, 22, 7);
+      g.fillStyle(0x555f6e, 0.95); g.fillRect(cx - 2, cy - 6, 5, 4);
+      g.fillStyle(0x9fb0c3, 0.8);  g.fillRect(cx - 8, cy + 1, 16, 1);
+    } else if (shape === 'destroyer') {
+      g.fillStyle(0x697786, 0.98);
+      g.fillTriangle(cx - 10, cy + 4, cx + 9, cy + 2, cx + 11, cy - 2);
+      g.fillRect(cx - 9, cy - 4, 18, 8);
+      g.fillStyle(deck, 1); g.fillRect(cx - 8, cy - 3, 16, 4);
+      g.fillStyle(0x4a5564, 1); g.fillRect(cx - 1, cy - 9, 4, 6); // bridge
+      g.fillRect(cx + 3, cy - 6, 3, 3); // stack
+      g.fillStyle(0xc4d1df, 0.9); g.fillRect(cx + 6, cy - 1, 4, 1); // bow gun
+      g.fillRect(cx - 9, cy + 0, 4, 1); // stern gun
+    } else if (shape === 'cruiser' || shape === 'battleship') {
+      const hull = shape === 'battleship' ? 0x626f7f : 0x6c7887;
+      g.fillStyle(hull, 0.98);
+      g.fillTriangle(cx - 11, cy + 5, cx + 9, cy + 3, cx + 12, cy - 2);
+      g.fillRect(cx - 10, cy - 5, 20, 10);
+      g.fillStyle(deck, 1); g.fillRect(cx - 9, cy - 4, 18, 5);
+      g.fillStyle(0x46515f, 1); g.fillRect(cx - 2, cy - 10, 5, 7);
+      g.fillRect(cx + 4, cy - 7, 4, 4);
+      g.fillStyle(0xc9d5e2, 0.92); g.fillRect(cx + 7, cy - 1, 5, 1);
+      g.fillRect(cx - 10, cy + 0, 5, 1);
+      if (shape === 'battleship') g.fillRect(cx + 1, cy - 2, 4, 1); // extra turret
+    } else if (shape === 'transport') {
+      g.fillStyle(0x7a858f, 0.98); g.fillRect(cx - 10, cy - 4, 20, 9);
+      g.fillStyle(deck, 1); g.fillRect(cx - 9, cy - 3, 18, 4);
+      g.fillStyle(0x4a5564, 1); g.fillRect(cx + 3, cy - 8, 4, 5);
+      g.fillStyle(0x9fb0c3, 0.9); g.fillRect(cx - 7, cy + 0, 10, 2); // cargo block
     } else {
-      g.fillStyle(dark, 1); g.fillRect(cx - 2, cy - 7, 5, 4);
+      g.fillStyle(light, 0.95);
+      g.fillTriangle(cx - 9, cy + 4, cx + 8, cy + 2, cx + 10, cy - 1);
+      g.fillRect(cx - 8, cy - 3, 16, 7);
     }
   } else if (shape === 'battery') {
     g.fillStyle(light, 0.95); g.fillRect(cx - 7, cy - 6, 14, 11);
@@ -141,8 +183,14 @@ function drawBuildingByType(g, type, s, color) {
     g.fillStyle(dark, 1); g.fillRect(s * 0.46, s * 0.15, 2, s * 0.2);
     g.fillStyle(color, 1); g.fillRect(s * 0.48, s * 0.15, 6, 4);
   } else if (type === 'BARRACKS') {
-    g.fillStyle(light, 0.95); g.fillRect(s * 0.22, s * 0.29, s * 0.56, s * 0.2);
-    g.fillStyle(dark, 1); g.fillRect(s * 0.28, s * 0.34, s * 0.44, 2);
+    // Iso-like long hall building with roof + windows
+    g.fillStyle(0x778391, 1); g.fillRect(s * 0.2, s * 0.33, s * 0.62, s * 0.22); // wall
+    g.fillStyle(0xa18969, 1); g.fillRect(s * 0.22, s * 0.24, s * 0.58, s * 0.11); // roof
+    g.lineStyle(1, 0xc9d2dd, 0.95); g.strokeRect(s * 0.2, s * 0.33, s * 0.62, s * 0.22);
+    g.strokeRect(s * 0.22, s * 0.24, s * 0.58, s * 0.11);
+    g.fillStyle(0x1c2128, 1);
+    for (let i = 0; i < 4; i++) g.fillRect(s * (0.28 + i * 0.11), s * 0.39, 3, 3); // windows
+    g.fillRect(s * 0.71, s * 0.42, 4, 6); // door
   } else if (type === 'VEHICLE_DEPOT') {
     g.fillStyle(light, 0.95); g.fillRect(s * 0.2, s * 0.28, s * 0.6, s * 0.24);
     g.fillStyle(dark, 1); g.fillRect(s * 0.56, s * 0.2, s * 0.12, s * 0.14);
