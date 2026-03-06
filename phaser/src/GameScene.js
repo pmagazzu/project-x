@@ -38,17 +38,38 @@ const USER_ART = {
   barracks: '/user_art/barracks.png',
   vehicle_depot: '/user_art/vehicle_depot.png',
   naval_yard: '/user_art/naval_yard.png',
+  harbor: '/user_art/harbor.png',
+  dry_dock: '/user_art/dry_dock.png',
+  naval_base: '/user_art/naval_base.png',
+  bunker: '/user_art/bunker.png',
+  obs_post: '/user_art/obs_post.png',
+  mine: '/user_art/mine.png',
+  oil_pump: '/user_art/oil_pump.png',
+
   // units
   infantry: '/user_art/infantry.png',
   engineer: '/user_art/engineer.png',
+  recon: '/user_art/recon.png',
+  medic: '/user_art/medic.png',
+  mortar: '/user_art/mortar.png',
+  anti_tank: '/user_art/anti_tank.png',
+  tank: '/user_art/tank.png',
+  artillery: '/user_art/artillery.png',
+  patrol_boat: '/user_art/patrol_boat.png',
   submarine: '/user_art/submarine.png',
   destroyer_t1: '/user_art/destroyer_t1.png',
-  patrol_boat: '/user_art/patrol_boat.png',
   cruiser_light: '/user_art/cruiser_light.png',
+  cruiser_heavy: '/user_art/cruiser_heavy.png',
+  battleship: '/user_art/battleship.png',
+  landing_craft: '/user_art/landing_craft.png',
   truck: '/user_art/truck.png',
+
   // terrain
   grass_tile: '/user_art/grass_tile.png',
+  forest_tile: '/user_art/forest_tile.png',
+  hill_tile: '/user_art/grass_hill.png',
   grass_hill: '/user_art/grass_hill.png',
+  sand_tile: '/user_art/sand_tile.png',
   sand_hill: '/user_art/sand_hill.png',
   mountain_tile: '/user_art/mountain_tile.png',
   water_shallow_tile: '/user_art/water_shallow_tile.png',
@@ -87,37 +108,65 @@ export class GameScene extends Phaser.Scene {
     // preprocess white backgrounds into transparency
     Object.keys(USER_ART).forEach(k => this._makeBgTransparent(`ua_${k}`, `ua_clean_${k}`));
 
+    const pick = (...keys) => {
+      for (const k of keys) {
+        if (k && this.textures.exists(k)) return k;
+      }
+      return null;
+    };
+
     const repl = (targetKey, cleanKey) => {
-      if (!this.textures.exists(cleanKey)) return;
+      if (!cleanKey || !this.textures.exists(cleanKey)) return;
       if (this.textures.exists(targetKey)) this.textures.remove(targetKey);
       const src = this.textures.get(cleanKey).getSourceImage();
       this.textures.addImage(targetKey, src);
     };
 
-    // Building overrides
-    repl(buildingTextureKey('HQ', 1), 'ua_clean_hq');
-    repl(buildingTextureKey('HQ', 2), 'ua_clean_hq');
-    repl(buildingTextureKey('BARRACKS', 1), 'ua_clean_barracks');
-    repl(buildingTextureKey('BARRACKS', 2), 'ua_clean_barracks');
-    repl(buildingTextureKey('VEHICLE_DEPOT', 1), 'ua_clean_vehicle_depot');
-    repl(buildingTextureKey('VEHICLE_DEPOT', 2), 'ua_clean_vehicle_depot');
-    repl(buildingTextureKey('NAVAL_YARD', 1), 'ua_clean_naval_yard');
-    repl(buildingTextureKey('NAVAL_YARD', 2), 'ua_clean_naval_yard');
-
-    // Unit overrides
-    const unitMap = {
-      INFANTRY: 'infantry', ENGINEER: 'engineer',
-      SUBMARINE: 'submarine', DESTROYER: 'destroyer_t1', PATROL_BOAT: 'patrol_boat',
-      CRUISER_LT: 'cruiser_light', TRANSPORT_SM: 'truck', TRANSPORT_MD: 'truck', TRANSPORT_LG: 'truck'
+    // Building overrides (all current building types)
+    const buildingMap = {
+      HQ: 'hq',
+      BARRACKS: 'barracks',
+      VEHICLE_DEPOT: 'vehicle_depot',
+      NAVAL_YARD: 'naval_yard',
+      HARBOR: 'harbor',
+      DRY_DOCK: 'dry_dock',
+      NAVAL_BASE: 'naval_base',
+      BUNKER: 'bunker',
+      OBS_POST: 'obs_post',
+      MINE: 'mine',
+      OIL_PUMP: 'oil_pump',
     };
-    for (const [type, key] of Object.entries(unitMap)) {
-      repl(unitTextureKey(type, 1), `ua_clean_${key}`);
-      repl(unitTextureKey(type, 2), `ua_clean_${key}`);
+    for (const [type, key] of Object.entries(buildingMap)) {
+      const clean = pick(`ua_clean_${key}`);
+      repl(buildingTextureKey(type, 1), clean);
+      repl(buildingTextureKey(type, 2), clean);
     }
 
-    // Terrain tile art refs (temporarily disabled until clean transparent exports are ready)
-    // Current generated tiles include editor/checker artifacts; keep stable procedural terrain for now.
-    this._tileOverride = null;
+    // Unit overrides (all current unit classes)
+    const unitMap = {
+      INFANTRY: 'infantry', ENGINEER: 'engineer', RECON: 'recon', MEDIC: 'medic',
+      MORTAR: 'mortar', ANTI_TANK: 'anti_tank', TANK: 'tank', ARTILLERY: 'artillery',
+      PATROL_BOAT: 'patrol_boat', SUBMARINE: 'submarine', DESTROYER: 'destroyer_t1',
+      CRUISER_LT: 'cruiser_light', CRUISER_HV: 'cruiser_heavy', BATTLESHIP: 'battleship',
+      LANDING_CRAFT: 'landing_craft', TRANSPORT_SM: 'truck', TRANSPORT_MD: 'truck', TRANSPORT_LG: 'truck',
+      COASTAL_BATTERY: 'anti_tank',
+    };
+    for (const [type, key] of Object.entries(unitMap)) {
+      const clean = pick(`ua_clean_${key}`);
+      repl(unitTextureKey(type, 1), clean);
+      repl(unitTextureKey(type, 2), clean);
+    }
+
+    // Terrain tile art refs (use user assets when available, else fallback to procedural)
+    this._tileOverride = {
+      0: pick('ua_clean_grass_tile'),
+      1: pick('ua_clean_forest_tile', 'ua_clean_grass_hill'),
+      2: pick('ua_clean_mountain_tile'),
+      3: pick('ua_clean_hill_tile', 'ua_clean_grass_hill'),
+      4: pick('ua_clean_water_shallow_tile'),
+      5: pick('ua_clean_ocean_deep_tile'),
+      6: pick('ua_clean_sand_tile', 'ua_clean_sand_hill'),
+    };
   }
 
   // Add game objects to the UI layer so the fixed uiCamera renders them
