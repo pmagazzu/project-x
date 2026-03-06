@@ -84,9 +84,12 @@ export class GameScene extends Phaser.Scene {
     const rtW = Math.ceil(bounds.width  + padding * 2);
     const rtH = Math.ceil(bounds.height + padding * 2);
 
-    this.terrainRT = this.add.renderTexture(0, 0, rtW, rtH)
-      .setOrigin(0, 0).setPosition(bounds.minX - padding, bounds.minY - padding);
-    this._drawTerrainToRT();
+    // Terrain is drawn directly to a world Graphics object (avoids RT color-channel bugs).
+    // For maps ≤50 tiles, this is fast enough. Grand map still uses RT for performance.
+    this.terrainGfx = this.add.graphics().setDepth(0);
+    this._drawTerrainDirect();
+    // Keep terrainRT as a dummy object so existing camera ignore lists don't break
+    this.terrainRT = this.add.renderTexture(1, 1, 1, 1).setVisible(false);
 
     // World graphics layers (depth order)
     this.roadGfx      = this.add.graphics().setDepth(5);
@@ -111,7 +114,7 @@ export class GameScene extends Phaser.Scene {
     // Move all scroll-factor-0 objects created so far into _uiLayer
     // (catches top bar, bottom panel, buttons, etc. without touching each line)
     const worldObjs = new Set([
-      this.terrainRT, this.roadGfx, this.resourceGfx,
+      this.terrainGfx, this.terrainRT, this.roadGfx, this.resourceGfx,
       this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT, this._uiLayer
     ]);
     for (const obj of [...this.children.list]) {
@@ -136,7 +139,7 @@ export class GameScene extends Phaser.Scene {
     this.uiCamera = this.cameras.add(0, 0, sw, sh).setName('ui').setScroll(0, 0).setZoom(1);
     this.uiCamera.transparent = true; // transparent background — must not cover world
     this.uiCamera.ignore([
-      this.terrainRT, this.roadGfx, this.resourceGfx,
+      this.terrainGfx, this.terrainRT, this.roadGfx, this.resourceGfx,
       this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT,
     ]);
     this.scale.on('resize', (gs) => this.uiCamera.setSize(gs.width, gs.height));
@@ -148,17 +151,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ── Terrain ──────────────────────────────────────────────────────────────
-  _drawTerrainToRT() {
-    const gfx = this.make.graphics({ x: 0, y: 0, add: false });
+  _drawTerrainDirect() {
+    this.terrainGfx.clear();
     for (let q = 0; q < this.mapSize; q++) {
       for (let r = 0; r < this.mapSize; r++) {
         const { x, y } = hexToWorld(q, r);
-        this._drawHex(gfx, x, y, this.terrain[`${q},${r}`], false, false);
+        this._drawHex(this.terrainGfx, x, y, this.terrain[`${q},${r}`] ?? 0, false, false);
       }
     }
-    this.terrainRT.draw(gfx, 0, 0);
-    gfx.destroy();
   }
+
+  // Legacy — kept for reference but no longer called (RT replaced by direct gfx)
+  _drawTerrainToRT() {}
 
   _drawHex(gfx, cx, cy, terrain, isSelected, isHovered) {
     const colors = TERRAIN_COLORS[terrain];
@@ -2448,21 +2452,26 @@ export class GameScene extends Phaser.Scene {
     const p2floorQ = Math.floor(p2col / 2);
     const islandRow = Math.max(rowMin + Math.round(RECT_H * 0.5), p2floorQ + radius + 2);
 
-    // P1 island: left side
+    // P1 island: left side (radius 5)
     const p1 = offsetToAxial(4, islandRow);
     setIsland(p1.q, p1.r, radius);
 
-    // P2 island: right side, same visual height
-    const p2 = offsetToAxial(p2col, islandRow);
-    setIsland(p2.q, p2.r, radius);
+    // P2 island: right next to P1, ~13 hexes away center-to-center (1-hex ocean channel)
+    const p2 = offsetToAxial(17, islandRow);
+    setIsland(p2.q, p2.r, 4); // radius 4 — slightly smaller, close neighbor
 
-    // Small mid-ocean islands (offset row coords relative to islandRow)
+    // Far islands: neutral resource targets
+    const far1 = offsetToAxial(p2col, islandRow);      // original far-right position
+    setIsland(far1.q, far1.r, 3);                       // smaller neutral island
+    const far2 = offsetToAxial(Math.floor(ms*0.55), islandRow); // center-right
+    setIsland(far2.q, far2.r, 2);
+
+    // Small mid-ocean islands
     const smalls = [
-      [Math.floor(ms*0.28), islandRow - 4, 2],
-      [Math.floor(ms*0.45), islandRow + 4, 3],
-      [Math.floor(ms*0.55), islandRow - 5, 2],
-      [Math.floor(ms*0.68), islandRow + 2, 2],
-      [Math.floor(ms*0.38), islandRow,     1],
+      [Math.floor(ms*0.28), islandRow - 5, 2],
+      [Math.floor(ms*0.45), islandRow + 4, 2],
+      [Math.floor(ms*0.68), islandRow - 3, 2],
+      [Math.floor(ms*0.38), islandRow + 6, 1],
     ];
     for (const [col, orow, rad] of smalls) {
       const { q, r } = offsetToAxial(col, orow);

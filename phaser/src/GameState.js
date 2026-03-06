@@ -234,29 +234,38 @@ export function createGameState(scenario = 'default') {
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
 
   } else if (scenario === 'naval') {
-    // Island bases — P1 at left island (axial ~4,20), P2 at right island (axial ~30,7)
-    // Island centers match _genNavalTerrain: islandRow=22, radius=5
-    // P1 center: q=4, r=20  |  P2 center: q=30, r=7
+    // Island layout (ms=35, islandRow=22):
+    //   P1 island: offsetToAxial(4, 22)  = {q:4, r:20},  radius=5
+    //   P2 island: offsetToAxial(17, 22) = {q:17, r:14}, radius=4  (right next to P1)
+    //   Far neutral islands also exist for resource contention
     state.units.push(createUnit('ENGINEER', 1, 4, 19));
     state.units.push(createUnit('ENGINEER', 1, 5, 19));
-    state.units.push(createUnit('ENGINEER', 2, 29, 8));
-    state.units.push(createUnit('ENGINEER', 2, 30, 8));
+    state.units.push(createUnit('ENGINEER', 2, 17, 13));
+    state.units.push(createUnit('ENGINEER', 2, 18, 13));
     state.buildings.push(createBuilding('HQ', 1, 4, 20));
-    state.buildings.push(createBuilding('HQ', 2, 30, 7));
+    state.buildings.push(createBuilding('HQ', 2, 17, 14));
     state.buildings.push(createBuilding('NAVAL_YARD', 1, 5, 21));
-    state.buildings.push(createBuilding('NAVAL_YARD', 2, 29, 6));
-    // Starting naval units
-    // Patrol boats: spawn near center of map (deep ocean, far from any island).
-    // _fixNavalSpawns() in GameScene will BFS-relocate if terrain is somehow wrong.
-    // ms=35 → center ≈ q=17. Using different r values to avoid stacking.
-    state.units.push(createUnit('PATROL_BOAT', 1, 8, 10));
-    state.units.push(createUnit('PATROL_BOAT', 1, 8, 11));
-    state.units.push(createUnit('PATROL_BOAT', 2, 26, 10));
-    state.units.push(createUnit('PATROL_BOAT', 2, 26, 11));
-    // Island resources
-    for (const [q,r] of [[3,20],[4,21],[5,20],[3,21],[5,19]])
+    state.buildings.push(createBuilding('NAVAL_YARD', 2, 18, 14));
+    // Patrol boats spawn in the ocean channel between the two islands (~q=11-12)
+    // _fixNavalSpawns() will BFS-relocate if somehow on land
+    state.units.push(createUnit('PATROL_BOAT', 1, 10, 17));
+    state.units.push(createUnit('PATROL_BOAT', 1, 10, 18));
+    state.units.push(createUnit('PATROL_BOAT', 2, 13, 16));
+    state.units.push(createUnit('PATROL_BOAT', 2, 13, 17));
+    // P1 island resources
+    for (const [q,r] of [[3,20],[4,21],[5,20],[3,21]])
       state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
-    for (const [q,r] of [[29,7],[30,6],[31,7]])
+    for (const [q,r] of [[4,19],[5,19]])
+      state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
+    // P2 island resources
+    for (const [q,r] of [[16,14],[17,15],[18,14]])
+      state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
+    for (const [q,r] of [[17,13],[16,15]])
+      state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
+    // Mid-ocean neutral resource islands
+    for (const [q,r] of [[25,10],[26,10]])
+      state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
+    for (const [q,r] of [[30,7],[29,8]])
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
     state.players[1].iron = 25; state.players[1].oil = 8;
     state.players[2].iron = 25; state.players[2].oil = 8;
