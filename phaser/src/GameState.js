@@ -758,6 +758,8 @@ export function resolveTurn(state, terrain) {
     }
   }
   state._lastMoveLog = moveLog;
+  // Snapshot state immediately after movement (before any combat damage)
+  state._unitsAfterMoves = state.units.map(u => ({ ...u }));
 
   // Phase 2: Attacks (post-move positions) — full GDD combat system
   const damage = {};

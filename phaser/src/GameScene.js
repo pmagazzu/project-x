@@ -2175,6 +2175,12 @@ export class GameScene extends Phaser.Scene {
       banner.destroy();
       await this._wait(1000);
 
+      // Playback from post-move snapshot so health bars don’t pre-resolve.
+      const finalUnits = gs.units;
+      const playbackUnits = (gs._unitsAfterMoves || gs.units).map(u => ({ ...u }));
+      gs.units = playbackUnits;
+      this._redrawUnits();
+
       const steps = combatLog.filter(e => e.type === 'combat' || e.type === 'miss' || e.type === 'blind_miss');
       for (let i = 0; i < steps.length; i++) {
         const entry = steps[i];
@@ -2185,23 +2191,46 @@ export class GameScene extends Phaser.Scene {
         // Pan camera to the combat hex
         await new Promise(res => this.cameras.main.pan(x, y, 350, 'Sine.easeInOut', false, (_cam, p) => { if (p >= 1) res(); }));
 
-        // Simple shots-fired line (attacker -> target)
+        // Explicit attacker/defender markers + shot line
+        let atkMarker = null, defMarker = null, shot = null;
         if (entry.attackerHex) {
           const from = hexToWorld(entry.attackerHex.q, entry.attackerHex.r);
-          const shot = this.add.line(0, 0, from.x, from.y, x, y, 0xffee88, 0.95).setOrigin(0, 0).setDepth(59);
-          this.tweens.add({ targets: shot, alpha: 0, duration: 250, onComplete: () => shot.destroy() });
+          atkMarker = this.add.circle(from.x, from.y, 16, 0x2f88ff, 0.35).setDepth(58)
+            .setStrokeStyle(2, 0x7fb7ff, 0.95);
+          defMarker = this.add.circle(x, y, 16, 0xff4444, 0.35).setDepth(58)
+            .setStrokeStyle(2, 0xffaaaa, 0.95);
+          const atkTxt = this.add.text(from.x, from.y - 24, 'ATTACKER', { font: 'bold 10px monospace', fill: '#7fb7ff' })
+            .setOrigin(0.5).setDepth(58);
+          const defTxt = this.add.text(x, y - 24, 'DEFENDER', { font: 'bold 10px monospace', fill: '#ffaaaa' })
+            .setOrigin(0.5).setDepth(58);
+          shot = this.add.line(0, 0, from.x, from.y, x, y, 0xffee88, 0.95).setOrigin(0, 0).setDepth(59);
+          this.tweens.add({ targets: shot, alpha: 0, duration: 250, onComplete: () => shot?.destroy() });
           await this._wait(260);
+          atkTxt.destroy(); defTxt.destroy();
         }
 
-        // Flash ring on target hex
+        // Flash impact on defender
         const ring = this.add.circle(x, y, 28, entry.type === 'combat' ? 0xff4400 : 0xffcc00, 0.7).setDepth(60);
         this.tweens.add({ targets: ring, alpha: 0, scaleX: 2.5, scaleY: 2.5, duration: 600, ease: 'Quad.easeOut', onComplete: () => ring.destroy() });
         await this._wait(240);
 
+        // Apply this step damage now (after shot/impact), then redraw bars.
+        if (entry.type === 'combat') {
+          const tgt = gs.units.find(u => u.id === entry.targetId);
+          const atk = gs.units.find(u => u.id === entry.attackerId);
+          if (tgt) tgt.health -= (entry.dmg || 0);
+          if (atk) atk.health -= (entry.attackerDmg || 0);
+          gs.units = gs.units.filter(u => u.health > 0);
+          this._redrawUnits();
+        }
+
         const card = this._showCombatCard(entry, i + 1, steps.length);
         await this._waitForAdvance();
         card.forEach(o => { try { o.destroy(); } catch (e) {} });
+        try { atkMarker?.destroy(); defMarker?.destroy(); } catch (e) {}
       }
+      // Restore authoritative final resolved state
+      gs.units = finalUnits;
       this._redrawUnits();
       await this._wait(200);
     }
