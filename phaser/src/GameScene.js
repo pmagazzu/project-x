@@ -4,6 +4,7 @@ import {
   MAP_SIZE, HEX_SIZE, getMapBounds
 } from './HexGrid.js';
 import { MenuScene } from './MenuScene.js';
+import { generateAllSprites, unitTextureKey, buildingTextureKey } from './SpriteGen.js';
 import {
   createGameState, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
@@ -91,12 +92,17 @@ export class GameScene extends Phaser.Scene {
     // Keep terrainRT as a dummy object so existing camera ignore lists don't break
     this.terrainRT = this.add.renderTexture(1, 1, 1, 1).setVisible(false);
 
-    // World graphics layers (depth order)
-    this.roadGfx      = this.add.graphics().setDepth(5);
-    this.resourceGfx  = this.add.graphics().setDepth(8);
-    this.highlightGfx = this.add.graphics().setDepth(10);
-    this.buildingGfx  = this.add.graphics().setDepth(15);
-    this.unitGfx      = this.add.graphics().setDepth(20);
+    // Generate sprite textures for units/buildings (runtime procedural atlas)
+    generateAllSprites(this, UNIT_TYPES, BUILDING_TYPES, PLAYER_COLORS);
+
+    // World graphics/layers (depth order)
+    this.roadGfx          = this.add.graphics().setDepth(5);
+    this.resourceGfx      = this.add.graphics().setDepth(8);
+    this.highlightGfx     = this.add.graphics().setDepth(10);
+    this.buildingSpriteLayer = this.add.layer().setDepth(14);
+    this.buildingGfx      = this.add.graphics().setDepth(15);
+    this.unitSpriteLayer  = this.add.layer().setDepth(19);
+    this.unitGfx          = this.add.graphics().setDepth(20);
     // Fog: RenderTexture instead of Graphics — handles large maps (120×120+) without vertex overflow
     this.fogRT = this.add.renderTexture(0, 0, rtW, rtH)
       .setOrigin(0, 0).setPosition(bounds.minX - padding, bounds.minY - padding).setDepth(30);
@@ -115,7 +121,7 @@ export class GameScene extends Phaser.Scene {
     // (catches top bar, bottom panel, buttons, etc. without touching each line)
     const worldObjs = new Set([
       this.terrainGfx, this.terrainRT, this.roadGfx, this.resourceGfx,
-      this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT, this._uiLayer
+      this.highlightGfx, this.buildingSpriteLayer, this.buildingGfx, this.unitSpriteLayer, this.unitGfx, this.fogRT, this._uiLayer
     ]);
     for (const obj of [...this.children.list]) {
       if (!worldObjs.has(obj) && obj.scrollFactorX === 0) {
@@ -140,7 +146,7 @@ export class GameScene extends Phaser.Scene {
     this.uiCamera.transparent = true; // transparent background — must not cover world
     this.uiCamera.ignore([
       this.terrainGfx, this.terrainRT, this.roadGfx, this.resourceGfx,
-      this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT,
+      this.highlightGfx, this.buildingSpriteLayer, this.buildingGfx, this.unitSpriteLayer, this.unitGfx, this.fogRT,
     ]);
     this.scale.on('resize', (gs) => this.uiCamera.setSize(gs.width, gs.height));
 
@@ -466,6 +472,26 @@ export class GameScene extends Phaser.Scene {
   // ── Buildings ─────────────────────────────────────────────────────────────
   _redrawBuildings() {
     this.buildingGfx.clear();
+    this.buildingSpriteLayer.removeAll(true);
+
+    // Sprite-first building rendering
+    for (const b of this.gameState.buildings) {
+      if (b.type === 'ROAD') continue;
+      const { x, y } = hexToWorld(b.q, b.r);
+      const key = buildingTextureKey(b.type, b.owner || 1);
+      if (this.textures.exists(key)) {
+        const spr = this.add.image(x, y, key).setDepth(14).setScale(1.0).setOrigin(0.5, 0.6).setAlpha(0.98);
+        this.buildingSpriteLayer.add(spr);
+      }
+
+      // Keep owner outline for readability
+      const color = b.owner ? PLAYER_COLORS[b.owner] : 0x888888;
+      const s = HEX_SIZE * 0.28;
+      this.buildingGfx.lineStyle(1.5, color, 0.55);
+      this.buildingGfx.strokeRect(x - s, y - s * 0.45, s * 2, s * 1.2);
+    }
+    return;
+
     for (const b of this.gameState.buildings) {
       if (b.type === 'ROAD') continue;
       const { x, y } = hexToWorld(b.q, b.r);
@@ -621,6 +647,7 @@ export class GameScene extends Phaser.Scene {
   // ── Units ─────────────────────────────────────────────────────────────────
   _redrawUnits() {
     this.unitGfx.clear();
+    this.unitSpriteLayer.removeAll(true);
     const gs  = this.gameState;
     const fog = this._currentFog;
 
@@ -682,6 +709,32 @@ export class GameScene extends Phaser.Scene {
         this.unitGfx.strokePath();
       }
 
+      // Sprite-first unit body
+      let facingAngle = 0;
+      if (unit._origQ !== undefined && unit._origR !== undefined && (unit.q !== unit._origQ || unit.r !== unit._origR)) {
+        const p0 = hexToWorld(unit._origQ, unit._origR);
+        facingAngle = Phaser.Math.RadToDeg(Math.atan2(y - p0.y, x - p0.x));
+      } else if (gs.pendingAttacks?.[unit.id]) {
+        const a = gs.pendingAttacks[unit.id];
+        let tq = null, tr = null;
+        if (typeof a === 'number') {
+          const t = gs.units.find(u2 => u2.id === a);
+          if (t) { tq = t.q; tr = t.r; }
+        } else if (a?.hex) {
+          tq = a.hex.q; tr = a.hex.r;
+        }
+        if (tq !== null) {
+          const tp = hexToWorld(tq, tr);
+          facingAngle = Phaser.Math.RadToDeg(Math.atan2(tp.y - y, tp.x - x));
+        }
+      }
+      const uKey = unitTextureKey(unit.type, unit.owner || 1);
+      if (this.textures.exists(uKey)) {
+        const spr = this.add.image(x, y, uKey).setDepth(19).setScale(1.0).setOrigin(0.5, 0.62).setAlpha(alpha).setAngle(facingAngle);
+        this.unitSpriteLayer.add(spr);
+      }
+
+      if (false) {
       this.unitGfx.fillStyle(color, alpha);
       this.unitGfx.lineStyle(2, 0x000000, alpha);
 
@@ -778,6 +831,8 @@ export class GameScene extends Phaser.Scene {
         this.unitGfx.fillRect(x-r*0.7, y-r*0.2, r*1.4, r*0.4);
         this.unitGfx.lineStyle(2, 0x000000, alpha);
         this.unitGfx.strokeCircle(x, y, r);
+      }
+
       }
 
       // Health bar
