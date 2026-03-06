@@ -258,7 +258,6 @@ export class GameScene extends Phaser.Scene {
     // Terrain is drawn directly to a world Graphics object (avoids RT color-channel bugs).
     // For maps ≤50 tiles, this is fast enough. Grand map still uses RT for performance.
     this.terrainGfx = this.add.graphics().setDepth(0);
-    this.terrainTileLayer = this.add.layer().setDepth(1);
     this._drawTerrainDirect();
     // Keep terrainRT as a dummy object so existing camera ignore lists don't break
     this.terrainRT = this.add.renderTexture(1, 1, 1, 1).setVisible(false);
@@ -267,7 +266,6 @@ export class GameScene extends Phaser.Scene {
     generateAllSprites(this, UNIT_TYPES, BUILDING_TYPES, PLAYER_COLORS);
     // Override with user-provided art assets when available
     this._applyUserArtOverrides();
-    this._drawTerrainTileSprites();
 
     // World graphics/layers (depth order)
     this.roadGfx          = this.add.graphics().setDepth(5);
@@ -342,22 +340,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   _drawTerrainTileSprites() {
-    if (!this.terrainTileLayer) return;
-    this.terrainTileLayer.removeAll(true);
-    if (!this._tileOverride) return;
-    const targetW = HEX_SIZE * 2.0;
-    for (let q = 0; q < this.mapSize; q++) {
-      for (let r = 0; r < this.mapSize; r++) {
-        const t = this.terrain[`${q},${r}`] ?? 0;
-        const key = this._tileOverride[t];
-        if (!key || !this.textures.exists(key)) continue;
-        const src = this.textures.get(key).getSourceImage();
-        const scale = src?.width ? (targetW / src.width) : 1;
-        const { x, y } = hexToWorld(q, r);
-        const spr = this.add.image(x, y, key).setDepth(1).setOrigin(0.5, 0.62).setScale(scale).setAlpha(0.9);
-        this.terrainTileLayer.add(spr);
-      }
-    }
+    // disabled: unstable with current external tile exports
   }
 
   // Legacy — kept for reference but no longer called (RT replaced by direct gfx)
