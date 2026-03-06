@@ -32,8 +32,100 @@ const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
 
+const USER_ART = {
+  // buildings
+  hq: '/user_art/hq.png',
+  barracks: '/user_art/barracks.png',
+  vehicle_depot: '/user_art/vehicle_depot.png',
+  naval_yard: '/user_art/naval_yard.png',
+  // units
+  infantry: '/user_art/infantry.png',
+  engineer: '/user_art/engineer.png',
+  submarine: '/user_art/submarine.png',
+  destroyer_t1: '/user_art/destroyer_t1.png',
+  patrol_boat: '/user_art/patrol_boat.png',
+  cruiser_light: '/user_art/cruiser_light.png',
+  truck: '/user_art/truck.png',
+  // terrain
+  grass_tile: '/user_art/grass_tile.png',
+  grass_hill: '/user_art/grass_hill.png',
+  sand_hill: '/user_art/sand_hill.png',
+  mountain_tile: '/user_art/mountain_tile.png',
+  water_shallow_tile: '/user_art/water_shallow_tile.png',
+  ocean_deep_tile: '/user_art/ocean_deep_tile.png',
+};
+
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
+
+  preload() {
+    for (const [k, p] of Object.entries(USER_ART)) {
+      this.load.image(`ua_${k}`, p);
+    }
+  }
+
+  _makeBgTransparent(srcKey, dstKey, threshold = 242) {
+    const srcTex = this.textures.get(srcKey);
+    if (!srcTex) return;
+    const src = srcTex.getSourceImage();
+    const w = src.width || src.naturalWidth;
+    const h = src.height || src.naturalHeight;
+    const cvs = this.textures.createCanvas(dstKey, w, h);
+    const ctx = cvs.getContext();
+    ctx.drawImage(src, 0, 0, w, h);
+    const img = ctx.getImageData(0, 0, w, h);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      if (r >= threshold && g >= threshold && b >= threshold) d[i + 3] = 0;
+    }
+    ctx.putImageData(img, 0, 0);
+    cvs.refresh();
+  }
+
+  _applyUserArtOverrides() {
+    // preprocess white backgrounds into transparency
+    Object.keys(USER_ART).forEach(k => this._makeBgTransparent(`ua_${k}`, `ua_clean_${k}`));
+
+    const repl = (targetKey, cleanKey) => {
+      if (!this.textures.exists(cleanKey)) return;
+      if (this.textures.exists(targetKey)) this.textures.remove(targetKey);
+      const src = this.textures.get(cleanKey).getSourceImage();
+      this.textures.addImage(targetKey, src);
+    };
+
+    // Building overrides
+    repl(buildingTextureKey('HQ', 1), 'ua_clean_hq');
+    repl(buildingTextureKey('HQ', 2), 'ua_clean_hq');
+    repl(buildingTextureKey('BARRACKS', 1), 'ua_clean_barracks');
+    repl(buildingTextureKey('BARRACKS', 2), 'ua_clean_barracks');
+    repl(buildingTextureKey('VEHICLE_DEPOT', 1), 'ua_clean_vehicle_depot');
+    repl(buildingTextureKey('VEHICLE_DEPOT', 2), 'ua_clean_vehicle_depot');
+    repl(buildingTextureKey('NAVAL_YARD', 1), 'ua_clean_naval_yard');
+    repl(buildingTextureKey('NAVAL_YARD', 2), 'ua_clean_naval_yard');
+
+    // Unit overrides
+    const unitMap = {
+      INFANTRY: 'infantry', ENGINEER: 'engineer',
+      SUBMARINE: 'submarine', DESTROYER: 'destroyer_t1', PATROL_BOAT: 'patrol_boat',
+      CRUISER_LT: 'cruiser_light', TRANSPORT_SM: 'truck', TRANSPORT_MD: 'truck', TRANSPORT_LG: 'truck'
+    };
+    for (const [type, key] of Object.entries(unitMap)) {
+      repl(unitTextureKey(type, 1), `ua_clean_${key}`);
+      repl(unitTextureKey(type, 2), `ua_clean_${key}`);
+    }
+
+    // Terrain tile art refs for direct tile rendering
+    this._tileOverride = {
+      0: this.textures.exists('ua_clean_grass_tile') ? 'ua_clean_grass_tile' : null,
+      1: this.textures.exists('ua_clean_grass_hill') ? 'ua_clean_grass_hill' : null,
+      2: this.textures.exists('ua_clean_mountain_tile') ? 'ua_clean_mountain_tile' : null,
+      3: this.textures.exists('ua_clean_grass_hill') ? 'ua_clean_grass_hill' : null,
+      4: this.textures.exists('ua_clean_water_shallow_tile') ? 'ua_clean_water_shallow_tile' : null,
+      5: this.textures.exists('ua_clean_ocean_deep_tile') ? 'ua_clean_ocean_deep_tile' : null,
+      6: this.textures.exists('ua_clean_sand_hill') ? 'ua_clean_sand_hill' : null,
+    };
+  }
 
   // Add game objects to the UI layer so the fixed uiCamera renders them
   // (main world camera ignores _uiLayer so zoom never displaces HUD)
@@ -88,12 +180,16 @@ export class GameScene extends Phaser.Scene {
     // Terrain is drawn directly to a world Graphics object (avoids RT color-channel bugs).
     // For maps ≤50 tiles, this is fast enough. Grand map still uses RT for performance.
     this.terrainGfx = this.add.graphics().setDepth(0);
+    this.terrainTileLayer = this.add.layer().setDepth(1);
     this._drawTerrainDirect();
     // Keep terrainRT as a dummy object so existing camera ignore lists don't break
     this.terrainRT = this.add.renderTexture(1, 1, 1, 1).setVisible(false);
 
     // Generate sprite textures for units/buildings (runtime procedural atlas)
     generateAllSprites(this, UNIT_TYPES, BUILDING_TYPES, PLAYER_COLORS);
+    // Override with user-provided art assets when available
+    this._applyUserArtOverrides();
+    this._drawTerrainTileSprites();
 
     // World graphics/layers (depth order)
     this.roadGfx          = this.add.graphics().setDepth(5);
@@ -120,7 +216,7 @@ export class GameScene extends Phaser.Scene {
     // Move all scroll-factor-0 objects created so far into _uiLayer
     // (catches top bar, bottom panel, buttons, etc. without touching each line)
     const worldObjs = new Set([
-      this.terrainGfx, this.terrainRT, this.roadGfx, this.resourceGfx,
+      this.terrainGfx, this.terrainTileLayer, this.terrainRT, this.roadGfx, this.resourceGfx,
       this.highlightGfx, this.buildingSpriteLayer, this.buildingGfx, this.unitSpriteLayer, this.unitGfx, this.fogRT, this._uiLayer
     ]);
     for (const obj of [...this.children.list]) {
@@ -145,7 +241,7 @@ export class GameScene extends Phaser.Scene {
     this.uiCamera = this.cameras.add(0, 0, sw, sh).setName('ui').setScroll(0, 0).setZoom(1);
     this.uiCamera.transparent = true; // transparent background — must not cover world
     this.uiCamera.ignore([
-      this.terrainGfx, this.terrainRT, this.roadGfx, this.resourceGfx,
+      this.terrainGfx, this.terrainTileLayer, this.terrainRT, this.roadGfx, this.resourceGfx,
       this.highlightGfx, this.buildingSpriteLayer, this.buildingGfx, this.unitSpriteLayer, this.unitGfx, this.fogRT,
     ]);
     this.scale.on('resize', (gs) => this.uiCamera.setSize(gs.width, gs.height));
@@ -163,6 +259,25 @@ export class GameScene extends Phaser.Scene {
       for (let r = 0; r < this.mapSize; r++) {
         const { x, y } = hexToWorld(q, r);
         this._drawHex(this.terrainGfx, x, y, this.terrain[`${q},${r}`] ?? 0, false, false);
+      }
+    }
+  }
+
+  _drawTerrainTileSprites() {
+    if (!this.terrainTileLayer) return;
+    this.terrainTileLayer.removeAll(true);
+    if (!this._tileOverride) return;
+    const targetW = HEX_SIZE * 2.0;
+    for (let q = 0; q < this.mapSize; q++) {
+      for (let r = 0; r < this.mapSize; r++) {
+        const t = this.terrain[`${q},${r}`] ?? 0;
+        const key = this._tileOverride[t];
+        if (!key || !this.textures.exists(key)) continue;
+        const src = this.textures.get(key).getSourceImage();
+        const scale = src?.width ? (targetW / src.width) : 1;
+        const { x, y } = hexToWorld(q, r);
+        const spr = this.add.image(x, y, key).setDepth(1).setOrigin(0.5, 0.62).setScale(scale).setAlpha(0.9);
+        this.terrainTileLayer.add(spr);
       }
     }
   }
