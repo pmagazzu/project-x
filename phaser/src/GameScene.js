@@ -2140,25 +2140,21 @@ export class GameScene extends Phaser.Scene {
     const events = resolveTurn(gs, this.terrain);
     const winner = checkWinner(gs);
 
-    // Rebuild a map: unitId → post-move position (from events log / state)
-    const postPos = {};
-    for (const u of gs.units) postPos[u.id] = { q: u.q, r: u.r };
-
     // ── Phase 1: Animate moves ───────────────────────────────────────────────
-    const moveAnims = gs.units
-      .filter(u => prePos[u.id] && (prePos[u.id].q !== postPos[u.id].q || prePos[u.id].r !== postPos[u.id].r));
+    // Use resolveTurn's move log (captured before combat/deaths) so movement is always visible first.
+    const moveAnims = gs._lastMoveLog || [];
 
     if (moveAnims.length > 0) {
-      // Flash "MOVES" banner
       const banner = this._makeBanner('⟶  MOVES RESOLVE');
       await this._wait(600);
       banner.destroy();
 
       const MOVE_COLORS = { 1: 0x4488ff, 2: 0xff4444 };
-      const tweenPromises = moveAnims.map(u => new Promise(resolve => {
-        const from = hexToWorld(prePos[u.id].q, prePos[u.id].r);
-        const to   = hexToWorld(postPos[u.id].q, postPos[u.id].r);
-        const dot  = this.add.circle(from.x, from.y, 10, MOVE_COLORS[u.owner] || 0xffffff, 0.9).setDepth(50);
+      const tweenPromises = moveAnims.map(m => new Promise(resolve => {
+        const fromHex = prePos[m.unitId] || m.to;
+        const from = hexToWorld(fromHex.q, fromHex.r);
+        const to   = hexToWorld(m.to.q, m.to.r);
+        const dot  = this.add.circle(from.x, from.y, 10, MOVE_COLORS[m.owner] || 0xffffff, 0.9).setDepth(50);
         this.tweens.add({
           targets: dot, x: to.x, y: to.y, duration: 500, ease: 'Sine.easeInOut',
           onComplete: () => { dot.destroy(); resolve(); }
