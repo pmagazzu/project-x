@@ -115,16 +115,9 @@ export class GameScene extends Phaser.Scene {
       repl(unitTextureKey(type, 2), `ua_clean_${key}`);
     }
 
-    // Terrain tile art refs for direct tile rendering
-    this._tileOverride = {
-      0: this.textures.exists('ua_clean_grass_tile') ? 'ua_clean_grass_tile' : null,
-      1: this.textures.exists('ua_clean_grass_hill') ? 'ua_clean_grass_hill' : null,
-      2: this.textures.exists('ua_clean_mountain_tile') ? 'ua_clean_mountain_tile' : null,
-      3: this.textures.exists('ua_clean_grass_hill') ? 'ua_clean_grass_hill' : null,
-      4: this.textures.exists('ua_clean_water_shallow_tile') ? 'ua_clean_water_shallow_tile' : null,
-      5: this.textures.exists('ua_clean_ocean_deep_tile') ? 'ua_clean_ocean_deep_tile' : null,
-      6: this.textures.exists('ua_clean_sand_hill') ? 'ua_clean_sand_hill' : null,
-    };
+    // Terrain tile art refs (temporarily disabled until clean transparent exports are ready)
+    // Current generated tiles include editor/checker artifacts; keep stable procedural terrain for now.
+    this._tileOverride = null;
   }
 
   // Add game objects to the UI layer so the fixed uiCamera renders them
