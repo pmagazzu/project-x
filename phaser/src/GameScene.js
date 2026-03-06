@@ -175,53 +175,89 @@ export class GameScene extends Phaser.Scene {
     const strokeColor = isSelected ? SELECTED_STROKE : isHovered ? HOVER_STROKE : colors.stroke;
     const strokeW = (isSelected || isHovered) ? 2.5 : 1;
     const verts = hexVertices(cx, cy);
+
+    // Isometric side/shadow slab (stronger tile readability)
+    if (!isHovered && !isSelected) {
+      const dy = HEX_SIZE * 0.14;
+      gfx.fillStyle(0x000000, 0.22);
+      gfx.beginPath();
+      gfx.moveTo(verts[2].x, verts[2].y);
+      gfx.lineTo(verts[3].x, verts[3].y);
+      gfx.lineTo(verts[3].x, verts[3].y + dy);
+      gfx.lineTo(verts[2].x, verts[2].y + dy);
+      gfx.closePath();
+      gfx.fillPath();
+      gfx.beginPath();
+      gfx.moveTo(verts[1].x, verts[1].y);
+      gfx.lineTo(verts[2].x, verts[2].y);
+      gfx.lineTo(verts[2].x, verts[2].y + dy);
+      gfx.lineTo(verts[1].x, verts[1].y + dy);
+      gfx.closePath();
+      gfx.fillPath();
+    }
+
+    // top face
     gfx.fillStyle(colors.fill);
     gfx.beginPath(); gfx.moveTo(verts[0].x, verts[0].y);
     for (let i = 1; i < verts.length; i++) gfx.lineTo(verts[i].x, verts[i].y);
     gfx.closePath(); gfx.fillPath();
+
+    // terrain-specific pixel texture overlays (all terrain types)
+    if (!isHovered && !isSelected) {
+      const pix = (count, c1, c2 = c1, a = 0.35) => {
+        for (let i = 0; i < count; i++) {
+          const ox = ((i * 17 + cx * 3) % 28) - 14;
+          const oy = ((i * 11 + cy * 5) % 20) - 10;
+          const col = (i % 2 === 0) ? c1 : c2;
+          gfx.fillStyle(col, a);
+          gfx.fillRect(cx + ox, cy + oy, 2, 2);
+        }
+      };
+
+      if (terrain === TERRAIN.PLAINS) {
+        pix(28, 0x98be63, 0x7ea650, 0.42);
+      } else if (terrain === TERRAIN.FOREST) {
+        pix(20, 0x245516, 0x2f6a1d, 0.45);
+        gfx.fillStyle(0x1a3f10, 0.85);
+        for (const [ox, oy] of [[-9,-4],[-2,-7],[6,-5],[-6,3],[1,5],[8,2]]) {
+          gfx.fillTriangle(cx+ox, cy+oy-4, cx+ox-4, cy+oy+3, cx+ox+4, cy+oy+3);
+        }
+      } else if (terrain === TERRAIN.MOUNTAIN) {
+        pix(18, 0x737373, 0x9a9a9a, 0.35);
+        gfx.lineStyle(1.7, 0xe3e3e3, 0.35);
+        gfx.beginPath();
+        gfx.moveTo(cx-10, cy+5); gfx.lineTo(cx-3, cy-8); gfx.lineTo(cx+4, cy+5);
+        gfx.moveTo(cx+0, cy+5);  gfx.lineTo(cx+8, cy-4); gfx.lineTo(cx+13, cy+5);
+        gfx.strokePath();
+      } else if (terrain === TERRAIN.HILL) {
+        pix(18, 0xb99f61, 0xa78e53, 0.35);
+        gfx.lineStyle(2, 0xf0d49b, 0.2);
+        gfx.beginPath();
+        gfx.moveTo(cx-11, cy+4); gfx.lineTo(cx-6, cy-5); gfx.lineTo(cx, cy+3);
+        gfx.moveTo(cx-1, cy+4); gfx.lineTo(cx+5, cy-4); gfx.lineTo(cx+11, cy+4);
+        gfx.strokePath();
+      } else if (terrain === TERRAIN.SHALLOW) {
+        pix(22, 0x6bb7cf, 0x4ea4c2, 0.34);
+        gfx.lineStyle(1.5, 0xa8def0, 0.35);
+        gfx.beginPath();
+        gfx.moveTo(cx-10, cy); gfx.lineTo(cx-2, cy-2); gfx.lineTo(cx+7, cy+1);
+        gfx.strokePath();
+      } else if (terrain === TERRAIN.OCEAN) {
+        pix(26, 0x1a4167, 0x123456, 0.34);
+        gfx.lineStyle(1.3, 0x4f7ea8, 0.28);
+        gfx.beginPath();
+        gfx.moveTo(cx-11, cy+1); gfx.lineTo(cx-4, cy-1); gfx.lineTo(cx+3, cy+1); gfx.lineTo(cx+11, cy-1);
+        gfx.strokePath();
+      } else if (terrain === TERRAIN.SAND) {
+        pix(20, 0xe1c77d, 0xcfae67, 0.32);
+      }
+    }
+
+    // edge
     gfx.lineStyle(strokeW, strokeColor);
     gfx.beginPath(); gfx.moveTo(verts[0].x, verts[0].y);
     for (let i = 1; i < verts.length; i++) gfx.lineTo(verts[i].x, verts[i].y);
     gfx.closePath(); gfx.strokePath();
-    // Plains/grass: add pixel-noise variation for richer look
-    if (terrain === 0 && !isHovered && !isSelected) {
-      for (let i = 0; i < 20; i++) {
-        const ox = ((i * 13 + cx) % 22) - 11;
-        const oy = ((i * 7 + cy) % 16) - 8;
-        gfx.fillStyle((i % 3 === 0) ? 0x98be63 : 0x7ea650, 0.35);
-        gfx.fillRect(cx + ox, cy + oy, 2, 2);
-      }
-    }
-    // Forest: draw small tree triangles
-    if (terrain === 1 && !isHovered && !isSelected) {
-      gfx.fillStyle(0x2a6018, 0.9);
-      const ts = 5; // tree size
-      for (const [ox, oy] of [[-7,-4],[4,-6],[0,5],[-4,6],[7,2]]) {
-        gfx.fillTriangle(cx+ox, cy+oy-ts, cx+ox-ts, cy+oy+ts, cx+ox+ts, cy+oy+ts);
-      }
-    }
-    // Mountain: draw sharp peak lines
-    if (terrain === 2 && !isHovered && !isSelected) {
-      gfx.lineStyle(1.5, 0xffffff, 0.35);
-      gfx.beginPath();
-      gfx.moveTo(cx-8, cy+5); gfx.lineTo(cx-2, cy-7); gfx.lineTo(cx+4, cy+5);
-      gfx.moveTo(cx+1, cy+5); gfx.lineTo(cx+7, cy-3); gfx.lineTo(cx+13, cy+5);
-      gfx.strokePath();
-    }
-    // Hill: layered contour + sparse grass pixels
-    if (terrain === 3 && !isHovered && !isSelected) {
-      gfx.lineStyle(2, 0xffffff, 0.2);
-      gfx.beginPath();
-      gfx.moveTo(cx-11, cy+4); gfx.lineTo(cx-6, cy-5); gfx.lineTo(cx, cy+3);
-      gfx.moveTo(cx-1, cy+4); gfx.lineTo(cx+5, cy-4); gfx.lineTo(cx+11, cy+4);
-      gfx.strokePath();
-      for (let i = 0; i < 12; i++) {
-        const ox = ((i * 9 + cx) % 18) - 9;
-        const oy = ((i * 5 + cy) % 12) - 6;
-        gfx.fillStyle(0xb99f61, 0.3);
-        gfx.fillRect(cx + ox, cy + oy, 2, 2);
-      }
-    }
   }
 
   // ── Static layers (resources, roads) ─────────────────────────────────────
