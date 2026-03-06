@@ -246,14 +246,13 @@ export function createGameState(scenario = 'default') {
     state.buildings.push(createBuilding('NAVAL_YARD', 1, 5, 21));
     state.buildings.push(createBuilding('NAVAL_YARD', 2, 29, 6));
     // Starting naval units
-    // Patrol boats spawn in open ocean: due east of P1 island, due west of P2 island.
-    // P1 island center=(4,20) radius=5; q=10 is dq=6 outside the setIsland loop (radius=5) → ocean.
-    // Small islands at (15,19) r=3 only affect dq≤3 from their center → can't reach q=10.
-    state.units.push(createUnit('PATROL_BOAT', 1, 10, 20));
-    state.units.push(createUnit('PATROL_BOAT', 1, 10, 19));
-    // P2 island center=(30,7) radius=5; q=24 is dq=-6 outside the setIsland loop → ocean.
-    state.units.push(createUnit('PATROL_BOAT', 2, 24, 7));
-    state.units.push(createUnit('PATROL_BOAT', 2, 24, 8));
+    // Patrol boats: spawn near center of map (deep ocean, far from any island).
+    // _fixNavalSpawns() in GameScene will BFS-relocate if terrain is somehow wrong.
+    // ms=35 → center ≈ q=17. Using different r values to avoid stacking.
+    state.units.push(createUnit('PATROL_BOAT', 1, 8, 10));
+    state.units.push(createUnit('PATROL_BOAT', 1, 8, 11));
+    state.units.push(createUnit('PATROL_BOAT', 2, 26, 10));
+    state.units.push(createUnit('PATROL_BOAT', 2, 26, 11));
     // Island resources
     for (const [q,r] of [[3,20],[4,21],[5,20],[3,21],[5,19]])
       state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
