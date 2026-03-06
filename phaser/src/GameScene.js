@@ -2667,6 +2667,21 @@ export class GameScene extends Phaser.Scene {
       const { q, r } = offsetToAxial(col, orow);
       if (isValid(q, r, ms)) setIsland(q, r, rad);
     }
+
+    // Add land variety on islands: mix some sand into plains + hills
+    // (keeps coastal silhouette while making islands less monochrome)
+    for (let q = 0; q < ms; q++) {
+      for (let r = 0; r < ms; r++) {
+        const key = `${q},${r}`;
+        if (map[key] !== 6) continue; // only mutate sand land
+        // Deterministic pseudo-random from coords (no RNG state needed)
+        const n = ((q * 73856093) ^ (r * 19349663)) >>> 0;
+        const roll = n % 100;
+        // Preserve most sand; sprinkle plains and a few hills
+        if (roll < 22) map[key] = 0;      // plains/grass
+        else if (roll < 30) map[key] = 3; // hills
+      }
+    }
   }
 
   _seededRng(seed) {
