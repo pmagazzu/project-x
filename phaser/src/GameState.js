@@ -718,15 +718,34 @@ export function resolveTurn(state, terrain) {
   state._terrain = terrain; // make terrain accessible to combat resolution
 
   // Phase 1: Moves
+  // destinations: key -> array of unit ids that attempted to enter this hex
   const destinations = {};
   for (const [idStr, dest] of Object.entries(state.pendingMoves)) {
     const key = `${dest.q},${dest.r}`;
-    if (destinations[key]) { destinations[key] = null; events.push(`Move collision at (${dest.q},${dest.r})`); }
-    else destinations[key] = idStr;
+    if (!destinations[key]) destinations[key] = [];
+    destinations[key].push(parseInt(idStr));
   }
+
+  // Same-hex opposing collision => panic clash (forced combat, no move)
+  const panicClashes = [];
+  for (const [key, ids] of Object.entries(destinations)) {
+    if (ids.length < 2) continue;
+    const [q, r] = key.split(',').map(Number);
+    const units = ids.map(id => state.units.find(u => u.id === id)).filter(Boolean);
+    const owners = new Set(units.map(u => u.owner));
+    if (units.length === 2 && owners.size === 2) {
+      panicClashes.push({ aId: units[0].id, bId: units[1].id, q, r });
+      events.push(`Panic clash at (${q},${r}) — both units crash into same hex`);
+    } else {
+      events.push(`Move collision at (${q},${r})`);
+    }
+  }
+
   for (const [idStr, dest] of Object.entries(state.pendingMoves)) {
     const key = `${dest.q},${dest.r}`;
-    if (destinations[key] === idStr) {
+    const ids = destinations[key] || [];
+    // Move only when this destination is uncontested
+    if (ids.length === 1 && ids[0] === parseInt(idStr)) {
       const unit = state.units.find(u => u.id === parseInt(idStr));
       if (unit) { unit.q = dest.q; unit.r = dest.r; unit.dugIn = false;
         events.push(`${UNIT_TYPES[unit.type].name} (P${unit.owner}) → (${dest.q},${dest.r})`); }
@@ -736,6 +755,38 @@ export function resolveTurn(state, terrain) {
   // Phase 2: Attacks (post-move positions) — full GDD combat system
   const damage = {};
   const combatLog = []; // detailed breakdowns for UI
+
+  // Panic clashes from same-hex opposing move attempts
+  for (const clash of panicClashes) {
+    const a = state.units.find(u => u.id === clash.aId);
+    const b = state.units.find(u => u.id === clash.bId);
+    if (!a || !b) continue;
+    const aDef = UNIT_TYPES[a.type], bDef = UNIT_TYPES[b.type];
+    const aPower = Math.max(1, Math.round(((aDef.soft_attack || 1) + (aDef.hard_attack || 1)) / 2));
+    const bPower = Math.max(1, Math.round(((bDef.soft_attack || 1) + (bDef.hard_attack || 1)) / 2));
+    const roll = Math.floor(Math.random() * 21) - 10; // panic chaos
+    const score = Math.max(0, Math.min(100, 50 + (aPower - bPower) * 6 + roll));
+    let tier = 'Neutral', dmg = 1, attackerDmg = 1;
+    if (score < 35)  { tier = 'Repelled';             dmg = 0; attackerDmg = 1; }
+    else if (score < 65) { tier = 'Neutral';          dmg = 1; attackerDmg = 1; }
+    else if (score < 85) { tier = 'Effective';        dmg = 2; attackerDmg = 1; }
+    else                 { tier = 'Overwhelming';     dmg = 2; attackerDmg = 0; }
+
+    dmg = Math.max(0, dmg - (bDef.defense || 0));
+    attackerDmg = Math.max(0, attackerDmg - (aDef.defense || 0));
+    if (dmg > 0) damage[b.id] = (damage[b.id] || 0) + dmg;
+    if (attackerDmg > 0) damage[a.id] = (damage[a.id] || 0) + attackerDmg;
+
+    combatLog.push({
+      type: 'combat', panic: true, hex: { q: clash.q, r: clash.r },
+      attackerName: aDef.name, attackerOwner: a.owner,
+      targetName: bDef.name, targetOwner: b.owner,
+      isArmored: (bDef.armor || 0) > 2, baseAttack: aPower, pierce: aDef.pierce || 1, armor: bDef.armor || 1,
+      pierceRatio: 1, accuracy: 0, evasion: 0, terrainMod: 0, dugInMod: 0, bunkerMod: 0, flankMod: 0,
+      roll, blindFirePenalty: 0, score, tier, dmg, attackerDmg, suppressed: false, blindFire: false,
+    });
+    events.push(`[PANIC] ${aDef.name}(P${a.owner}) ↔ ${bDef.name}(P${b.owner}) at (${clash.q},${clash.r}) | ${tier} | dmg:${dmg}/${attackerDmg}`);
+  }
 
   // Resolve hex-targeted (blind fire) attacks → look up what's there now
   // pendingAttacks values can be: unitId (number) OR { hex: {q,r} }

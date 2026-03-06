@@ -2191,14 +2191,10 @@ export class GameScene extends Phaser.Scene {
 
         // Flash ring on target hex
         const ring = this.add.circle(x, y, 28, entry.type === 'combat' ? 0xff4400 : 0xffcc00, 0.7).setDepth(60);
-        const detail = entry.type === 'combat'
-          ? `score:${entry.score} dmg:${entry.dmg}/${entry.attackerDmg} pierce:${entry.pierceRatio.toFixed(2)}`
-          : (entry.type === 'blind_miss' ? 'empty hex' : 'out of range');
-        const outcomeStr = entry.tier ? ` — ${entry.tier}` : entry.type === 'blind_miss' ? ' — empty hex' : ' — miss';
-        const lbl = this._makeBanner(`[${i+1}/${steps.length}] ${entry.attackerName || '?'} ▶ ${entry.targetName || '?'}${outcomeStr}\n${detail}`, 0x221100);
+        const card = this._showCombatCard(entry, i + 1, steps.length);
         this.tweens.add({ targets: ring, alpha: 0, scaleX: 2.5, scaleY: 2.5, duration: 600, ease: 'Quad.easeOut', onComplete: () => ring.destroy() });
         await this._waitForAdvance();
-        lbl.destroy();
+        card.forEach(o => { try { o.destroy(); } catch (e) {} });
       }
       this._redrawUnits();
       await this._wait(200);
@@ -2219,6 +2215,53 @@ export class GameScene extends Phaser.Scene {
   }
 
   _wait(ms) { return new Promise(r => this.time.delayedCall(ms, r)); }
+
+  _showCombatCard(entry, idx, total) {
+    const objs = [];
+    const x = this.scale.width * 0.5;
+    const y = 34;
+    const w = Math.min(860, this.scale.width - 24);
+    const h = 168;
+
+    const panel = this.add.rectangle(x, y, w, h, 0x0b0f16, 0.93)
+      .setOrigin(0.5, 0).setScrollFactor(0).setDepth(206)
+      .setStrokeStyle(2, 0x334455, 0.95);
+    objs.push(panel);
+
+    const add = (txt, yy, color = '#d9e2ef', size = 12, bold = false, ox = 0) => {
+      const t = this.add.text(x + ox, y + yy, txt, {
+        font: `${bold ? 'bold ' : ''}${size}px monospace`,
+        fill: color,
+      }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(207);
+      objs.push(t);
+    };
+
+    const tierColor = ({
+      'Catastrophic Failure': '#ff5d5d',
+      'Repelled': '#ff9a52',
+      'Neutral': '#dddddd',
+      'Effective': '#a4ff7a',
+      'Overwhelming': '#57ffd2',
+    })[entry.tier] || '#ffffff';
+
+    const title = `[${idx}/${total}] ${entry.panic ? 'PANIC CLASH' : 'COMBAT'} — ${entry.attackerName || '?'} vs ${entry.targetName || '?'}  (${entry.tier || (entry.type === 'miss' ? 'MISS' : 'NO TARGET')})`;
+    add(title, 8, tierColor, 13, true);
+
+    if (entry.type === 'combat') {
+      add(`Score ${entry.score}  |  Damage dealt ${entry.dmg}  |  Return damage ${entry.attackerDmg}`, 32, '#ffffff', 12, true);
+      add(`Atk base ${entry.baseAttack}  Pierce ${entry.pierce} vs Armor ${entry.armor}  Ratio ${Number(entry.pierceRatio || 0).toFixed(2)}`, 52, '#a9d7ff');
+      add(`Mods: acc ${entry.accuracy || 0}  eva -${entry.evasion || 0}  terrain -${entry.terrainMod || 0}  dugin -${entry.dugInMod || 0}  bunker -${entry.bunkerMod || 0}  flank +${entry.flankMod || 0}`, 72, '#ffd9a8');
+      add(`Random roll: ${entry.roll >= 0 ? '+' : ''}${entry.roll || 0}${entry.blindFirePenalty ? `   blind-fire penalty: -${entry.blindFirePenalty}` : ''}${entry.panic ? '   panic: same-hex move clash' : ''}`, 92, '#b9ffba');
+      add(`Final: score=${entry.score} → ${entry.tier}`, 114, tierColor, 12, true);
+    } else if (entry.type === 'miss') {
+      add('Target moved out of range after movement resolved.', 48, '#dddddd');
+    } else if (entry.type === 'blind_miss') {
+      add('Blind fire hit empty hex.', 48, '#dddddd');
+    }
+
+    this._addToUI(objs);
+    return objs;
+  }
 
   _waitForAdvance() {
     return new Promise(resolve => {
