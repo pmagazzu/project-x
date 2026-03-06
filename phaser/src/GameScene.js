@@ -362,6 +362,57 @@ export class GameScene extends Phaser.Scene {
       this.highlightGfx.strokeCircle(from.x, from.y, 10);
     }
 
+    // ── Pending attack ghost lines (planned attacks) ───────────────────────
+    // Similar to move arrows: show who will shoot whom before submit.
+    for (const [attackerIdStr, planned] of Object.entries(gs.pendingAttacks || {})) {
+      const attackerId = parseInt(attackerIdStr);
+      const attacker = gs.units.find(u => u.id === attackerId && !u.dead);
+      if (!attacker || attacker.owner !== gs.currentPlayer) continue;
+
+      const from = hexToWorld(attacker.q, attacker.r);
+      let tq = null, tr = null;
+
+      // Direct target: unit id
+      if (typeof planned === 'number') {
+        const target = gs.units.find(u => u.id === planned && !u.dead);
+        if (!target) continue;
+        // We-go integrity: enemy shown/targeted at display position
+        tq = (target._origQ !== undefined) ? target._origQ : target.q;
+        tr = (target._origR !== undefined) ? target._origR : target.r;
+      }
+      // Blind fire target: { hex: {q,r} }
+      else if (planned && typeof planned === 'object' && planned.hex) {
+        tq = planned.hex.q; tr = planned.hex.r;
+      }
+
+      if (tq === null || tr === null) continue;
+      const to = hexToWorld(tq, tr);
+
+      // Dotted red line
+      this.highlightGfx.lineStyle(2, 0xff6666, 0.7);
+      this.highlightGfx.beginPath();
+      const steps = 10;
+      for (let i = 0; i < steps; i++) {
+        const t0 = i / steps, t1 = (i + 0.5) / steps;
+        if (i % 2 === 0) {
+          this.highlightGfx.moveTo(from.x + (to.x - from.x) * t0, from.y + (to.y - from.y) * t0);
+          this.highlightGfx.lineTo(from.x + (to.x - from.x) * t1, from.y + (to.y - from.y) * t1);
+        }
+      }
+      this.highlightGfx.strokePath();
+
+      // Arrowhead at target
+      const angle = Math.atan2(to.y - from.y, to.x - from.x);
+      const aLen = 9;
+      this.highlightGfx.lineStyle(2, 0xff8888, 0.9);
+      this.highlightGfx.beginPath();
+      this.highlightGfx.moveTo(to.x, to.y);
+      this.highlightGfx.lineTo(to.x - aLen * Math.cos(angle - 0.45), to.y - aLen * Math.sin(angle - 0.45));
+      this.highlightGfx.moveTo(to.x, to.y);
+      this.highlightGfx.lineTo(to.x - aLen * Math.cos(angle + 0.45), to.y - aLen * Math.sin(angle + 0.45));
+      this.highlightGfx.strokePath();
+    }
+
     // ── Auto-road standing order path preview ─────────────────────────────
     // Draw a dim dotted line along the engineer's planned road route
     for (const u of gs.units) {
