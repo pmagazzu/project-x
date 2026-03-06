@@ -54,6 +54,15 @@ export class GameScene extends Phaser.Scene {
     // After terrain is known, relocate any naval unit that spawned on invalid terrain
     this._fixNavalSpawns();
 
+    // DEBUG: show spawn info on screen
+    if (this.scenario === 'naval') {
+      const gs2 = this.gameState;
+      const boatInfo = gs2.units.filter(u => u.type === 'PATROL_BOAT')
+        .map(u => `P${u.owner} boat (${u.q},${u.r}) t=${this.terrain[`${u.q},${u.r}`]??'?'}`).join(' | ');
+      document.title = boatInfo;
+      console.error('NAVAL SPAWN DEBUG:', boatInfo);
+    }
+
     // Interaction state
     this.hoveredHex   = null;
     this.selectedUnit = null;
