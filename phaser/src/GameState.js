@@ -720,6 +720,7 @@ export function resolveTurn(state, terrain) {
 
   // Phase 1: Moves
   // destinations: key -> array of unit ids that attempted to enter this hex
+  const moveLog = []; // explicit move playback log (pre-combat)
   const destinations = {};
   for (const [idStr, dest] of Object.entries(state.pendingMoves)) {
     const key = `${dest.q},${dest.r}`;
@@ -748,10 +749,15 @@ export function resolveTurn(state, terrain) {
     // Move only when this destination is uncontested
     if (ids.length === 1 && ids[0] === parseInt(idStr)) {
       const unit = state.units.find(u => u.id === parseInt(idStr));
-      if (unit) { unit.q = dest.q; unit.r = dest.r; unit.dugIn = false;
-        events.push(`${UNIT_TYPES[unit.type].name} (P${unit.owner}) → (${dest.q},${dest.r})`); }
+      if (unit) {
+        const fromQ = unit.q, fromR = unit.r;
+        unit.q = dest.q; unit.r = dest.r; unit.dugIn = false;
+        moveLog.push({ unitId: unit.id, owner: unit.owner, from: { q: fromQ, r: fromR }, to: { q: dest.q, r: dest.r } });
+        events.push(`${UNIT_TYPES[unit.type].name} (P${unit.owner}) → (${dest.q},${dest.r})`);
+      }
     }
   }
+  state._lastMoveLog = moveLog;
 
   // Phase 2: Attacks (post-move positions) — full GDD combat system
   const damage = {};
