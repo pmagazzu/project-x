@@ -96,10 +96,53 @@ export class GameScene extends Phaser.Scene {
     ctx.drawImage(src, 0, 0, w, h);
     const img = ctx.getImageData(0, 0, w, h);
     const d = img.data;
-    for (let i = 0; i < d.length; i += 4) {
-      const r = d[i], g = d[i + 1], b = d[i + 2];
-      if (r >= threshold && g >= threshold && b >= threshold) d[i + 3] = 0;
+
+    const idx = (x, y) => (y * w + x) * 4;
+    const q = (v) => Math.max(0, Math.min(255, Math.round(v / 16) * 16));
+    const keyOf = (r, g, b) => `${q(r)},${q(g)},${q(b)}`;
+
+    // 1) Collect border color palette (handles white/gray checker backgrounds)
+    const borderPalette = new Set();
+    for (let x = 0; x < w; x++) {
+      let i = idx(x, 0); borderPalette.add(keyOf(d[i], d[i + 1], d[i + 2]));
+      i = idx(x, h - 1); borderPalette.add(keyOf(d[i], d[i + 1], d[i + 2]));
     }
+    for (let y = 0; y < h; y++) {
+      let i = idx(0, y); borderPalette.add(keyOf(d[i], d[i + 1], d[i + 2]));
+      i = idx(w - 1, y); borderPalette.add(keyOf(d[i], d[i + 1], d[i + 2]));
+    }
+
+    const isBg = (r, g, b) => {
+      // direct near-white key
+      if (r >= threshold && g >= threshold && b >= threshold) return true;
+      // border-palette key
+      return borderPalette.has(keyOf(r, g, b));
+    };
+
+    // 2) Flood-fill only border-connected background pixels to transparent
+    const seen = new Uint8Array(w * h);
+    const queue = [];
+    const tryPush = (x, y) => {
+      if (x < 0 || y < 0 || x >= w || y >= h) return;
+      const p = y * w + x;
+      if (seen[p]) return;
+      const i = idx(x, y);
+      if (d[i + 3] === 0) return;
+      if (!isBg(d[i], d[i + 1], d[i + 2])) return;
+      seen[p] = 1;
+      queue.push([x, y]);
+    };
+
+    for (let x = 0; x < w; x++) { tryPush(x, 0); tryPush(x, h - 1); }
+    for (let y = 0; y < h; y++) { tryPush(0, y); tryPush(w - 1, y); }
+
+    while (queue.length) {
+      const [x, y] = queue.pop();
+      const i = idx(x, y);
+      d[i + 3] = 0;
+      tryPush(x + 1, y); tryPush(x - 1, y); tryPush(x, y + 1); tryPush(x, y - 1);
+    }
+
     ctx.putImageData(img, 0, 0);
     cvs.refresh();
   }
@@ -157,10 +200,16 @@ export class GameScene extends Phaser.Scene {
       repl(unitTextureKey(type, 2), clean);
     }
 
-    // Terrain tile overrides OFF for now.
-    // Incoming AI tile exports still include hidden checker/editor artifacts.
-    // Keep stable procedural terrain; use user art only for units/buildings.
-    this._tileOverride = null;
+    // Terrain tile art refs (use user assets when available, else fallback to procedural)
+    this._tileOverride = {
+      0: pick('ua_clean_grass_tile'),
+      1: pick('ua_clean_forest_tile', 'ua_clean_grass_hill'),
+      2: pick('ua_clean_mountain_tile'),
+      3: pick('ua_clean_hill_tile', 'ua_clean_grass_hill'),
+      4: pick('ua_clean_water_shallow_tile'),
+      5: pick('ua_clean_ocean_deep_tile'),
+      6: pick('ua_clean_sand_tile', 'ua_clean_sand_hill'),
+    };
   }
 
   // Add game objects to the UI layer so the fixed uiCamera renders them
