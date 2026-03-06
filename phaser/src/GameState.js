@@ -253,6 +253,11 @@ export function createGameState(scenario = 'default') {
     state.units.push(createUnit('PATROL_BOAT', 1, 10, 18));
     state.units.push(createUnit('PATROL_BOAT', 2, 13, 16));
     state.units.push(createUnit('PATROL_BOAT', 2, 13, 17));
+    // Starting heavier naval presence: 1 submarine + 1 destroyer per side
+    state.units.push(createUnit('SUBMARINE', 1, 11, 16));
+    state.units.push(createUnit('DESTROYER', 1, 9, 17));
+    state.units.push(createUnit('SUBMARINE', 2, 12, 17));
+    state.units.push(createUnit('DESTROYER', 2, 14, 16));
     // P1 island resources
     for (const [q,r] of [[3,20],[4,21],[5,20],[3,21]])
       state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
