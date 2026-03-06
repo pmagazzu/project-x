@@ -325,6 +325,19 @@ export class GameScene extends Phaser.Scene {
       this.highlightGfx.beginPath(); this.highlightGfx.moveTo(verts[0].x, verts[0].y);
       for (let i = 1; i < verts.length; i++) this.highlightGfx.lineTo(verts[i].x, verts[i].y);
       this.highlightGfx.closePath(); this.highlightGfx.strokePath();
+
+      // AP bar under selected unit
+      const ap = this.selectedUnit.ap ?? 0;
+      const apMax = this.selectedUnit.apMax ?? 100;
+      const ratio = Phaser.Math.Clamp(apMax > 0 ? ap / apMax : 0, 0, 1);
+      const bw = 28, bh = 4;
+      const bx = x - bw / 2, by = y + 18;
+      this.highlightGfx.fillStyle(0x111111, 0.9);
+      this.highlightGfx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
+      this.highlightGfx.fillStyle(0x2fd36b, 0.95);
+      this.highlightGfx.fillRect(bx, by, bw * ratio, bh);
+      this.highlightGfx.lineStyle(1, 0xffffff, 0.35);
+      this.highlightGfx.strokeRect(bx - 1, by - 1, bw + 2, bh + 2);
     }
 
     // ── Pending move arrows (own units with queued moves) ───────────────────
@@ -936,11 +949,18 @@ export class GameScene extends Phaser.Scene {
       this.unitStatsTxt.setText(`HP: ${u.health}/${u.maxHealth}  AP: ${u.ap ?? 0}/${u.apMax ?? 100}  ATK: ${def.attack}  MOV: ${def.move}  RNG: ${def.range}  SIGHT: ${def.sight}`);
       const pa = gs.pendingAttacks[u.id];
       let status = '';
-      const canMoveAP = (u.ap ?? 0) >= getMoveAPPerHex(u.type);
-      const canFireAP = (u.ap ?? 0) >= getActionAPCost(u.type, 'fire');
+      const canMoveAP = (u.ap ?? 0) >= getMoveAPPerHex(u.type, u);
+      const canFireAP = (u.ap ?? 0) >= getActionAPCost(u.type, 'fire', u);
       status += u.suppressed ? '⚡ SUPPRESSED  ' : u.moved ? '✓ Moved  ' : (canMoveAP ? '○ Can move  ' : '✗ No AP to move  ');
       status += pa         ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : (canFireAP ? '○ Can attack  ' : '✗ No AP to fire  ');
       if (u.dugIn) status += '🪖 Dug in';
+      // Move AP preview while hovering a reachable destination
+      if (this.mode === 'move' && this.hoveredHex && this.reachable.some(h => h.q === this.hoveredHex.q && h.r === this.hoveredHex.r)) {
+        const path = findPath(this.terrain, this.mapSize, u.q, u.r, this.hoveredHex.q, this.hoveredHex.r, u.type) || [];
+        const steps = path.length || hexDistance(u.q, u.r, this.hoveredHex.q, this.hoveredHex.r);
+        const apNeed = Math.max(1, steps) * getMoveAPPerHex(u.type);
+        status += `  |  Move preview: ${apNeed} AP (${steps} hex)`;
+      }
       this.unitStatusTxt.setText(status);
     } else if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
       const key  = `${this.hoveredHex.q},${this.hoveredHex.r}`;
@@ -1431,7 +1451,7 @@ export class GameScene extends Phaser.Scene {
     const actions = [];
     const isImmobile = def.immobile || unit.immobile;
 
-    const moveApMin = getMoveAPPerHex(unit.type);
+    const moveApMin = getMoveAPPerHex(unit.type, unit);
     if (!unit.moved && !unit.suppressed && !isImmobile) {
       actions.push({ label: `MOVE (${moveApMin} AP/hex)`,   key: 'move',   enabled: (unit.ap ?? 0) >= moveApMin,  color: 0x1a5c8a, cb: () => this._onMoveMode() });
     }

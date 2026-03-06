@@ -81,8 +81,8 @@ export const CHASSIS_BUILDINGS = {
   SUBMARINE:       'NAVAL_YARD',
   LANDING_CRAFT:   'NAVAL_YARD',
   TRANSPORT_SM:    'NAVAL_YARD',
-  TRANSPORT_MD:    'NAVAL_YARD',
-  TRANSPORT_LG:    'NAVAL_YARD',
+  TRANSPORT_MD:    'DRY_DOCK',
+  TRANSPORT_LG:    'NAVAL_BASE',
   DESTROYER:       'DRY_DOCK',
   CRUISER_LT:      'DRY_DOCK',
   CRUISER_HV:      'DRY_DOCK',
@@ -175,10 +175,10 @@ export const BUILDING_TYPES = {
   OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 3, oil: 0 }, color: 0x88aacc, sight: 3 },
   ROAD:          { name: 'Road',           ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 1, oil: 0 }, color: 0xccbbaa, sight: 0 },
   // Naval buildings
-  NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['PATROL_BOAT','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 0 },
+  NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['PATROL_BOAT','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 0 },
   HARBOR:        { name: 'Harbor',         ironPerTurn: 1, oilPerTurn: 1, canRecruit: [],                                        buildCost: { iron: 5, oil: 1 }, color: 0x4488cc, sight: 0, repairsNaval: true },
-  DRY_DOCK:      { name: 'Dry Dock',       ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['DESTROYER','CRUISER_LT','CRUISER_HV'],   buildCost: { iron:12, oil: 4 }, color: 0x225588, sight: 0 },
-  NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, canRecruit: ['BATTLESHIP'],                            buildCost: { iron:16, oil: 6 }, color: 0x113366, sight: 2 },
+  DRY_DOCK:      { name: 'Dry Dock',       ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['DESTROYER','CRUISER_LT','CRUISER_HV','TRANSPORT_MD'],   buildCost: { iron:12, oil: 4 }, color: 0x225588, sight: 0 },
+  NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, canRecruit: ['BATTLESHIP','TRANSPORT_LG'],                            buildCost: { iron:16, oil: 6 }, color: 0x113366, sight: 2 },
 };
 
 export const RESOURCE_TYPES = {
@@ -208,13 +208,20 @@ const ACTION_AP = {
   RECON: { fire: 35 },
   COASTAL_BATTERY: { fire: 35 },
 };
-export function getMoveAPPerHex(unitType) {
-  return MOVE_AP_PER_HEX[unitType] ?? 25;
+export function getMoveAPPerHex(unitType, unit = null) {
+  const base = MOVE_AP_PER_HEX[unitType] ?? 25;
+  const mult = unit?.apMoveMult ?? 1;
+  const flat = unit?.apMoveFlat ?? 0;
+  return Math.max(1, Math.round(base * mult + flat));
 }
-export function getActionAPCost(unitType, action) {
+export function getActionAPCost(unitType, action, unit = null) {
   const base = ACTION_AP.default[action] ?? 40;
   const ov = ACTION_AP[unitType]?.[action];
-  return ov ?? base;
+  const raw = ov ?? base;
+  const mult = unit?.apActionMult ?? 1;
+  const byActionFlat = unit?.apActionFlat?.[action] ?? 0;
+  const allFlat = unit?.apActionFlatAll ?? 0;
+  return Math.max(1, Math.round(raw * mult + byActionFlat + allFlat));
 }
 
 let _nextId = 1;
@@ -278,11 +285,15 @@ export function createGameState(scenario = 'default') {
     state.units.push(createUnit('PATROL_BOAT', 1, 10, 18));
     state.units.push(createUnit('PATROL_BOAT', 2, 13, 16));
     state.units.push(createUnit('PATROL_BOAT', 2, 13, 17));
-    // Starting heavier naval presence: 1 submarine + 1 destroyer per side
+    // Starting heavier naval presence: sub + destroyer + light cruiser + small transport per side
     state.units.push(createUnit('SUBMARINE', 1, 11, 16));
     state.units.push(createUnit('DESTROYER', 1, 9, 17));
+    state.units.push(createUnit('CRUISER_LT', 1, 8, 16));
+    state.units.push(createUnit('TRANSPORT_SM', 1, 9, 18));
     state.units.push(createUnit('SUBMARINE', 2, 12, 17));
     state.units.push(createUnit('DESTROYER', 2, 14, 16));
+    state.units.push(createUnit('CRUISER_LT', 2, 15, 17));
+    state.units.push(createUnit('TRANSPORT_SM', 2, 14, 15));
     // P1 island resources
     for (const [q,r] of [[3,20],[4,21],[5,20],[3,21]])
       state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
