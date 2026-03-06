@@ -828,7 +828,7 @@ export function resolveTurn(state, terrain) {
     const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
     if (dist > aDef.range) {
       events.push(`${aDef.name} (P${attacker.owner}) missed — target moved out of range`);
-      combatLog.push({ type: 'miss', attackerName: aDef.name, attackerOwner: attacker.owner, targetName: tDef.name, targetOwner: target.owner });
+      combatLog.push({ type: 'miss', attackerName: aDef.name, attackerOwner: attacker.owner, targetName: tDef.name, targetOwner: target.owner, targetHex: { q: target.q, r: target.r } });
       continue;
     }
 
@@ -923,6 +923,9 @@ export function resolveTurn(state, terrain) {
       type: 'combat',
       attackerName: aDef.name, attackerOwner: attacker.owner,
       targetName: tDef.name,   targetOwner: target.owner,
+      attackerId: attacker.id, targetId: target.id,
+      attackerHex: { q: attacker.q, r: attacker.r },
+      targetHex: { q: target.q, r: target.r },
       isArmored, baseAttack, pierce: aDef.pierce, armor: tDef.armor, pierceRatio,
       accuracy: aDef.accuracy, evasion: tDef.evasion,
       terrainMod, dugInMod, bunkerMod, flankMod, roll, blindFirePenalty,

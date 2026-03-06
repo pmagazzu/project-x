@@ -2167,6 +2167,7 @@ export class GameScene extends Phaser.Scene {
       await Promise.all(tweenPromises);
       await this._wait(300);
       this._redrawUnits();
+      await this._waitForAdvance('[ SPACE or CLICK → START COMBAT ]');
     }
 
     // ── Phase 2: Animate attacks ─────────────────────────────────────────────
@@ -2179,10 +2180,7 @@ export class GameScene extends Phaser.Scene {
       const steps = combatLog.filter(e => e.type === 'combat' || e.type === 'miss' || e.type === 'blind_miss');
       for (let i = 0; i < steps.length; i++) {
         const entry = steps[i];
-        const targetUnit = entry.type === 'combat'
-          ? gs.units.find(u => u.owner === entry.targetOwner && UNIT_TYPES[u.type]?.name === entry.targetName)
-          : null;
-        const targetHex = entry.hex || (targetUnit ? { q: targetUnit.q, r: targetUnit.r } : null);
+        const targetHex = entry.targetHex || entry.hex || null;
         if (!targetHex) continue;
 
         const { x, y } = hexToWorld(targetHex.q, targetHex.r);
@@ -2218,21 +2216,22 @@ export class GameScene extends Phaser.Scene {
 
   _showCombatCard(entry, idx, total) {
     const objs = [];
-    const x = this.scale.width * 0.5;
-    const y = 34;
-    const w = Math.min(860, this.scale.width - 24);
-    const h = 168;
+    const cx = this.scale.width * 0.5;
+    const y = 24;
+    const w = Math.min(920, this.scale.width - 24);
+    const h = 196;
+    const left = cx - w * 0.5 + 14;
 
-    const panel = this.add.rectangle(x, y, w, h, 0x0b0f16, 0.93)
+    const panel = this.add.rectangle(cx, y, w, h, 0x0b0f16, 0.95)
       .setOrigin(0.5, 0).setScrollFactor(0).setDepth(206)
       .setStrokeStyle(2, 0x334455, 0.95);
     objs.push(panel);
 
-    const add = (txt, yy, color = '#d9e2ef', size = 12, bold = false, ox = 0) => {
-      const t = this.add.text(x + ox, y + yy, txt, {
+    const add = (txt, yy, color = '#d9e2ef', size = 12, bold = false) => {
+      const t = this.add.text(left, y + yy, txt, {
         font: `${bold ? 'bold ' : ''}${size}px monospace`,
         fill: color,
-      }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(207);
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(207);
       objs.push(t);
     };
 
@@ -2244,28 +2243,28 @@ export class GameScene extends Phaser.Scene {
       'Overwhelming': '#57ffd2',
     })[entry.tier] || '#ffffff';
 
-    const title = `[${idx}/${total}] ${entry.panic ? 'PANIC CLASH' : 'COMBAT'} — ${entry.attackerName || '?'} vs ${entry.targetName || '?'}  (${entry.tier || (entry.type === 'miss' ? 'MISS' : 'NO TARGET')})`;
-    add(title, 8, tierColor, 13, true);
+    add(`[${idx}/${total}] ${entry.panic ? 'PANIC CLASH' : 'COMBAT'}  ${entry.attackerName || '?'} (P${entry.attackerOwner || '?'})  vs  ${entry.targetName || '?'} (P${entry.targetOwner || '?'})`, 8, '#ffffff', 13, true);
 
     if (entry.type === 'combat') {
-      add(`Score ${entry.score}  |  Damage dealt ${entry.dmg}  |  Return damage ${entry.attackerDmg}`, 32, '#ffffff', 12, true);
-      add(`Atk base ${entry.baseAttack}  Pierce ${entry.pierce} vs Armor ${entry.armor}  Ratio ${Number(entry.pierceRatio || 0).toFixed(2)}`, 52, '#a9d7ff');
-      add(`Mods: acc ${entry.accuracy || 0}  eva -${entry.evasion || 0}  terrain -${entry.terrainMod || 0}  dugin -${entry.dugInMod || 0}  bunker -${entry.bunkerMod || 0}  flank +${entry.flankMod || 0}`, 72, '#ffd9a8');
-      add(`Random roll: ${entry.roll >= 0 ? '+' : ''}${entry.roll || 0}${entry.blindFirePenalty ? `   blind-fire penalty: -${entry.blindFirePenalty}` : ''}${entry.panic ? '   panic: same-hex move clash' : ''}`, 92, '#b9ffba');
-      add(`Final: score=${entry.score} → ${entry.tier}`, 114, tierColor, 12, true);
+      add(`RESULT: ${entry.tier}    SCORE: ${entry.score}    DAMAGE: defender -${entry.dmg}, attacker -${entry.attackerDmg}`, 32, tierColor, 12, true);
+      add(`BASE: atk=${entry.baseAttack}   pierce=${entry.pierce} vs armor=${entry.armor}   ratio=${Number(entry.pierceRatio || 0).toFixed(2)}`, 56, '#a9d7ff');
+      add(`MODS: +acc ${entry.accuracy || 0}   -eva ${entry.evasion || 0}   -terrain ${entry.terrainMod || 0}   -dug-in ${entry.dugInMod || 0}   -bunker ${entry.bunkerMod || 0}   +flank ${entry.flankMod || 0}`, 80, '#ffd9a8');
+      add(`RNG: ${entry.roll >= 0 ? '+' : ''}${entry.roll || 0}${entry.blindFirePenalty ? `   blind-fire -${entry.blindFirePenalty}` : ''}${entry.panic ? '   panic-clash' : ''}`, 104, '#b9ffba');
+      add(`FORMULA: score = 50 + mods + roll  → tier thresholds [<20, <40, <60, <80, >=80]`, 128, '#cfcfcf');
+      add(`NOTE: Movement already resolved. Combat uses post-move positions.`, 152, '#aaaaaa');
     } else if (entry.type === 'miss') {
-      add('Target moved out of range after movement resolved.', 48, '#dddddd');
+      add('RESULT: MISS (target moved out of range after movement phase).', 52, '#dddddd', 12, true);
     } else if (entry.type === 'blind_miss') {
-      add('Blind fire hit empty hex.', 48, '#dddddd');
+      add('RESULT: BLIND FIRE MISS (empty target hex).', 52, '#dddddd', 12, true);
     }
 
     this._addToUI(objs);
     return objs;
   }
 
-  _waitForAdvance() {
+  _waitForAdvance(label = '[ SPACE or CLICK → NEXT COMBAT ]') {
     return new Promise(resolve => {
-      const hint = this.add.text(this.scale.width / 2, this.scale.height - 56, '[ SPACE or CLICK → NEXT COMBAT ]', {
+      const hint = this.add.text(this.scale.width / 2, this.scale.height - 56, label, {
         font: 'bold 13px monospace', fill: '#ffffff', backgroundColor: '#333333', padding: { x: 12, y: 6 }
       }).setOrigin(0.5).setScrollFactor(0).setDepth(205);
       this._addToUI([hint]);
