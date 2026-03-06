@@ -244,8 +244,9 @@ export function createGameState(scenario = 'default') {
     state.units.push(createUnit('ENGINEER', 2, 18, 13));
     state.buildings.push(createBuilding('HQ', 1, 4, 20));
     state.buildings.push(createBuilding('HQ', 2, 17, 14));
-    state.buildings.push(createBuilding('NAVAL_YARD', 1, 5, 21));
-    state.buildings.push(createBuilding('NAVAL_YARD', 2, 18, 14));
+    // Starting naval facilities on coastal hexes (adjacent to water)
+    state.buildings.push(createBuilding('NAVAL_YARD', 1, 9, 20));
+    state.buildings.push(createBuilding('NAVAL_YARD', 2, 21, 14));
     // Patrol boats spawn in the ocean channel between the two islands (~q=11-12)
     // _fixNavalSpawns() will BFS-relocate if somehow on land
     state.units.push(createUnit('PATROL_BOAT', 1, 10, 17));
