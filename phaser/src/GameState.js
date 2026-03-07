@@ -1124,6 +1124,182 @@ export function resolveTurn(state, terrain) {
   return events;
 }
 
+// ── IGOUGO: resolve a single immediate attack (Civ-style) ────────────────────
+// Call when the attacker clicks attack during their turn.
+// Returns a combatLog entry (single entry array) for UI display.
+export function resolveImmediateAttack(state, attackerId, targetId, blindFire = false) {
+  const attacker = state.units.find(u => u.id === attackerId);
+  const target   = state.units.find(u => u.id === targetId);
+  if (!attacker || !target) return [];
+
+  const aDef = UNIT_TYPES[attacker.type];
+  const tDef = UNIT_TYPES[target.type];
+  const INDIRECT_FIRE = new Set(['ARTILLERY', 'MORTAR']);
+
+  const attackerIsNaval = NAVAL_UNITS.has(attacker.type) || attacker.type === 'COASTAL_BATTERY';
+  const targetIsNaval   = NAVAL_UNITS.has(target.type);
+  const targetTerrain   = (state._terrain && state._terrain[`${target.q},${target.r}`]) ?? 0;
+  const targetOnLand    = targetTerrain <= 3 || targetTerrain === 6;
+  const navalVsLand     = attackerIsNaval && targetOnLand && !targetIsNaval;
+
+  const isArmored = tDef.armor > 2;
+  let baseAttack = isArmored ? aDef.hard_attack : aDef.soft_attack;
+  if (navalVsLand) baseAttack = Math.floor((aDef.naval_attack || 1) * 0.6);
+
+  let pierceRatio = 1;
+  if (aDef.pierce < tDef.armor) pierceRatio = aDef.pierce / tDef.armor;
+
+  let score = 50;
+  score += aDef.accuracy;
+  const blindFirePenalty = blindFire ? 20 : 0;
+  score -= blindFirePenalty;
+  const ttype = targetTerrain;
+  let terrainMod = 0;
+  if (ttype === 1) terrainMod = 10;
+  if (ttype === 2) terrainMod = 20;
+  score -= terrainMod;
+  let dugInMod = 0;
+  if (target.dugIn) { dugInMod = 8; score -= dugInMod; }
+  let bunkerMod = 0;
+  const onBunker = state.buildings.find(b => b.type === 'BUNKER' && b.q === target.q && b.r === target.r && b.owner === target.owner);
+  if (onBunker) { bunkerMod = 15; score -= bunkerMod; }
+  score -= tDef.evasion;
+  score += Math.round((pierceRatio - 0.5) * 20);
+  const roll = Math.floor(Math.random() * 31) - 15;
+  score += roll;
+  score = Math.max(0, Math.min(100, score));
+
+  let tier, dmg = 0, attackerDmg = 0, suppressed = false;
+  if (score < 20)       { tier = 'Catastrophic Failure'; attackerDmg = Math.ceil(baseAttack * 0.5); }
+  else if (score < 40)  { tier = 'Repelled';             attackerDmg = 1; }
+  else if (score < 60)  { tier = 'Neutral';              dmg = Math.max(1, Math.round(baseAttack * pierceRatio * 0.5)); attackerDmg = 1; }
+  else if (score < 80)  { tier = 'Effective';            dmg = Math.max(1, Math.round(baseAttack * pierceRatio)); }
+  else                  { tier = 'Overwhelming';         dmg = Math.max(1, Math.round(baseAttack * pierceRatio)); suppressed = true; }
+
+  dmg = Math.max(0, dmg - tDef.defense);
+
+  // Retaliation: defender fires back if alive after attacker's hit and in range
+  const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
+  const defenderRange = tDef.range || 1;
+  const canRetaliate = !blindFire && !INDIRECT_FIRE.has(attacker.type) && dist <= defenderRange && target.health - dmg > 0 && !target.suppressed;
+
+  let retDmg = 0, retScore = 0, retTier = '';
+  if (canRetaliate) {
+    const rIsArmored = aDef.armor > 2;
+    let rBaseAttack = rIsArmored ? tDef.hard_attack : tDef.soft_attack;
+    let rPierceRatio = 1;
+    if (tDef.pierce < aDef.armor) rPierceRatio = tDef.pierce / aDef.armor;
+    retScore = 50 + tDef.accuracy - aDef.evasion + Math.round((rPierceRatio - 0.5) * 20) + (Math.floor(Math.random() * 31) - 15);
+    retScore = Math.max(0, Math.min(100, retScore));
+    if (retScore >= 60) retDmg = Math.max(1, Math.round(rBaseAttack * rPierceRatio));
+    else if (retScore >= 40) retDmg = Math.max(1, Math.round(rBaseAttack * rPierceRatio * 0.5));
+    retTier = retScore >= 80 ? 'Overwhelming' : retScore >= 60 ? 'Effective' : retScore >= 40 ? 'Neutral' : retScore >= 20 ? 'Repelled' : 'Catastrophic Failure';
+    retDmg = Math.max(0, retDmg - aDef.defense);
+    attackerDmg += retDmg;
+  }
+
+  // Apply damage immediately
+  if (dmg > 0)         { target.health   -= dmg;        if (target.health   <= 0) target.dead = true; }
+  if (attackerDmg > 0) { attacker.health -= attackerDmg; if (attacker.health <= 0) attacker.dead = true; }
+  if (suppressed) target.suppressed = true;
+  state.units = state.units.filter(u => !u.dead);
+  attacker.attacked = true;
+
+  const entry = {
+    type: 'combat',
+    attackerId: attacker.id, attackerType: attacker.type, attackerHex: { q: attacker.q, r: attacker.r },
+    attackerName: aDef.name, attackerOwner: attacker.owner,
+    attackerHPBefore: attacker.health + attackerDmg,
+    targetId: target.id, targetType: target.type, targetHex: { q: target.q, r: target.r },
+    targetName: tDef.name, targetOwner: target.owner,
+    targetHPBefore: target.health + dmg,
+    isArmored, baseAttack, pierce: aDef.pierce, armor: tDef.armor, pierceRatio,
+    accuracy: aDef.accuracy, evasion: tDef.evasion,
+    terrainMod, dugInMod, bunkerMod, flankMod: 0, roll, blindFirePenalty,
+    score, tier, dmg, attackerDmg, suppressed, blindFire,
+    defenderCanRetaliate: canRetaliate, retaliationDmg: retDmg, retaliationScore: retScore, retaliationTier: retTier,
+  };
+  state._lastCombatLog = [entry];
+  return [entry];
+}
+
+// ── IGOUGO: end-of-turn for current player (captures, income, spawns) ─────────
+export function resolveEndOfTurn(state, terrain) {
+  const events = [];
+  const player = state.currentPlayer;
+  state._terrain = terrain;
+
+  // Captures (only by current player's units)
+  for (const b of state.buildings) {
+    if (b.type === 'ROAD') continue;
+    const unit = unitAt(state, b.q, b.r);
+    if (unit && unit.owner !== b.owner && unit.owner === player) {
+      events.push(`P${player} captures ${BUILDING_TYPES[b.type].name}!`);
+      b.owner = player;
+    }
+  }
+
+  // Tick recruit timers for current player
+  for (const recruit of state.pendingRecruits.filter(r => r.owner === player)) {
+    recruit.turnsLeft = Math.max(0, (recruit.turnsLeft ?? 1) - 1);
+  }
+  const toSpawn = state.pendingRecruits.filter(r => r.owner === player && r.turnsLeft <= 0);
+  state.pendingRecruits = state.pendingRecruits.filter(r => !(r.owner === player && r.turnsLeft <= 0));
+  for (const recruit of toSpawn) {
+    const b = state.buildings.find(b => b.id === recruit.buildingId);
+    if (!b || b.owner !== recruit.owner) continue;
+    const spawnChassis = recruit.designId !== undefined
+      ? (state.designs[recruit.owner].find(d => d.id === recruit.designId)?.chassis ?? null)
+      : (recruit.type ?? null);
+    const spawnHex = findFreeAdjacentHex(state, b.q, b.r, spawnChassis, state._terrain);
+    if (spawnHex) {
+      if (recruit.designId !== undefined) {
+        const design = state.designs[recruit.owner].find(d => d.id === recruit.designId);
+        if (design) {
+          const unit = createUnit(design.chassis, recruit.owner, spawnHex.q, spawnHex.r);
+          Object.assign(unit, { ...design.stats, q: spawnHex.q, r: spawnHex.r, owner: recruit.owner, id: unit.id, type: design.chassis, health: design.stats.health, maxHealth: design.stats.health, moved: false, attacked: false, dugIn: false, building: false, suppressed: false, designId: design.id, designName: design.name });
+          state.units.push(unit);
+          events.push(`P${recruit.owner} recruits ${design.name}`);
+        }
+      } else {
+        state.units.push(createUnit(recruit.type, recruit.owner, spawnHex.q, spawnHex.r));
+        events.push(`P${recruit.owner} recruits ${UNIT_TYPES[recruit.type].name}`);
+      }
+    }
+  }
+
+  // Medic healing for current player
+  for (const medic of state.units.filter(u => u.type === 'MEDIC' && u.owner === player)) {
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const t = unitAt(state, medic.q + dq, medic.r + dr);
+      if (t && t.owner === player && t.health < t.maxHealth) {
+        t.health = Math.min(t.maxHealth, t.health + 1);
+      }
+    }
+  }
+
+  // Income for current player
+  const inc = calcIncome(state, player);
+  state.players[player].iron += inc.iron;
+  state.players[player].oil  += inc.oil;
+  events.push(`P${player} +${inc.iron} iron, +${inc.oil} oil`);
+
+  // Reset current player's units for next turn
+  for (const unit of state.units.filter(u => u.owner === player)) {
+    unit.moved = false; unit.attacked = false; unit.building = false; unit.suppressed = false;
+    delete unit._origQ; delete unit._origR;
+  }
+  state.pendingMoves = {}; state.pendingAttacks = {};
+
+  // Switch player
+  state.currentPlayer = player === 1 ? 2 : 1;
+  // Increment turn counter every time P2 ends their turn (full round)
+  if (player === 2) state.turn++;
+  state.phase = 'planning';
+
+  return events;
+}
+
 function findFreeAdjacentHex(state, q, r, unitType = null, terrain = null) {
   for (const [dq, dr] of HEX_NEIGHBORS) {
     const nq = q + dq, nr = r + dr;

@@ -7,7 +7,7 @@ import { MenuScene } from './MenuScene.js';
 import {
   createGameState, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
-  findPath, resolveTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
+  findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, computeDesignStats,
@@ -1880,11 +1880,8 @@ export class GameScene extends Phaser.Scene {
       if (clickedUnit && clickedUnit.owner !== gs.currentPlayer && !this.selectedUnit.attacked) {
         const range = UNIT_TYPES[this.selectedUnit.type].range;
         if (hexDistance(this.selectedUnit.q, this.selectedUnit.r, q, r) <= range) {
-          // Direct fire — store unit ID (no blind fire penalty)
-          gs.pendingAttacks[this.selectedUnit.id] = clickedUnit.id;
-          this.selectedUnit.attacked = true;
-          this.reachable = []; this.attackable = []; this.mode = 'select';
-          this._refresh(); return;
+          this._doImmediateAttack(this.selectedUnit, clickedUnit.id, false);
+          return;
         }
       }
     }
@@ -1893,10 +1890,7 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'attack_direct') {
       const target = this.attackable.find(h => h.q === q && h.r === r);
       if (target) {
-        gs.pendingAttacks[this.selectedUnit.id] = target.targetId; // unit ID, direct
-        this.selectedUnit.attacked = true;
-        this.reachable = []; this.attackable = []; this.mode = 'select';
-        this._refresh();
+        this._doImmediateAttack(this.selectedUnit, target.targetId, false);
         return;
       }
     }
@@ -1904,11 +1898,15 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'attack') {
       const inRange = this.attackable.find(h => h.q === q && h.r === r);
       if (inRange) {
-        // Blind fire — hex target, accuracy debuff applied in resolution
-        gs.pendingAttacks[this.selectedUnit.id] = { hex: { q, r } };
-        this.selectedUnit.attacked = true;
-        this.reachable = []; this.attackable = []; this.mode = 'select';
-        this._refresh();
+        // Blind fire — look up unit at hex if any, else fizzle
+        const blindTarget = gs.units.find(u => u.q === q && u.r === r && u.owner !== gs.currentPlayer);
+        if (blindTarget) {
+          this._doImmediateAttack(this.selectedUnit, blindTarget.id, true);
+        } else {
+          this.selectedUnit.attacked = true;
+          this.reachable = []; this.attackable = []; this.mode = 'select';
+          this._refresh();
+        }
         return;
       }
     }
@@ -1917,10 +1915,8 @@ export class GameScene extends Phaser.Scene {
     if (this.selectedUnit && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
       const attackTarget = this.attackable.find(h => h.q === q && h.r === r);
       if (attackTarget && clickedUnit && clickedUnit.owner !== gs.currentPlayer) {
-        gs.pendingAttacks[this.selectedUnit.id] = attackTarget.targetId;
-        this.selectedUnit.attacked = true;
-        this.attackable = []; this.mode = 'select';
-        this._refresh(); return;
+        this._doImmediateAttack(this.selectedUnit, attackTarget.targetId, false);
+        return;
       }
     }
 
@@ -2161,12 +2157,47 @@ export class GameScene extends Phaser.Scene {
     this._clearSelection();
   }
 
+  _doImmediateAttack(attacker, targetId, blindFire) {
+    // IGOUGO: resolve combat now, show card, refresh
+    const gs = this.gameState;
+    const target = gs.units.find(u => u.id === targetId);
+    if (!target) return;
+    const hpBefore = { atk: attacker.health, def: target.health };
+    const log = resolveImmediateAttack(gs, attacker.id, targetId, blindFire);
+    this.reachable = []; this.attackable = []; this.mode = 'select';
+    // If attacker died from retaliation, clear selection
+    const atkAlive = gs.units.find(u => u.id === attacker.id);
+    if (!atkAlive) this.selectedUnit = null;
+    this._refresh();
+    // Show combat result card
+    if (log.length > 0) {
+      const card = this._showCombatCard(log[0], 1, 1);
+      // Dismiss on click or space
+      const dismiss = () => {
+        card.forEach(o => { try { o.destroy(); } catch(e){} });
+        this._splashDismiss = null;
+      };
+      this._splashDismiss = dismiss;
+      this.input.once('pointerdown', dismiss);
+    }
+    const winner = checkWinner(gs);
+    if (winner) { this._showResolution([], winner); }
+  }
+
   _onSubmit() {
-    // IGOUGO: current player ends turn → resolve immediately → pass to other player
+    // IGOUGO: end this player's turn (captures/income/spawns), then pass
     const gs = this.gameState;
     this._hideRecruitPanel();
     this._clearSelection();
-    this._playResolutionAnimation();
+    gs._mapSize = this.mapSize;
+    const events = resolveEndOfTurn(gs, this.terrain);
+    const winner = checkWinner(gs);
+    if (winner) {
+      this._showResolution([], winner);
+      return;
+    }
+    this._freezeFog();
+    this._showPassScreen(`Player ${gs.currentPlayer}'s turn — take the controls`);
   }
 
   // ── Animated resolution playback ──────────────────────────────────────────
