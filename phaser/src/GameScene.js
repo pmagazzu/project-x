@@ -303,9 +303,7 @@ export class GameScene extends Phaser.Scene {
       for (const { q, r } of this.attackable) {
         const hasVisibleEnemy = gs.units.some(u => {
           if (u.owner === gs.currentPlayer || u.dead) return false;
-          const dq = (u._origQ !== undefined) ? u._origQ : u.q;
-          const dr = (u._origR !== undefined) ? u._origR : u.r;
-          if (dq !== q || dr !== r) return false;
+          if (u.q !== q || u.r !== r) return false;
           if (fog && !fog.has(`${dq},${dr}`)) return false; // hidden in fog
           return true;
         });
@@ -377,9 +375,9 @@ export class GameScene extends Phaser.Scene {
       if (typeof planned === 'number') {
         const target = gs.units.find(u => u.id === planned && !u.dead);
         if (!target) continue;
-        // We-go integrity: enemy shown/targeted at display position
-        tq = (target._origQ !== undefined) ? target._origQ : target.q;
-        tr = (target._origR !== undefined) ? target._origR : target.r;
+        // IGOUGO: use real position
+        tq = target.q;
+        tr = target.r;
       }
       // Blind fire target: { hex: {q,r} }
       else if (planned && typeof planned === 'object' && planned.hex) {
@@ -610,11 +608,10 @@ export class GameScene extends Phaser.Scene {
     const fog = this._currentFog;
 
     for (const unit of gs.units) {
-      // Enemy units with pending moves: show at their ORIGINAL (turn-start) position
-      // so P2 can't see where P1 moved their units during planning (we-go integrity)
+      // IGOUGO: all positions are real/immediate — no we-go display offset needed
       const isEnemy = unit.owner !== gs.currentPlayer;
-      const dispQ = (isEnemy && unit._origQ !== undefined) ? unit._origQ : unit.q;
-      const dispR = (isEnemy && unit._origR !== undefined) ? unit._origR : unit.r;
+      const dispQ = unit.q;
+      const dispR = unit.r;
 
       // Skip embarked units (they're inside a transport)
       if (unit.embarked) continue;
@@ -1503,7 +1500,7 @@ export class GameScene extends Phaser.Scene {
     // Hook: special abilities (future — unit.abilities array)
     // (unit.abilities || []).forEach(ab => actions.push({ label: ab.name, key: ab.key, enabled: ab.canUse(gs, unit), color: 0x664488, cb: () => ab.use(gs, unit) }));
     // Undo move — only if moved but not yet attacked
-    if (unit.moved && !unit.attacked && unit._origQ !== undefined && gs.pendingMoves[unit.id]) {
+    if (unit.moved && !unit.attacked && unit._origQ !== undefined) {
       actions.push({ label: '↩ UNDO MOVE', key: 'undo', enabled: true, color: 0x554422, cb: () => this._onUndoMove() });
     }
     actions.push({ label: 'WAIT',   key: 'wait',   enabled: true,  color: 0x444444, cb: () => this._clearSelection() });
@@ -1849,10 +1846,10 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'move') {
       const isReachable = this.reachable.some(h => h.q === q && h.r === r);
       if (isReachable && !clickedUnit) {
-        // Store original position for undo / arrow drawing
+        // IGOUGO: movement is immediate. Save _origQ/_origR for undo only (not used in combat).
         this.selectedUnit._origQ = this.selectedUnit.q;
         this.selectedUnit._origR = this.selectedUnit.r;
-        gs.pendingMoves[this.selectedUnit.id] = { q, r };
+        // Do NOT add to pendingMoves — position is real immediately
         this.selectedUnit.q = q; this.selectedUnit.r = r; this.selectedUnit.moved = true;
         // Keep unit selected after move — show remaining actions
         this.reachable = [];
@@ -2016,9 +2013,6 @@ export class GameScene extends Phaser.Scene {
     u.moved = false;
     u.building = false;
     delete u._origQ; delete u._origR;
-    delete gs.pendingMoves[u.id];
-    // Also clear any pending attacks that depended on this move
-    delete gs.pendingAttacks[u.id];
     u.attacked = false;
     this._clearSelection();
     this._redrawRoads(); // in case a road was staged
