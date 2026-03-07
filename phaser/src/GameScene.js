@@ -2347,132 +2347,132 @@ export class GameScene extends Phaser.Scene {
       DESTROYER:'◉', CRUISER_LT:'⬒', CRUISER_HV:'⬓', BATTLESHIP:'⬔',
       LANDING_CRAFT:'⟂', TRANSPORT_SM:'◫', TRANSPORT_MD:'◫', TRANSPORT_LG:'◫',
       COASTAL_BATTERY:'▣' };
-    const glyph = t => GLYPH[t] || '◌';
+    const g = t => GLYPH[t] || '◌';
 
-    const TIER_COLOR = {
-      'Catastrophic Failure': '#ff4444',
-      'Repelled':             '#ff8844',
-      'Neutral':              '#cccccc',
-      'Effective':            '#88ee44',
-      'Overwhelming':         '#44ffbb',
+    const TIER_COL = {
+      'Catastrophic Failure': '#ff4444', 'Repelled': '#ff8844',
+      'Neutral': '#cccccc', 'Effective': '#88ee44', 'Overwhelming': '#44ffcc',
     };
     const TIER_BG = {
-      'Catastrophic Failure': 0x550000,
-      'Repelled':             0x442200,
-      'Neutral':              0x222222,
-      'Effective':            0x1a3300,
-      'Overwhelming':         0x003322,
+      'Catastrophic Failure': 0x4a0000, 'Repelled': 0x3a1800,
+      'Neutral': 0x1a1a1a, 'Effective': 0x0e2800, 'Overwhelming': 0x002a1a,
     };
-    const P_COLOR = { 1: '#5599ff', 2: '#ff5555' };
+    const PC = [null, 0x3366cc, 0xcc3333]; // player colors
 
-    const mk = (txt, x, y, color='#d9e2ef', size=12, bold=false, origin=[0,0]) => {
-      const t = this.add.text(x, y, txt, {
-        font: `${bold?'bold ':''}${size}px monospace`, fill: color
-      }).setOrigin(...origin).setScrollFactor(0).setDepth(D+1);
+    const mk = (txt, x, y, col='#d0dde8', sz=12, bold=false, ox=0.5, oy=0.5) => {
+      const t = this.add.text(x, y, txt, { font:`${bold?'bold ':''}${sz}px monospace`, fill:col })
+        .setOrigin(ox, oy).setScrollFactor(0).setDepth(D+1);
       objs.push(t); return t;
     };
-
-    const rect = (x, y, w, h, color, alpha=1, stroke=null, strokeAlpha=1) => {
-      const r = this.add.rectangle(x, y, w, h, color, alpha).setScrollFactor(0).setDepth(D);
-      if (stroke) r.setStrokeStyle(1.5, stroke, strokeAlpha);
+    const box = (x, y, w, h, fill, alpha=1, stroke=null) => {
+      const r = this.add.rectangle(x, y, w, h, fill, alpha).setDepth(D).setScrollFactor(0);
+      if (stroke !== null) r.setStrokeStyle(1.5, stroke);
       objs.push(r); return r;
     };
-
-    // ── Dim backdrop ─────────────────────────────────────────────────────────
-    rect(cx, cy, sw, sh, 0x000000, 0.55);
-
-    // ── Main card ────────────────────────────────────────────────────────────
-    const cardW = Math.min(640, sw - 40), cardH = 280;
-    const cardX = cx, cardY = cy;
-    rect(cardX, cardY, cardW, cardH, 0x0d1117, 0.97, 0x3a4a5a);
-
-    // Header bar
-    const headerColor = entry.panic ? 0x5a3000 : 0x0f1e2e;
-    rect(cardX, cardY - cardH/2 + 20, cardW, 40, headerColor, 1, 0x3a4a5a);
-    const headerLabel = entry.panic ? '⚡ PANIC CLASH' : '⚔  COMBAT REPORT';
-    mk(headerLabel, cardX, cardY - cardH/2 + 20, '#e8d090', 14, true, [0.5, 0.5]);
-    if (total > 1) mk(`(${idx}/${total})`, cardX + cardW/2 - 12, cardY - cardH/2 + 20, '#778899', 11, false, [1, 0.5]);
-
-    // ── Two-column unit portraits ─────────────────────────────────────────────
-    const colW = (cardW - 60) / 2;
-    const leftX  = cardX - cardW/2 + 20;
-    const rightX = cardX + cardW/2 - 20 - colW;
-    const topY   = cardY - cardH/2 + 55;
-
-    const unitBox = (x, y, w, type, owner, name, hpBefore, hpAfter, dmgTaken, label) => {
-      rect(x + w/2, y + 44, w, 88, 0x111a22, 0.9, 0x2a3a4a);
-      mk(label, x + w/2, y + 8, owner===1 ? '#5599ff' : '#ff7755', 10, true, [0.5, 0]);
-      mk(glyph(type), x + w/2, y + 30, P_COLOR[owner] || '#ffffff', 28, true, [0.5, 0]);
-      mk(name, x + w/2, y + 60, '#e0e8f0', 11, true, [0.5, 0]);
-      // HP bar
-      const barW = w - 16, barH = 8;
-      const maxHp = hpBefore; // use hpBefore as max for bar context
-      const hpRatio = Math.max(0, hpAfter) / Math.max(1, maxHp);
-      const dmgRatio = Math.min(1, dmgTaken / Math.max(1, maxHp));
-      rect(x + 8 + barW/2, y + 76, barW, barH, 0x111111, 1, 0x334455);
-      if (hpRatio > 0) rect(x + 8 + (barW * hpRatio)/2, y + 76, barW * hpRatio, barH, hpRatio > 0.5 ? 0x44bb44 : hpRatio > 0.25 ? 0xddaa00 : 0xcc2222, 1);
-      mk(`HP ${Math.max(0,hpAfter)}/${maxHp}${dmgTaken>0?' (-'+dmgTaken+')':''}`,
-        x + w/2, y + 84, dmgTaken>0?'#ff8888':'#aaaaaa', 10, false, [0.5, 0]);
+    const hpBar = (x, y, barW, current, max, dmg) => {
+      const h = 10, bx = x - barW/2;
+      box(x, y, barW, h, 0x111111, 1, 0x334455);
+      const hpFrac = Math.max(0, current) / Math.max(1, max);
+      const col = hpFrac > 0.6 ? 0x44bb44 : hpFrac > 0.3 ? 0xddaa00 : 0xcc2222;
+      if (hpFrac > 0) box(bx + (barW*hpFrac)/2, y, barW*hpFrac, h, col);
+      if (dmg > 0) {
+        const lostW = Math.min(barW, barW * dmg / Math.max(1, max));
+        const lostX = bx + barW*hpFrac + lostW/2;
+        box(lostX, y, lostW, h, 0x882222, 0.6);
+      }
     };
 
-    const atkHPBefore = entry.attackerHPBefore ?? (entry.attackerDmg != null ? '?' : '?');
-    const defHPBefore = entry.targetHPBefore   ?? '?';
-    const atkHPAfter  = (typeof atkHPBefore === 'number') ? atkHPBefore - (entry.attackerDmg||0) : '?';
-    const defHPAfter  = (typeof defHPBefore === 'number') ? defHPBefore - (entry.dmg||0) : '?';
+    // ── Backdrop ──────────────────────────────────────────────────────────────
+    box(cx, cy, sw, sh, 0x000000, 0.65);
 
-    unitBox(leftX,  topY, colW, entry.attackerType, entry.attackerOwner, entry.attackerName||'?', atkHPBefore, atkHPAfter, entry.attackerDmg||0, 'ATTACKER');
-    unitBox(rightX, topY, colW, entry.targetType,   entry.targetOwner,   entry.targetName||'?',   defHPBefore, defHPAfter, entry.dmg||0,         'DEFENDER');
+    // ── Card shell ────────────────────────────────────────────────────────────
+    const cW = Math.min(700, sw - 32), cH = 320;
+    const cX = cx, cY = cy;
+    box(cX, cY, cW, cH, 0x0b0e14, 0.98, 0x2e3d50);
 
-    // ── VS arrow in center ────────────────────────────────────────────────────
-    mk('▶', cardX, topY + 30, '#556677', 18, true, [0.5, 0.5]);
+    // Top header strip
+    const hdrBg = entry.panic ? 0x3d2000 : 0x0d1b2a;
+    box(cX, cY - cH/2 + 22, cW, 44, hdrBg, 1, 0x2e3d50);
+    const hdrTxt = entry.panic ? '⚡  PANIC CLASH' : '⚔  COMBAT';
+    mk(hdrTxt, cX - 30, cY - cH/2 + 22, '#c8b87a', 15, true, 0.5, 0.5);
+    if (total > 1) mk(`${idx} / ${total}`, cX + cW/2 - 16, cY - cH/2 + 22, '#556677', 11, false, 1, 0.5);
+
+    // Portrait zones
+    const pW = cW * 0.38, pH = 160;
+    const lCX = cX - cW/2 + 16 + pW/2;
+    const rCX = cX + cW/2 - 16 - pW/2;
+    const pY  = cY - cH/2 + 44 + pH/2 + 4;
+
+    const portrait = (pcx, pcy, type, owner, name, hpBefore, hpAfter, dmgTaken, role) => {
+      const borderCol = PC[owner] || 0x445566;
+      box(pcx, pcy, pW, pH, 0x0f151c, 1, borderCol);
+      // Role label (ATTACKER / DEFENDER)
+      const roleCol = role === 'ATTACKER' ? '#5588ee' : '#ee5544';
+      box(pcx, pcy - pH/2 + 11, pW, 22, owner===1?0x1a2a44:0x3a1414, 1);
+      mk(role, pcx, pcy - pH/2 + 11, roleCol, 10, true);
+      // Big unit glyph
+      mk(g(type), pcx, pcy - 22, PC[owner]?`#${PC[owner].toString(16).padStart(6,'0')}`:'#aaaaaa', 42, true);
+      // Unit name
+      mk(name, pcx, pcy + 28, '#dde8f0', 11, true);
+      // HP bar
+      hpBar(pcx, pcy + 50, pW - 20, hpAfter, hpBefore, dmgTaken);
+      // HP text
+      const hpColor = dmgTaken > 0 ? '#ff8888' : '#88cc88';
+      mk(`HP  ${Math.max(0,hpAfter)} / ${hpBefore}${dmgTaken>0?'  (−'+dmgTaken+')':''}`, pcx, pcy + 65, hpColor, 10);
+    };
+
+    const atkHP0 = entry.attackerHPBefore ?? 0;
+    const defHP0 = entry.targetHPBefore   ?? 0;
+    const atkHP1 = Math.max(0, atkHP0 - (entry.attackerDmg||0));
+    const defHP1 = Math.max(0, defHP0 - (entry.dmg||0));
+
+    portrait(lCX, pY, entry.attackerType, entry.attackerOwner, entry.attackerName||'?', atkHP0, atkHP1, entry.attackerDmg||0, 'ATTACKER');
+    portrait(rCX, pY, entry.targetType,   entry.targetOwner,   entry.targetName||'?',   defHP0, defHP1, entry.dmg||0,         'DEFENDER');
+
+    // ── Center column: VS + outcome ───────────────────────────────────────────
+    const midX = cX, midTop = pY - pH/2;
+    mk('VS', midX, midTop + 28, '#334455', 18, true);
+
+    // Strength numbers
+    mk(`${entry.baseAttack ?? '?'}`, midX, midTop + 60, '#e8d090', 22, true);
+    mk('ATK', midX, midTop + 80, '#7799aa', 9, false);
+
+    // Score
+    mk(`SCORE  ${entry.score ?? '?'}`, midX, midTop + 102, '#aabbcc', 11, true);
+
+    // Roll
+    const roll = entry.roll ?? 0;
+    mk(`Roll  ${roll>=0?'+':''}${roll}`, midX, midTop + 118, roll>=0?'#88cc88':'#cc6666', 10);
 
     // ── Outcome banner ────────────────────────────────────────────────────────
-    const outY = cardY + 10;
-    const tierBg  = TIER_BG[entry.tier]  || 0x222222;
-    const tierCol = TIER_COLOR[entry.tier] || '#cccccc';
-    rect(cardX, outY, cardW - 16, 28, tierBg, 0.95, 0x445566);
-    if (entry.type === 'combat' || entry.type === 'panic') {
-      mk(entry.tier?.toUpperCase() || 'COMBAT', cardX, outY, tierCol, 13, true, [0.5, 0.5]);
-    } else if (entry.type === 'miss') {
-      mk('MISS — TARGET OUT OF RANGE', cardX, outY, '#aaaaaa', 13, true, [0.5, 0.5]);
-    } else if (entry.type === 'blind_miss') {
-      mk('BLIND FIRE — EMPTY HEX', cardX, outY, '#aaaaaa', 13, true, [0.5, 0.5]);
-    }
-
-    // ── Stat row ──────────────────────────────────────────────────────────────
+    const outY = cY + cH/2 - 74;
+    const tierCol  = TIER_COL[entry.tier]  || '#cccccc';
+    const tierBgC  = TIER_BG[entry.tier]   || 0x1a1a1a;
+    box(cX, outY, cW - 4, 30, tierBgC, 1, 0x445566);
     if (entry.type === 'combat' || entry.panic) {
-      const statY = outY + 24;
-      const stats = [
-        `Score ${entry.score ?? '?'}`,
-        `Atk ${entry.baseAttack ?? '?'}`,
-        `Pierce ${entry.pierce ?? '?'} / Armor ${entry.armor ?? '?'}`,
-        `Roll ${(entry.roll??0)>=0?'+':''}${entry.roll??0}`,
-      ];
-      const parts = stats.join('   ·   ');
-      mk(parts, cardX, statY, '#7799aa', 10, false, [0.5, 0]);
-
-      const modY = statY + 16;
-      const mods = [];
-      if (entry.terrainMod)     mods.push(`Terrain -${entry.terrainMod}`);
-      if (entry.dugInMod)       mods.push(`Dug-in -${entry.dugInMod}`);
-      if (entry.bunkerMod)      mods.push(`Bunker -${entry.bunkerMod}`);
-      if (entry.flankMod)       mods.push(`Flank +${entry.flankMod}`);
-      if (entry.blindFirePenalty) mods.push(`Blind fire -${entry.blindFirePenalty}`);
-      if (entry.suppressed)     mods.push('SUPPRESSED');
-      if (mods.length > 0) mk(mods.join('   '), cardX, modY, '#a08050', 10, false, [0.5, 0]);
-
-      // Retaliation line
-      const retY = modY + 18;
-      if (entry.defenderCanRetaliate) {
-        mk(`↩ Retaliation: ${entry.retaliationTier || '?'} — defender deals ${entry.retaliationDmg??0} dmg back`, cardX, retY, '#ffcc88', 10, false, [0.5, 0]);
-      } else {
-        mk('↩ No retaliation', cardX, retY, '#557766', 10, false, [0.5, 0]);
-      }
+      mk((entry.tier||'COMBAT').toUpperCase(), cX, outY, tierCol, 14, true);
+    } else if (entry.type === 'miss') {
+      mk('MISS — TARGET OUT OF RANGE', cX, outY, '#888888', 13, true);
+    } else {
+      mk('BLIND FIRE — EMPTY HEX', cX, outY, '#888888', 13, true);
     }
 
-    // ── Bottom hint ───────────────────────────────────────────────────────────
-    rect(cardX, cardY + cardH/2 - 18, cardW, 36, 0x0a0f14, 1, 0x2a3a4a);
-    mk('SPACE  or  CLICK TO CONTINUE', cardX, cardY + cardH/2 - 18, '#556677', 11, false, [0.5, 0.5]);
+    // ── Modifiers row ─────────────────────────────────────────────────────────
+    const modY = outY + 24;
+    const mods = [];
+    if (entry.terrainMod)      mods.push(`🌲 Terrain  −${entry.terrainMod}`);
+    if (entry.dugInMod)        mods.push(`⛏ Dug-in  −${entry.dugInMod}`);
+    if (entry.bunkerMod)       mods.push(`🏰 Bunker  −${entry.bunkerMod}`);
+    if (entry.flankMod)        mods.push(`↔ Flank  +${entry.flankMod}`);
+    if (entry.blindFirePenalty)mods.push(`👁 Blind fire  −${entry.blindFirePenalty}`);
+    if (entry.suppressed)      mods.push('💥 SUPPRESSED');
+    if (entry.defenderCanRetaliate && entry.retaliationDmg > 0)
+      mods.push(`↩ Retaliation  −${entry.retaliationDmg}`);
+    mk(mods.join('    ') || 'No modifiers', cX, modY, '#7a8a6a', 10);
+
+    // ── Footer ────────────────────────────────────────────────────────────────
+    box(cX, cY + cH/2 - 16, cW, 32, 0x080b10, 1, 0x2e3d50);
+    mk('CLICK  or  SPACE  to  continue', cX, cY + cH/2 - 16, '#3a4a5a', 11, false);
 
     this._addToUI(objs);
     return objs;
