@@ -1891,6 +1891,8 @@ export class GameScene extends Phaser.Scene {
         if (tUnit) this._showCombatPreview(this.selectedUnit, tUnit, false);
         return;
       }
+      // Clicked outside — fall through
+      this.mode = 'select';
     }
 
     if (this.mode === 'attack') {
@@ -1906,6 +1908,8 @@ export class GameScene extends Phaser.Scene {
         }
         return;
       }
+      // Clicked outside attack range — don't eat the click, fall through to select/deselect
+      this.mode = 'select';
     }
 
     // Click on attack-indicator enemy target (works in select/move mode — direct fire shortcut)
