@@ -1117,7 +1117,9 @@ export function resolveTurn(state, terrain) {
   }
   state.pendingMoves = {}; state.pendingAttacks = {};
   state.players[1].submitted = false; state.players[2].submitted = false;
-  state.currentPlayer = 1; state.phase = 'planning'; state.turn++;
+  // IGOUGO: alternate the active player each resolution
+  state.currentPlayer = state.currentPlayer === 1 ? 2 : 1;
+  state.phase = 'planning'; state.turn++;
 
   return events;
 }

@@ -839,7 +839,7 @@ export class GameScene extends Phaser.Scene {
     this.btnSettings = this._makeBtn(w - 160, 11, '⚙ Settings', 0x333355, () => this._toggleSettings(), D, 'right');
 
     // Submit button (always visible in top-right)
-    this.btnSubmit = this._makeBtn(w - 10, 11, 'SUBMIT TURN', 0x226622, () => this._onSubmit(), D, 'right');
+    this.btnSubmit = this._makeBtn(w - 10, 11, 'END TURN', 0x226622, () => this._onSubmit(), D, 'right');
   }
 
   _makeLabel(x, y, text, depth, center = false) {
@@ -2162,17 +2162,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   _onSubmit() {
+    // IGOUGO: current player ends turn → resolve immediately → pass to other player
     const gs = this.gameState;
     this._hideRecruitPanel();
-    if (gs.currentPlayer === 1) {
-      gs.players[1].submitted = true;
-      gs.currentPlayer = 2;
-      this._clearSelection();
-      this._showPassScreen("Player 2's turn — take the controls");
-    } else {
-      gs.players[2].submitted = true;
-      this._playResolutionAnimation();
-    }
+    this._clearSelection();
+    this._playResolutionAnimation();
   }
 
   // ── Animated resolution playback ──────────────────────────────────────────
@@ -2506,7 +2500,11 @@ export class GameScene extends Phaser.Scene {
       yPos += 6;
       addLine(`Turn ${this.gameState.turn} begins`, '#666666');
       this._addToUI(objects);
-      this._showSplash(objects, () => { this._freezeFog(); this._refresh(); });
+      // IGOUGO: after resolution, pass to current player (already set by resolveTurn)
+      const nextP = this.gameState.currentPlayer;
+      this._showSplash(objects, () => {
+        this._showPassScreen(`Player ${nextP}'s turn — take the controls`);
+      });
     }
   }
 
