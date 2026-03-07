@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.4.4';
+const GAME_VERSION = 'v0.4.5';
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -2248,17 +2248,17 @@ export class GameScene extends Phaser.Scene {
     // Unit portraits (top section)
     const pW=(cW-60)*0.38, pH=130, pY=cy-cH/2+56+pH/2;
     const lX=cx-cW/2+12+pW/2, rX=cx+cW/2-12-pW/2;
-    const portrait=(pcx,pcy,type,owner,name,hp,proj,role)=>{
+    const portrait=(pcx,pcy,type,owner,name,hp,maxHp,proj,role)=>{
       bx(pcx,pcy,pW,pH,0x0f151c,1,PC[owner]||0x445566);
       bx(pcx,pcy-pH/2+11,pW,22,owner===1?0x1a2a44:0x3a1414,1);
       mk(role,pcx,pcy-pH/2+11,role==='ATTACKER'?'#5588ee':'#ee5544',10,true);
       mk(GLYPH[type]||'◌',pcx,pcy-16,PC[owner]?'#'+PC[owner].toString(16).padStart(6,'0'):'#aaa',36,true);
       mk(name,pcx,pcy+22,'#dde8f0',11,true);
-      hpBar(pcx,pcy+42,pW-16,hp,hp,proj);
-      mk(`HP ${hp} → ${Math.max(0,hp-proj)}${proj>0?' (−'+proj+')':''}`,pcx,pcy+56,proj>0?'#ff8888':'#77cc77',9);
+      hpBar(pcx,pcy+42,pW-16,hp,maxHp,proj);
+      mk(`HP ${hp}/${maxHp} → ${Math.max(0,hp-proj)}${proj>0?' (−'+proj+')':''}`,pcx,pcy+56,proj>0?'#ff8888':hp<maxHp?'#ddaa44':'#77cc77',9);
     };
-    portrait(lX,pY,attacker.type,attacker.owner,aDef.name,attacker.health,expRetDmg,'ATTACKER');
-    portrait(rX,pY,target.type,target.owner,tDef.name,target.health,expDmg,'DEFENDER');
+    portrait(lX,pY,attacker.type,attacker.owner,aDef.name,attacker.health,attacker.maxHealth||aDef.health,expRetDmg,'ATTACKER');
+    portrait(rX,pY,target.type,target.owner,tDef.name,target.health,target.maxHealth||tDef.health,expDmg,'DEFENDER');
 
     // Center VS + attack str
     mk('VS',cx,pY-30,'#2a3a4a',14,true);
