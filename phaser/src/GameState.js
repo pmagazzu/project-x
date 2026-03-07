@@ -175,10 +175,10 @@ export const BUILDING_TYPES = {
   OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 3, oil: 0 }, color: 0x88aacc, sight: 4 },
   ROAD:          { name: 'Road',           ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 1, oil: 0 }, color: 0xccbbaa, sight: 0 },
   // Naval buildings
-  NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['PATROL_BOAT','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 0 },
-  HARBOR:        { name: 'Harbor',         ironPerTurn: 1, oilPerTurn: 1, canRecruit: [],                                        buildCost: { iron: 5, oil: 1 }, color: 0x4488cc, sight: 0, repairsNaval: true },
-  DRY_DOCK:      { name: 'Dry Dock',       ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['DESTROYER','CRUISER_LT','CRUISER_HV'],   buildCost: { iron:12, oil: 4 }, color: 0x225588, sight: 0 },
-  NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, canRecruit: ['BATTLESHIP'],                            buildCost: { iron:16, oil: 6 }, color: 0x113366, sight: 2 },
+  NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['PATROL_BOAT','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 2 },
+  HARBOR:        { name: 'Harbor',         ironPerTurn: 1, oilPerTurn: 1, canRecruit: [],                                        buildCost: { iron: 5, oil: 1 }, color: 0x4488cc, sight: 2, repairsNaval: true },
+  DRY_DOCK:      { name: 'Dry Dock',       ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['DESTROYER','CRUISER_LT','CRUISER_HV'],   buildCost: { iron:12, oil: 4 }, color: 0x225588, sight: 2 },
+  NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, canRecruit: ['BATTLESHIP'],                            buildCost: { iron:16, oil: 6 }, color: 0x113366, sight: 3 },
 };
 
 export const RESOURCE_TYPES = {
