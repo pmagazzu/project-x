@@ -81,8 +81,8 @@ export const CHASSIS_BUILDINGS = {
   SUBMARINE:       'NAVAL_YARD',
   LANDING_CRAFT:   'NAVAL_YARD',
   TRANSPORT_SM:    'NAVAL_YARD',
-  TRANSPORT_MD:    'DRY_DOCK',
-  TRANSPORT_LG:    'NAVAL_BASE',
+  TRANSPORT_MD:    'NAVAL_YARD',
+  TRANSPORT_LG:    'NAVAL_YARD',
   DESTROYER:       'DRY_DOCK',
   CRUISER_LT:      'DRY_DOCK',
   CRUISER_HV:      'DRY_DOCK',
@@ -95,45 +95,6 @@ export const NAVAL_UNITS = new Set(['PATROL_BOAT','SUBMARINE','DESTROYER','CRUIS
 export const SHALLOW_UNITS = new Set(['PATROL_BOAT','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG']);
 // Units that can land on sand/beach (type 6) — amphibious disembark
 export const AMPHIBIOUS_UNITS = new Set(['LANDING_CRAFT']);
-
-const BUILDING_TIER = {
-  HQ: 1, BARRACKS: 1, VEHICLE_DEPOT: 1,
-  NAVAL_YARD: 1, DRY_DOCK: 2, NAVAL_BASE: 3,
-};
-const DOMAIN_TIER_BUILDINGS = {
-  ground:  ['BARRACKS', 'BARRACKS', 'BARRACKS'],
-  vehicle: ['VEHICLE_DEPOT', 'VEHICLE_DEPOT', 'VEHICLE_DEPOT'],
-  naval:   ['NAVAL_YARD', 'DRY_DOCK', 'NAVAL_BASE'],
-  air:     ['HQ', 'HQ', 'HQ'], // placeholder until air facilities exist
-};
-
-function chassisDomain(chassis) {
-  if (NAVAL_UNITS.has(chassis)) return 'naval';
-  if (['TANK', 'ARTILLERY'].includes(chassis)) return 'vehicle';
-  if (['INFANTRY','ENGINEER','RECON','ANTI_TANK','MORTAR','MEDIC'].includes(chassis)) return 'ground';
-  return 'ground';
-}
-
-export function getDesignTier(moduleKeys = []) {
-  let tier = 1;
-  for (const key of moduleKeys) {
-    const mod = MODULES[key];
-    if (!mod) continue;
-    tier = Math.max(tier, mod.tier || 1);
-  }
-  return tier;
-}
-
-export function getRequiredBuildingForDesign(design) {
-  if (!design) return null;
-  const domain = chassisDomain(design.chassis);
-  const moduleTier = getDesignTier(design.modules || []);
-  const baseBld = CHASSIS_BUILDINGS[design.chassis];
-  const baseTier = BUILDING_TIER[baseBld] || 1;
-  const reqTier = Math.max(baseTier, moduleTier);
-  const ladder = DOMAIN_TIER_BUILDINGS[domain] || DOMAIN_TIER_BUILDINGS.ground;
-  return ladder[Math.min(3, Math.max(1, reqTier)) - 1] || baseBld;
-}
 
 export const MAX_DESIGNS_PER_PLAYER = 4; // design slots per player
 export const DESIGN_BASE_COST = { iron: 3, oil: 0 }; // flat registration fee + module costs
@@ -214,10 +175,10 @@ export const BUILDING_TYPES = {
   OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 3, oil: 0 }, color: 0x88aacc, sight: 3 },
   ROAD:          { name: 'Road',           ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 1, oil: 0 }, color: 0xccbbaa, sight: 0 },
   // Naval buildings
-  NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['PATROL_BOAT','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 0 },
+  NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['PATROL_BOAT','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 0 },
   HARBOR:        { name: 'Harbor',         ironPerTurn: 1, oilPerTurn: 1, canRecruit: [],                                        buildCost: { iron: 5, oil: 1 }, color: 0x4488cc, sight: 0, repairsNaval: true },
-  DRY_DOCK:      { name: 'Dry Dock',       ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['DESTROYER','CRUISER_LT','CRUISER_HV','TRANSPORT_MD'],   buildCost: { iron:12, oil: 4 }, color: 0x225588, sight: 0 },
-  NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, canRecruit: ['BATTLESHIP','TRANSPORT_LG'],                            buildCost: { iron:16, oil: 6 }, color: 0x113366, sight: 2 },
+  DRY_DOCK:      { name: 'Dry Dock',       ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['DESTROYER','CRUISER_LT','CRUISER_HV'],   buildCost: { iron:12, oil: 4 }, color: 0x225588, sight: 0 },
+  NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, canRecruit: ['BATTLESHIP'],                            buildCost: { iron:16, oil: 6 }, color: 0x113366, sight: 2 },
 };
 
 export const RESOURCE_TYPES = {
@@ -232,44 +193,12 @@ export const STARTING_OIL       = 4;
 export const BASE_IRON_PER_TURN = 3;
 export const BASE_OIL_PER_TURN  = 0;
 
-// ── Action Points (AP) ─────────────────────────────────────────────────────
-export const BASE_AP = 100;
-const MOVE_AP_PER_HEX = {
-  INFANTRY: 22, ENGINEER: 22, RECON: 18, MEDIC: 22,
-  TANK: 34, ARTILLERY: 75, ANTI_TANK: 55, MORTAR: 40,
-  PATROL_BOAT: 24, SUBMARINE: 30, DESTROYER: 36, CRUISER_LT: 45, CRUISER_HV: 55, BATTLESHIP: 70,
-  LANDING_CRAFT: 28, TRANSPORT_SM: 30, TRANSPORT_MD: 36, TRANSPORT_LG: 45, COASTAL_BATTERY: 999,
-};
-const ACTION_AP = {
-  default: { fire: 45, digIn: 40, build: 60, load: 30, unload: 30 },
-  ARTILLERY: { fire: 40 },
-  BATTLESHIP: { fire: 45 },
-  RECON: { fire: 35 },
-  COASTAL_BATTERY: { fire: 35 },
-};
-export function getMoveAPPerHex(unitType, unit = null) {
-  const base = MOVE_AP_PER_HEX[unitType] ?? 25;
-  const mult = unit?.apMoveMult ?? 1;
-  const flat = unit?.apMoveFlat ?? 0;
-  return Math.max(1, Math.round(base * mult + flat));
-}
-export function getActionAPCost(unitType, action, unit = null) {
-  const base = ACTION_AP.default[action] ?? 40;
-  const ov = ACTION_AP[unitType]?.[action];
-  const raw = ov ?? base;
-  const mult = unit?.apActionMult ?? 1;
-  const byActionFlat = unit?.apActionFlat?.[action] ?? 0;
-  const allFlat = unit?.apActionFlatAll ?? 0;
-  return Math.max(1, Math.round(raw * mult + byActionFlat + allFlat));
-}
-
 let _nextId = 1;
 
 export function createUnit(type, owner, q, r) {
   const def = UNIT_TYPES[type];
   return { id: _nextId++, type, owner, q, r,
     health: def.health, maxHealth: def.health,
-    apMax: BASE_AP, ap: BASE_AP,
     moved: false, attacked: false, dugIn: false, building: false };
 }
 
@@ -324,15 +253,11 @@ export function createGameState(scenario = 'default') {
     state.units.push(createUnit('PATROL_BOAT', 1, 10, 18));
     state.units.push(createUnit('PATROL_BOAT', 2, 13, 16));
     state.units.push(createUnit('PATROL_BOAT', 2, 13, 17));
-    // Starting heavier naval presence: sub + destroyer + light cruiser + small transport per side
+    // Starting heavier naval presence: 1 submarine + 1 destroyer per side
     state.units.push(createUnit('SUBMARINE', 1, 11, 16));
     state.units.push(createUnit('DESTROYER', 1, 9, 17));
-    state.units.push(createUnit('CRUISER_LT', 1, 8, 16));
-    state.units.push(createUnit('TRANSPORT_SM', 1, 9, 18));
     state.units.push(createUnit('SUBMARINE', 2, 12, 17));
     state.units.push(createUnit('DESTROYER', 2, 14, 16));
-    state.units.push(createUnit('CRUISER_LT', 2, 15, 17));
-    state.units.push(createUnit('TRANSPORT_SM', 2, 14, 15));
     // P1 island resources
     for (const [q,r] of [[3,20],[4,21],[5,20],[3,21]])
       state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
@@ -692,10 +617,8 @@ export function computeFog(state, player, mapSize, terrain) {
   // Sight sources: friendly units + observation posts
   const sources = [
     ...state.units.filter(u => u.owner === player).map(u => ({ q: u.q, r: u.r, sight: UNIT_TYPES[u.type].sight })),
-    // Buildings: minimum 1 sight for all owned non-road structures, plus any higher per-type sight.
-    ...state.buildings
-      .filter(b => b.owner === player && b.type !== 'ROAD')
-      .map(b => ({ q: b.q, r: b.r, sight: Math.max(1, BUILDING_TYPES[b.type]?.sight || 0) })),
+    ...state.buildings.filter(b => b.owner === player && BUILDING_TYPES[b.type].sight > 0)
+                      .map(b => ({ q: b.q, r: b.r, sight: BUILDING_TYPES[b.type].sight })),
   ];
 
   for (const src of sources) {
@@ -761,12 +684,8 @@ export function canRecruit(state, player, unitType, buildingId) {
   if (typeof unitType === 'number') {
     const design = state.designs[player].find(d => d.id === unitType);
     if (!design) return { ok: false, reason: 'Design not found' };
-    const expectedBuilding = getRequiredBuildingForDesign(design) || CHASSIS_BUILDINGS[design.chassis];
-    if (b.type !== expectedBuilding) {
-      const bName = BUILDING_TYPES[expectedBuilding]?.name || expectedBuilding;
-      const dTier = getDesignTier(design.modules || []);
-      return { ok: false, reason: `Requires ${bName} (tier ${dTier} design)` };
-    }
+    const expectedBuilding = CHASSIS_BUILDINGS[design.chassis];
+    if (b.type !== expectedBuilding) return { ok: false, reason: 'Wrong building for this design' };
     if (state.players[player].iron < design.trainCost.iron) return { ok: false, reason: `Need ${design.trainCost.iron} iron` };
     if (state.players[player].oil  < design.trainCost.oil)  return { ok: false, reason: `Need ${design.trainCost.oil} oil` };
     return { ok: true };
@@ -1194,9 +1113,7 @@ export function resolveTurn(state, terrain) {
   // Reset
   for (const unit of state.units) {
     unit.moved = false; unit.attacked = false; unit.building = false; unit.suppressed = false;
-    unit.apMax = unit.apMax || BASE_AP;
-    unit.ap = unit.apMax;
-    delete unit._origQ; delete unit._origR; delete unit._apMoveCost; // clear undo anchors
+    delete unit._origQ; delete unit._origR; // clear undo anchors
   }
   state.pendingMoves = {}; state.pendingAttacks = {};
   state.players[1].submitted = false; state.players[2].submitted = false;

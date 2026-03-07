@@ -4,7 +4,6 @@ import {
   MAP_SIZE, HEX_SIZE, getMapBounds
 } from './HexGrid.js';
 import { MenuScene } from './MenuScene.js';
-import { generateAllSprites, unitTextureKey, buildingTextureKey } from './SpriteGen.js';
 import {
   createGameState, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
@@ -12,7 +11,7 @@ import {
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, computeDesignStats,
-  NAVAL_UNITS, SHALLOW_UNITS, canEnterTerrain, getMoveAPPerHex, getActionAPCost, isStealthDetected
+  NAVAL_UNITS, SHALLOW_UNITS, canEnterTerrain, isStealthDetected
 } from './GameState.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -32,181 +31,8 @@ const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
 
-const ENABLE_USER_ART = false; // emergency off until art pipeline is validated
-
-const USER_ART = {
-  // buildings
-  hq: '/user_art/hq.png',
-  barracks: '/user_art/barracks.png',
-  vehicle_depot: '/user_art/vehicle_depot.png',
-  naval_yard: '/user_art/naval_yard.png',
-  harbor: '/user_art/harbor.png',
-  dry_dock: '/user_art/dry_dock.png',
-  naval_base: '/user_art/naval_base.png',
-  bunker: '/user_art/bunker.png',
-  obs_post: '/user_art/obs_post.png',
-  mine: '/user_art/mine.png',
-  oil_pump: '/user_art/oil_pump.png',
-
-  // units
-  infantry: '/user_art/infantry.png',
-  engineer: '/user_art/engineer.png',
-  recon: '/user_art/recon.png',
-  medic: '/user_art/medic.png',
-  mortar: '/user_art/mortar.png',
-  anti_tank: '/user_art/anti_tank.png',
-  tank: '/user_art/tank.png',
-  artillery: '/user_art/artillery.png',
-  patrol_boat: '/user_art/patrol_boat.png',
-  submarine: '/user_art/submarine.png',
-  destroyer_t1: '/user_art/destroyer_t1.png',
-  cruiser_light: '/user_art/cruiser_light.png',
-  cruiser_heavy: '/user_art/cruiser_heavy.png',
-  battleship: '/user_art/battleship.png',
-  landing_craft: '/user_art/landing_craft.png',
-  truck: '/user_art/truck.png',
-
-  // terrain
-  grass_tile: '/user_art/grass_tile.png',
-  forest_tile: '/user_art/forest_tile.png',
-  hill_tile: '/user_art/grass_hill.png',
-  grass_hill: '/user_art/grass_hill.png',
-  sand_tile: '/user_art/sand_tile.png',
-  sand_hill: '/user_art/sand_hill.png',
-  mountain_tile: '/user_art/mountain_tile.png',
-  water_shallow_tile: '/user_art/water_shallow_tile.png',
-  ocean_deep_tile: '/user_art/ocean_deep_tile.png',
-};
-
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
-
-  preload() {
-    if (!ENABLE_USER_ART) return;
-    for (const [k, p] of Object.entries(USER_ART)) {
-      this.load.image(`ua_${k}`, p);
-    }
-  }
-
-  _makeBgTransparent(srcKey, dstKey, threshold = 242) {
-    const srcTex = this.textures.get(srcKey);
-    if (!srcTex) return;
-    const src = srcTex.getSourceImage();
-    const w = src.width || src.naturalWidth;
-    const h = src.height || src.naturalHeight;
-    const cvs = this.textures.createCanvas(dstKey, w, h);
-    const ctx = cvs.getContext();
-    ctx.drawImage(src, 0, 0, w, h);
-    const img = ctx.getImageData(0, 0, w, h);
-    const d = img.data;
-
-    const idx = (x, y) => (y * w + x) * 4;
-    const q = (v) => Math.max(0, Math.min(255, Math.round(v / 16) * 16));
-    const keyOf = (r, g, b) => `${q(r)},${q(g)},${q(b)}`;
-
-    // 1) Collect border color palette (handles white/gray checker backgrounds)
-    const borderPalette = new Set();
-    for (let x = 0; x < w; x++) {
-      let i = idx(x, 0); borderPalette.add(keyOf(d[i], d[i + 1], d[i + 2]));
-      i = idx(x, h - 1); borderPalette.add(keyOf(d[i], d[i + 1], d[i + 2]));
-    }
-    for (let y = 0; y < h; y++) {
-      let i = idx(0, y); borderPalette.add(keyOf(d[i], d[i + 1], d[i + 2]));
-      i = idx(w - 1, y); borderPalette.add(keyOf(d[i], d[i + 1], d[i + 2]));
-    }
-
-    const isBg = (r, g, b) => {
-      // direct near-white key
-      if (r >= threshold && g >= threshold && b >= threshold) return true;
-      // border-palette key
-      return borderPalette.has(keyOf(r, g, b));
-    };
-
-    // 2) Flood-fill only border-connected background pixels to transparent
-    const seen = new Uint8Array(w * h);
-    const queue = [];
-    const tryPush = (x, y) => {
-      if (x < 0 || y < 0 || x >= w || y >= h) return;
-      const p = y * w + x;
-      if (seen[p]) return;
-      const i = idx(x, y);
-      if (d[i + 3] === 0) return;
-      if (!isBg(d[i], d[i + 1], d[i + 2])) return;
-      seen[p] = 1;
-      queue.push([x, y]);
-    };
-
-    for (let x = 0; x < w; x++) { tryPush(x, 0); tryPush(x, h - 1); }
-    for (let y = 0; y < h; y++) { tryPush(0, y); tryPush(w - 1, y); }
-
-    while (queue.length) {
-      const [x, y] = queue.pop();
-      const i = idx(x, y);
-      d[i + 3] = 0;
-      tryPush(x + 1, y); tryPush(x - 1, y); tryPush(x, y + 1); tryPush(x, y - 1);
-    }
-
-    ctx.putImageData(img, 0, 0);
-    cvs.refresh();
-  }
-
-  _applyUserArtOverrides() {
-    // preprocess white backgrounds into transparency
-    Object.keys(USER_ART).forEach(k => this._makeBgTransparent(`ua_${k}`, `ua_clean_${k}`));
-
-    const pick = (...keys) => {
-      for (const k of keys) {
-        if (k && this.textures.exists(k)) return k;
-      }
-      return null;
-    };
-
-    const repl = (targetKey, cleanKey) => {
-      if (!cleanKey || !this.textures.exists(cleanKey)) return;
-      if (this.textures.exists(targetKey)) this.textures.remove(targetKey);
-      const src = this.textures.get(cleanKey).getSourceImage();
-      this.textures.addImage(targetKey, src);
-    };
-
-    // Building overrides (all current building types)
-    const buildingMap = {
-      HQ: 'hq',
-      BARRACKS: 'barracks',
-      VEHICLE_DEPOT: 'vehicle_depot',
-      NAVAL_YARD: 'naval_yard',
-      HARBOR: 'harbor',
-      DRY_DOCK: 'dry_dock',
-      NAVAL_BASE: 'naval_base',
-      BUNKER: 'bunker',
-      OBS_POST: 'obs_post',
-      MINE: 'mine',
-      OIL_PUMP: 'oil_pump',
-    };
-    for (const [type, key] of Object.entries(buildingMap)) {
-      const clean = pick(`ua_clean_${key}`);
-      repl(buildingTextureKey(type, 1), clean);
-      repl(buildingTextureKey(type, 2), clean);
-    }
-
-    // Unit overrides (all current unit classes)
-    const unitMap = {
-      INFANTRY: 'infantry', ENGINEER: 'engineer', RECON: 'recon', MEDIC: 'medic',
-      MORTAR: 'mortar', ANTI_TANK: 'anti_tank', TANK: 'tank', ARTILLERY: 'artillery',
-      PATROL_BOAT: 'patrol_boat', SUBMARINE: 'submarine', DESTROYER: 'destroyer_t1',
-      CRUISER_LT: 'cruiser_light', CRUISER_HV: 'cruiser_heavy', BATTLESHIP: 'battleship',
-      LANDING_CRAFT: 'landing_craft', TRANSPORT_SM: 'truck', TRANSPORT_MD: 'truck', TRANSPORT_LG: 'truck',
-      COASTAL_BATTERY: 'anti_tank',
-    };
-    for (const [type, key] of Object.entries(unitMap)) {
-      const clean = pick(`ua_clean_${key}`);
-      repl(unitTextureKey(type, 1), clean);
-      repl(unitTextureKey(type, 2), clean);
-    }
-
-    // Terrain tile art refs disabled until clean alpha exports are available.
-    // Current generator outputs still include artifact grids in many tiles.
-    this._tileOverride = null;
-  }
 
   // Add game objects to the UI layer so the fixed uiCamera renders them
   // (main world camera ignores _uiLayer so zoom never displaces HUD)
@@ -265,19 +91,12 @@ export class GameScene extends Phaser.Scene {
     // Keep terrainRT as a dummy object so existing camera ignore lists don't break
     this.terrainRT = this.add.renderTexture(1, 1, 1, 1).setVisible(false);
 
-    // Generate sprite textures for units/buildings (runtime procedural atlas)
-    generateAllSprites(this, UNIT_TYPES, BUILDING_TYPES, PLAYER_COLORS);
-    // Override with user-provided art assets when available
-    if (ENABLE_USER_ART) this._applyUserArtOverrides();
-
-    // World graphics/layers (depth order)
-    this.roadGfx          = this.add.graphics().setDepth(5);
-    this.resourceGfx      = this.add.graphics().setDepth(8);
-    this.highlightGfx     = this.add.graphics().setDepth(10);
-    this.buildingSpriteLayer = this.add.layer().setDepth(14);
-    this.buildingGfx      = this.add.graphics().setDepth(15);
-    this.unitSpriteLayer  = this.add.layer().setDepth(19);
-    this.unitGfx          = this.add.graphics().setDepth(20);
+    // World graphics layers (depth order)
+    this.roadGfx      = this.add.graphics().setDepth(5);
+    this.resourceGfx  = this.add.graphics().setDepth(8);
+    this.highlightGfx = this.add.graphics().setDepth(10);
+    this.buildingGfx  = this.add.graphics().setDepth(15);
+    this.unitGfx      = this.add.graphics().setDepth(20);
     // Fog: RenderTexture instead of Graphics — handles large maps (120×120+) without vertex overflow
     this.fogRT = this.add.renderTexture(0, 0, rtW, rtH)
       .setOrigin(0, 0).setPosition(bounds.minX - padding, bounds.minY - padding).setDepth(30);
@@ -295,8 +114,8 @@ export class GameScene extends Phaser.Scene {
     // Move all scroll-factor-0 objects created so far into _uiLayer
     // (catches top bar, bottom panel, buttons, etc. without touching each line)
     const worldObjs = new Set([
-      this.terrainGfx, this.terrainTileLayer, this.terrainRT, this.roadGfx, this.resourceGfx,
-      this.highlightGfx, this.buildingSpriteLayer, this.buildingGfx, this.unitSpriteLayer, this.unitGfx, this.fogRT, this._uiLayer
+      this.terrainGfx, this.terrainRT, this.roadGfx, this.resourceGfx,
+      this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT, this._uiLayer
     ]);
     for (const obj of [...this.children.list]) {
       if (!worldObjs.has(obj) && obj.scrollFactorX === 0) {
@@ -320,8 +139,8 @@ export class GameScene extends Phaser.Scene {
     this.uiCamera = this.cameras.add(0, 0, sw, sh).setName('ui').setScroll(0, 0).setZoom(1);
     this.uiCamera.transparent = true; // transparent background — must not cover world
     this.uiCamera.ignore([
-      this.terrainGfx, this.terrainTileLayer, this.terrainRT, this.roadGfx, this.resourceGfx,
-      this.highlightGfx, this.buildingSpriteLayer, this.buildingGfx, this.unitSpriteLayer, this.unitGfx, this.fogRT,
+      this.terrainGfx, this.terrainRT, this.roadGfx, this.resourceGfx,
+      this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT,
     ]);
     this.scale.on('resize', (gs) => this.uiCamera.setSize(gs.width, gs.height));
 
@@ -342,10 +161,6 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  _drawTerrainTileSprites() {
-    // disabled: unstable with current external tile exports
-  }
-
   // Legacy — kept for reference but no longer called (RT replaced by direct gfx)
   _drawTerrainToRT() {}
 
@@ -354,89 +169,38 @@ export class GameScene extends Phaser.Scene {
     const strokeColor = isSelected ? SELECTED_STROKE : isHovered ? HOVER_STROKE : colors.stroke;
     const strokeW = (isSelected || isHovered) ? 2.5 : 1;
     const verts = hexVertices(cx, cy);
-
-    // Isometric side/shadow slab (stronger tile readability)
-    if (!isHovered && !isSelected) {
-      const dy = HEX_SIZE * 0.14;
-      gfx.fillStyle(0x000000, 0.22);
-      gfx.beginPath();
-      gfx.moveTo(verts[2].x, verts[2].y);
-      gfx.lineTo(verts[3].x, verts[3].y);
-      gfx.lineTo(verts[3].x, verts[3].y + dy);
-      gfx.lineTo(verts[2].x, verts[2].y + dy);
-      gfx.closePath();
-      gfx.fillPath();
-      gfx.beginPath();
-      gfx.moveTo(verts[1].x, verts[1].y);
-      gfx.lineTo(verts[2].x, verts[2].y);
-      gfx.lineTo(verts[2].x, verts[2].y + dy);
-      gfx.lineTo(verts[1].x, verts[1].y + dy);
-      gfx.closePath();
-      gfx.fillPath();
-    }
-
-    // top face
     gfx.fillStyle(colors.fill);
     gfx.beginPath(); gfx.moveTo(verts[0].x, verts[0].y);
     for (let i = 1; i < verts.length; i++) gfx.lineTo(verts[i].x, verts[i].y);
     gfx.closePath(); gfx.fillPath();
-
-    // terrain-specific pixel texture overlays (all terrain types)
-    if (!isHovered && !isSelected) {
-      const pix = (count, c1, c2 = c1, a = 0.35) => {
-        for (let i = 0; i < count; i++) {
-          const ox = ((i * 17 + cx * 3) % 28) - 14;
-          const oy = ((i * 11 + cy * 5) % 20) - 10;
-          const col = (i % 2 === 0) ? c1 : c2;
-          gfx.fillStyle(col, a);
-          gfx.fillRect(cx + ox, cy + oy, 2, 2);
-        }
-      };
-
-      if (terrain === TERRAIN.PLAINS) {
-        pix(28, 0x98be63, 0x7ea650, 0.42);
-      } else if (terrain === TERRAIN.FOREST) {
-        pix(20, 0x245516, 0x2f6a1d, 0.45);
-        gfx.fillStyle(0x1a3f10, 0.85);
-        for (const [ox, oy] of [[-9,-4],[-2,-7],[6,-5],[-6,3],[1,5],[8,2]]) {
-          gfx.fillTriangle(cx+ox, cy+oy-4, cx+ox-4, cy+oy+3, cx+ox+4, cy+oy+3);
-        }
-      } else if (terrain === TERRAIN.MOUNTAIN) {
-        pix(18, 0x737373, 0x9a9a9a, 0.35);
-        gfx.lineStyle(1.7, 0xe3e3e3, 0.35);
-        gfx.beginPath();
-        gfx.moveTo(cx-10, cy+5); gfx.lineTo(cx-3, cy-8); gfx.lineTo(cx+4, cy+5);
-        gfx.moveTo(cx+0, cy+5);  gfx.lineTo(cx+8, cy-4); gfx.lineTo(cx+13, cy+5);
-        gfx.strokePath();
-      } else if (terrain === TERRAIN.HILL) {
-        pix(18, 0xb99f61, 0xa78e53, 0.35);
-        gfx.lineStyle(2, 0xf0d49b, 0.2);
-        gfx.beginPath();
-        gfx.moveTo(cx-11, cy+4); gfx.lineTo(cx-6, cy-5); gfx.lineTo(cx, cy+3);
-        gfx.moveTo(cx-1, cy+4); gfx.lineTo(cx+5, cy-4); gfx.lineTo(cx+11, cy+4);
-        gfx.strokePath();
-      } else if (terrain === TERRAIN.SHALLOW) {
-        pix(22, 0x6bb7cf, 0x4ea4c2, 0.34);
-        gfx.lineStyle(1.5, 0xa8def0, 0.35);
-        gfx.beginPath();
-        gfx.moveTo(cx-10, cy); gfx.lineTo(cx-2, cy-2); gfx.lineTo(cx+7, cy+1);
-        gfx.strokePath();
-      } else if (terrain === TERRAIN.OCEAN) {
-        pix(26, 0x1a4167, 0x123456, 0.34);
-        gfx.lineStyle(1.3, 0x4f7ea8, 0.28);
-        gfx.beginPath();
-        gfx.moveTo(cx-11, cy+1); gfx.lineTo(cx-4, cy-1); gfx.lineTo(cx+3, cy+1); gfx.lineTo(cx+11, cy-1);
-        gfx.strokePath();
-      } else if (terrain === TERRAIN.SAND) {
-        pix(20, 0xe1c77d, 0xcfae67, 0.32);
-      }
-    }
-
-    // edge
     gfx.lineStyle(strokeW, strokeColor);
     gfx.beginPath(); gfx.moveTo(verts[0].x, verts[0].y);
     for (let i = 1; i < verts.length; i++) gfx.lineTo(verts[i].x, verts[i].y);
     gfx.closePath(); gfx.strokePath();
+    // Forest: draw small tree triangles
+    if (terrain === 1 && !isHovered && !isSelected) {
+      gfx.fillStyle(0x2a6018, 0.9);
+      const ts = 5; // tree size
+      for (const [ox, oy] of [[-7,-4],[4,-6],[0,5],[-4,6],[7,2]]) {
+        gfx.fillTriangle(cx+ox, cy+oy-ts, cx+ox-ts, cy+oy+ts, cx+ox+ts, cy+oy+ts);
+      }
+    }
+    // Mountain: draw sharp peak lines
+    if (terrain === 2 && !isHovered && !isSelected) {
+      gfx.lineStyle(1.5, 0xffffff, 0.35);
+      gfx.beginPath();
+      gfx.moveTo(cx-8, cy+5); gfx.lineTo(cx-2, cy-7); gfx.lineTo(cx+4, cy+5);
+      gfx.moveTo(cx+1, cy+5); gfx.lineTo(cx+7, cy-3); gfx.lineTo(cx+13, cy+5);
+      gfx.strokePath();
+    }
+    // Hill: draw smooth rounded bump curves
+    if (terrain === 3 && !isHovered && !isSelected) {
+      gfx.lineStyle(2, 0xffffff, 0.25);
+      gfx.beginPath();
+      gfx.moveTo(cx-10, cy+4); gfx.lineTo(cx-5, cy-4); gfx.lineTo(cx, cy+4);
+      gfx.moveTo(cx-2, cy+4); gfx.lineTo(cx+4, cy-3); gfx.lineTo(cx+10, cy+4);
+      gfx.strokePath();
+    }
   }
 
   // ── Static layers (resources, roads) ─────────────────────────────────────
@@ -502,9 +266,6 @@ export class GameScene extends Phaser.Scene {
     // We-go integrity is maintained by _origQ/_origR on enemy units — enemy display positions
     // are locked to turn-start regardless of fog recomputation.
     this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
-    // Keep static layers in sync with newly built roads / captured resource structures
-    this._redrawRoads();
-    this._redrawResources();
     this._redrawHighlights();
     this._redrawBuildings();
     this._redrawUnits();
@@ -564,19 +325,6 @@ export class GameScene extends Phaser.Scene {
       this.highlightGfx.beginPath(); this.highlightGfx.moveTo(verts[0].x, verts[0].y);
       for (let i = 1; i < verts.length; i++) this.highlightGfx.lineTo(verts[i].x, verts[i].y);
       this.highlightGfx.closePath(); this.highlightGfx.strokePath();
-
-      // AP bar under selected unit
-      const ap = this.selectedUnit.ap ?? 0;
-      const apMax = this.selectedUnit.apMax ?? 100;
-      const ratio = Phaser.Math.Clamp(apMax > 0 ? ap / apMax : 0, 0, 1);
-      const bw = 28, bh = 4;
-      const bx = x - bw / 2, by = y + 18;
-      this.highlightGfx.fillStyle(0x111111, 0.9);
-      this.highlightGfx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
-      this.highlightGfx.fillStyle(0x2fd36b, 0.95);
-      this.highlightGfx.fillRect(bx, by, bw * ratio, bh);
-      this.highlightGfx.lineStyle(1, 0xffffff, 0.35);
-      this.highlightGfx.strokeRect(bx - 1, by - 1, bw + 2, bh + 2);
     }
 
     // ── Pending move arrows (own units with queued moves) ───────────────────
@@ -702,26 +450,6 @@ export class GameScene extends Phaser.Scene {
   // ── Buildings ─────────────────────────────────────────────────────────────
   _redrawBuildings() {
     this.buildingGfx.clear();
-    this.buildingSpriteLayer.removeAll(true);
-
-    // Sprite-first building rendering
-    for (const b of this.gameState.buildings) {
-      if (b.type === 'ROAD') continue;
-      const { x, y } = hexToWorld(b.q, b.r);
-      const key = buildingTextureKey(b.type, b.owner || 1);
-      if (this.textures.exists(key)) {
-        const spr = this.add.image(x, y, key).setDepth(14).setScale(1.0).setOrigin(0.5, 0.6).setAlpha(0.98);
-        this.buildingSpriteLayer.add(spr);
-      }
-
-      // Keep owner outline for readability
-      const color = b.owner ? PLAYER_COLORS[b.owner] : 0x888888;
-      const s = HEX_SIZE * 0.28;
-      this.buildingGfx.lineStyle(1.5, color, 0.55);
-      this.buildingGfx.strokeRect(x - s, y - s * 0.45, s * 2, s * 1.2);
-    }
-    return;
-
     for (const b of this.gameState.buildings) {
       if (b.type === 'ROAD') continue;
       const { x, y } = hexToWorld(b.q, b.r);
@@ -877,18 +605,15 @@ export class GameScene extends Phaser.Scene {
   // ── Units ─────────────────────────────────────────────────────────────────
   _redrawUnits() {
     this.unitGfx.clear();
-    this.unitSpriteLayer.removeAll(true);
     const gs  = this.gameState;
     const fog = this._currentFog;
 
     for (const unit of gs.units) {
       // Enemy units with pending moves: show at their ORIGINAL (turn-start) position
-      // so P2 can't see where P1 moved during planning (we-go integrity).
-      // During resolution playback, disable this lock so movement/combat phases show true positions.
+      // so P2 can't see where P1 moved their units during planning (we-go integrity)
       const isEnemy = unit.owner !== gs.currentPlayer;
-      const lockEnemyDisplay = !this._isResolvingPlayback;
-      const dispQ = (lockEnemyDisplay && isEnemy && unit._origQ !== undefined) ? unit._origQ : unit.q;
-      const dispR = (lockEnemyDisplay && isEnemy && unit._origR !== undefined) ? unit._origR : unit.r;
+      const dispQ = (isEnemy && unit._origQ !== undefined) ? unit._origQ : unit.q;
+      const dispR = (isEnemy && unit._origR !== undefined) ? unit._origR : unit.r;
 
       // Skip embarked units (they're inside a transport)
       if (unit.embarked) continue;
@@ -939,32 +664,6 @@ export class GameScene extends Phaser.Scene {
         this.unitGfx.strokePath();
       }
 
-      // Sprite-first unit body
-      let facingAngle = 0;
-      if (unit._origQ !== undefined && unit._origR !== undefined && (unit.q !== unit._origQ || unit.r !== unit._origR)) {
-        const p0 = hexToWorld(unit._origQ, unit._origR);
-        facingAngle = Phaser.Math.RadToDeg(Math.atan2(y - p0.y, x - p0.x));
-      } else if (gs.pendingAttacks?.[unit.id]) {
-        const a = gs.pendingAttacks[unit.id];
-        let tq = null, tr = null;
-        if (typeof a === 'number') {
-          const t = gs.units.find(u2 => u2.id === a);
-          if (t) { tq = t.q; tr = t.r; }
-        } else if (a?.hex) {
-          tq = a.hex.q; tr = a.hex.r;
-        }
-        if (tq !== null) {
-          const tp = hexToWorld(tq, tr);
-          facingAngle = Phaser.Math.RadToDeg(Math.atan2(tp.y - y, tp.x - x));
-        }
-      }
-      const uKey = unitTextureKey(unit.type, unit.owner || 1);
-      if (this.textures.exists(uKey)) {
-        const spr = this.add.image(x, y, uKey).setDepth(19).setScale(1.0).setOrigin(0.5, 0.62).setAlpha(alpha).setAngle(facingAngle);
-        this.unitSpriteLayer.add(spr);
-      }
-
-      if (false) {
       this.unitGfx.fillStyle(color, alpha);
       this.unitGfx.lineStyle(2, 0x000000, alpha);
 
@@ -1061,8 +760,6 @@ export class GameScene extends Phaser.Scene {
         this.unitGfx.fillRect(x-r*0.7, y-r*0.2, r*1.4, r*0.4);
         this.unitGfx.lineStyle(2, 0x000000, alpha);
         this.unitGfx.strokeCircle(x, y, r);
-      }
-
       }
 
       // Health bar
@@ -1236,21 +933,12 @@ export class GameScene extends Phaser.Scene {
         : def.name;
       const nameLabel = isOwnUnit && u.designId !== undefined ? `★ ${displayName}` : `[ ${displayName} ]`;
       this.unitNameTxt.setText(`${nameLabel}  P${u.owner}`);
-      this.unitStatsTxt.setText(`HP: ${u.health}/${u.maxHealth}  AP: ${u.ap ?? 0}/${u.apMax ?? 100}  ATK: ${def.attack}  MOV: ${def.move}  RNG: ${def.range}  SIGHT: ${def.sight}`);
+      this.unitStatsTxt.setText(`HP: ${u.health}/${u.maxHealth}  ATK: ${def.attack}  MOV: ${def.move}  RNG: ${def.range}  SIGHT: ${def.sight}`);
       const pa = gs.pendingAttacks[u.id];
       let status = '';
-      const canMoveAP = (u.ap ?? 0) >= getMoveAPPerHex(u.type, u);
-      const canFireAP = (u.ap ?? 0) >= getActionAPCost(u.type, 'fire', u);
-      status += u.suppressed ? '⚡ SUPPRESSED  ' : u.moved ? '✓ Moved  ' : (canMoveAP ? '○ Can move  ' : '✗ No AP to move  ');
-      status += pa         ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : (canFireAP ? '○ Can attack  ' : '✗ No AP to fire  ');
+      status += u.suppressed ? '⚡ SUPPRESSED  ' : u.moved ? '✓ Moved  ' : '○ Can move  ';
+      status += pa         ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : '○ Can attack  ';
       if (u.dugIn) status += '🪖 Dug in';
-      // Move AP preview while hovering a reachable destination
-      if (this.mode === 'move' && this.hoveredHex && this.reachable.some(h => h.q === this.hoveredHex.q && h.r === this.hoveredHex.r)) {
-        const path = findPath(this.terrain, this.mapSize, u.q, u.r, this.hoveredHex.q, this.hoveredHex.r, u.type) || [];
-        const steps = path.length || hexDistance(u.q, u.r, this.hoveredHex.q, this.hoveredHex.r);
-        const apNeed = Math.max(1, steps) * getMoveAPPerHex(u.type);
-        status += `  |  Move preview: ${apNeed} AP (${steps} hex)`;
-      }
       this.unitStatusTxt.setText(status);
     } else if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
       const key  = `${this.hoveredHex.q},${this.hoveredHex.r}`;
@@ -1741,9 +1429,8 @@ export class GameScene extends Phaser.Scene {
     const actions = [];
     const isImmobile = def.immobile || unit.immobile;
 
-    const moveApMin = getMoveAPPerHex(unit.type, unit);
     if (!unit.moved && !unit.suppressed && !isImmobile) {
-      actions.push({ label: `MOVE (${moveApMin} AP/hex)`,   key: 'move',   enabled: (unit.ap ?? 0) >= moveApMin,  color: 0x1a5c8a, cb: () => this._onMoveMode() });
+      actions.push({ label: 'MOVE',   key: 'move',   enabled: true,  color: 0x1a5c8a, cb: () => this._onMoveMode() });
     }
 
     // Transport: LOAD (board adjacent land units) / UNLOAD (disembark to adjacent hex)
@@ -1751,35 +1438,31 @@ export class GameScene extends Phaser.Scene {
       const cargo = unit.cargo || [];
       const cap = def.capacity;
       const maxLoad = cap.infantry + cap.vehicle;
-      const loadAp = getActionAPCost(unit.type, 'load');
-      const unloadAp = getActionAPCost(unit.type, 'unload');
       if (cargo.length < maxLoad) {
-        actions.push({ label: `LOAD UNIT (${cargo.length}/${maxLoad}) [${loadAp} AP]`, key: 'load', enabled: (unit.ap ?? 0) >= loadAp, color: 0x336699,
+        actions.push({ label: `LOAD UNIT (${cargo.length}/${maxLoad})`, key: 'load', enabled: true, color: 0x336699,
           cb: () => this._enterLoadMode(unit) });
       }
       if (cargo.length > 0) {
-        actions.push({ label: `UNLOAD (${cargo.length}) [${unloadAp} AP]`, key: 'unload', enabled: (unit.ap ?? 0) >= unloadAp, color: 0x226644,
+        actions.push({ label: `UNLOAD (${cargo.length})`, key: 'unload', enabled: true, color: 0x226644,
           cb: () => this._enterUnloadMode(unit) });
       }
     }
     if (!unit.attacked && !unit.suppressed && def.attack > 0) {
-      const fireAp = getActionAPCost(unit.type, 'fire');
       const visibleEnemies = getAttackableHexes(gs, unit, unit.q, unit.r, this._currentFog);
       const hasRange = def.range > 0;
       // ATTACK — only if confirmed visible enemy in range (direct fire, no penalty)
       if (visibleEnemies.length > 0) {
-        actions.push({ label: `ATTACK [${fireAp} AP]`, key: 'attack', enabled: (unit.ap ?? 0) >= fireAp, color: 0x882222,
+        actions.push({ label: 'ATTACK', key: 'attack', enabled: true, color: 0x882222,
           cb: () => this._onDirectAttackMode() });
       }
       // FIRE AT TILE — always available (blind fire, accuracy debuff, shows full range)
       if (hasRange) {
-        actions.push({ label: `FIRE AT TILE [${fireAp} AP]`, key: 'fire_tile', enabled: (unit.ap ?? 0) >= fireAp, color: 0x663311,
+        actions.push({ label: 'FIRE AT TILE', key: 'fire_tile', enabled: true, color: 0x663311,
           cb: () => this._onAttackMode() });
       }
     }
     if (def.canDigIn && !unit.dugIn && !unit.moved) {
-      const digAp = getActionAPCost(unit.type, 'digIn');
-      actions.push({ label: `DIG IN [${digAp} AP]`, key: 'digin',  enabled: (unit.ap ?? 0) >= digAp,  color: 0x8B5A2B, cb: () => this._onDigIn() });
+      actions.push({ label: 'DIG IN', key: 'digin',  enabled: true,  color: 0x8B5A2B, cb: () => this._onDigIn() });
     }
     if (unit.roadOrder) {
       actions.push({ label: '✕ CANCEL ROAD ORDER', key: 'cancel_road', enabled: true, color: 0x662222,
@@ -1863,12 +1546,11 @@ export class GameScene extends Phaser.Scene {
       const res = gs.resourceHexes[`${unit.q},${unit.r}`];
       const iron = gs.players[p].iron, oil = gs.players[p].oil;
       const coastal = this._isCoastalHex(unit.q, unit.r);
-      const buildAp = getActionAPCost(unit.type, 'build');
 
       // All possible build options — add more here as the game grows
       const allOpts = [];
       if (!roadAt(gs, unit.q, unit.r))
-        allOpts.push({ label: `Road        1⚙ [${buildAp}AP]`,  cost: { iron:1,oil:0 }, enabled: iron>=1 && (unit.ap ?? 0) >= buildAp,  cb: () => this._onBuildRoad() });
+        allOpts.push({ label: `Road        1⚙`,  cost: { iron:1,oil:0 }, enabled: iron>=1,  cb: () => this._onBuildRoad() });
       // Auto-road standing order (engineer pathfinds to destination, builds each turn)
       if (unit.roadOrder) {
         allOpts.push({ label: `✕ CANCEL ROAD ORDER`, cost: null, enabled: true, cb: () => { delete unit.roadOrder; this._hideContextMenu(); this._refresh(); } });
@@ -1876,22 +1558,22 @@ export class GameScene extends Phaser.Scene {
         allOpts.push({ label: `AUTO-ROAD →`, cost: null, enabled: true, cb: () => this._enterRoadDestMode(unit) });
       }
       if (res && noBuilding)
-        allOpts.push({ label: `${res.type==='OIL'?'Oil Pump   4⚙ 2🛢':'Mine        4⚙'} [${buildAp}AP]`,
-                       cost: { iron:4,oil: res.type==='OIL'?2:0 }, enabled: (res.type==='OIL'?(iron>=4&&oil>=2):iron>=4) && (unit.ap ?? 0) >= buildAp,
+        allOpts.push({ label: `${res.type==='OIL'?'Oil Pump   4⚙ 2🛢':'Mine        4⚙'}`,
+                       cost: { iron:4,oil: res.type==='OIL'?2:0 }, enabled: res.type==='OIL'?(iron>=4&&oil>=2):iron>=4,
                        cb: () => this._onBuildMine(res.type) });
       // Land military buildings
-      if (noBuilding) allOpts.push({ label: `Barracks    6⚙ [${buildAp}AP]`,       cost:{iron:6,oil:0},  enabled: iron>=6 && (unit.ap ?? 0) >= buildAp,          cb: () => this._onBuildStructure('BARRACKS',6) });
-      if (noBuilding) allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢 [${buildAp}AP]`, cost:{iron:8,oil:2},  enabled: iron>=8&&oil>=2 && (unit.ap ?? 0) >= buildAp,  cb: () => this._onBuildStructure('VEHICLE_DEPOT',8,2) });
+      if (noBuilding) allOpts.push({ label: `Barracks    6⚙`,       cost:{iron:6,oil:0},  enabled: iron>=6,          cb: () => this._onBuildStructure('BARRACKS',6) });
+      if (noBuilding) allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢`, cost:{iron:8,oil:2},  enabled: iron>=8&&oil>=2,  cb: () => this._onBuildStructure('VEHICLE_DEPOT',8,2) });
       // Naval buildings (coastal land only)
-      if (noBuilding) allOpts.push({ label: `Naval Yard  8⚙ 2🛢 ${coastal?'':'[COAST]'} [${buildAp}AP]`,   cost:{iron:8,oil:2},  enabled: coastal && iron>=8&&oil>=2 && (unit.ap ?? 0) >= buildAp,  cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
-      if (noBuilding) allOpts.push({ label: `Harbor      5⚙ 1🛢 ${coastal?'':'[COAST]'} [${buildAp}AP]`,   cost:{iron:5,oil:1},  enabled: coastal && iron>=5&&oil>=1 && (unit.ap ?? 0) >= buildAp,  cb: () => this._onBuildStructure('HARBOR',5,1) });
-      if (noBuilding) allOpts.push({ label: `Dry Dock   12⚙ 4🛢 ${coastal?'':'[COAST]'} [${buildAp}AP]`,   cost:{iron:12,oil:4}, enabled: coastal && iron>=12&&oil>=4 && (unit.ap ?? 0) >= buildAp, cb: () => this._onBuildStructure('DRY_DOCK',12,4) });
-      if (noBuilding) allOpts.push({ label: `Naval Base 16⚙ 6🛢 ${coastal?'':'[COAST]'} [${buildAp}AP]`,   cost:{iron:16,oil:6}, enabled: coastal && iron>=16&&oil>=6 && (unit.ap ?? 0) >= buildAp, cb: () => this._onBuildStructure('NAVAL_BASE',16,6) });
+      if (noBuilding) allOpts.push({ label: `Naval Yard  8⚙ 2🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:8,oil:2},  enabled: coastal && iron>=8&&oil>=2,  cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
+      if (noBuilding) allOpts.push({ label: `Harbor      5⚙ 1🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:5,oil:1},  enabled: coastal && iron>=5&&oil>=1,  cb: () => this._onBuildStructure('HARBOR',5,1) });
+      if (noBuilding) allOpts.push({ label: `Dry Dock   12⚙ 4🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:12,oil:4}, enabled: coastal && iron>=12&&oil>=4, cb: () => this._onBuildStructure('DRY_DOCK',12,4) });
+      if (noBuilding) allOpts.push({ label: `Naval Base 16⚙ 6🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:16,oil:6}, enabled: coastal && iron>=16&&oil>=6, cb: () => this._onBuildStructure('NAVAL_BASE',16,6) });
       // Defensive structures
-      if (noBuilding) allOpts.push({ label: `Bunker      5⚙ [${buildAp}AP]`,       cost:{iron:5,oil:0},  enabled: iron>=5 && (unit.ap ?? 0) >= buildAp,          cb: () => this._onBuildStructure('BUNKER',5) });
-      if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙ [${buildAp}AP]`,       cost:{iron:3,oil:0},  enabled: iron>=3 && (unit.ap ?? 0) >= buildAp,          cb: () => this._onBuildStructure('OBS_POST',3) });
+      if (noBuilding) allOpts.push({ label: `Bunker      5⚙`,       cost:{iron:5,oil:0},  enabled: iron>=5,          cb: () => this._onBuildStructure('BUNKER',5) });
+      if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙`,       cost:{iron:3,oil:0},  enabled: iron>=3,          cb: () => this._onBuildStructure('OBS_POST',3) });
       // Coastal Battery — spawns as immobile unit (no building on hex required)
-      allOpts.push({ label: `Coast. Battery 6⚙ 1🛢 [${buildAp}AP]`, cost:{iron:6,oil:1}, enabled: iron>=6&&oil>=1 && (unit.ap ?? 0) >= buildAp, cb: () => this._onBuildCoastalBattery() });
+      allOpts.push({ label: `Coast. Battery 6⚙ 1🛢`, cost:{iron:6,oil:1}, enabled: iron>=6&&oil>=1, cb: () => this._onBuildCoastalBattery() });
       // Future entries just go here — pagination handles overflow automatically
 
       const totalPages = Math.max(1, Math.ceil(allOpts.length / PAGE_SIZE));
@@ -2097,8 +1779,7 @@ export class GameScene extends Phaser.Scene {
     // ── Transport load mode ──────────────────────────────────────────────
     if (this.mode === 'transport_load') {
       const transport = this._transportUnit;
-      const loadAp = transport ? getActionAPCost(transport.type, 'load') : 0;
-      if (transport && (transport.ap ?? 0) >= loadAp && clickedUnit && clickedUnit.owner === gs.currentPlayer && clickedUnit !== transport) {
+      if (transport && clickedUnit && clickedUnit.owner === gs.currentPlayer && clickedUnit !== transport) {
         const dist = hexDistance(transport.q, transport.r, q, r);
         if (dist <= 1) {
           if (!transport.cargo) transport.cargo = [];
@@ -2115,7 +1796,6 @@ export class GameScene extends Phaser.Scene {
           if (ok) {
             transport.cargo.push(clickedUnit.id);
             clickedUnit.embarked = true; // hidden from map
-            transport.ap = Math.max(0, (transport.ap ?? 0) - loadAp);
           }
         }
       }
@@ -2126,8 +1806,7 @@ export class GameScene extends Phaser.Scene {
     // ── Transport unload mode ────────────────────────────────────────────
     if (this.mode === 'transport_unload') {
       const transport = this._transportUnit;
-      const unloadAp = transport ? getActionAPCost(transport.type, 'unload') : 0;
-      if (transport && (transport.ap ?? 0) >= unloadAp && transport.cargo && transport.cargo.length > 0) {
+      if (transport && transport.cargo && transport.cargo.length > 0) {
         const dist = hexDistance(transport.q, transport.r, q, r);
         if (dist <= 1) {
           const ttype = this.terrain[`${q},${r}`] ?? 0;
@@ -2141,7 +1820,6 @@ export class GameScene extends Phaser.Scene {
                 cargoUnit.q = q; cargoUnit.r = r;
                 cargoUnit.embarked = false;
                 cargoUnit.moved = true; // used its move this turn
-                transport.ap = Math.max(0, (transport.ap ?? 0) - unloadAp);
               }
             }
           }
@@ -2170,23 +1848,9 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'move') {
       const isReachable = this.reachable.some(h => h.q === q && h.r === r);
       if (isReachable && !clickedUnit) {
-        // AP-gated move cost: per-hex AP by unit type
-        const path = findPath(this.terrain, this.mapSize, this.selectedUnit.q, this.selectedUnit.r, q, r, this.selectedUnit.type) || [];
-        const moveSteps = path.length || hexDistance(this.selectedUnit.q, this.selectedUnit.r, q, r);
-        const moveApCost = Math.max(1, moveSteps) * getMoveAPPerHex(this.selectedUnit.type);
-        if ((this.selectedUnit.ap ?? 0) < moveApCost) {
-          this._log.unshift(`Not enough AP to move (${moveApCost} AP needed)`);
-          this._log = this._log.slice(0, 8);
-          this._refresh();
-          return;
-        }
-
         // Store original position for undo / arrow drawing
         this.selectedUnit._origQ = this.selectedUnit.q;
         this.selectedUnit._origR = this.selectedUnit.r;
-        this.selectedUnit._apMoveCost = moveApCost;
-        this.selectedUnit.ap = Math.max(0, (this.selectedUnit.ap ?? 0) - moveApCost);
-
         gs.pendingMoves[this.selectedUnit.id] = { q, r };
         this.selectedUnit.q = q; this.selectedUnit.r = r; this.selectedUnit.moved = true;
         // Keep unit selected after move — show remaining actions
@@ -2215,11 +1879,8 @@ export class GameScene extends Phaser.Scene {
       if (clickedUnit && clickedUnit.owner !== gs.currentPlayer && !this.selectedUnit.attacked) {
         const range = UNIT_TYPES[this.selectedUnit.type].range;
         if (hexDistance(this.selectedUnit.q, this.selectedUnit.r, q, r) <= range) {
-          const fireAp = getActionAPCost(this.selectedUnit.type, 'fire');
-          if ((this.selectedUnit.ap ?? 0) < fireAp) return;
           // Direct fire — store unit ID (no blind fire penalty)
           gs.pendingAttacks[this.selectedUnit.id] = clickedUnit.id;
-          this.selectedUnit.ap = Math.max(0, (this.selectedUnit.ap ?? 0) - fireAp);
           this.selectedUnit.attacked = true;
           this.reachable = []; this.attackable = []; this.mode = 'select';
           this._refresh(); return;
@@ -2231,10 +1892,7 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'attack_direct') {
       const target = this.attackable.find(h => h.q === q && h.r === r);
       if (target) {
-        const fireAp = getActionAPCost(this.selectedUnit.type, 'fire');
-        if ((this.selectedUnit.ap ?? 0) < fireAp) return;
         gs.pendingAttacks[this.selectedUnit.id] = target.targetId; // unit ID, direct
-        this.selectedUnit.ap = Math.max(0, (this.selectedUnit.ap ?? 0) - fireAp);
         this.selectedUnit.attacked = true;
         this.reachable = []; this.attackable = []; this.mode = 'select';
         this._refresh();
@@ -2245,11 +1903,8 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'attack') {
       const inRange = this.attackable.find(h => h.q === q && h.r === r);
       if (inRange) {
-        const fireAp = getActionAPCost(this.selectedUnit.type, 'fire');
-        if ((this.selectedUnit.ap ?? 0) < fireAp) return;
         // Blind fire — hex target, accuracy debuff applied in resolution
         gs.pendingAttacks[this.selectedUnit.id] = { hex: { q, r } };
-        this.selectedUnit.ap = Math.max(0, (this.selectedUnit.ap ?? 0) - fireAp);
         this.selectedUnit.attacked = true;
         this.reachable = []; this.attackable = []; this.mode = 'select';
         this._refresh();
@@ -2261,10 +1916,7 @@ export class GameScene extends Phaser.Scene {
     if (this.selectedUnit && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
       const attackTarget = this.attackable.find(h => h.q === q && h.r === r);
       if (attackTarget && clickedUnit && clickedUnit.owner !== gs.currentPlayer) {
-        const fireAp = getActionAPCost(this.selectedUnit.type, 'fire');
-        if ((this.selectedUnit.ap ?? 0) < fireAp) return;
         gs.pendingAttacks[this.selectedUnit.id] = attackTarget.targetId;
-        this.selectedUnit.ap = Math.max(0, (this.selectedUnit.ap ?? 0) - fireAp);
         this.selectedUnit.attacked = true;
         this.attackable = []; this.mode = 'select';
         this._refresh(); return;
@@ -2335,7 +1987,6 @@ export class GameScene extends Phaser.Scene {
 
   _onMoveMode() {
     if (!this.selectedUnit || this.selectedUnit.moved) return;
-    if ((this.selectedUnit.ap ?? 0) < getMoveAPPerHex(this.selectedUnit.type)) return;
     this.mode = 'move';
     this.reachable  = getReachableHexes(this.gameState, this.selectedUnit, this.terrain, this.mapSize);
     this.attackable = [];
@@ -2345,7 +1996,6 @@ export class GameScene extends Phaser.Scene {
   // Direct attack — only visible enemies, no blind fire penalty
   _onDirectAttackMode() {
     if (!this.selectedUnit || this.selectedUnit.attacked) return;
-    if ((this.selectedUnit.ap ?? 0) < getActionAPCost(this.selectedUnit.type, 'fire')) return;
     this.mode = 'attack_direct';
     this.reachable  = [];
     this.attackable = getAttackableHexes(this.gameState, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r, this._currentFog);
@@ -2355,7 +2005,6 @@ export class GameScene extends Phaser.Scene {
   // Blind fire — full tile range, applies accuracy debuff on resolution
   _onAttackMode() {
     if (!this.selectedUnit || this.selectedUnit.attacked) return;
-    if ((this.selectedUnit.ap ?? 0) < getActionAPCost(this.selectedUnit.type, 'fire')) return;
     this.mode = 'attack';
     this.reachable  = [];
     this.attackable = getAttackRangeHexes(this.mapSize, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r, this.terrain);
@@ -2369,8 +2018,7 @@ export class GameScene extends Phaser.Scene {
     u.q = u._origQ; u.r = u._origR;
     u.moved = false;
     u.building = false;
-    if (u._apMoveCost) u.ap = Math.min(u.apMax ?? 100, (u.ap ?? 0) + u._apMoveCost);
-    delete u._origQ; delete u._origR; delete u._apMoveCost;
+    delete u._origQ; delete u._origR;
     delete gs.pendingMoves[u.id];
     // Also clear any pending attacks that depended on this move
     delete gs.pendingAttacks[u.id];
@@ -2383,9 +2031,6 @@ export class GameScene extends Phaser.Scene {
   _onDigIn() {
     const u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canDigIn || u.dugIn || u.moved) return;
-    const digAp = getActionAPCost(u.type, 'digIn');
-    if ((u.ap ?? 0) < digAp) return;
-    u.ap = Math.max(0, (u.ap ?? 0) - digAp);
     u.dugIn = true; u.moved = true;
     this._clearSelection();
   }
@@ -2449,12 +2094,9 @@ export class GameScene extends Phaser.Scene {
     const gs = this.gameState;
     const u  = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
-    const buildAp = getActionAPCost(u.type, 'build');
-    if ((u.ap ?? 0) < buildAp) return;
     if (roadAt(gs, u.q, u.r)) return;
     if (gs.players[gs.currentPlayer].iron < 1) return;
     gs.players[gs.currentPlayer].iron -= 1;
-    u.ap = Math.max(0, (u.ap ?? 0) - buildAp);
     gs.buildings.push(createBuilding('ROAD', gs.currentPlayer, u.q, u.r));
     u.moved = true; u.building = true;
     this._redrawRoads();
@@ -2464,8 +2106,6 @@ export class GameScene extends Phaser.Scene {
   _onBuildStructure(type, ironCost, oilCost = 0) {
     const gs = this.gameState, u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
-    const buildAp = getActionAPCost(u.type, 'build');
-    if ((u.ap ?? 0) < buildAp) return;
     if (buildingAt(gs, u.q, u.r)) return;
     // Naval facilities must be on coastal land (adjacent to shallow/ocean)
     const NAVAL_FACILITIES = new Set(['NAVAL_YARD','HARBOR','DRY_DOCK','NAVAL_BASE']);
@@ -2479,7 +2119,6 @@ export class GameScene extends Phaser.Scene {
     if (gs.players[gs.currentPlayer].oil  < oilCost)  return;
     gs.players[gs.currentPlayer].iron -= ironCost;
     gs.players[gs.currentPlayer].oil  -= oilCost;
-    u.ap = Math.max(0, (u.ap ?? 0) - buildAp);
     gs.buildings.push(createBuilding(type, gs.currentPlayer, u.q, u.r));
     u.moved = true; u.building = true;
     this._clearSelection();
@@ -2488,12 +2127,9 @@ export class GameScene extends Phaser.Scene {
   _onBuildCoastalBattery() {
     const gs = this.gameState, u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
-    const buildAp = getActionAPCost(u.type, 'build');
-    if ((u.ap ?? 0) < buildAp) return;
     const p = gs.currentPlayer;
     if (gs.players[p].iron < 6 || gs.players[p].oil < 1) return;
     gs.players[p].iron -= 6; gs.players[p].oil -= 1;
-    u.ap = Math.max(0, (u.ap ?? 0) - buildAp);
     const def = UNIT_TYPES['COASTAL_BATTERY'];
     // Assign ID using state counter (same pattern as createUnit)
     if (!gs._nextUnitId) gs._nextUnitId = Math.max(...gs.units.map(u2 => u2.id), ...gs.buildings.map(b => b.id), 0) + 1;
@@ -2502,7 +2138,6 @@ export class GameScene extends Phaser.Scene {
       type: 'COASTAL_BATTERY', owner: p,
       q: u.q, r: u.r,
       health: def.health, maxHealth: def.health,
-      apMax: 100, ap: 100,
       moved: true, attacked: false, dugIn: false, building: false, immobile: true,
     };
     gs.units.push(battery);
@@ -2515,13 +2150,10 @@ export class GameScene extends Phaser.Scene {
     const gs  = this.gameState;
     const u   = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
-    const buildAp = getActionAPCost(u.type, 'build');
-    if ((u.ap ?? 0) < buildAp) return;
     const res = gs.resourceHexes[`${u.q},${u.r}`];
     if (!res || buildingAt(gs, u.q, u.r)) return;
     if (gs.players[gs.currentPlayer].iron < 4) return;
     gs.players[gs.currentPlayer].iron -= 4;
-    u.ap = Math.max(0, (u.ap ?? 0) - buildAp);
     const btype = (resType || res.type) === 'OIL' ? 'OIL_PUMP' : 'MINE';
     gs.buildings.push(createBuilding(btype, gs.currentPlayer, u.q, u.r));
     u.moved = true; u.building = true;
@@ -2545,7 +2177,6 @@ export class GameScene extends Phaser.Scene {
   // ── Animated resolution playback ──────────────────────────────────────────
   async _playResolutionAnimation() {
     const gs = this.gameState;
-    this._isResolvingPlayback = true;
     
     this.btnSubmit?.setVisible(false);
     this._hideContextMenu();
@@ -2666,7 +2297,6 @@ export class GameScene extends Phaser.Scene {
       await this._wait(200);
     }
 
-    this._isResolvingPlayback = false;
     this._showResolution(events, winner);
   }
 
@@ -3036,21 +2666,6 @@ export class GameScene extends Phaser.Scene {
     for (const [col, orow, rad] of smalls) {
       const { q, r } = offsetToAxial(col, orow);
       if (isValid(q, r, ms)) setIsland(q, r, rad);
-    }
-
-    // Add land variety on islands: mix some sand into plains + hills
-    // (keeps coastal silhouette while making islands less monochrome)
-    for (let q = 0; q < ms; q++) {
-      for (let r = 0; r < ms; r++) {
-        const key = `${q},${r}`;
-        if (map[key] !== 6) continue; // only mutate sand land
-        // Deterministic pseudo-random from coords (no RNG state needed)
-        const n = ((q * 73856093) ^ (r * 19349663)) >>> 0;
-        const roll = n % 100;
-        // Preserve most sand; sprinkle plains and a few hills
-        if (roll < 22) map[key] = 0;      // plains/grass
-        else if (roll < 30) map[key] = 3; // hills
-      }
     }
   }
 
