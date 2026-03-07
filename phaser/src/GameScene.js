@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.4.5';
+const GAME_VERSION = 'v0.4.6';
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -2187,6 +2187,7 @@ export class GameScene extends Phaser.Scene {
     gs.buildings.push(createBuilding(type, gs.currentPlayer, u.q, u.r));
     u.moved = true; u.building = true;
     this._clearSelection();
+    this._refresh();
   }
 
   _onBuildCoastalBattery() {
