@@ -2348,7 +2348,8 @@ export class GameScene extends Phaser.Scene {
     add(`${glyph(entry.attackerType)} ${entry.attackerName || '?'} (P${entry.attackerOwner || '?'})  ▶  ${glyph(entry.targetType)} ${entry.targetName || '?'} (P${entry.targetOwner || '?'})`, 32, '#ffffff', 12, true);
 
     if (entry.type === 'combat') {
-      add(`Outcome: ${entry.tier}   Score: ${entry.score}   Damage: defender -${entry.dmg}, attacker -${entry.attackerDmg}`, 56, tierColor, 12, true);
+      add(`Outcome: ${entry.tier}   Score: ${entry.score}   Damage to defender: -${entry.dmg}`, 56, tierColor, 12, true);
+      add(`Defender retaliation: ${entry.attackerDmg > 0 ? `YES (-${entry.attackerDmg} to attacker)` : 'NO (cannot return fire)'}`, 72, '#ffd9a8', 12, true);
       add(`Stats: atk ${entry.baseAttack} | pierce ${entry.pierce} vs armor ${entry.armor} | ratio ${Number(entry.pierceRatio || 0).toFixed(2)}`, 80, '#a9d7ff');
       add(`Mods: acc ${entry.accuracy || 0}, eva -${entry.evasion || 0}, terrain -${entry.terrainMod || 0}, dug-in -${entry.dugInMod || 0}, bunker -${entry.bunkerMod || 0}, flank +${entry.flankMod || 0}, roll ${entry.roll >= 0 ? '+' : ''}${entry.roll || 0}`, 104, '#ffd9a8');
       add(`${entry.blindFirePenalty ? `Blind-fire penalty -${entry.blindFirePenalty}. ` : ''}${entry.panic ? 'Panic clash: both units contested same destination. ' : ''}Thresholds: <20/<40/<60/<80/≥80`, 128, '#bfbfbf');
