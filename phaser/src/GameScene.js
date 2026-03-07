@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.4.5';
+const GAME_VERSION = 'v0.4.3';
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -268,6 +268,7 @@ export class GameScene extends Phaser.Scene {
     // are locked to turn-start regardless of fog recomputation.
     this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
     this._redrawHighlights();
+    this._redrawRoads();
     this._redrawBuildings();
     this._redrawUnits();
     this._redrawFog();

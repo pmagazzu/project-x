@@ -166,13 +166,13 @@ export function registerDesign(state, player, chassis, moduleKeys, designName) {
 // - Dug-in (infantry field): -1 incoming damage, lost on move
 
 export const BUILDING_TYPES = {
-  HQ:            { name: 'HQ',             ironPerTurn: 3, oilPerTurn: 0, canRecruit: ['ENGINEER','RECON'],                   buildCost: null,               color: 0xffdd00, sight: 0 },
-  MINE:          { name: 'Iron Mine',      ironPerTurn: 2, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 4, oil: 0 }, color: 0xaaaaaa, sight: 0 },
-  OIL_PUMP:      { name: 'Oil Pump',       ironPerTurn: 0, oilPerTurn: 2, canRecruit: [],                                        buildCost: { iron: 4, oil: 0 }, color: 0x222244, sight: 0 },
-  BARRACKS:      { name: 'Barracks',       ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['INFANTRY','ANTI_TANK','MORTAR','MEDIC'], buildCost: { iron: 6, oil: 0 }, color: 0xaa6644, sight: 0 },
-  VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['TANK','ARTILLERY'],                      buildCost: { iron: 8, oil: 2 }, color: 0x557799, sight: 0 },
-  BUNKER:        { name: 'Bunker',         ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 5, oil: 0 }, color: 0x888866, sight: 0 },
-  OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 3, oil: 0 }, color: 0x88aacc, sight: 3 },
+  HQ:            { name: 'HQ',             ironPerTurn: 3, oilPerTurn: 0, canRecruit: ['ENGINEER','RECON'],                   buildCost: null,               color: 0xffdd00, sight: 3 },
+  MINE:          { name: 'Iron Mine',      ironPerTurn: 2, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 4, oil: 0 }, color: 0xaaaaaa, sight: 2 },
+  OIL_PUMP:      { name: 'Oil Pump',       ironPerTurn: 0, oilPerTurn: 2, canRecruit: [],                                        buildCost: { iron: 4, oil: 0 }, color: 0x222244, sight: 2 },
+  BARRACKS:      { name: 'Barracks',       ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['INFANTRY','ANTI_TANK','MORTAR','MEDIC'], buildCost: { iron: 6, oil: 0 }, color: 0xaa6644, sight: 2 },
+  VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['TANK','ARTILLERY'],                      buildCost: { iron: 8, oil: 2 }, color: 0x557799, sight: 2 },
+  BUNKER:        { name: 'Bunker',         ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 5, oil: 0 }, color: 0x888866, sight: 2 },
+  OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 3, oil: 0 }, color: 0x88aacc, sight: 4 },
   ROAD:          { name: 'Road',           ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 1, oil: 0 }, color: 0xccbbaa, sight: 0 },
   // Naval buildings
   NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['PATROL_BOAT','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 0 },
@@ -1280,6 +1280,59 @@ export function resolveEndOfTurn(state, terrain) {
       if (t && t.owner === player && t.health < t.maxHealth) {
         t.health = Math.min(t.maxHealth, t.health + 1);
       }
+    }
+  }
+
+  // Auto-road standing orders (current player's engineers)
+  const _autoRoadNextId = () => {
+    const maxId = Math.max(0, ...state.units.map(u => u.id || 0), ...state.buildings.map(b => isNaN(b.id) ? 0 : (b.id || 0)));
+    return maxId + 1;
+  };
+  for (const unit of state.units.filter(u => u.type === 'ENGINEER' && u.owner === player && u.roadOrder)) {
+    const order = unit.roadOrder;
+    // Cancel if enemy within 2 tiles
+    const threatened = state.units.some(e => e.owner !== player && hexDistance(unit.q, unit.r, e.q, e.r) <= 2);
+    if (threatened) {
+      events.push(`Engineer (P${player}) auto-road cancelled — enemy nearby`);
+      delete unit.roadOrder; continue;
+    }
+    // Cancel if iron insufficient
+    if (state.players[player].iron < 1) {
+      events.push(`Engineer (P${player}) auto-road paused — no iron`);
+      continue; // keep order, try again next turn
+    }
+    // Already at destination?
+    if (unit.q === order.destQ && unit.r === order.destR) {
+      events.push(`Engineer (P${player}) auto-road complete`);
+      delete unit.roadOrder; continue;
+    }
+    // Re-pathfind from current position
+    const mapSz = state._mapSize || 25;
+    const path = findPath(terrain, mapSz, unit.q, unit.r, order.destQ, order.destR, 'ENGINEER');
+    if (!path || path.length === 0) {
+      events.push(`Engineer (P${player}) auto-road blocked — no path`);
+      delete unit.roadOrder; continue;
+    }
+    // Move one step
+    const next = path[0];
+    const nq = next.q, nr = next.r;
+    const blocker = state.units.find(u => u.q === nq && u.r === nr && u.id !== unit.id && !u.embarked);
+    if (blocker) {
+      events.push(`Engineer (P${player}) auto-road stalled — hex (${nq},${nr}) occupied`);
+      continue; // keep order
+    }
+    unit.q = nq; unit.r = nr; unit.moved = true;
+    if (!roadAt(state, nq, nr)) {
+      state.buildings.push({ id: _autoRoadNextId(), type: 'ROAD', q: nq, r: nr, owner: player });
+      state.players[player].iron -= 1;
+      events.push(`Engineer (P${player}) auto-builds road at (${nq},${nr})`);
+    } else {
+      events.push(`Engineer (P${player}) advances along road at (${nq},${nr})`);
+    }
+    order.path = path.slice(1);
+    if (nq === order.destQ && nr === order.destR) {
+      events.push(`Engineer (P${player}) auto-road order complete`);
+      delete unit.roadOrder;
     }
   }
 
