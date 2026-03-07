@@ -2163,24 +2163,17 @@ export class GameScene extends Phaser.Scene {
     const atkAlive = gs.units.find(u => u.id === attacker.id);
     if (!atkAlive) this.selectedUnit = null;
     this._refresh();
-    // Show combat result card with a dismiss button
+    // Show combat result card — dismiss on click or space after short delay
     if (log.length > 0) {
       const card = this._showCombatCard(log[0], 1, 1);
-      const w = this.scale.width, h = this.scale.height;
-      const dismissBtn = this.add.text(w / 2, 200, '[ CLICK TO CONTINUE ]', {
-        font: 'bold 13px monospace', fill: '#ffffff',
-        backgroundColor: '#223322', padding: { x: 14, y: 7 }
-      }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(210).setInteractive({ useHandCursor: true });
-      this._addToUI([dismissBtn]);
-      const allObjs = [...card, dismissBtn];
       const dismiss = () => {
-        allObjs.forEach(o => { try { o.destroy(); } catch(e){} });
+        card.forEach(o => { try { o.destroy(); } catch(e){} });
         this._splashDismiss = null;
+        this.input.off('pointerdown', dismiss);
       };
       this._splashDismiss = dismiss;
-      // Use time delay so the triggering click doesn't immediately dismiss
       this.time.delayedCall(200, () => {
-        dismissBtn.on('pointerdown', dismiss);
+        this.input.on('pointerdown', dismiss);
         this.input.keyboard?.once('keydown-SPACE', dismiss);
       });
     }
@@ -2345,49 +2338,141 @@ export class GameScene extends Phaser.Scene {
 
   _showCombatCard(entry, idx, total) {
     const objs = [];
-    const cx = this.scale.width * 0.5;
-    const y = 34;
-    const w = Math.min(900, this.scale.width - 24);
-    const h = 158;
-    const left = cx - w * 0.5 + 14;
+    const sw = this.scale.width, sh = this.scale.height;
+    const cx = sw * 0.5, cy = sh * 0.5;
+    const D = 206;
 
-    const panel = this.add.rectangle(cx, y, w, h, 0x0b0f16, 0.94)
-      .setOrigin(0.5, 0).setScrollFactor(0).setDepth(206)
-      .setStrokeStyle(2, 0x334455, 0.95);
-    objs.push(panel);
+    const GLYPH = { INFANTRY:'●', ENGINEER:'◆', RECON:'✶', TANK:'■', ARTILLERY:'▲',
+      ANTI_TANK:'➤', MORTAR:'△', MEDIC:'✚', PATROL_BOAT:'◖', SUBMARINE:'▭',
+      DESTROYER:'◉', CRUISER_LT:'⬒', CRUISER_HV:'⬓', BATTLESHIP:'⬔',
+      LANDING_CRAFT:'⟂', TRANSPORT_SM:'◫', TRANSPORT_MD:'◫', TRANSPORT_LG:'◫',
+      COASTAL_BATTERY:'▣' };
+    const glyph = t => GLYPH[t] || '◌';
 
-    const add = (txt, yy, color = '#d9e2ef', size = 12, bold = false) => {
-      const t = this.add.text(left, y + yy, txt, {
-        font: `${bold ? 'bold ' : ''}${size}px monospace`,
-        fill: color,
-      }).setOrigin(0, 0).setScrollFactor(0).setDepth(207);
-      objs.push(t);
+    const TIER_COLOR = {
+      'Catastrophic Failure': '#ff4444',
+      'Repelled':             '#ff8844',
+      'Neutral':              '#cccccc',
+      'Effective':            '#88ee44',
+      'Overwhelming':         '#44ffbb',
+    };
+    const TIER_BG = {
+      'Catastrophic Failure': 0x550000,
+      'Repelled':             0x442200,
+      'Neutral':              0x222222,
+      'Effective':            0x1a3300,
+      'Overwhelming':         0x003322,
+    };
+    const P_COLOR = { 1: '#5599ff', 2: '#ff5555' };
+
+    const mk = (txt, x, y, color='#d9e2ef', size=12, bold=false, origin=[0,0]) => {
+      const t = this.add.text(x, y, txt, {
+        font: `${bold?'bold ':''}${size}px monospace`, fill: color
+      }).setOrigin(...origin).setScrollFactor(0).setDepth(D+1);
+      objs.push(t); return t;
     };
 
-    const glyph = (type='') => ({ INFANTRY:'●', ENGINEER:'◆', RECON:'✶', TANK:'■', ARTILLERY:'▲', ANTI_TANK:'➤', MORTAR:'△', MEDIC:'✚', PATROL_BOAT:'◖', SUBMARINE:'▭', DESTROYER:'◉', CRUISER_LT:'⬒', CRUISER_HV:'⬓', BATTLESHIP:'⬔', LANDING_CRAFT:'⟂', TRANSPORT_SM:'◫', TRANSPORT_MD:'◫', TRANSPORT_LG:'◫', COASTAL_BATTERY:'▣' })[type] || '◌';
+    const rect = (x, y, w, h, color, alpha=1, stroke=null, strokeAlpha=1) => {
+      const r = this.add.rectangle(x, y, w, h, color, alpha).setScrollFactor(0).setDepth(D);
+      if (stroke) r.setStrokeStyle(1.5, stroke, strokeAlpha);
+      objs.push(r); return r;
+    };
 
-    const tierColor = ({
-      'Catastrophic Failure': '#ff5d5d',
-      'Repelled': '#ff9a52',
-      'Neutral': '#dddddd',
-      'Effective': '#a4ff7a',
-      'Overwhelming': '#57ffd2',
-    })[entry.tier] || '#ffffff';
+    // ── Dim backdrop ─────────────────────────────────────────────────────────
+    rect(cx, cy, sw, sh, 0x000000, 0.55);
 
-    add(`[${idx}/${total}] ${entry.panic ? 'PANIC CLASH' : 'COMBAT'} — movement already resolved`, 8, '#ffffff', 13, true);
-    add(`${glyph(entry.attackerType)} ${entry.attackerName || '?'} (P${entry.attackerOwner || '?'})  ▶  ${glyph(entry.targetType)} ${entry.targetName || '?'} (P${entry.targetOwner || '?'})`, 32, '#ffffff', 12, true);
+    // ── Main card ────────────────────────────────────────────────────────────
+    const cardW = Math.min(640, sw - 40), cardH = 280;
+    const cardX = cx, cardY = cy;
+    rect(cardX, cardY, cardW, cardH, 0x0d1117, 0.97, 0x3a4a5a);
 
-    if (entry.type === 'combat') {
-      add(`Outcome: ${entry.tier}   Score: ${entry.score}   Damage to defender: -${entry.dmg}`, 56, tierColor, 12, true);
-      add(`Defender retaliation: ${entry.attackerDmg > 0 ? `YES (-${entry.attackerDmg} to attacker)` : 'NO (cannot return fire)'}`, 72, '#ffd9a8', 12, true);
-      add(`Stats: atk ${entry.baseAttack} | pierce ${entry.pierce} vs armor ${entry.armor} | ratio ${Number(entry.pierceRatio || 0).toFixed(2)}`, 80, '#a9d7ff');
-      add(`Mods: acc ${entry.accuracy || 0}, eva -${entry.evasion || 0}, terrain -${entry.terrainMod || 0}, dug-in -${entry.dugInMod || 0}, bunker -${entry.bunkerMod || 0}, flank +${entry.flankMod || 0}, roll ${entry.roll >= 0 ? '+' : ''}${entry.roll || 0}`, 104, '#ffd9a8');
-      add(`${entry.blindFirePenalty ? `Blind-fire penalty -${entry.blindFirePenalty}. ` : ''}${entry.panic ? 'Panic clash: both units contested same destination. ' : ''}Thresholds: <20/<40/<60/<80/≥80`, 128, '#bfbfbf');
+    // Header bar
+    const headerColor = entry.panic ? 0x5a3000 : 0x0f1e2e;
+    rect(cardX, cardY - cardH/2 + 20, cardW, 40, headerColor, 1, 0x3a4a5a);
+    const headerLabel = entry.panic ? '⚡ PANIC CLASH' : '⚔  COMBAT REPORT';
+    mk(headerLabel, cardX, cardY - cardH/2 + 20, '#e8d090', 14, true, [0.5, 0.5]);
+    if (total > 1) mk(`(${idx}/${total})`, cardX + cardW/2 - 12, cardY - cardH/2 + 20, '#778899', 11, false, [1, 0.5]);
+
+    // ── Two-column unit portraits ─────────────────────────────────────────────
+    const colW = (cardW - 60) / 2;
+    const leftX  = cardX - cardW/2 + 20;
+    const rightX = cardX + cardW/2 - 20 - colW;
+    const topY   = cardY - cardH/2 + 55;
+
+    const unitBox = (x, y, w, type, owner, name, hpBefore, hpAfter, dmgTaken, label) => {
+      rect(x + w/2, y + 44, w, 88, 0x111a22, 0.9, 0x2a3a4a);
+      mk(label, x + w/2, y + 8, owner===1 ? '#5599ff' : '#ff7755', 10, true, [0.5, 0]);
+      mk(glyph(type), x + w/2, y + 30, P_COLOR[owner] || '#ffffff', 28, true, [0.5, 0]);
+      mk(name, x + w/2, y + 60, '#e0e8f0', 11, true, [0.5, 0]);
+      // HP bar
+      const barW = w - 16, barH = 8;
+      const maxHp = hpBefore; // use hpBefore as max for bar context
+      const hpRatio = Math.max(0, hpAfter) / Math.max(1, maxHp);
+      const dmgRatio = Math.min(1, dmgTaken / Math.max(1, maxHp));
+      rect(x + 8 + barW/2, y + 76, barW, barH, 0x111111, 1, 0x334455);
+      if (hpRatio > 0) rect(x + 8 + (barW * hpRatio)/2, y + 76, barW * hpRatio, barH, hpRatio > 0.5 ? 0x44bb44 : hpRatio > 0.25 ? 0xddaa00 : 0xcc2222, 1);
+      mk(`HP ${Math.max(0,hpAfter)}/${maxHp}${dmgTaken>0?' (-'+dmgTaken+')':''}`,
+        x + w/2, y + 84, dmgTaken>0?'#ff8888':'#aaaaaa', 10, false, [0.5, 0]);
+    };
+
+    const atkHPBefore = entry.attackerHPBefore ?? (entry.attackerDmg != null ? '?' : '?');
+    const defHPBefore = entry.targetHPBefore   ?? '?';
+    const atkHPAfter  = (typeof atkHPBefore === 'number') ? atkHPBefore - (entry.attackerDmg||0) : '?';
+    const defHPAfter  = (typeof defHPBefore === 'number') ? defHPBefore - (entry.dmg||0) : '?';
+
+    unitBox(leftX,  topY, colW, entry.attackerType, entry.attackerOwner, entry.attackerName||'?', atkHPBefore, atkHPAfter, entry.attackerDmg||0, 'ATTACKER');
+    unitBox(rightX, topY, colW, entry.targetType,   entry.targetOwner,   entry.targetName||'?',   defHPBefore, defHPAfter, entry.dmg||0,         'DEFENDER');
+
+    // ── VS arrow in center ────────────────────────────────────────────────────
+    mk('▶', cardX, topY + 30, '#556677', 18, true, [0.5, 0.5]);
+
+    // ── Outcome banner ────────────────────────────────────────────────────────
+    const outY = cardY + 10;
+    const tierBg  = TIER_BG[entry.tier]  || 0x222222;
+    const tierCol = TIER_COLOR[entry.tier] || '#cccccc';
+    rect(cardX, outY, cardW - 16, 28, tierBg, 0.95, 0x445566);
+    if (entry.type === 'combat' || entry.type === 'panic') {
+      mk(entry.tier?.toUpperCase() || 'COMBAT', cardX, outY, tierCol, 13, true, [0.5, 0.5]);
     } else if (entry.type === 'miss') {
-      add('Outcome: MISS — target moved out of range after movement phase.', 70, '#dddddd', 12, true);
+      mk('MISS — TARGET OUT OF RANGE', cardX, outY, '#aaaaaa', 13, true, [0.5, 0.5]);
     } else if (entry.type === 'blind_miss') {
-      add('Outcome: BLIND FIRE MISS — empty target hex.', 70, '#dddddd', 12, true);
+      mk('BLIND FIRE — EMPTY HEX', cardX, outY, '#aaaaaa', 13, true, [0.5, 0.5]);
     }
+
+    // ── Stat row ──────────────────────────────────────────────────────────────
+    if (entry.type === 'combat' || entry.panic) {
+      const statY = outY + 24;
+      const stats = [
+        `Score ${entry.score ?? '?'}`,
+        `Atk ${entry.baseAttack ?? '?'}`,
+        `Pierce ${entry.pierce ?? '?'} / Armor ${entry.armor ?? '?'}`,
+        `Roll ${(entry.roll??0)>=0?'+':''}${entry.roll??0}`,
+      ];
+      const parts = stats.join('   ·   ');
+      mk(parts, cardX, statY, '#7799aa', 10, false, [0.5, 0]);
+
+      const modY = statY + 16;
+      const mods = [];
+      if (entry.terrainMod)     mods.push(`Terrain -${entry.terrainMod}`);
+      if (entry.dugInMod)       mods.push(`Dug-in -${entry.dugInMod}`);
+      if (entry.bunkerMod)      mods.push(`Bunker -${entry.bunkerMod}`);
+      if (entry.flankMod)       mods.push(`Flank +${entry.flankMod}`);
+      if (entry.blindFirePenalty) mods.push(`Blind fire -${entry.blindFirePenalty}`);
+      if (entry.suppressed)     mods.push('SUPPRESSED');
+      if (mods.length > 0) mk(mods.join('   '), cardX, modY, '#a08050', 10, false, [0.5, 0]);
+
+      // Retaliation line
+      const retY = modY + 18;
+      if (entry.defenderCanRetaliate) {
+        mk(`↩ Retaliation: ${entry.retaliationTier || '?'} — defender deals ${entry.retaliationDmg??0} dmg back`, cardX, retY, '#ffcc88', 10, false, [0.5, 0]);
+      } else {
+        mk('↩ No retaliation', cardX, retY, '#557766', 10, false, [0.5, 0]);
+      }
+    }
+
+    // ── Bottom hint ───────────────────────────────────────────────────────────
+    rect(cardX, cardY + cardH/2 - 18, cardW, 36, 0x0a0f14, 1, 0x2a3a4a);
+    mk('SPACE  or  CLICK TO CONTINUE', cardX, cardY + cardH/2 - 18, '#556677', 11, false, [0.5, 0.5]);
 
     this._addToUI(objs);
     return objs;
