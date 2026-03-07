@@ -1877,7 +1877,7 @@ export class GameScene extends Phaser.Scene {
       if (clickedUnit && clickedUnit.owner !== gs.currentPlayer && !this.selectedUnit.attacked) {
         const range = UNIT_TYPES[this.selectedUnit.type].range;
         if (hexDistance(this.selectedUnit.q, this.selectedUnit.r, q, r) <= range) {
-          this._doImmediateAttack(this.selectedUnit, clickedUnit.id, false);
+          this._showCombatPreview(this.selectedUnit, clickedUnit, false);
           return;
         }
       }
@@ -1887,7 +1887,8 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'attack_direct') {
       const target = this.attackable.find(h => h.q === q && h.r === r);
       if (target) {
-        this._doImmediateAttack(this.selectedUnit, target.targetId, false);
+        const tUnit = gs.units.find(u => u.id === target.targetId);
+        if (tUnit) this._showCombatPreview(this.selectedUnit, tUnit, false);
         return;
       }
     }
@@ -1895,10 +1896,9 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'attack') {
       const inRange = this.attackable.find(h => h.q === q && h.r === r);
       if (inRange) {
-        // Blind fire — look up unit at hex if any, else fizzle
         const blindTarget = gs.units.find(u => u.q === q && u.r === r && u.owner !== gs.currentPlayer);
         if (blindTarget) {
-          this._doImmediateAttack(this.selectedUnit, blindTarget.id, true);
+          this._showCombatPreview(this.selectedUnit, blindTarget, true);
         } else {
           this.selectedUnit.attacked = true;
           this.reachable = []; this.attackable = []; this.mode = 'select';
@@ -1912,7 +1912,7 @@ export class GameScene extends Phaser.Scene {
     if (this.selectedUnit && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
       const attackTarget = this.attackable.find(h => h.q === q && h.r === r);
       if (attackTarget && clickedUnit && clickedUnit.owner !== gs.currentPlayer) {
-        this._doImmediateAttack(this.selectedUnit, attackTarget.targetId, false);
+        this._showCombatPreview(this.selectedUnit, clickedUnit, false);
         return;
       }
     }
@@ -2149,6 +2149,159 @@ export class GameScene extends Phaser.Scene {
     gs.buildings.push(createBuilding(btype, gs.currentPlayer, u.q, u.r));
     u.moved = true; u.building = true;
     this._clearSelection();
+  }
+
+  _showCombatPreview(attacker, target, blindFire) {
+    // Show Civ-style preview card with ATTACK / CANCEL before committing
+    const gs = this.gameState;
+    const aDef = UNIT_TYPES[attacker.type];
+    const tDef = UNIT_TYPES[target.type];
+    const NAVAL_SET = new Set(['PATROL_BOAT','SUBMARINE','DESTROYER','CRUISER_LT','CRUISER_HV','BATTLESHIP','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG']);
+    const INDIRECT = new Set(['ARTILLERY','MORTAR']);
+    const atkIsNaval = NAVAL_SET.has(attacker.type) || attacker.type === 'COASTAL_BATTERY';
+    const defIsNaval = NAVAL_SET.has(target.type);
+    const tTerrain   = (this.terrain[`${target.q},${target.r}`]) ?? 0;
+    const tOnLand    = tTerrain <= 3 || tTerrain === 6;
+    const navalVsNaval = atkIsNaval && defIsNaval;
+    const navalVsLand  = atkIsNaval && tOnLand && !defIsNaval;
+    const isArmored = tDef.armor > 2;
+    let baseAtk = navalVsNaval ? aDef.hard_attack : (isArmored ? aDef.hard_attack : aDef.soft_attack);
+    if (navalVsLand) baseAtk = Math.floor((aDef.naval_attack || 1) * 0.6);
+    const pierceRatio = aDef.pierce < tDef.armor ? aDef.pierce / tDef.armor : 1;
+
+    // Expected score (no roll)
+    let score = 50 + (aDef.accuracy||0) - (tDef.evasion||0) - (blindFire?20:0);
+    const ttype = tTerrain;
+    const terrainMod = ttype===1?10:ttype===2?20:0;
+    const dugInMod   = target.dugIn ? 8 : 0;
+    const onBunker   = gs.buildings?.find(b => b.type==='BUNKER' && b.q===target.q && b.r===target.r && b.owner===target.owner);
+    const bunkerMod  = onBunker ? 15 : 0;
+    score -= terrainMod + dugInMod + bunkerMod;
+    score += Math.round((pierceRatio - 0.5) * 20);
+    score = Math.max(0, Math.min(100, score));
+
+    // Expected damage (no roll, use midpoint +0)
+    const TIER_COL = {'Catastrophic Failure':'#ff4444','Repelled':'#ff8844','Neutral':'#cccccc','Effective':'#88ee44','Overwhelming':'#44ffcc'};
+    const TIER_BG  = {'Catastrophic Failure':0x4a0000,'Repelled':0x3a1800,'Neutral':0x1a1a1a,'Effective':0x0e2800,'Overwhelming':0x002a1a};
+    let tier, expectedDmg=0, expectedRetDmg=0;
+    if      (score < 20) { tier='Catastrophic Failure'; expectedDmg=0; }
+    else if (score < 40) { tier='Repelled';             expectedDmg=0; }
+    else if (score < 60) { tier='Neutral';              expectedDmg=Math.max(1,Math.round(baseAtk*pierceRatio*0.5)); }
+    else if (score < 80) { tier='Effective';            expectedDmg=Math.max(1,Math.round(baseAtk*pierceRatio)); }
+    else                 { tier='Overwhelming';         expectedDmg=Math.max(1,Math.round(baseAtk*pierceRatio)); }
+    expectedDmg = Math.max(0, expectedDmg - (tDef.defense||0));
+
+    // Retaliation estimate
+    const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
+    const canRet = !blindFire && !INDIRECT.has(attacker.type) && dist <= (tDef.range||1) && !target.suppressed;
+    if (canRet) {
+      const rIsArm = aDef.armor > 2;
+      const rBase = navalVsNaval ? tDef.hard_attack : (rIsArm ? tDef.hard_attack : tDef.soft_attack);
+      const rPR = tDef.pierce < aDef.armor ? tDef.pierce/aDef.armor : 1;
+      let rScore = 50 + (tDef.accuracy||0) - (aDef.evasion||0) + Math.round((rPR-0.5)*20);
+      rScore = Math.max(0, Math.min(100, rScore));
+      if (rScore >= 60) expectedRetDmg = Math.max(1, Math.round(rBase*rPR));
+      else if (rScore >= 40) expectedRetDmg = Math.max(1, Math.round(rBase*rPR*0.5));
+      expectedRetDmg = Math.max(0, expectedRetDmg - (aDef.defense||0));
+    }
+
+    const sw = this.scale.width, sh = this.scale.height;
+    const cx = sw*0.5, cy = sh*0.5, D = 210;
+    const objs = [];
+    const PC = [null, 0x3366cc, 0xcc3333];
+
+    const mk = (txt, x, y, col='#d0dde8', sz=12, bold=false, ox=0.5, oy=0.5) => {
+      const t = this.add.text(x,y,txt,{font:`${bold?'bold ':''}${sz}px monospace`,fill:col}).setOrigin(ox,oy).setScrollFactor(0).setDepth(D+1);
+      objs.push(t); return t;
+    };
+    const bx = (x,y,w,h,fill,alpha=1,stroke=null) => {
+      const r=this.add.rectangle(x,y,w,h,fill,alpha).setDepth(D).setScrollFactor(0);
+      if(stroke!==null)r.setStrokeStyle(1.5,stroke);
+      objs.push(r); return r;
+    };
+    const hpBar = (x,y,bW,current,max,projected) => {
+      const h=10;
+      bx(x,y,bW,h,0x111111,1,0x334455);
+      const hpF=Math.max(0,current)/Math.max(1,max);
+      bx(x-bW/2+(bW*hpF)/2,y,bW*hpF,h,hpF>0.6?0x44bb44:hpF>0.3?0xddaa00:0xcc2222);
+      const projAfter=Math.max(0,current-projected);
+      const projF=Math.max(0,projAfter)/Math.max(1,max);
+      if(projected>0){const lostW=bW*(hpF-projF);bx(x-bW/2+bW*projF+lostW/2,y,lostW,h,0x882222,0.7);}
+    };
+
+    // Backdrop
+    bx(cx,cy,sw,sh,0x000000,0.7);
+
+    // Card
+    const cW=Math.min(680,sw-32),cH=300;
+    bx(cx,cy,cW,cH,0x0b0e14,0.98,0x2e3d50);
+
+    // Header
+    bx(cx,cy-cH/2+22,cW,44,0x0d1b2a,1,0x2e3d50);
+    mk('⚔  ATTACK PREVIEW',cx,cy-cH/2+22,'#c8b87a',15,true);
+    mk('Select ATTACK to confirm or CANCEL',cx,cy-cH/2+38,'#556677',9);
+
+    // Portraits
+    const pW=cW*0.36,pH=150,pY=cy-cH/2+44+pH/2+6;
+    const lX=cx-cW/2+16+pW/2, rX=cx+cW/2-16-pW/2;
+
+    const portrait=(pcx,pcy,type,owner,name,hp,projDmg,role)=>{
+      bx(pcx,pcy,pW,pH,0x0f151c,1,PC[owner]||0x445566);
+      const rCol=role==='ATTACKER'?'#5588ee':'#ee5544';
+      bx(pcx,pcy-pH/2+11,pW,22,owner===1?0x1a2a44:0x3a1414,1);
+      mk(role,pcx,pcy-pH/2+11,rCol,10,true);
+      const GLYPH={INFANTRY:'●',ENGINEER:'◆',RECON:'✶',TANK:'■',ARTILLERY:'▲',ANTI_TANK:'➤',MORTAR:'△',MEDIC:'✚',PATROL_BOAT:'◖',SUBMARINE:'▭',DESTROYER:'◉',CRUISER_LT:'⬒',CRUISER_HV:'⬓',BATTLESHIP:'⬔',LANDING_CRAFT:'⟂',TRANSPORT_SM:'◫',TRANSPORT_MD:'◫',TRANSPORT_LG:'◫',COASTAL_BATTERY:'▣'};
+      mk(GLYPH[type]||'◌',pcx,pcy-18,PC[owner]?'#'+PC[owner].toString(16).padStart(6,'0'):'#aaa',38,true);
+      mk(name,pcx,pcy+26,'#dde8f0',11,true);
+      hpBar(pcx,pcy+46,pW-20,hp,hp,projDmg);
+      const after=Math.max(0,hp-projDmg);
+      mk(`HP ${hp}  →  ${after}${projDmg>0?'  (−'+projDmg+')':''}`,pcx,pcy+60,projDmg>0?'#ff8888':'#88cc88',10);
+    };
+
+    portrait(lX,pY,attacker.type,attacker.owner,aDef.name,attacker.health,expectedRetDmg,'ATTACKER');
+    portrait(rX,pY,target.type,target.owner,tDef.name,target.health,expectedDmg,'DEFENDER');
+
+    // Center
+    mk('VS',cx,pY-pH/2+28,'#334455',16,true);
+    mk(`${baseAtk}`,cx,pY-10,'#e8d090',22,true);
+    mk('ATTACK STR',cx,pY+14,'#7799aa',9);
+    mk(`Score ~${score}`,cx,pY+30,'#aabbcc',10,true);
+
+    // Outcome estimate
+    const outY=cy+cH/2-78;
+    bx(cx,outY,cW-4,28,TIER_BG[tier]||0x1a1a1a,1,0x445566);
+    mk(`Expected: ${tier.toUpperCase()}`,cx,outY,TIER_COL[tier]||'#ccc',13,true);
+
+    // Modifiers
+    const mods=[];
+    if(aDef.accuracy)   mods.push(`Accuracy +${aDef.accuracy}`);
+    if(tDef.evasion)    mods.push(`Evasion −${tDef.evasion}`);
+    if(terrainMod)      mods.push(`Terrain −${terrainMod}`);
+    if(dugInMod)        mods.push(`Dug-in −${dugInMod}`);
+    if(bunkerMod)       mods.push(`Bunker −${bunkerMod}`);
+    if(blindFire)       mods.push('Blind fire −20');
+    if(canRet&&expectedRetDmg>0) mods.push(`↩ Retaliation ~−${expectedRetDmg}`);
+    mk(mods.join('    ')||'No modifiers',cx,outY+22,'#7a8a6a',9);
+
+    // Buttons
+    const btnY=cy+cH/2-22;
+    const atkBtn=this.add.text(cx-70,btnY,'  ATTACK  ',{font:'bold 13px monospace',fill:'#ffffff',backgroundColor:'#aa2222',padding:{x:14,y:8}}).setOrigin(0.5).setScrollFactor(0).setDepth(D+2).setInteractive({useHandCursor:true});
+    const canBtn=this.add.text(cx+70,btnY,'  CANCEL  ',{font:'bold 13px monospace',fill:'#aaaaaa',backgroundColor:'#222222',padding:{x:14,y:8}}).setOrigin(0.5).setScrollFactor(0).setDepth(D+2).setInteractive({useHandCursor:true});
+    this._addToUI([...objs, atkBtn, canBtn]);
+
+    const cleanup=()=>[...objs,atkBtn,canBtn].forEach(o=>{try{o.destroy();}catch(e){}});
+
+    atkBtn.on('pointerdown',()=>{
+      cleanup();
+      this._doImmediateAttack(attacker,target.id,blindFire);
+    });
+    canBtn.on('pointerdown',()=>{
+      cleanup();
+      // Return to attack mode so player can still attack something else
+      this._refresh();
+    });
+    atkBtn.on('pointerover',()=>atkBtn.setStyle({fill:'#ffdddd'}));
+    atkBtn.on('pointerout', ()=>atkBtn.setStyle({fill:'#ffffff'}));
   }
 
   _doImmediateAttack(attacker, targetId, blindFire) {
