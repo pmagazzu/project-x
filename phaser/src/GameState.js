@@ -1141,10 +1141,13 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   const targetTerrain   = (state._terrain && state._terrain[`${target.q},${target.r}`]) ?? 0;
   const targetOnLand    = targetTerrain <= 3 || targetTerrain === 6;
   const navalVsLand     = attackerIsNaval && targetOnLand && !targetIsNaval;
+  const navalVsNaval    = attackerIsNaval && targetIsNaval;
 
   const isArmored = tDef.armor > 2;
   let baseAttack = isArmored ? aDef.hard_attack : aDef.soft_attack;
-  if (navalVsLand) baseAttack = Math.floor((aDef.naval_attack || 1) * 0.6);
+  // Naval vs naval: ships fight with hard_attack (hull vs hull)
+  if (navalVsNaval) baseAttack = aDef.hard_attack;
+  if (navalVsLand)  baseAttack = Math.floor((aDef.naval_attack || 1) * 0.6);
 
   let pierceRatio = 1;
   if (aDef.pierce < tDef.armor) pierceRatio = aDef.pierce / tDef.armor;
@@ -1186,7 +1189,7 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   let retDmg = 0, retScore = 0, retTier = '';
   if (canRetaliate) {
     const rIsArmored = aDef.armor > 2;
-    let rBaseAttack = rIsArmored ? tDef.hard_attack : tDef.soft_attack;
+    let rBaseAttack = (navalVsNaval) ? tDef.hard_attack : (rIsArmored ? tDef.hard_attack : tDef.soft_attack);
     let rPierceRatio = 1;
     if (tDef.pierce < aDef.armor) rPierceRatio = tDef.pierce / aDef.armor;
     retScore = 50 + tDef.accuracy - aDef.evasion + Math.round((rPierceRatio - 0.5) * 20) + (Math.floor(Math.random() * 31) - 15);

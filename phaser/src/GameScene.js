@@ -2163,16 +2163,26 @@ export class GameScene extends Phaser.Scene {
     const atkAlive = gs.units.find(u => u.id === attacker.id);
     if (!atkAlive) this.selectedUnit = null;
     this._refresh();
-    // Show combat result card
+    // Show combat result card with a dismiss button
     if (log.length > 0) {
       const card = this._showCombatCard(log[0], 1, 1);
-      // Dismiss on click or space
+      const w = this.scale.width, h = this.scale.height;
+      const dismissBtn = this.add.text(w / 2, 200, '[ CLICK TO CONTINUE ]', {
+        font: 'bold 13px monospace', fill: '#ffffff',
+        backgroundColor: '#223322', padding: { x: 14, y: 7 }
+      }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(210).setInteractive({ useHandCursor: true });
+      this._addToUI([dismissBtn]);
+      const allObjs = [...card, dismissBtn];
       const dismiss = () => {
-        card.forEach(o => { try { o.destroy(); } catch(e){} });
+        allObjs.forEach(o => { try { o.destroy(); } catch(e){} });
         this._splashDismiss = null;
       };
       this._splashDismiss = dismiss;
-      this.input.once('pointerdown', dismiss);
+      // Use time delay so the triggering click doesn't immediately dismiss
+      this.time.delayedCall(200, () => {
+        dismissBtn.on('pointerdown', dismiss);
+        this.input.keyboard?.once('keydown-SPACE', dismiss);
+      });
     }
     const winner = checkWinner(gs);
     if (winner) { this._showResolution([], winner); }
