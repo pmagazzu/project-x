@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.4.1';
+const GAME_VERSION = 'v0.4.2';
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -1859,18 +1859,11 @@ export class GameScene extends Phaser.Scene {
         this.selectedUnit._origR = this.selectedUnit.r;
         // Do NOT add to pendingMoves — position is real immediately
         this.selectedUnit.q = q; this.selectedUnit.r = r; this.selectedUnit.moved = true;
-        // Keep unit selected after move — show remaining actions
+        // After move: stay in select mode. Unit remains selected.
+        // Player clicks an enemy directly to attack (Civ-style) — no auto attack mode.
         this.reachable = [];
-        if (!this.selectedUnit.attacked) {
-          const atk = getAttackableHexes(gs, this.selectedUnit, q, r, this._currentFog);
-          if (atk.length > 0) {
-            this.attackable = atk; this.mode = 'attack';
-          } else {
-            this.attackable = []; this.mode = 'select';
-          }
-        } else {
-          this.attackable = []; this.mode = 'select';
-        }
+        this.attackable = getAttackableHexes(gs, this.selectedUnit, q, r, this._currentFog);
+        this.mode = 'select';
         // Engineers: auto-open build menu after moving (if setting enabled)
         this._refresh();
         // Engineer auto-build: pop open the build submenu after moving
@@ -1899,8 +1892,6 @@ export class GameScene extends Phaser.Scene {
         if (tUnit) this._showCombatPreview(this.selectedUnit, tUnit, false);
         return;
       }
-      // Clicked outside — fall through
-      this.mode = 'select';
     }
 
     if (this.mode === 'attack') {
@@ -1916,8 +1907,6 @@ export class GameScene extends Phaser.Scene {
         }
         return;
       }
-      // Clicked outside attack range — don't eat the click, fall through to select/deselect
-      this.mode = 'select';
     }
 
     // Click on attack-indicator enemy target (works in select/move mode — direct fire shortcut)
