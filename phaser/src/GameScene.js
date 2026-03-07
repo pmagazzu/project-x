@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.4.7';
+const GAME_VERSION = 'v0.4.8';
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -968,7 +968,8 @@ export class GameScene extends Phaser.Scene {
         : def.name;
       const nameLabel = isOwnUnit && u.designId !== undefined ? `★ ${displayName}` : `[ ${displayName} ]`;
       this.unitNameTxt.setText(`${nameLabel}  P${u.owner}`);
-      this.unitStatsTxt.setText(`HP: ${u.health}/${u.maxHealth}  SA: ${def.soft_attack}  HA: ${def.hard_attack}  AP: ${def.pierce}  ARM: ${def.armor}  MOV: ${def.move}  RNG: ${def.range}`);
+      const ap = (u.moved ? 0 : 1) + (u.attacked ? 0 : 1);
+      this.unitStatsTxt.setText(`HP: ${u.health}/${u.maxHealth}  AP: ${ap}/2  SA: ${def.soft_attack}  HA: ${def.hard_attack}  PRC: ${def.pierce}  ARM: ${def.armor}  MOV: ${def.move}  RNG: ${def.range}`);
       const pa = gs.pendingAttacks[u.id];
       let status = '';
       status += u.suppressed ? '⚡ SUPPRESSED  ' : u.moved ? '✓ Moved  ' : '○ Can move  ';
