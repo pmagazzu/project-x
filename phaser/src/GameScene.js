@@ -32,6 +32,8 @@ const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
 
+const ENABLE_USER_ART = false; // emergency off until art pipeline is validated
+
 const USER_ART = {
   // buildings
   hq: '/user_art/hq.png',
@@ -80,6 +82,7 @@ export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
 
   preload() {
+    if (!ENABLE_USER_ART) return;
     for (const [k, p] of Object.entries(USER_ART)) {
       this.load.image(`ua_${k}`, p);
     }
@@ -265,7 +268,7 @@ export class GameScene extends Phaser.Scene {
     // Generate sprite textures for units/buildings (runtime procedural atlas)
     generateAllSprites(this, UNIT_TYPES, BUILDING_TYPES, PLAYER_COLORS);
     // Override with user-provided art assets when available
-    this._applyUserArtOverrides();
+    if (ENABLE_USER_ART) this._applyUserArtOverrides();
 
     // World graphics/layers (depth order)
     this.roadGfx          = this.add.graphics().setDepth(5);
