@@ -1770,6 +1770,8 @@ export class GameScene extends Phaser.Scene {
 
   // ── Click handling ────────────────────────────────────────────────────────
   _onHexClick(q, r) {
+    // Block hex clicks while a splash/combat card is shown
+    if (this._splashDismiss) { this._splashDismiss(); return; }
     const gs = this.gameState;
     const clickedUnit     = unitAt(gs, q, r);
     const clickedBuilding = buildingAt(gs, q, r);
@@ -2296,12 +2298,13 @@ export class GameScene extends Phaser.Scene {
     const cleanup=()=>[...objs,atkBtn,canBtn].forEach(o=>{try{o.destroy();}catch(e){}});
 
     atkBtn.on('pointerdown',()=>{
+      this._contextMenuClicked = true; // block pointerup from firing _onHexClick
       cleanup();
       this._doImmediateAttack(attacker,target.id,blindFire);
     });
     canBtn.on('pointerdown',()=>{
+      this._contextMenuClicked = true;
       cleanup();
-      // Return to attack mode so player can still attack something else
       this._refresh();
     });
     atkBtn.on('pointerover',()=>atkBtn.setStyle({fill:'#ffdddd'}));
@@ -2326,11 +2329,11 @@ export class GameScene extends Phaser.Scene {
       const dismiss = () => {
         card.forEach(o => { try { o.destroy(); } catch(e){} });
         this._splashDismiss = null;
-        this.input.off('pointerdown', dismiss);
+        this.input.off('pointerup', dismiss);
       };
       this._splashDismiss = dismiss;
-      this.time.delayedCall(200, () => {
-        this.input.on('pointerdown', dismiss);
+      this.time.delayedCall(150, () => {
+        this.input.on('pointerup', dismiss);
         this.input.keyboard?.once('keydown-SPACE', dismiss);
       });
     }
