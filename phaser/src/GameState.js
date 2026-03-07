@@ -1283,6 +1283,37 @@ export function resolveEndOfTurn(state, terrain) {
     }
   }
 
+  // Auto-move standing orders (all unit types)
+  for (const unit of state.units.filter(u => u.owner === player && u.moveOrder)) {
+    const order = unit.moveOrder;
+    // Already at destination?
+    if (unit.q === order.destQ && unit.r === order.destR) {
+      events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) auto-move complete`);
+      delete unit.moveOrder; continue;
+    }
+    // Re-pathfind from current position
+    const mapSz = state._mapSize || 25;
+    const path = findPath(terrain, mapSz, unit.q, unit.r, order.destQ, order.destR, unit.type);
+    if (!path || path.length === 0) {
+      events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) auto-move blocked — no path`);
+      delete unit.moveOrder; continue;
+    }
+    // Move as many steps as the unit's move allowance
+    let steps = UNIT_TYPES[unit.type]?.move || 1;
+    for (let i = 0; i < steps && i < path.length; i++) {
+      const nq = path[i].q, nr = path[i].r;
+      const blocker = state.units.find(u => u.q === nq && u.r === nr && u.id !== unit.id && !u.embarked);
+      if (blocker) break; // stalled this step, try again next turn
+      unit.q = nq; unit.r = nr;
+      if (nq === order.destQ && nr === order.destR) {
+        events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) reached destination`);
+        delete unit.moveOrder; break;
+      }
+    }
+    unit.moved = true;
+    if (unit.moveOrder) order.path = path.slice(Math.min(steps, path.length));
+  }
+
   // Auto-road standing orders (current player's engineers)
   const _autoRoadNextId = () => {
     const maxId = Math.max(0, ...state.units.map(u => u.id || 0), ...state.buildings.map(b => isNaN(b.id) ? 0 : (b.id || 0)));

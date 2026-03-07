@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.4.3';
+const GAME_VERSION = 'v0.4.4';
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -413,14 +413,12 @@ export class GameScene extends Phaser.Scene {
       this.highlightGfx.strokePath();
     }
 
-    // ── Auto-road standing order path preview ─────────────────────────────
-    // Draw a dim dotted line along the engineer's planned road route
+    // ── Auto-road standing order path preview (yellow) ────────────────────
     for (const u of gs.units) {
       if (!u.roadOrder || !u.roadOrder.path || u.owner !== gs.currentPlayer) continue;
       const path = u.roadOrder.path;
       if (!path.length) continue;
       const pts = [{ q: u.q, r: u.r }, ...path];
-      // Dim yellow dotted line through each hex center
       this.highlightGfx.lineStyle(1.5, 0xffdd44, 0.35);
       this.highlightGfx.beginPath();
       const steps = 10;
@@ -436,13 +434,45 @@ export class GameScene extends Phaser.Scene {
         }
       }
       this.highlightGfx.strokePath();
-      // Destination marker — small X
       const dest = hexToWorld(u.roadOrder.destQ, u.roadOrder.destR);
       this.highlightGfx.lineStyle(2, 0xffdd44, 0.7);
       const d = 6;
       this.highlightGfx.beginPath();
       this.highlightGfx.moveTo(dest.x - d, dest.y - d); this.highlightGfx.lineTo(dest.x + d, dest.y + d);
       this.highlightGfx.moveTo(dest.x + d, dest.y - d); this.highlightGfx.lineTo(dest.x - d, dest.y + d);
+      this.highlightGfx.strokePath();
+    }
+
+    // ── Auto-move standing order path preview (cyan) ───────────────────────
+    for (const u of gs.units) {
+      if (!u.moveOrder || u.owner !== gs.currentPlayer) continue;
+      const pts = [{ q: u.q, r: u.r }, ...(u.moveOrder.path || [])];
+      if (pts.length < 2) continue;
+      this.highlightGfx.lineStyle(1.5, 0x44eeff, 0.4);
+      this.highlightGfx.beginPath();
+      const steps = 10;
+      for (let seg = 0; seg < pts.length - 1; seg++) {
+        const from2 = hexToWorld(pts[seg].q, pts[seg].r);
+        const to2   = hexToWorld(pts[seg+1].q, pts[seg+1].r);
+        for (let i = 0; i < steps; i++) {
+          const t0 = i / steps, t1 = (i + 0.5) / steps;
+          if (i % 2 === 0) {
+            this.highlightGfx.moveTo(from2.x + (to2.x - from2.x) * t0, from2.y + (to2.y - from2.y) * t0);
+            this.highlightGfx.lineTo(from2.x + (to2.x - from2.x) * t1, from2.y + (to2.y - from2.y) * t1);
+          }
+        }
+      }
+      this.highlightGfx.strokePath();
+      // Destination marker — small diamond
+      const dest = hexToWorld(u.moveOrder.destQ, u.moveOrder.destR);
+      this.highlightGfx.lineStyle(2, 0x44eeff, 0.8);
+      const d = 7;
+      this.highlightGfx.beginPath();
+      this.highlightGfx.moveTo(dest.x,     dest.y - d);
+      this.highlightGfx.lineTo(dest.x + d, dest.y);
+      this.highlightGfx.lineTo(dest.x,     dest.y + d);
+      this.highlightGfx.lineTo(dest.x - d, dest.y);
+      this.highlightGfx.closePath();
       this.highlightGfx.strokePath();
     }
   }
@@ -1474,6 +1504,16 @@ export class GameScene extends Phaser.Scene {
         cb: () => { delete unit.roadOrder; this._hideContextMenu(); this._refresh(); }
       });
     }
+    // Auto-move standing order
+    if (unit.moveOrder) {
+      actions.push({ label: '✕ CANCEL MOVE ORDER', key: 'cancel_move_order', enabled: true, color: 0x334466,
+        cb: () => { delete unit.moveOrder; this._hideContextMenu(); this._refresh(); }
+      });
+    } else if (!unit.moved) {
+      actions.push({ label: '📍 SET MOVE ORDER', key: 'move_order', enabled: true, color: 0x224466,
+        cb: () => this._enterMoveOrderMode(unit)
+      });
+    }
     if (def.canBuild) {
       const smart = this._getSmartBuild(unit);
       if (smart) {
@@ -1834,6 +1874,21 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    // ── Auto-move destination mode ────────────────────────────────────────
+    if (this.mode === 'move_order') {
+      const unit = this._moveOrderUnit;
+      if (unit) {
+        const path = findPath(this.terrain, this.mapSize, unit.q, unit.r, q, r, unit.type);
+        if (path && path.length > 0) {
+          unit.moveOrder = { destQ: q, destR: r, path };
+        } else {
+          console.log(`Auto-move: no path from (${unit.q},${unit.r}) to (${q},${r})`);
+        }
+      }
+      this._cancelMoveOrderMode();
+      return;
+    }
+
     // ── Auto-road destination mode ───────────────────────────────────────
     if (this.mode === 'road_dest') {
       const unit = this._roadOrderUnit;
@@ -1960,6 +2015,7 @@ export class GameScene extends Phaser.Scene {
   _onHexRightClick(q, r) {
     // Cancel special modes on right-click
     if (this.mode === 'road_dest') { this._cancelRoadDestMode(); return; }
+    if (this.mode === 'move_order') { this._cancelMoveOrderMode(); return; }
     if (this.mode === 'transport_load' || this.mode === 'transport_unload') { this._cancelTransportMode(); return; }
     const gs = this.gameState;
     const clickedUnit = gs.units.find(u => u.q === q && u.r === r && !u.dead);
@@ -2026,6 +2082,22 @@ export class GameScene extends Phaser.Scene {
     if (!u || !UNIT_TYPES[u.type].canDigIn || u.dugIn || u.moved) return;
     u.dugIn = true; u.moved = true;
     this._clearSelection();
+  }
+
+  // ── Auto-move destination selection ──────────────────────────────────────
+  _enterMoveOrderMode(unit) {
+    this._hideContextMenu();
+    this._moveOrderUnit = unit;
+    this.mode = 'move_order';
+    this._showHint('📍 Click destination for AUTO-MOVE order  (Right-click to cancel)');
+    this._refresh();
+  }
+
+  _cancelMoveOrderMode() {
+    this.mode = 'select';
+    this._moveOrderUnit = null;
+    this._clearHint();
+    this._refresh();
   }
 
   // ── Auto-road destination selection ──────────────────────────────────────
