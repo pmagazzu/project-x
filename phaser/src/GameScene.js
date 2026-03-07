@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const BUILD_TAG = 'IGOUGO LIVE r2';
+const GAME_VERSION = 'v0.4.1';
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -824,13 +824,19 @@ export class GameScene extends Phaser.Scene {
     this.topBarBg = this.add.rectangle(w/2, 22, w, 44, 0x111111, 0.92)
       .setScrollFactor(0).setDepth(D);
 
-    // Resource cells
-    this.resIron = this._makeLabel(12, 11, '⚙ Iron: —', D);
-    this.resOil  = this._makeLabel(160, 11, '🛢 Oil: —', D);
-    this.turnLbl = this._makeLabel(w/2, 11, 'Turn 1 | Player 1 | PLANNING', D, true);
-
-    // Back to menu button
+    // Back to menu button (leftmost)
     this.btnMenu = this._makeBtn(12, 11, '← MENU', 0x333333, () => this.scene.start('MenuScene'), D);
+
+    // Resource cells — positioned right of menu button
+    this.resIron = this._makeLabel(110, 11, '⚙ —', D);
+    this.resOil  = this._makeLabel(230, 11, '🛢 —', D);
+
+    // Version tag (right of oil, subtle)
+    this.add.text(340, 11, GAME_VERSION, {
+      font: '11px monospace', fill: '#445566', backgroundColor: '#111111', padding: { x: 4, y: 4 }
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(D);
+
+    this.turnLbl = this._makeLabel(w/2, 11, 'Turn 1 | Player 1 | PLANNING', D, true);
 
     // Settings gear button
     this.btnSettings = this._makeBtn(w - 160, 11, '⚙ Settings', 0x333355, () => this._toggleSettings(), D, 'right');
@@ -1770,8 +1776,6 @@ export class GameScene extends Phaser.Scene {
 
   // ── Click handling ────────────────────────────────────────────────────────
   _onHexClick(q, r) {
-    // Block hex clicks while a splash/combat card is shown
-    if (this._splashDismiss) { this._splashDismiss(); return; }
     const gs = this.gameState;
     const clickedUnit     = unitAt(gs, q, r);
     const clickedBuilding = buildingAt(gs, q, r);
@@ -1847,7 +1851,9 @@ export class GameScene extends Phaser.Scene {
 
     if (this.mode === 'move') {
       const isReachable = this.reachable.some(h => h.q === q && h.r === r);
-      if (isReachable && !clickedUnit) {
+      // Allow move if hex is reachable and has no unit (or only the unit itself)
+      const hexFree = !clickedUnit || clickedUnit.id === this.selectedUnit?.id;
+      if (isReachable && hexFree) {
         // IGOUGO: movement is immediate. Save _origQ/_origR for undo only (not used in combat).
         this.selectedUnit._origQ = this.selectedUnit.q;
         this.selectedUnit._origR = this.selectedUnit.r;
