@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.4.3';
+const GAME_VERSION = 'v0.4.4';
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -2153,156 +2153,167 @@ export class GameScene extends Phaser.Scene {
   }
 
   _showCombatPreview(attacker, target, blindFire) {
-    // Show Civ-style preview card with ATTACK / CANCEL before committing
     const gs = this.gameState;
     const aDef = UNIT_TYPES[attacker.type];
     const tDef = UNIT_TYPES[target.type];
     const NAVAL_SET = new Set(['PATROL_BOAT','SUBMARINE','DESTROYER','CRUISER_LT','CRUISER_HV','BATTLESHIP','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG']);
     const INDIRECT = new Set(['ARTILLERY','MORTAR']);
-    const atkIsNaval = NAVAL_SET.has(attacker.type) || attacker.type === 'COASTAL_BATTERY';
+    const atkIsNaval = NAVAL_SET.has(attacker.type) || attacker.type==='COASTAL_BATTERY';
     const defIsNaval = NAVAL_SET.has(target.type);
-    const tTerrain   = (this.terrain[`${target.q},${target.r}`]) ?? 0;
-    const tOnLand    = tTerrain <= 3 || tTerrain === 6;
+    const tTerrain = (this.terrain[`${target.q},${target.r}`]) ?? 0;
+    const tOnLand  = tTerrain <= 3 || tTerrain === 6;
     const navalVsNaval = atkIsNaval && defIsNaval;
     const navalVsLand  = atkIsNaval && tOnLand && !defIsNaval;
     const isArmored = tDef.armor > 2;
     let baseAtk = navalVsNaval ? aDef.hard_attack : (isArmored ? aDef.hard_attack : aDef.soft_attack);
-    if (navalVsLand) baseAtk = Math.floor((aDef.naval_attack || 1) * 0.6);
-    const pierceRatio = aDef.pierce < tDef.armor ? aDef.pierce / tDef.armor : 1;
+    if (navalVsLand) baseAtk = Math.floor((aDef.naval_attack||1)*0.6);
+    const pierceRatio = aDef.pierce < tDef.armor ? aDef.pierce/tDef.armor : 1;
+    const pierceMod = Math.round((pierceRatio-0.5)*20);
 
-    // Expected score (no roll)
-    let score = 50 + (aDef.accuracy||0) - (tDef.evasion||0) - (blindFire?20:0);
-    const ttype = tTerrain;
-    const terrainMod = ttype===1?10:ttype===2?20:0;
-    const dugInMod   = target.dugIn ? 8 : 0;
-    const onBunker   = gs.buildings?.find(b => b.type==='BUNKER' && b.q===target.q && b.r===target.r && b.owner===target.owner);
-    const bunkerMod  = onBunker ? 15 : 0;
-    score -= terrainMod + dugInMod + bunkerMod;
-    score += Math.round((pierceRatio - 0.5) * 20);
-    score = Math.max(0, Math.min(100, score));
+    // Score breakdown (no random roll)
+    const terrainMod = tTerrain===1?10:tTerrain===2?20:0;
+    const dugInMod   = target.dugIn?8:0;
+    const onBunker   = gs.buildings?.find(b=>b.type==='BUNKER'&&b.q===target.q&&b.r===target.r&&b.owner===target.owner);
+    const bunkerMod  = onBunker?15:0;
+    const blindMod   = blindFire?20:0;
+    const baseScore  = 50;
+    const preRollScore = Math.max(0, Math.min(100,
+      baseScore + (aDef.accuracy||0) - (tDef.evasion||0)
+      - terrainMod - dugInMod - bunkerMod - blindMod + pierceMod));
+    const ROLL = 15; // ±15 random
+    const scoreMin = Math.max(0, preRollScore - ROLL);
+    const scoreMax = Math.min(100, preRollScore + ROLL);
 
-    // Expected damage (no roll, use midpoint +0)
-    const TIER_COL = {'Catastrophic Failure':'#ff4444','Repelled':'#ff8844','Neutral':'#cccccc','Effective':'#88ee44','Overwhelming':'#44ffcc'};
-    const TIER_BG  = {'Catastrophic Failure':0x4a0000,'Repelled':0x3a1800,'Neutral':0x1a1a1a,'Effective':0x0e2800,'Overwhelming':0x002a1a};
-    let tier, expectedDmg=0, expectedRetDmg=0;
-    if      (score < 20) { tier='Catastrophic Failure'; expectedDmg=0; }
-    else if (score < 40) { tier='Repelled';             expectedDmg=0; }
-    else if (score < 60) { tier='Neutral';              expectedDmg=Math.max(1,Math.round(baseAtk*pierceRatio*0.5)); }
-    else if (score < 80) { tier='Effective';            expectedDmg=Math.max(1,Math.round(baseAtk*pierceRatio)); }
-    else                 { tier='Overwhelming';         expectedDmg=Math.max(1,Math.round(baseAtk*pierceRatio)); }
-    expectedDmg = Math.max(0, expectedDmg - (tDef.defense||0));
+    const tierAt = s => s<20?'Catastrophic Failure':s<40?'Repelled':s<60?'Neutral':s<80?'Effective':'Overwhelming';
+    const dmgAt  = (s,ba,pr,def) => {
+      if(s<20) return 0;
+      if(s<40) return 0;
+      if(s<60) return Math.max(0,Math.max(1,Math.round(ba*pr*0.5))-def);
+      return Math.max(0,Math.max(1,Math.round(ba*pr))-def);
+    };
+    const tier   = tierAt(preRollScore);
+    const tierLo = tierAt(scoreMin);
+    const tierHi = tierAt(scoreMax);
+    const expDmg = dmgAt(preRollScore, baseAtk, pierceRatio, tDef.defense||0);
+    const maxDmg = dmgAt(scoreMax,     baseAtk, pierceRatio, tDef.defense||0);
 
-    // Retaliation estimate
-    const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
+    // Retaliation
+    const dist = hexDistance(attacker.q,attacker.r,target.q,target.r);
     const subDiveBlock = tDef.noSurfaceRetaliation && !aDef.noSurfaceRetaliation;
-    const canRet = !blindFire && !INDIRECT.has(attacker.type) && !subDiveBlock && dist <= (tDef.range||1) && !target.suppressed;
+    const canRet = !blindFire && !INDIRECT.has(attacker.type) && !subDiveBlock && dist<=(tDef.range||1) && !target.suppressed;
+    let expRetDmg=0, retTier='';
     if (canRet) {
-      const rIsArm = aDef.armor > 2;
-      const rBase = navalVsNaval ? tDef.hard_attack : (rIsArm ? tDef.hard_attack : tDef.soft_attack);
-      const rPR = tDef.pierce < aDef.armor ? tDef.pierce/aDef.armor : 1;
-      let rScore = 50 + (tDef.accuracy||0) - (aDef.evasion||0) + Math.round((rPR-0.5)*20);
-      rScore = Math.max(0, Math.min(100, rScore));
-      if (rScore >= 60) expectedRetDmg = Math.max(1, Math.round(rBase*rPR));
-      else if (rScore >= 40) expectedRetDmg = Math.max(1, Math.round(rBase*rPR*0.5));
-      expectedRetDmg = Math.max(0, expectedRetDmg - (aDef.defense||0));
+      const rBase = navalVsNaval ? tDef.hard_attack : ((aDef.armor>2)?tDef.hard_attack:tDef.soft_attack);
+      const rPR   = tDef.pierce<aDef.armor ? tDef.pierce/aDef.armor : 1;
+      const rPierceMod = Math.round((rPR-0.5)*20);
+      const rScore = Math.max(0,Math.min(100, 50+(tDef.accuracy||0)-(aDef.evasion||0)+rPierceMod));
+      expRetDmg = dmgAt(rScore,rBase,rPR,aDef.defense||0);
+      retTier   = tierAt(rScore);
     }
 
-    const sw = this.scale.width, sh = this.scale.height;
-    const cx = sw*0.5, cy = sh*0.5, D = 210;
-    const objs = [];
-    const PC = [null, 0x3366cc, 0xcc3333];
+    // ── UI ────────────────────────────────────────────────────────────────────
+    const TIER_COL={'Catastrophic Failure':'#ff4444','Repelled':'#ff8844','Neutral':'#cccccc','Effective':'#88ee44','Overwhelming':'#44ffcc'};
+    const TIER_BG ={'Catastrophic Failure':0x4a0000,'Repelled':0x3a1800,'Neutral':0x1a1a1a,'Effective':0x0e2800,'Overwhelming':0x002a1a};
+    const GLYPH={INFANTRY:'●',ENGINEER:'◆',RECON:'✶',TANK:'■',ARTILLERY:'▲',ANTI_TANK:'➤',MORTAR:'△',MEDIC:'✚',PATROL_BOAT:'◖',SUBMARINE:'▭',DESTROYER:'◉',CRUISER_LT:'⬒',CRUISER_HV:'⬓',BATTLESHIP:'⬔',LANDING_CRAFT:'⟂',TRANSPORT_SM:'◫',TRANSPORT_MD:'◫',TRANSPORT_LG:'◫',COASTAL_BATTERY:'▣'};
+    const PC=[null,0x3366cc,0xcc3333];
+    const sw=this.scale.width,sh=this.scale.height,cx=sw*0.5,cy=sh*0.5,D=210;
+    const objs=[];
 
-    const mk = (txt, x, y, col='#d0dde8', sz=12, bold=false, ox=0.5, oy=0.5) => {
-      const t = this.add.text(x,y,txt,{font:`${bold?'bold ':''}${sz}px monospace`,fill:col}).setOrigin(ox,oy).setScrollFactor(0).setDepth(D+1);
-      objs.push(t); return t;
+    const mk=(txt,x,y,col='#d0dde8',sz=12,bold=false,ox=0.5,oy=0.5)=>{
+      const t=this.add.text(x,y,txt,{font:`${bold?'bold ':''}${sz}px monospace`,fill:col}).setOrigin(ox,oy).setScrollFactor(0).setDepth(D+1);
+      objs.push(t);return t;
     };
-    const bx = (x,y,w,h,fill,alpha=1,stroke=null) => {
+    const bx=(x,y,w,h,fill,alpha=1,stroke=null)=>{
       const r=this.add.rectangle(x,y,w,h,fill,alpha).setDepth(D).setScrollFactor(0);
-      if(stroke!==null)r.setStrokeStyle(1.5,stroke);
-      objs.push(r); return r;
+      if(stroke!==null)r.setStrokeStyle(1.5,stroke);objs.push(r);return r;
     };
-    const hpBar = (x,y,bW,current,max,projected) => {
-      const h=10;
-      bx(x,y,bW,h,0x111111,1,0x334455);
-      const hpF=Math.max(0,current)/Math.max(1,max);
-      bx(x-bW/2+(bW*hpF)/2,y,bW*hpF,h,hpF>0.6?0x44bb44:hpF>0.3?0xddaa00:0xcc2222);
-      const projAfter=Math.max(0,current-projected);
-      const projF=Math.max(0,projAfter)/Math.max(1,max);
-      if(projected>0){const lostW=bW*(hpF-projF);bx(x-bW/2+bW*projF+lostW/2,y,lostW,h,0x882222,0.7);}
+    const hpBar=(x,y,bW,current,max,proj)=>{
+      bx(x,y,bW,10,0x111111,1,0x334455);
+      const f=Math.max(0,current)/Math.max(1,max);
+      bx(x-bW/2+(bW*f)/2,y,bW*f,10,f>0.6?0x44bb44:f>0.3?0xddaa00:0xcc2222);
+      const af=Math.max(0,current-proj)/Math.max(1,max);
+      if(proj>0){const lw=bW*(f-af);bx(x-bW/2+bW*af+lw/2,y,lw,10,0x882222,0.7);}
     };
 
-    // Backdrop
-    bx(cx,cy,sw,sh,0x000000,0.7);
-
-    // Card
-    const cW=Math.min(680,sw-32),cH=300;
-    bx(cx,cy,cW,cH,0x0b0e14,0.98,0x2e3d50);
+    const cW=Math.min(740,sw-24), cH=380;
+    bx(cx,cy,sw,sh,0x000000,0.72);
+    bx(cx,cy,cW,cH,0x0a0d12,0.98,0x2e3d50);
 
     // Header
-    bx(cx,cy-cH/2+22,cW,44,0x0d1b2a,1,0x2e3d50);
-    mk('⚔  ATTACK PREVIEW',cx,cy-cH/2+22,'#c8b87a',15,true);
-    mk('Select ATTACK to confirm or CANCEL',cx,cy-cH/2+38,'#556677',9);
+    bx(cx,cy-cH/2+22,cW,44,0x0c1824,1,0x2e3d50);
+    mk('⚔  ATTACK PREVIEW',cx-20,cy-cH/2+20,'#c8b87a',14,true,0.5,0.5);
+    mk(blindFire?'BLIND FIRE':'',cx+cW/4,cy-cH/2+20,'#ff8844',10,true,0.5,0.5);
+    mk('click ATTACK to confirm  ·  CANCEL to abort',cx,cy-cH/2+36,'#445566',9);
 
-    // Portraits
-    const pW=cW*0.36,pH=150,pY=cy-cH/2+44+pH/2+6;
-    const lX=cx-cW/2+16+pW/2, rX=cx+cW/2-16-pW/2;
-
-    const portrait=(pcx,pcy,type,owner,name,hp,projDmg,role)=>{
+    // Unit portraits (top section)
+    const pW=(cW-60)*0.38, pH=130, pY=cy-cH/2+56+pH/2;
+    const lX=cx-cW/2+12+pW/2, rX=cx+cW/2-12-pW/2;
+    const portrait=(pcx,pcy,type,owner,name,hp,proj,role)=>{
       bx(pcx,pcy,pW,pH,0x0f151c,1,PC[owner]||0x445566);
-      const rCol=role==='ATTACKER'?'#5588ee':'#ee5544';
       bx(pcx,pcy-pH/2+11,pW,22,owner===1?0x1a2a44:0x3a1414,1);
-      mk(role,pcx,pcy-pH/2+11,rCol,10,true);
-      const GLYPH={INFANTRY:'●',ENGINEER:'◆',RECON:'✶',TANK:'■',ARTILLERY:'▲',ANTI_TANK:'➤',MORTAR:'△',MEDIC:'✚',PATROL_BOAT:'◖',SUBMARINE:'▭',DESTROYER:'◉',CRUISER_LT:'⬒',CRUISER_HV:'⬓',BATTLESHIP:'⬔',LANDING_CRAFT:'⟂',TRANSPORT_SM:'◫',TRANSPORT_MD:'◫',TRANSPORT_LG:'◫',COASTAL_BATTERY:'▣'};
-      mk(GLYPH[type]||'◌',pcx,pcy-18,PC[owner]?'#'+PC[owner].toString(16).padStart(6,'0'):'#aaa',38,true);
-      mk(name,pcx,pcy+26,'#dde8f0',11,true);
-      hpBar(pcx,pcy+46,pW-20,hp,hp,projDmg);
-      const after=Math.max(0,hp-projDmg);
-      mk(`HP ${hp}  →  ${after}${projDmg>0?'  (−'+projDmg+')':''}`,pcx,pcy+60,projDmg>0?'#ff8888':'#88cc88',10);
+      mk(role,pcx,pcy-pH/2+11,role==='ATTACKER'?'#5588ee':'#ee5544',10,true);
+      mk(GLYPH[type]||'◌',pcx,pcy-16,PC[owner]?'#'+PC[owner].toString(16).padStart(6,'0'):'#aaa',36,true);
+      mk(name,pcx,pcy+22,'#dde8f0',11,true);
+      hpBar(pcx,pcy+42,pW-16,hp,hp,proj);
+      mk(`HP ${hp} → ${Math.max(0,hp-proj)}${proj>0?' (−'+proj+')':''}`,pcx,pcy+56,proj>0?'#ff8888':'#77cc77',9);
     };
+    portrait(lX,pY,attacker.type,attacker.owner,aDef.name,attacker.health,expRetDmg,'ATTACKER');
+    portrait(rX,pY,target.type,target.owner,tDef.name,target.health,expDmg,'DEFENDER');
 
-    portrait(lX,pY,attacker.type,attacker.owner,aDef.name,attacker.health,expectedRetDmg,'ATTACKER');
-    portrait(rX,pY,target.type,target.owner,tDef.name,target.health,expectedDmg,'DEFENDER');
+    // Center VS + attack str
+    mk('VS',cx,pY-30,'#2a3a4a',14,true);
+    mk(`${baseAtk}`,cx,pY-8,'#e8d090',20,true);
+    mk('ATK STR',cx,pY+14,'#556677',9);
 
-    // Center
-    mk('VS',cx,pY-pH/2+28,'#334455',16,true);
-    mk(`${baseAtk}`,cx,pY-10,'#e8d090',22,true);
-    mk('ATTACK STR',cx,pY+14,'#7799aa',9);
-    mk(`Score ~${score}`,cx,pY+30,'#aabbcc',10,true);
+    // ── Score breakdown panel ─────────────────────────────────────────────────
+    const sbY = cy-cH/2+56+pH+14;
+    const sbH = 108;
+    bx(cx, sbY+sbH/2, cW-16, sbH, 0x080c10, 0.95, 0x1e2d3a);
+    mk('SCORE BREAKDOWN', cx, sbY+6, '#6688aa', 10, true, 0.5, 0);
 
-    // Outcome estimate
-    const outY=cy+cH/2-78;
-    bx(cx,outY,cW-4,28,TIER_BG[tier]||0x1a1a1a,1,0x445566);
-    mk(`Expected: ${tier.toUpperCase()}`,cx,outY,TIER_COL[tier]||'#ccc',13,true);
+    // Build modifier rows
+    const rows = [
+      ['Base score',        `${baseScore}`, '#778899'],
+    ];
+    if (aDef.accuracy)   rows.push([`Accuracy (${aDef.name})`,      `+${aDef.accuracy}`, '#88cc88']);
+    if (tDef.evasion)    rows.push([`Evasion (${tDef.name})`,       `−${tDef.evasion}`,  '#cc8844']);
+    if (terrainMod)      rows.push([`Terrain cover`,                 `−${terrainMod}`,    '#aa7744']);
+    if (dugInMod)        rows.push([`Dug-in fortification`,          `−${dugInMod}`,      '#aa7744']);
+    if (bunkerMod)       rows.push([`Bunker protection`,             `−${bunkerMod}`,     '#aa7744']);
+    if (blindMod)        rows.push([`Blind fire penalty`,            `−${blindMod}`,      '#cc4444']);
+    if (pierceMod !== 0) rows.push([`Pierce ${aDef.pierce} vs Armor ${tDef.armor}`, `${pierceMod>=0?'+':''}${pierceMod}`, pierceMod>=0?'#88cc88':'#cc8844']);
+    rows.push([`Random roll`,                                        `±${ROLL}`,          '#7799aa']);
 
-    // Modifiers
-    const mods=[];
-    if(aDef.accuracy)   mods.push(`Accuracy +${aDef.accuracy}`);
-    if(tDef.evasion)    mods.push(`Evasion −${tDef.evasion}`);
-    if(terrainMod)      mods.push(`Terrain −${terrainMod}`);
-    if(dugInMod)        mods.push(`Dug-in −${dugInMod}`);
-    if(bunkerMod)       mods.push(`Bunker −${bunkerMod}`);
-    if(blindFire)       mods.push('Blind fire −20');
-    if(canRet&&expectedRetDmg>0) mods.push(`↩ Retaliation ~−${expectedRetDmg}`);
-    mk(mods.join('    ')||'No modifiers',cx,outY+22,'#7a8a6a',9);
+    // Two-column layout for rows
+    const col1X=cx-cW/2+24, col2X=cx+10;
+    const rH=14, rowStartY=sbY+20;
+    rows.forEach((row,i)=>{
+      const col = i<Math.ceil(rows.length/2)?0:1;
+      const ri  = col===0?i:i-Math.ceil(rows.length/2);
+      const rx  = col===0?col1X:col2X;
+      const ry  = rowStartY+ri*rH;
+      mk(`${row[0]}`, rx, ry, '#556677', 9, false, 0, 0);
+      mk(row[1], rx+160, ry, row[2], 9, true, 0, 0);
+    });
+    // Score summary line
+    mk(`Pre-roll score: ${preRollScore}  (range ${scoreMin}–${scoreMax})`, cx, sbY+sbH-10, '#aabbcc', 10, true, 0.5, 1);
 
-    // Buttons
-    const btnY=cy+cH/2-22;
-    const atkBtn=this.add.text(cx-70,btnY,'  ATTACK  ',{font:'bold 13px monospace',fill:'#ffffff',backgroundColor:'#aa2222',padding:{x:14,y:8}}).setOrigin(0.5).setScrollFactor(0).setDepth(D+2).setInteractive({useHandCursor:true});
-    const canBtn=this.add.text(cx+70,btnY,'  CANCEL  ',{font:'bold 13px monospace',fill:'#aaaaaa',backgroundColor:'#222222',padding:{x:14,y:8}}).setOrigin(0.5).setScrollFactor(0).setDepth(D+2).setInteractive({useHandCursor:true});
-    this._addToUI([...objs, atkBtn, canBtn]);
+    // ── Outcome band ──────────────────────────────────────────────────────────
+    const outY = sbY + sbH + 6;
+    bx(cx, outY+14, cW-16, 28, TIER_BG[tier]||0x1a1a1a, 1, 0x334455);
+    const rangeStr = tierLo===tierHi ? tier : `${tierLo}  →  ${tier}  →  ${tierHi}`;
+    mk(`Expected: ${rangeStr.toUpperCase()}  |  est. −${expDmg} to defender${canRet?`  ·  ↩ ret. −${expRetDmg}`:' · no retaliation'}`, cx, outY+14, TIER_COL[tier]||'#ccc', 10, true);
+
+    // ── Buttons ───────────────────────────────────────────────────────────────
+    const btnY = cy+cH/2-22;
+    bx(cx, cy+cH/2-22, cW, 44, 0x080c10, 1, 0x2e3d50);
+    const atkBtn=this.add.text(cx-80,btnY,'  ATTACK  ',{font:'bold 13px monospace',fill:'#ffffff',backgroundColor:'#992211',padding:{x:16,y:8}}).setOrigin(0.5,0.5).setScrollFactor(0).setDepth(D+2).setInteractive({useHandCursor:true});
+    const canBtn=this.add.text(cx+80,btnY,'  CANCEL  ',{font:'bold 13px monospace',fill:'#aaaaaa',backgroundColor:'#1a1a2a',padding:{x:16,y:8}}).setOrigin(0.5,0.5).setScrollFactor(0).setDepth(D+2).setInteractive({useHandCursor:true});
+    this._addToUI([...objs,atkBtn,canBtn]);
 
     const cleanup=()=>[...objs,atkBtn,canBtn].forEach(o=>{try{o.destroy();}catch(e){}});
-
-    atkBtn.on('pointerdown',()=>{
-      this._contextMenuClicked = true; // block pointerup from firing _onHexClick
-      cleanup();
-      this._doImmediateAttack(attacker,target.id,blindFire);
-    });
-    canBtn.on('pointerdown',()=>{
-      this._contextMenuClicked = true;
-      cleanup();
-      this._refresh();
-    });
+    atkBtn.on('pointerdown',()=>{ this._contextMenuClicked=true; cleanup(); this._doImmediateAttack(attacker,target.id,blindFire); });
+    canBtn.on('pointerdown',()=>{ this._contextMenuClicked=true; cleanup(); this._refresh(); });
     atkBtn.on('pointerover',()=>atkBtn.setStyle({fill:'#ffdddd'}));
     atkBtn.on('pointerout', ()=>atkBtn.setStyle({fill:'#ffffff'}));
   }
@@ -2613,18 +2624,29 @@ export class GameScene extends Phaser.Scene {
       mk('BLIND FIRE — EMPTY HEX', cX, outY, '#888888', 13, true);
     }
 
-    // ── Modifiers row ─────────────────────────────────────────────────────────
-    const modY = outY + 24;
+    // ── Score breakdown + roll reveal ─────────────────────────────────────────
+    const modY = outY + 20;
+    const rollCol = roll>5?'#88ee44':roll<-5?'#ff6644':'#aabbcc';
+    const rollStr = roll>=0?`+${roll}`:String(roll);
+    // Score line
+    mk(`Score: ${entry.score??'?'}  (base 50 + roll ${rollStr})   Atk: ${entry.baseAttack??'?'}   Pierce ${entry.pierce??'?'} / Armor ${entry.armor??'?'}`, cX, modY, '#667788', 9, false, [0.5,0.5]);
+    // Modifiers line
     const mods = [];
-    if (entry.terrainMod)      mods.push(`🌲 Terrain  −${entry.terrainMod}`);
-    if (entry.dugInMod)        mods.push(`⛏ Dug-in  −${entry.dugInMod}`);
-    if (entry.bunkerMod)       mods.push(`🏰 Bunker  −${entry.bunkerMod}`);
-    if (entry.flankMod)        mods.push(`↔ Flank  +${entry.flankMod}`);
-    if (entry.blindFirePenalty)mods.push(`👁 Blind fire  −${entry.blindFirePenalty}`);
-    if (entry.suppressed)      mods.push('💥 SUPPRESSED');
-    if (entry.defenderCanRetaliate && entry.retaliationDmg > 0)
-      mods.push(`↩ Retaliation  −${entry.retaliationDmg}`);
-    mk(mods.join('    ') || 'No modifiers', cX, modY, '#7a8a6a', 10);
+    if (entry.accuracy)        mods.push(`Acc ${(entry.accuracy??0)>=0?'+':''}${entry.accuracy}`);
+    if (entry.evasion)         mods.push(`Eva −${entry.evasion}`);
+    if (entry.terrainMod)      mods.push(`Terrain −${entry.terrainMod}`);
+    if (entry.dugInMod)        mods.push(`Dug-in −${entry.dugInMod}`);
+    if (entry.bunkerMod)       mods.push(`Bunker −${entry.bunkerMod}`);
+    if (entry.flankMod)        mods.push(`Flank +${entry.flankMod}`);
+    if (entry.blindFirePenalty) mods.push(`Blind −${entry.blindFirePenalty}`);
+    if (entry.suppressed)      mods.push('SUPPRESSED');
+    mk(mods.join('  ·  ')||'No modifiers', cX, modY+14, '#445566', 9, false, [0.5,0.5]);
+    // Retaliation line
+    if (entry.defenderCanRetaliate && entry.retaliationDmg > 0) {
+      mk(`↩ Retaliation: ${entry.retaliationTier||'?'} (score ${entry.retaliationScore??'?'})  —  defender deals −${entry.retaliationDmg}`, cX, modY+28, '#ffcc88', 9, false, [0.5,0.5]);
+    } else {
+      mk(`↩ No retaliation — ${entry.blindFire?'blind fire':'defender dived / out of range'}`, cX, modY+28, '#334455', 9, false, [0.5,0.5]);
+    }
 
     // ── Footer ────────────────────────────────────────────────────────────────
     box(cX, cY + cH/2 - 16, cW, 32, 0x080b10, 1, 0x2e3d50);
