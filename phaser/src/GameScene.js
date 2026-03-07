@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const BUILD_TAG = 'live-igougo-r1';
+const BUILD_TAG = 'IGOUGO LIVE r2';
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
