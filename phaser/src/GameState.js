@@ -37,8 +37,8 @@ export const UNIT_TYPES = {
   // capacity:{infantry,vehicle} = how many embarked units this transport holds
   //
   PATROL_BOAT:   { name:'Patrol Boat',    move:4, attack:2, health:2, range:2, cost:{iron:2,oil:1}, shape:'boat_sm',  canDigIn:false, canBuild:false, canHeal:false, sight:5,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:0, detection:1, naval_attack:1, soft_attack:2, hard_attack:1, pierce:2, armor:1, defense:0, evasion:5,  accuracy:0,  buildTime:1 },
-  SUBMARINE:     { name:'Submarine',      move:3, attack:3, health:4, range:3, cost:{iron:4,oil:2}, shape:'sub',      canDigIn:false, canBuild:false, canHeal:false, sight:3,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:5, detection:0, naval_attack:0, soft_attack:1, hard_attack:4, pierce:6, armor:2, defense:1, evasion:10, accuracy:5,  buildTime:3 },
-  DESTROYER:     { name:'Destroyer',      move:3, attack:3, health:5, range:3, cost:{iron:5,oil:2}, shape:'destroyer', canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:2, naval_attack:2, soft_attack:3, hard_attack:2, pierce:3, armor:2, defense:1, evasion:5,  accuracy:5,  buildTime:3 },
+  SUBMARINE:     { name:'Submarine',      move:3, attack:3, health:4, range:3, cost:{iron:4,oil:2}, shape:'sub',      canDigIn:false, canBuild:false, canHeal:false, sight:3,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:5, detection:0, naval_attack:0, soft_attack:1, hard_attack:4, pierce:6, armor:2, defense:1, evasion:5, accuracy:5,  buildTime:3, noSurfaceRetaliation:true },
+  DESTROYER:     { name:'Destroyer',      move:3, attack:3, health:5, range:3, cost:{iron:5,oil:2}, shape:'destroyer', canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:2, naval_attack:2, soft_attack:3, hard_attack:4, pierce:5, armor:2, defense:1, evasion:5,  accuracy:10, buildTime:3, antiSub:true },
   CRUISER_LT:    { name:'Light Cruiser',  move:3, attack:3, health:6, range:4, cost:{iron:6,oil:3}, shape:'cruiser',   canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:3, soft_attack:3, hard_attack:3, pierce:3, armor:3, defense:2, evasion:3,  accuracy:5,  buildTime:4 },
   CRUISER_HV:    { name:'Heavy Cruiser',  move:2, attack:4, health:8, range:5, cost:{iron:8,oil:4}, shape:'cruiser_hv',canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:5, soft_attack:4, hard_attack:4, pierce:4, armor:5, defense:2, evasion:1,  accuracy:5,  buildTime:5 },
   BATTLESHIP:    { name:'Battleship',     move:1, attack:5, health:12, range:7, cost:{iron:12,oil:6},shape:'battleship',canDigIn:false,canBuild:false, canHeal:false, sight:5,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:7, soft_attack:5, hard_attack:5, pierce:5, armor:8, defense:3, evasion:0,  accuracy:5,  buildTime:7 },
@@ -1184,7 +1184,9 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   // Retaliation: defender fires back if alive after attacker's hit and in range
   const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
   const defenderRange = tDef.range || 1;
-  const canRetaliate = !blindFire && !INDIRECT_FIRE.has(attacker.type) && dist <= defenderRange && target.health - dmg > 0 && !target.suppressed;
+  // Subs with noSurfaceRetaliation can't retaliate against surface ships (they dive instead)
+  const subDiveBlock = tDef.noSurfaceRetaliation && !aDef.noSurfaceRetaliation;
+  const canRetaliate = !blindFire && !INDIRECT_FIRE.has(attacker.type) && !subDiveBlock && dist <= defenderRange && target.health - dmg > 0 && !target.suppressed;
 
   let retDmg = 0, retScore = 0, retTier = '';
   if (canRetaliate) {

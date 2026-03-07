@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.4.2';
+const GAME_VERSION = 'v0.4.3';
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -2194,7 +2194,8 @@ export class GameScene extends Phaser.Scene {
 
     // Retaliation estimate
     const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
-    const canRet = !blindFire && !INDIRECT.has(attacker.type) && dist <= (tDef.range||1) && !target.suppressed;
+    const subDiveBlock = tDef.noSurfaceRetaliation && !aDef.noSurfaceRetaliation;
+    const canRet = !blindFire && !INDIRECT.has(attacker.type) && !subDiveBlock && dist <= (tDef.range||1) && !target.suppressed;
     if (canRet) {
       const rIsArm = aDef.armor > 2;
       const rBase = navalVsNaval ? tDef.hard_attack : (rIsArm ? tDef.hard_attack : tDef.soft_attack);
