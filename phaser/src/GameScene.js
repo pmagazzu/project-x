@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.3';
+const GAME_VERSION = 'v0.9.4';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2586,6 +2586,16 @@ export class GameScene extends Phaser.Scene {
         const path = findPath(this.terrain, this.mapSize, unit.q, unit.r, q, r, 'ENGINEER');
         if (path && path.length > 0) {
           unit.roadOrder = { destQ: q, destR: r, path };
+          // Immediately place a road on the engineer's current tile (starting hex)
+          const gs = this.gameState;
+          const owner = unit.owner;
+          const roadCost = BUILDING_TYPES['ROAD'].buildCost;
+          const hasRoadAlready = gs.buildings.some(b => b.type === 'ROAD' && b.q === unit.q && b.r === unit.r);
+          const canAfford = gs.players[owner].wood >= (roadCost.wood || 1);
+          if (!hasRoadAlready && canAfford) {
+            gs.players[owner].wood -= (roadCost.wood || 1);
+            gs.buildings.push({ id: Date.now(), type: 'ROAD', q: unit.q, r: unit.r, owner });
+          }
         } else {
           // Show brief "no path" feedback — just log; could add toast later
           console.log(`Auto-road: no path from (${unit.q},${unit.r}) to (${q},${r})`);
