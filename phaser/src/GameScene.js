@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.7.8';
+const GAME_VERSION = 'v0.7.9';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1800,11 +1800,27 @@ export class GameScene extends Phaser.Scene {
       cam.scrollY += wBefore.y - wAfter.y;
     });
 
-    this.wasd = this.input.keyboard.addKeys('W,A,S,D');
-    this.input.keyboard.on('keydown-ESC',   () => this._toggleSettings());
-    this.input.keyboard.on('keydown-X',     () => { if (this.btnSubmit?.visible) this._confirmEndTurn(); });
-    this.input.keyboard.on('keydown-SPACE', () => { if (this._endTurnPending) this._onSubmit(); this._hideEndTurnConfirm(); });
-    this.input.keyboard.on('keydown-SPACE', () => { if (this._splashDismiss) { this._splashDismiss(); this._splashDismiss = null; } });
+    // WASD camera via raw DOM events — more reliable than Phaser isDown polling
+    // which can break after interactive objects steal keyboard focus
+    this._keysDown = new Set();
+    this._onKeyDown = (e) => {
+      this._keysDown.add(e.code);
+      if (e.code === 'Escape' && !this._endTurnPending) this._toggleSettings();
+      if (e.code === 'KeyX' && this.btnSubmit?.visible) this._confirmEndTurn();
+      if (e.code === 'Space') {
+        if (this._endTurnPending) { this._onSubmit(); this._hideEndTurnConfirm(); }
+        if (this._splashDismiss) { this._splashDismiss(); this._splashDismiss = null; }
+      }
+    };
+    this._onKeyUp = (e) => this._keysDown.delete(e.code);
+    window.addEventListener('keydown', this._onKeyDown);
+    window.addEventListener('keyup',   this._onKeyUp);
+
+    // Clean up on scene shutdown
+    this.events.on('shutdown', () => {
+      window.removeEventListener('keydown', this._onKeyDown);
+      window.removeEventListener('keyup',   this._onKeyUp);
+    });
   }
 
   // ── World → Screen coordinate conversion ─────────────────────────────────
@@ -2244,13 +2260,14 @@ export class GameScene extends Phaser.Scene {
   update() {
     const cam = this.cameras.main;
     const speed = 6 / cam.zoom;
-    const wasdMoving = this.wasd.W.isDown || this.wasd.S.isDown || this.wasd.A.isDown || this.wasd.D.isDown;
-    if (this.wasd.W.isDown) cam.scrollY -= speed;
-    if (this.wasd.S.isDown) cam.scrollY += speed;
-    if (this.wasd.A.isDown) cam.scrollX -= speed;
-    if (this.wasd.D.isDown) cam.scrollX += speed;
-    // Context menu is right-click only; close it if panning away
-    if (wasdMoving && this._contextMenuObjs) this._hideContextMenu();
+    const k = this._keysDown;
+    const moving = k.has('KeyW') || k.has('KeyS') || k.has('KeyA') || k.has('KeyD') ||
+                   k.has('ArrowUp') || k.has('ArrowDown') || k.has('ArrowLeft') || k.has('ArrowRight');
+    if (k.has('KeyW') || k.has('ArrowUp'))    cam.scrollY -= speed;
+    if (k.has('KeyS') || k.has('ArrowDown'))  cam.scrollY += speed;
+    if (k.has('KeyA') || k.has('ArrowLeft'))  cam.scrollX -= speed;
+    if (k.has('KeyD') || k.has('ArrowRight')) cam.scrollX += speed;
+    if (moving && this._contextMenuObjs) this._hideContextMenu();
   }
 
   // ── Click handling ────────────────────────────────────────────────────────
@@ -3349,8 +3366,6 @@ export class GameScene extends Phaser.Scene {
     const dismiss = () => {
       this._splashDismiss = null;
       [...objects, btn].forEach(o => { try { o.destroy(); } catch(e){} });
-      // Re-focus canvas so WASD key polling works immediately for the next player
-      try { this.game.canvas.focus(); } catch(e) {}
       onDismiss();
     };
     this._splashDismiss = dismiss;
