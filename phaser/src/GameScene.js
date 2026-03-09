@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.5.1';
+const GAME_VERSION = 'v0.5.2';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -117,11 +117,11 @@ export class GameScene extends Phaser.Scene {
     // Terrain is drawn directly to a world Graphics object (avoids RT color-channel bugs).
     // For maps ≤50 tiles, this is fast enough. Grand map still uses RT for performance.
     this.terrainGfx = this.add.graphics().setDepth(0);
-    // Terrain art RenderTexture — bakes user art tiles in world space at depth 2
-    this.terrainArtRT = this.add.renderTexture(bounds.minX - padding, bounds.minY - padding, rtW, rtH)
-      .setOrigin(0, 0).setDepth(2);
-    // Keep terrainRT as a dummy object so existing camera ignore lists don't break
-    this.terrainRT = this.add.renderTexture(1, 1, 1, 1).setVisible(false);
+    // Layer for terrain art image objects (depth 2, world space, camera-managed)
+    this.terrainArtLayer = this.add.layer().setDepth(2);
+    // Keep terrainRT and terrainArtRT as dummy objects so camera ignore lists don't break
+    this.terrainRT    = this.add.renderTexture(1, 1, 1, 1).setVisible(false);
+    this.terrainArtRT = this.add.renderTexture(1, 1, 1, 1).setVisible(false);
 
     // World graphics layers (depth order)
     this.roadGfx      = this.add.graphics().setDepth(5);
@@ -146,7 +146,8 @@ export class GameScene extends Phaser.Scene {
     // Move all scroll-factor-0 objects created so far into _uiLayer
     // (catches top bar, bottom panel, buttons, etc. without touching each line)
     const worldObjs = new Set([
-      this.terrainGfx, this.terrainArtRT, this.terrainRT, this.roadGfx, this.resourceGfx,
+      this.terrainGfx, this.terrainArtLayer, this.terrainArtRT, this.terrainRT,
+      this.roadGfx, this.resourceGfx,
       this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT, this._uiLayer
     ]);
     for (const obj of [...this.children.list]) {
@@ -171,7 +172,8 @@ export class GameScene extends Phaser.Scene {
     this.uiCamera = this.cameras.add(0, 0, sw, sh).setName('ui').setScroll(0, 0).setZoom(1);
     this.uiCamera.transparent = true; // transparent background — must not cover world
     this.uiCamera.ignore([
-      this.terrainGfx, this.terrainArtRT, this.terrainRT, this.roadGfx, this.resourceGfx,
+      this.terrainGfx, this.terrainArtLayer, this.terrainArtRT, this.terrainRT,
+      this.roadGfx, this.resourceGfx,
       this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT,
     ]);
     this.scale.on('resize', (gs) => this.uiCamera.setSize(gs.width, gs.height));
@@ -185,30 +187,23 @@ export class GameScene extends Phaser.Scene {
   // ── Terrain ──────────────────────────────────────────────────────────────
   _drawTerrainDirect() {
     this.terrainGfx.clear();
-    if (this.terrainArtRT) this.terrainArtRT.clear();
+    // Destroy old art images in the layer
+    if (this.terrainArtLayer) this.terrainArtLayer.removeAll(true);
 
     const artW = HEX_SIZE * 2;
     const artH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH);
-    // RT origin offset (RT positioned at bounds.minX - padding, bounds.minY - padding)
-    const rtOx = this.terrainArtRT ? this.terrainArtRT.x : 0;
-    const rtOy = this.terrainArtRT ? this.terrainArtRT.y : 0;
 
     for (let q = 0; q < this.mapSize; q++) {
       for (let r = 0; r < this.mapSize; r++) {
         const ttype = this.terrain[`${q},${r}`] ?? 0;
         const { x, y } = hexToWorld(q, r);
         this._drawHex(this.terrainGfx, x, y, ttype, false, false);
-        // Bake user art tile into RT if loaded
-        if (this.terrainArtRT) {
+        // Overlay user art tile if loaded
+        if (this.terrainArtLayer) {
           const artKey = TERRAIN_ART_KEYS[ttype];
           if (artKey && this.textures.exists(artKey)) {
-            const src = this.textures.get(artKey).getSourceImage();
-            const sx = src.width  > 0 ? artW / src.width  : 1;
-            const sy = src.height > 0 ? artH / src.height : 1;
-            // stamp(key, frame, x, y, config) — RT-local coords
-            this.terrainArtRT.stamp(artKey, undefined,
-              x - rtOx, y - rtOy,
-              { scaleX: sx, scaleY: sy, originX: 0.5, originY: 0.5 });
+            const img = this.add.image(x, y, artKey).setDisplaySize(artW, artH);
+            this.terrainArtLayer.add(img);
           }
         }
       }
