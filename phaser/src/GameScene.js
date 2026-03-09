@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.6.3';
+const GAME_VERSION = 'v0.6.4';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1180,7 +1180,7 @@ export class GameScene extends Phaser.Scene {
     const pl  = gs.players[p];
     const inc = calcIncome(gs, p);
     const myOrders = gs.pendingRecruits.filter(r => r.owner === p);
-    const modeStr = this.mode === 'move' ? 'MOVING' : this.mode === 'attack' ? 'ATTACKING' : 'PLANNING';
+    const modeStr = this.mode === 'move' ? 'MOVING' : this.mode === 'sprint' ? 'SPRINTING' : this.mode === 'attack' ? 'ATTACKING' : 'PLANNING';
     const queueStr = myOrders.length
       ? '  |  ' + myOrders.map(r => {
           const name = r.designId !== undefined
@@ -1746,6 +1746,11 @@ export class GameScene extends Phaser.Scene {
     if (!unit.moved && !unit.suppressed && !isImmobile) {
       actions.push({ label: 'MOVE',   key: 'move',   enabled: true,  color: 0x1a5c8a, cb: () => this._onMoveMode() });
     }
+    // Patrol Boat sprint: 2nd shorter move after first, but negates attack
+    if (def.canSprint && unit.moved && !unit.sprinted && !unit.attacked && !unit.suppressed) {
+      actions.push({ label: `SPRINT +${def.sprintMove} (no attack)`, key: 'sprint', enabled: true, color: 0x1a6655,
+        cb: () => this._onSprintMode(unit) });
+    }
 
     // Transport: LOAD (board adjacent land units) / UNLOAD (disembark to adjacent hex)
     if (def.capacity) {
@@ -2184,6 +2189,22 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    if (this.mode === 'sprint') {
+      const isReachable = this.reachable.some(h => h.q === q && h.r === r);
+      const hexFree = !clickedUnit || clickedUnit.id === this.selectedUnit?.id;
+      if (isReachable && hexFree) {
+        this.selectedUnit.q = q; this.selectedUnit.r = r;
+        this.selectedUnit.sprinted = true;
+        this.selectedUnit.attacked = true; // sprint negates attack
+        this.reachable = []; this.attackable = [];
+        this.mode = 'select';
+        this._refresh();
+      } else {
+        this.mode = 'select'; this.reachable = []; this._refresh();
+      }
+      return;
+    }
+
     if (this.mode === 'move') {
       const isReachable = this.reachable.some(h => h.q === q && h.r === r);
       // Allow move if hex is reachable and has no unit (or only the unit itself)
@@ -2321,6 +2342,19 @@ export class GameScene extends Phaser.Scene {
     this.mode = 'move';
     this.reachable  = getReachableHexes(this.gameState, this.selectedUnit, this.terrain, this.mapSize);
     this.attackable = [];
+    this._refresh();
+  }
+
+  _onSprintMode(unit) {
+    if (!unit || !unit.moved || unit.sprinted || unit.attacked) return;
+    this.selectedUnit = unit;
+    this.mode = 'sprint';
+    const def = UNIT_TYPES[unit.type];
+    // Temporarily override move range for sprint calculation
+    const sprintUnit = Object.assign({}, unit, { move: def.sprintMove, moved: false });
+    this.reachable  = getReachableHexes(this.gameState, sprintUnit, this.terrain, this.mapSize);
+    this.attackable = [];
+    this._hideContextMenu();
     this._refresh();
   }
 
