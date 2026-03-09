@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import {
   hexToWorld, worldToHex, hexVertices, isValid,
-  MAP_SIZE, HEX_SIZE, getMapBounds
+  MAP_SIZE, HEX_SIZE, ISO_SQUISH, getMapBounds
 } from './HexGrid.js';
 import { MenuScene } from './MenuScene.js';
 import {
@@ -30,10 +30,39 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.4.8';
+const GAME_VERSION = 'v0.4.9';
+
+// Terrain type index → user_art filename key
+const TERRAIN_ART_KEYS = {
+  0: 'terrain_grass',
+  1: 'terrain_forest',
+  2: 'terrain_mountain',
+  3: 'terrain_hill',
+  4: 'terrain_shallow',
+  5: 'terrain_ocean',
+  6: 'terrain_sand',
+};
+
+const TERRAIN_ART_FILES = {
+  terrain_grass:    'user_art/grass_tile.png',
+  terrain_forest:   'user_art/forest_tile.png',
+  terrain_mountain: 'user_art/mountain_tile.png',
+  terrain_hill:     'user_art/grass_hill.png',
+  terrain_shallow:  'user_art/water_shallow_tile.png',
+  terrain_ocean:    'user_art/ocean_deep_tile.png',
+  terrain_sand:     'user_art/sand_tile.png',
+};
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
+
+  preload() {
+    // Load terrain tiles — missing files are silently skipped
+    for (const [key, file] of Object.entries(TERRAIN_ART_FILES)) {
+      this.load.image(key, file);
+    }
+    this.load.on('loaderror', () => {}); // suppress console errors for missing tiles
+  }
 
   // Add game objects to the UI layer so the fixed uiCamera renders them
   // (main world camera ignores _uiLayer so zoom never displaces HUD)
@@ -154,10 +183,23 @@ export class GameScene extends Phaser.Scene {
   // ── Terrain ──────────────────────────────────────────────────────────────
   _drawTerrainDirect() {
     this.terrainGfx.clear();
+    // Clear old terrain art images
+    if (this._terrainImgs) { this._terrainImgs.forEach(o => o.destroy()); }
+    this._terrainImgs = [];
+
     for (let q = 0; q < this.mapSize; q++) {
       for (let r = 0; r < this.mapSize; r++) {
+        const ttype = this.terrain[`${q},${r}`] ?? 0;
         const { x, y } = hexToWorld(q, r);
-        this._drawHex(this.terrainGfx, x, y, this.terrain[`${q},${r}`] ?? 0, false, false);
+        this._drawHex(this.terrainGfx, x, y, ttype, false, false);
+        // Overlay user art tile if loaded
+        const artKey = TERRAIN_ART_KEYS[ttype];
+        if (artKey && this.textures.exists(artKey)) {
+          const img = this.add.image(x, y, artKey)
+            .setDepth(1)
+            .setDisplaySize(HEX_SIZE * 2, HEX_SIZE * Math.sqrt(3) * ISO_SQUISH);
+          this._terrainImgs.push(img);
+        }
       }
     }
   }
