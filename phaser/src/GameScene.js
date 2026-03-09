@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.5.9';
+const GAME_VERSION = 'v0.6.0';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -202,6 +202,9 @@ export class GameScene extends Phaser.Scene {
         const ttype = this.terrain[`${q},${r}`] ?? 0;
         const { x, y } = hexToWorld(q, r);
         this._drawHex(this.terrainGfx, x, y, ttype, false, false);
+        // Resource overlay baked into terrain layer
+        const res = this.gameState.resourceHexes[`${q},${r}`];
+        if (res) this._drawResourceOverlay(this.terrainGfx, x, y, res.type);
       }
     }
 
@@ -365,6 +368,44 @@ export class GameScene extends Phaser.Scene {
     gfx.closePath(); gfx.strokePath();
   }
 
+  _drawResourceOverlay(gfx, cx, cy, type) {
+    if (type === 'OIL') {
+      // Dark oil puddles — irregular blobs scattered across tile
+      const puddles = [[-6,2,5.5],[ 4,-4,4],[ 7,5,3.5],[-3,-6,3],[0,3,4.5],[5,-1,3]];
+      for (const [ox, oy, r] of puddles) {
+        gfx.fillStyle(0x111118, 0.55);
+        gfx.fillEllipse(cx+ox, cy+oy, r*2.2, r*1.3);
+      }
+      // Sheen highlight on largest puddle
+      gfx.fillStyle(0x334488, 0.28);
+      gfx.fillEllipse(cx-5, cy+3, 6, 3.5);
+      gfx.fillStyle(0x553388, 0.18);
+      gfx.fillEllipse(cx-4, cy+2, 3.5, 2);
+    } else if (type === 'IRON') {
+      // Rocky cracks and ore veins
+      gfx.lineStyle(1.5, 0x888888, 0.55);
+      // Main crack lines radiating from center-left
+      gfx.beginPath();
+      gfx.moveTo(cx-2, cy+2); gfx.lineTo(cx-9, cy-3);
+      gfx.moveTo(cx-2, cy+2); gfx.lineTo(cx+5, cy-5);
+      gfx.moveTo(cx-2, cy+2); gfx.lineTo(cx+2, cy+8);
+      gfx.moveTo(cx+5, cy-5); gfx.lineTo(cx+10, cy-1);
+      gfx.strokePath();
+      // Small ore rocks (dark gray with lighter face)
+      for (const [ox, oy, s] of [[-8,4,4],[5,-4,3.5],[2,7,3],[-3,-5,3]]) {
+        gfx.fillStyle(0x555566, 0.7);
+        gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox-s, cy+oy+s*0.5, cx+ox+s, cy+oy+s*0.5);
+        gfx.fillStyle(0x8888aa, 0.45);
+        gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox-s, cy+oy+s*0.5, cx+ox, cy+oy);
+      }
+      // Ore glint dots
+      gfx.fillStyle(0xaaaacc, 0.5);
+      for (const [ox, oy] of [[-6,-2],[6,3],[-1,6],[7,-4]]) {
+        gfx.fillCircle(cx+ox, cy+oy, 1.2);
+      }
+    }
+  }
+
   // ── Static layers (resources, roads) ─────────────────────────────────────
   _drawStaticLayers() {
     this._drawTerrainDirect();
@@ -377,14 +418,30 @@ export class GameScene extends Phaser.Scene {
     for (const [key, res] of Object.entries(this.gameState.resourceHexes)) {
       const [q, r] = key.split(',').map(Number);
       const { x, y } = hexToWorld(q, r);
-      const s = HEX_SIZE * 0.2;
+      // Small corner badge (top-right of hex, always visible even under units)
+      const bx = x + HEX_SIZE * 0.5, by = y - HEX_SIZE * 0.35;
+      const br = 5.5;
       const color = RESOURCE_TYPES[res.type].color;
-      this.resourceGfx.fillStyle(color, 0.8);
-      this.resourceGfx.fillTriangle(x, y - s * 1.3, x - s, y, x + s, y);
-      this.resourceGfx.fillTriangle(x, y + s * 1.3, x - s, y, x + s, y);
-      // Label
-      const label = res.type === 'IRON' ? '⛏' : '🛢';
-      // (text labels added separately if needed)
+      // Badge backing
+      this.resourceGfx.fillStyle(0x000000, 0.6);
+      this.resourceGfx.fillCircle(bx, by, br + 1.5);
+      // Badge color
+      this.resourceGfx.fillStyle(color, 0.9);
+      this.resourceGfx.fillCircle(bx, by, br);
+      // Inner symbol
+      this.resourceGfx.fillStyle(0xffffff, 0.7);
+      if (res.type === 'IRON') {
+        // Small pick: two lines
+        this.resourceGfx.lineStyle(1.2, 0xffffff, 0.8);
+        this.resourceGfx.beginPath();
+        this.resourceGfx.moveTo(bx-2.5, by+2); this.resourceGfx.lineTo(bx+2.5, by-2);
+        this.resourceGfx.moveTo(bx+1, by-2); this.resourceGfx.lineTo(bx+2.5, by-2); this.resourceGfx.lineTo(bx+2.5, by-0.5);
+        this.resourceGfx.strokePath();
+      } else {
+        // Oil drop shape: circle + tiny point
+        this.resourceGfx.fillCircle(bx, by+0.5, 2.2);
+        this.resourceGfx.fillTriangle(bx, by-2.5, bx-1.5, by+0.5, bx+1.5, by+0.5);
+      }
     }
   }
 
