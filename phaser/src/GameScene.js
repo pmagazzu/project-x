@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.8.2';
+const GAME_VERSION = 'v0.8.3';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1803,9 +1803,12 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard.enableGlobalCapture();
     this.wasd = this.input.keyboard.addKeys('W,A,S,D');
     this.input.keyboard.on('keydown-ESC',   () => { if (!this._endTurnPending) this._toggleSettings(); });
-    this.input.keyboard.on('keydown-X',     () => { if (this.btnSubmit?.visible) this._confirmEndTurn(); });
-    this.input.keyboard.on('keydown-SPACE', () => { if (this._endTurnPending) { this._onSubmit(); this._hideEndTurnConfirm(); } });
-    this.input.keyboard.on('keydown-SPACE', () => { if (this._splashDismiss) { this._splashDismiss(); this._splashDismiss = null; } });
+    this.input.keyboard.on('keydown-X',     () => { this._confirmEndTurn(); });
+    this.input.keyboard.on('keydown-SPACE', () => {
+      if (this._splashDismiss) { this._splashDismiss(); this._splashDismiss = null; return; }
+      if (this._endTurnPending) { this._onSubmit(); this._hideEndTurnConfirm(); return; }
+      this._confirmEndTurn();
+    });
   }
 
   // ── World → Screen coordinate conversion ─────────────────────────────────
@@ -2932,6 +2935,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   _confirmEndTurn() {
+    if (this._splashDismiss) return; // pass screen still active
     if (this._endTurnPending) { this._onSubmit(); this._hideEndTurnConfirm(); return; }
     this._endTurnPending = true;
     const D = 200;
