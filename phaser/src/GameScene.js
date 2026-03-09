@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.7.5';
+const GAME_VERSION = 'v0.7.6';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -165,7 +165,6 @@ export class GameScene extends Phaser.Scene {
 
     // World graphics layers (depth order)
     this.roadGfx      = this.add.graphics().setDepth(5);
-    this.resourceGfx  = this.add.graphics().setDepth(8);
     this.highlightGfx = this.add.graphics().setDepth(10);
     this.buildingGfx  = this.add.graphics().setDepth(15);
     this.unitGfx      = this.add.graphics().setDepth(20);
@@ -187,7 +186,7 @@ export class GameScene extends Phaser.Scene {
     // (catches top bar, bottom panel, buttons, etc. without touching each line)
     const worldObjs = new Set([
       this.terrainGfx, this.terrainArtLayer, this.terrainArtRT, this.terrainRT,
-      this.roadGfx, this.resourceGfx,
+      this.roadGfx,
       this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT, this._uiLayer
     ]);
     for (const obj of [...this.children.list]) {
@@ -213,7 +212,7 @@ export class GameScene extends Phaser.Scene {
     this.uiCamera.transparent = true; // transparent background — must not cover world
     this.uiCamera.ignore([
       this.terrainGfx, this.terrainArtLayer, this.terrainArtRT, this.terrainRT,
-      this.roadGfx, this.resourceGfx,
+      this.roadGfx,
       this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT,
     ]);
     this.scale.on('resize', (gs) => this.uiCamera.setSize(gs.width, gs.height));
@@ -458,38 +457,58 @@ export class GameScene extends Phaser.Scene {
 
   _drawResourceOverlay(gfx, cx, cy, type) {
     if (type === 'OIL') {
-      // Dark oil puddles — irregular blobs scattered across tile
-      const puddles = [[-6,2,5.5],[ 4,-4,4],[ 7,5,3.5],[-3,-6,3],[0,3,4.5],[5,-1,3]];
+      // Large dark oil seeps spread across the tile — visible under units
+      const puddles = [[-8,2,8],[ 5,-5,6.5],[ 9,6,5.5],[-4,-7,5],[1,4,7],[6,-1,4.5],[-10,5,4],[-1,-3,5]];
       for (const [ox, oy, r] of puddles) {
-        gfx.fillStyle(0x111118, 0.55);
-        gfx.fillEllipse(cx+ox, cy+oy, r*2.2, r*1.3);
+        gfx.fillStyle(0x0a0a14, 0.72);
+        gfx.fillEllipse(cx+ox, cy+oy, r*2.4, r*1.4);
       }
-      // Sheen highlight on largest puddle
-      gfx.fillStyle(0x334488, 0.28);
-      gfx.fillEllipse(cx-5, cy+3, 6, 3.5);
-      gfx.fillStyle(0x553388, 0.18);
-      gfx.fillEllipse(cx-4, cy+2, 3.5, 2);
+      // Iridescent oil sheen (blue/purple tint)
+      gfx.fillStyle(0x2233aa, 0.32);
+      gfx.fillEllipse(cx-6, cy+3, 14, 7);
+      gfx.fillStyle(0x552277, 0.22);
+      gfx.fillEllipse(cx+4, cy-2, 10, 5);
+      gfx.fillStyle(0x44aacc, 0.18);
+      gfx.fillEllipse(cx-2, cy+5, 8, 4);
     } else if (type === 'IRON') {
-      // Rocky cracks and ore veins
-      gfx.lineStyle(1.5, 0x888888, 0.55);
-      // Main crack lines radiating from center-left
+      // Gray/brown ore-crack network filling the tile
+      // Cracks — thick enough to read under a unit
+      gfx.lineStyle(2.5, 0x7a7a88, 0.72);
       gfx.beginPath();
-      gfx.moveTo(cx-2, cy+2); gfx.lineTo(cx-9, cy-3);
-      gfx.moveTo(cx-2, cy+2); gfx.lineTo(cx+5, cy-5);
-      gfx.moveTo(cx-2, cy+2); gfx.lineTo(cx+2, cy+8);
-      gfx.moveTo(cx+5, cy-5); gfx.lineTo(cx+10, cy-1);
+      gfx.moveTo(cx-10, cy-2); gfx.lineTo(cx-2, cy+3); gfx.lineTo(cx+8, cy-4);
+      gfx.moveTo(cx-2, cy+3); gfx.lineTo(cx+2, cy+10);
+      gfx.moveTo(cx+8, cy-4); gfx.lineTo(cx+12, cy+2);
+      gfx.moveTo(cx-10, cy-2); gfx.lineTo(cx-12, cy+4);
+      gfx.moveTo(cx-6, cy-8); gfx.lineTo(cx-2, cy+3);
       gfx.strokePath();
-      // Small ore rocks (dark gray with lighter face)
-      for (const [ox, oy, s] of [[-8,4,4],[5,-4,3.5],[2,7,3],[-3,-5,3]]) {
-        gfx.fillStyle(0x555566, 0.7);
+      // Secondary fine cracks
+      gfx.lineStyle(1.2, 0x999999, 0.5);
+      gfx.beginPath();
+      gfx.moveTo(cx+2, cy+10); gfx.lineTo(cx+6, cy+13);
+      gfx.moveTo(cx-6, cy-8); gfx.lineTo(cx-10, cy-11);
+      gfx.strokePath();
+      // Ore nodules at crack nodes — darker with bright face
+      for (const [ox, oy, s] of [[-10,-1,5],[8,-3,4.5],[2,10,4],[-5,-8,4],[12,2,3.5]]) {
+        gfx.fillStyle(0x4a4a55, 0.85);
         gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox-s, cy+oy+s*0.5, cx+ox+s, cy+oy+s*0.5);
-        gfx.fillStyle(0x8888aa, 0.45);
-        gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox-s, cy+oy+s*0.5, cx+ox, cy+oy);
+        gfx.fillStyle(0xaaaacc, 0.55);
+        gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox, cy+oy, cx+ox+s, cy+oy+s*0.5);
       }
-      // Ore glint dots
-      gfx.fillStyle(0xaaaacc, 0.5);
-      for (const [ox, oy] of [[-6,-2],[6,3],[-1,6],[7,-4]]) {
-        gfx.fillCircle(cx+ox, cy+oy, 1.2);
+      // Metallic glint specks
+      gfx.fillStyle(0xccccee, 0.65);
+      for (const [ox, oy] of [[-9,0],[9,-2],[3,11],[-4,-7],[13,3],[1,-1]]) {
+        gfx.fillCircle(cx+ox, cy+oy, 1.5);
+      }
+    } else if (type === 'WOOD') {
+      // Stacked log silhouettes — brown rounds across tile
+      for (const [ox, oy, rw, rh] of [[-8,3,7,4],[2,5,6,3.5],[8,-2,5.5,3],[-3,-6,5,3],[5,6,4.5,2.5]]) {
+        gfx.fillStyle(0x5a3010, 0.8);
+        gfx.fillEllipse(cx+ox, cy+oy, rw*2, rh*2);
+        gfx.fillStyle(0x7a4a22, 0.5);
+        gfx.fillEllipse(cx+ox, cy+oy-rh*0.3, rw*1.6, rh);
+        // ring lines
+        gfx.lineStyle(1, 0x3a1a00, 0.45);
+        gfx.strokeCircle(cx+ox, cy+oy, rw*0.55);
       }
     }
   }
@@ -498,83 +517,6 @@ export class GameScene extends Phaser.Scene {
   _drawStaticLayers() {
     this._drawTerrainDirect();
     this._redrawRoads();
-    this._redrawResources();
-  }
-
-  _redrawResources() {
-    this.resourceGfx.clear();
-    const g = this.resourceGfx;
-    for (const [key, res] of Object.entries(this.gameState.resourceHexes)) {
-      const [q, r] = key.split(',').map(Number);
-      const { x, y } = hexToWorld(q, r);
-      this._drawResourceIcon(g, x, y, res.type);
-    }
-  }
-
-  _drawResourceIcon(g, x, y, type) {
-    const s = HEX_SIZE * 0.28; // icon scale
-
-    if (type === 'IRON') {
-      // Ore chunk: grey angular rocks with metallic glint
-      for (const [ox, oy, rs] of [[-6,3,s*0.9],[4,-3,s*0.75],[1,6,s*0.65],[-3,-5,s*0.65]]) {
-        g.fillStyle(0x667788, 0.75);
-        g.fillTriangle(x+ox, y+oy-rs, x+ox-rs, y+oy+rs*0.5, x+ox+rs, y+oy+rs*0.5);
-        g.fillStyle(0xaabbcc, 0.5);
-        g.fillTriangle(x+ox, y+oy-rs, x+ox, y+oy, x+ox+rs, y+oy+rs*0.5);
-      }
-      // Pickaxe silhouette
-      g.lineStyle(2, 0xccddee, 0.7);
-      g.beginPath();
-      g.moveTo(x-8, y+6); g.lineTo(x+6, y-6);
-      g.moveTo(x+2, y-8); g.lineTo(x+8, y-2); g.lineTo(x+4, y+2);
-      g.strokePath();
-
-    } else if (type === 'OIL') {
-      // Oil puddle + drop icon
-      g.fillStyle(0x111122, 0.55);
-      g.fillEllipse(x, y+4, s*3.5, s*1.4);
-      g.fillStyle(0x223355, 0.45);
-      g.fillEllipse(x-3, y+3, s*2, s*0.9);
-      // Oil drop
-      g.fillStyle(0x4466aa, 0.8);
-      g.fillCircle(x, y-2, s*0.7);
-      g.fillStyle(0x4466aa, 0.8);
-      g.fillTriangle(x, y-s*1.5, x-s*0.55, y-2, x+s*0.55, y-2);
-      // Sheen
-      g.fillStyle(0x88aadd, 0.4);
-      g.fillEllipse(x-s*0.2, y-s*0.5, s*0.55, s*0.3);
-
-    } else if (type === 'COAL') {
-      // Black chunks with white highlight edges
-      for (const [ox, oy, rs] of [[-5,4,s*0.95],[5,-2,s*0.8],[0,6,s*0.7],[-2,-5,s*0.7]]) {
-        g.fillStyle(0x222222, 0.85);
-        g.fillTriangle(x+ox, y+oy-rs, x+ox-rs, y+oy+rs*0.5, x+ox+rs, y+oy+rs*0.5);
-        g.fillStyle(0x666655, 0.4);
-        g.fillTriangle(x+ox, y+oy-rs, x+ox, y+oy, x+ox-rs, y+oy+rs*0.5);
-      }
-      // Shovel handle
-      g.lineStyle(1.5, 0x887755, 0.7);
-      g.beginPath();
-      g.moveTo(x+7, y-7); g.lineTo(x-5, y+5);
-      g.strokePath();
-      g.fillStyle(0x665544, 0.8);
-      g.fillEllipse(x-6, y+5, 6, 4);
-
-    } else if (type === 'RUBBER') {
-      // Tree trunk + canopy (rubber tree)
-      g.fillStyle(0x6b3a1f, 0.75);
-      g.fillRect(x-2, y+2, 4, s*1.2);
-      // Canopy blobs
-      for (const [ox, oy, cr] of [[0,-s*1.2,s*0.95],[-s*0.8,-s*0.7,s*0.7],[s*0.8,-s*0.7,s*0.7]]) {
-        g.fillStyle(0x2d6b2d, 0.8);
-        g.fillCircle(x+ox, y+oy, cr);
-        g.fillStyle(0x4a9a4a, 0.4);
-        g.fillCircle(x+ox-cr*0.2, y+oy-cr*0.3, cr*0.5);
-      }
-      // Drop of latex
-      g.fillStyle(0xeeeedd, 0.7);
-      g.fillTriangle(x+4, y, x+8, y+5, x+4, y+5);
-    }
   }
 
   _redrawRoads() {
@@ -1300,11 +1242,9 @@ export class GameScene extends Phaser.Scene {
     this.resIron = this._makeLabel(110, 11, '⚙ —', D);
     this.resOil  = this._makeLabel(230, 11, '🛢 —', D);
     this.resWood   = this._makeLabel(350, 11, '🪵 —', D);
-    this.resCoal   = this._makeLabel(460, 11, '🪨 —', D);
-    this.resRubber = this._makeLabel(560, 11, '🌿 —', D);
 
-    // Version tag (right of rubber, subtle)
-    this.add.text(650, 11, GAME_VERSION, {
+    // Version tag
+    this.add.text(460, 11, GAME_VERSION, {
       font: '11px monospace', fill: '#445566', backgroundColor: '#111111', padding: { x: 4, y: 4 }
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(D);
 
@@ -1356,8 +1296,6 @@ export class GameScene extends Phaser.Scene {
     this.resIron.setText(`⚙ ${pl.iron}  (+${inc.iron}/t)`);
     this.resOil.setText(`🛢 ${pl.oil}  (+${inc.oil}/t)`);
     this.resWood.setText(`🪵 ${pl.wood || 0}${inc.wood > 0 ? `  (+${inc.wood}/t)` : ''}`);
-    this.resCoal.setText(`🪨 ${pl.coal || 0}${inc.coal > 0 ? `  (+${inc.coal}/t)` : ''}`);
-    this.resRubber.setText(`🌿 ${pl.rubber || 0}${inc.rubber > 0 ? `  (+${inc.rubber}/t)` : ''}`);
     this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  ${modeStr}${queueStr}`);
   }
 
@@ -1881,8 +1819,6 @@ export class GameScene extends Phaser.Scene {
     const iron = gs.players[p].iron, oil = gs.players[p].oil, wood = gs.players[p].wood || 0;
     const ttype = this.terrain[`${unit.q},${unit.r}`] ?? 0;
     const onForest  = ttype === 1 || ttype === 7;
-    const onMtnHill = ttype === 2 || ttype === 3;
-    const onSand    = ttype === 6;
 
     // Priority 1: resource hex with no building → Mine / Oil Pump
     if (res && noBuilding) {
@@ -1896,8 +1832,6 @@ export class GameScene extends Phaser.Scene {
     }
     // Priority 1b: terrain-based extractors
     if (onForest  && noBuilding && !res) return { label: `LUMBER CAMP  2⚙`,    enabled: iron>=2,           cb: () => this._onBuildLumberCamp() };
-    if (onMtnHill && noBuilding && !res) return { label: `COAL MINE    4⚙`,    enabled: iron>=4,           cb: () => this._onBuildStructure('COAL_MINE',4) };
-    if (onSand    && noBuilding && !res) return { label: `RUBBER PLANT 3⚙ 2🪵`,enabled: iron>=3&&wood>=2,  cb: () => this._onBuildStructure('RUBBER_PLANT',3,0,2) };
     // Priority 2: no road on this hex → Road
     if (!roadAt(gs, unit.q, unit.r) && noBuilding) {
       return { label: `ROAD      1🪵`, enabled: wood >= 1, cb: () => this._onBuildRoad() };
@@ -2084,10 +2018,6 @@ export class GameScene extends Phaser.Scene {
       const coastal = this._isCoastalHex(unit.q, unit.r);
       const ttype = this.terrain[`${unit.q},${unit.r}`] ?? 0;
       const onForest  = ttype === 1 || ttype === 7;
-      const onMtnHill = ttype === 2 || ttype === 3;  // coal on mountain/hill
-      const onSand    = ttype === 6;                  // rubber on sand/tropical
-      const coal   = gs.players[p].coal   || 0;
-      const rubber = gs.players[p].rubber || 0;
 
       // All possible build options — add more here as the game grows
       const allOpts = [];
@@ -2106,12 +2036,6 @@ export class GameScene extends Phaser.Scene {
       if (onForest && noBuilding)
         allOpts.push({ label: `Lumber Camp 2⚙`, cost:{iron:2,oil:0,wood:0}, enabled: iron>=2,
                        cb: () => this._onBuildLumberCamp() });
-      if (onMtnHill && noBuilding)
-        allOpts.push({ label: `Coal Mine   4⚙`, cost:{iron:4}, enabled: iron>=4,
-                       cb: () => this._onBuildStructure('COAL_MINE',4) });
-      if (onSand && noBuilding)
-        allOpts.push({ label: `Rubber Plant 3⚙ 2🪵`, cost:{iron:3,wood:2}, enabled: iron>=3&&wood>=2,
-                       cb: () => this._onBuildStructure('RUBBER_PLANT',3,0,2) });
       // Land military buildings
       if (noBuilding) allOpts.push({ label: `Barracks    4⚙ 4🪵`,    cost:{iron:4,oil:0,wood:4},  enabled: iron>=4&&wood>=4,        cb: () => this._onBuildStructure('BARRACKS',4,0,4) });
       if (noBuilding) allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢`, cost:{iron:8,oil:2},          enabled: iron>=8&&oil>=2,         cb: () => this._onBuildStructure('VEHICLE_DEPOT',8,2) });
