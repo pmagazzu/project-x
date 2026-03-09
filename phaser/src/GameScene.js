@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.5.6';
+const GAME_VERSION = 'v0.5.7';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2784,18 +2784,27 @@ export class GameScene extends Phaser.Scene {
     const tierCol  = TIER_COL[entry.tier]  || '#cccccc';
     const tierBgC  = TIER_BG[entry.tier]   || 0x1a1a1a;
     if (entry.type === 'combat' || entry.panic) {
-      // Override label if attacker was destroyed — "Effective" while attacker dies is misleading
-      const attackerDestroyed = entry.attackerHPBefore !== undefined ? (entry.attackerHPBefore - (entry.attackerDmg||0)) <= 0 : false;
-      const defenderDestroyed = entry.targetHPBefore   !== undefined ? (entry.targetHPBefore   - (entry.dmg||0))         <= 0 : false;
-      let outcomeLabel = (entry.tier||'COMBAT').toUpperCase();
-      let outcomeTierCol = tierCol;
-      let outcomeBgC = tierBgC;
+      // Label based on ACTUAL damage exchange, not attack score tier
+      const atkDmg = entry.attackerDmg || 0;  // damage attacker took (from retaliation)
+      const defDmg = entry.dmg         || 0;  // damage defender took
+      const attackerDestroyed = entry.attackerHPBefore !== undefined ? (entry.attackerHPBefore - atkDmg) <= 0 : false;
+      const defenderDestroyed = entry.targetHPBefore   !== undefined ? (entry.targetHPBefore   - defDmg) <= 0 : false;
+      let outcomeLabel, outcomeTierCol, outcomeBgC;
       if (attackerDestroyed && defenderDestroyed) {
         outcomeLabel = 'MUTUAL DESTRUCTION'; outcomeTierCol = '#ff8833'; outcomeBgC = 0x4a2200;
-      } else if (attackerDestroyed && !defenderDestroyed) {
+      } else if (attackerDestroyed) {
         outcomeLabel = 'ATTACKER DESTROYED'; outcomeTierCol = '#ff4444'; outcomeBgC = 0x440000;
       } else if (defenderDestroyed) {
         outcomeLabel = 'DEFENDER DESTROYED'; outcomeTierCol = '#44ff88'; outcomeBgC = 0x004422;
+      } else if (defDmg > atkDmg) {
+        outcomeLabel = 'ATTACK SUCCESSFUL';  outcomeTierCol = '#88ee88'; outcomeBgC = 0x1a3a1a;
+      } else if (atkDmg > defDmg) {
+        outcomeLabel = 'ATTACK REPELLED';    outcomeTierCol = '#ee8888'; outcomeBgC = 0x3a1a1a;
+      } else if (defDmg === 0 && atkDmg === 0) {
+        outcomeLabel = 'NO EFFECT';          outcomeTierCol = '#888888'; outcomeBgC = 0x1a1a1a;
+      } else {
+        // Equal nonzero damage — truly neutral exchange
+        outcomeLabel = 'EXCHANGE';           outcomeTierCol = '#ccaa44'; outcomeBgC = 0x2a2200;
       }
       box(cX, outY, cW - 4, 30, outcomeBgC, 1, 0x445566);
       mk(outcomeLabel, cX, outY, outcomeTierCol, 14, true);
