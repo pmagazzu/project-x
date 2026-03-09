@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.5.7';
+const GAME_VERSION = 'v0.5.8';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -262,38 +262,107 @@ export class GameScene extends Phaser.Scene {
     const strokeColor = isSelected ? SELECTED_STROKE : isHovered ? HOVER_STROKE : colors.stroke;
     const strokeW = (isSelected || isHovered) ? 2.5 : 1;
     const verts = hexVertices(cx, cy);
+
+    // ── Base fill ──────────────────────────────────────────────────────────
     gfx.fillStyle(colors.fill);
     gfx.beginPath(); gfx.moveTo(verts[0].x, verts[0].y);
     for (let i = 1; i < verts.length; i++) gfx.lineTo(verts[i].x, verts[i].y);
     gfx.closePath(); gfx.fillPath();
+
+    // ── Bevel: top-half highlight / bottom-half shadow (raised tile look) ──
+    if (!isSelected && !isHovered) {
+      // Inner highlight (top 3 edges: verts 0→1→2→3)
+      gfx.lineStyle(3, 0xffffff, 0.18);
+      gfx.beginPath();
+      gfx.moveTo(verts[4].x, verts[4].y);
+      gfx.lineTo(verts[5].x, verts[5].y);
+      gfx.lineTo(verts[0].x, verts[0].y);
+      gfx.lineTo(verts[1].x, verts[1].y);
+      gfx.lineTo(verts[2].x, verts[2].y);
+      gfx.strokePath();
+      // Inner shadow (bottom 3 edges: verts 2→3→4)
+      gfx.lineStyle(3, 0x000000, 0.22);
+      gfx.beginPath();
+      gfx.moveTo(verts[2].x, verts[2].y);
+      gfx.lineTo(verts[3].x, verts[3].y);
+      gfx.lineTo(verts[4].x, verts[4].y);
+      gfx.strokePath();
+    }
+
+    // ── Terrain details ────────────────────────────────────────────────────
+    if (!isHovered && !isSelected) {
+      // FOREST (1): tree canopy clusters
+      if (terrain === 1) {
+        for (const [ox, oy, s] of [[-7,-3,6],[4,-5,5],[0,5,6],[-3,6,4],[7,2,5]]) {
+          gfx.fillStyle(0x1a5010, 0.85);
+          gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox-s, cy+oy+s*0.6, cx+ox+s, cy+oy+s*0.6);
+          // trunk
+          gfx.fillStyle(0x5a3010, 0.7);
+          gfx.fillRect(cx+ox-1, cy+oy+s*0.6, 2, s*0.5);
+        }
+      }
+      // MOUNTAIN (2): snow-capped peaks with shadow face
+      if (terrain === 2) {
+        for (const [ox, oy, s] of [[-6,3,10],[4,4,8]]) {
+          // shadow face (right side)
+          gfx.fillStyle(0x4a4a55, 0.5);
+          gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox+s*0.8, cy+oy+s*0.5, cx+ox, cy+oy+s*0.5);
+          // main face
+          gfx.fillStyle(0x888899, 0.7);
+          gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox-s*0.8, cy+oy+s*0.5, cx+ox+s*0.8, cy+oy+s*0.5);
+          // snow cap
+          gfx.fillStyle(0xeeeeff, 0.85);
+          gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox-s*0.3, cy+oy-s*0.45, cx+ox+s*0.3, cy+oy-s*0.45);
+        }
+      }
+      // HILL (3): contour lines (2 arcs)
+      if (terrain === 3) {
+        gfx.lineStyle(1.5, 0xffffff, 0.3);
+        gfx.beginPath();
+        gfx.moveTo(cx-12, cy+6); gfx.lineTo(cx-6, cy-2); gfx.lineTo(cx+1, cy+6);
+        gfx.strokePath();
+        gfx.beginPath();
+        gfx.moveTo(cx-2, cy+5); gfx.lineTo(cx+5, cy-2); gfx.lineTo(cx+12, cy+5);
+        gfx.strokePath();
+        gfx.lineStyle(1, 0x000000, 0.15);
+        gfx.beginPath();
+        gfx.moveTo(cx-12, cy+7); gfx.lineTo(cx-6, cy-1); gfx.lineTo(cx+1, cy+7);
+        gfx.strokePath();
+      }
+      // SHALLOW WATER (4): wave lines
+      if (terrain === 4) {
+        gfx.lineStyle(1.5, 0xaaddff, 0.5);
+        for (const dy of [-4, 3]) {
+          gfx.beginPath();
+          gfx.moveTo(cx-10, cy+dy);
+          gfx.lineTo(cx-5, cy+dy-3); gfx.lineTo(cx, cy+dy); gfx.lineTo(cx+5, cy+dy-3); gfx.lineTo(cx+10, cy+dy);
+          gfx.strokePath();
+        }
+      }
+      // OCEAN (5): deeper wave lines
+      if (terrain === 5) {
+        gfx.lineStyle(2, 0x4488bb, 0.4);
+        for (const dy of [-5, 2, 9]) {
+          gfx.beginPath();
+          gfx.moveTo(cx-11, cy+dy);
+          gfx.lineTo(cx-6, cy+dy-4); gfx.lineTo(cx-1, cy+dy); gfx.lineTo(cx+5, cy+dy-4); gfx.lineTo(cx+11, cy+dy);
+          gfx.strokePath();
+        }
+      }
+      // SAND (6): fine stipple dots
+      if (terrain === 6) {
+        gfx.fillStyle(0xddbb55, 0.55);
+        for (const [ox, oy] of [[-8,0],[-4,-5],[0,2],[5,-3],[8,5],[-2,7],[4,6],[-6,5]]) {
+          gfx.fillCircle(cx+ox, cy+oy, 1.2);
+        }
+      }
+    }
+
+    // ── Outer border ───────────────────────────────────────────────────────
     gfx.lineStyle(strokeW, strokeColor);
     gfx.beginPath(); gfx.moveTo(verts[0].x, verts[0].y);
     for (let i = 1; i < verts.length; i++) gfx.lineTo(verts[i].x, verts[i].y);
     gfx.closePath(); gfx.strokePath();
-    // Forest: draw small tree triangles
-    if (terrain === 1 && !isHovered && !isSelected) {
-      gfx.fillStyle(0x2a6018, 0.9);
-      const ts = 5; // tree size
-      for (const [ox, oy] of [[-7,-4],[4,-6],[0,5],[-4,6],[7,2]]) {
-        gfx.fillTriangle(cx+ox, cy+oy-ts, cx+ox-ts, cy+oy+ts, cx+ox+ts, cy+oy+ts);
-      }
-    }
-    // Mountain: draw sharp peak lines
-    if (terrain === 2 && !isHovered && !isSelected) {
-      gfx.lineStyle(1.5, 0xffffff, 0.35);
-      gfx.beginPath();
-      gfx.moveTo(cx-8, cy+5); gfx.lineTo(cx-2, cy-7); gfx.lineTo(cx+4, cy+5);
-      gfx.moveTo(cx+1, cy+5); gfx.lineTo(cx+7, cy-3); gfx.lineTo(cx+13, cy+5);
-      gfx.strokePath();
-    }
-    // Hill: draw smooth rounded bump curves
-    if (terrain === 3 && !isHovered && !isSelected) {
-      gfx.lineStyle(2, 0xffffff, 0.25);
-      gfx.beginPath();
-      gfx.moveTo(cx-10, cy+4); gfx.lineTo(cx-5, cy-4); gfx.lineTo(cx, cy+4);
-      gfx.moveTo(cx-2, cy+4); gfx.lineTo(cx+4, cy-3); gfx.lineTo(cx+10, cy+4);
-      gfx.strokePath();
-    }
   }
 
   // ── Static layers (resources, roads) ─────────────────────────────────────
@@ -786,112 +855,130 @@ export class GameScene extends Phaser.Scene {
         this.unitGfx.strokePath();
       }
 
-      this.unitGfx.fillStyle(color, alpha);
-      this.unitGfx.lineStyle(2, 0x000000, alpha);
+      // ── Wargame counter (NATO-style) ───────────────────────────────────────
+      const NAVAL_SHAPES = new Set(['boat_sm','sub','destroyer','cruiser','cruiser_hv','battleship','transport','landing','battery']);
+      const isNaval = NAVAL_SHAPES.has(def.shape);
+      const cW = r * 2.1;
+      const cH = r * 1.7;
+      const cx2 = x - cW/2, cy2 = y - cH/2;
+      const spent = unit.moved && unit.attacked;
+      const fillAlpha = spent ? alpha * 0.5 : alpha;
+
+      // Drop shadow
+      this.unitGfx.fillStyle(0x000000, alpha * 0.4);
+      this.unitGfx.fillRect(cx2 + 2, cy2 + 2, cW, cH);
+
+      // Counter body
+      this.unitGfx.fillStyle(color, fillAlpha);
+      this.unitGfx.fillRect(cx2, cy2, cW, cH);
+
+      // Inner highlight (top + left edge)
+      this.unitGfx.lineStyle(1, 0xffffff, fillAlpha * 0.35);
+      this.unitGfx.beginPath();
+      this.unitGfx.moveTo(cx2, cy2 + cH - 1); this.unitGfx.lineTo(cx2, cy2);
+      this.unitGfx.lineTo(cx2 + cW - 1, cy2);
+      this.unitGfx.strokePath();
+      // Inner shadow (bottom + right edge)
+      this.unitGfx.lineStyle(1, 0x000000, fillAlpha * 0.45);
+      this.unitGfx.beginPath();
+      this.unitGfx.moveTo(cx2 + 1, cy2 + cH); this.unitGfx.lineTo(cx2 + cW, cy2 + cH);
+      this.unitGfx.lineTo(cx2 + cW, cy2 + 1);
+      this.unitGfx.strokePath();
+
+      // Outer border (double for selected unit)
+      const borderW = (this.selectedUnit === unit) ? 2.5 : 1.5;
+      const borderC = (this.selectedUnit === unit) ? 0xffff00 : 0x000000;
+      this.unitGfx.lineStyle(borderW, borderC, alpha);
+      this.unitGfx.strokeRect(cx2, cy2, cW, cH);
+
+      // ── Type symbol (NATO-inspired) ────────────────────────────────────────
+      const sg = this.unitGfx;
+      const ss = r * 0.38; // symbol scale
+      const symCol = 0xffffff;
+      sg.lineStyle(1.8, symCol, fillAlpha * 0.92);
+      sg.fillStyle(symCol, fillAlpha * 0.92);
 
       if (def.shape === 'circle') {
-        this.unitGfx.fillCircle(x, y, r); this.unitGfx.strokeCircle(x, y, r);
+        // Infantry: X cross
+        sg.beginPath();
+        sg.moveTo(x - ss, y - ss * 0.75); sg.lineTo(x + ss, y + ss * 0.75);
+        sg.moveTo(x + ss, y - ss * 0.75); sg.lineTo(x - ss, y + ss * 0.75);
+        sg.strokePath();
       } else if (def.shape === 'square') {
-        this.unitGfx.fillRect(x-r, y-r*0.7, r*2, r*1.4); this.unitGfx.strokeRect(x-r, y-r*0.7, r*2, r*1.4);
+        // Armor: horizontal oval
+        sg.strokeEllipse(x, y, ss * 2.2, ss * 1.0);
       } else if (def.shape === 'triangle') {
-        const th = r * 1.2;
-        this.unitGfx.fillTriangle(x, y-th, x-r, y+th*0.5, x+r, y+th*0.5);
-        this.unitGfx.strokeTriangle(x, y-th, x-r, y+th*0.5, x+r, y+th*0.5);
+        // Light infantry: single diagonal slash
+        sg.beginPath();
+        sg.moveTo(x - ss * 0.9, y + ss * 0.65); sg.lineTo(x + ss * 0.9, y - ss * 0.65);
+        sg.strokePath();
       } else if (def.shape === 'diamond') {
-        this.unitGfx.fillTriangle(x, y-r, x-r*0.7, y, x+r*0.7, y);
-        this.unitGfx.fillTriangle(x, y+r, x-r*0.7, y, x+r*0.7, y);
-        this.unitGfx.lineStyle(2, 0x000000, alpha);
-        this.unitGfx.strokeTriangle(x, y-r, x-r*0.7, y, x+r*0.7, y);
-        this.unitGfx.strokeTriangle(x, y+r, x-r*0.7, y, x+r*0.7, y);
+        // Artillery: circle with 4 spokes
+        sg.strokeCircle(x, y, ss * 0.55);
+        sg.beginPath();
+        sg.moveTo(x - ss * 1.1, y); sg.lineTo(x - ss * 0.6, y);
+        sg.moveTo(x + ss * 0.6, y); sg.lineTo(x + ss * 1.1, y);
+        sg.moveTo(x, y - ss * 1.1); sg.lineTo(x, y - ss * 0.6);
+        sg.moveTo(x, y + ss * 0.6); sg.lineTo(x, y + ss * 1.1);
+        sg.strokePath();
       } else if (def.shape === 'star') {
-        // Recon: 4-point star
-        this.unitGfx.fillTriangle(x, y-r, x-r*0.35, y, x+r*0.35, y);
-        this.unitGfx.fillTriangle(x, y+r, x-r*0.35, y, x+r*0.35, y);
-        this.unitGfx.fillTriangle(x-r, y, x, y-r*0.35, x, y+r*0.35);
-        this.unitGfx.fillTriangle(x+r, y, x, y-r*0.35, x, y+r*0.35);
+        // Recon: forward chevron
+        sg.beginPath();
+        sg.moveTo(x - ss * 0.9, y + ss * 0.5); sg.lineTo(x + ss * 0.5, y - ss * 0.2);
+        sg.lineTo(x + ss * 0.5, y + ss * 0.5);
+        sg.strokePath();
       } else if (def.shape === 'arrow') {
-        // Anti-Tank: rightward arrow / wedge
-        this.unitGfx.fillTriangle(x+r, y, x-r*0.5, y-r*0.7, x-r*0.5, y+r*0.7);
-        this.unitGfx.lineStyle(2, 0x000000, alpha);
-        this.unitGfx.strokeTriangle(x+r, y, x-r*0.5, y-r*0.7, x-r*0.5, y+r*0.7);
-      } else if (def.shape === 'boat_sm') {
-        // Patrol Boat: small elongated oval / hull
-        this.unitGfx.fillEllipse(x, y, r*2.2, r*1.0);
-        this.unitGfx.lineStyle(2, 0x000000, alpha); this.unitGfx.strokeEllipse(x, y, r*2.2, r*1.0);
-      } else if (def.shape === 'sub') {
-        // Submarine: thin elongated with rounded ends, darker
-        this.unitGfx.fillStyle(color, alpha * 0.85);
-        this.unitGfx.fillEllipse(x, y, r*2.6, r*0.8);
-        this.unitGfx.lineStyle(2, 0x000000, alpha);
-        this.unitGfx.strokeEllipse(x, y, r*2.6, r*0.8);
-        // Conning tower
-        this.unitGfx.fillStyle(color, alpha);
-        this.unitGfx.fillRect(x-r*0.15, y-r*0.7, r*0.3, r*0.5);
-      } else if (def.shape === 'destroyer') {
-        // Destroyer: elongated with pointed prow
-        this.unitGfx.fillTriangle(x+r*1.2, y, x-r*1.0, y-r*0.6, x-r*1.0, y+r*0.6);
-        this.unitGfx.lineStyle(2, 0x000000, alpha);
-        this.unitGfx.strokeTriangle(x+r*1.2, y, x-r*1.0, y-r*0.6, x-r*1.0, y+r*0.6);
-      } else if (def.shape === 'cruiser' || def.shape === 'cruiser_hv') {
-        // Cruiser: wider hull with superstructure block
-        const hw = def.shape === 'cruiser_hv' ? r*1.6 : r*1.3;
-        this.unitGfx.fillEllipse(x, y, hw*2, r*1.1);
-        this.unitGfx.lineStyle(2, 0x000000, alpha); this.unitGfx.strokeEllipse(x, y, hw*2, r*1.1);
-        // Superstructure
-        this.unitGfx.fillStyle(color, alpha * 0.7);
-        this.unitGfx.fillRect(x-r*0.4, y-r*0.7, r*0.8, r*0.55);
-      } else if (def.shape === 'battleship') {
-        // Battleship: large wide hull
-        this.unitGfx.fillEllipse(x, y, r*2.8, r*1.3);
-        this.unitGfx.lineStyle(3, 0x000000, alpha); this.unitGfx.strokeEllipse(x, y, r*2.8, r*1.3);
-        // Gun turret
-        this.unitGfx.fillStyle(color, alpha * 0.8);
-        this.unitGfx.fillCircle(x, y-r*0.3, r*0.4);
-      } else if (def.shape === 'transport') {
-        // Transport: wide boxy hull
-        this.unitGfx.fillRect(x-r*1.2, y-r*0.65, r*2.4, r*1.3);
-        this.unitGfx.lineStyle(2, 0x000000, alpha); this.unitGfx.strokeRect(x-r*1.2, y-r*0.65, r*2.4, r*1.3);
-        // Cargo hold indicator
-        if (unit.cargo && unit.cargo.length > 0) {
-          this.unitGfx.fillStyle(0xffdd44, alpha);
-          this.unitGfx.fillRect(x-r*0.3, y-r*0.2, r*0.6, r*0.5);
-        }
-      } else if (def.shape === 'landing') {
-        // Landing Craft: flat-bottomed box with ramp front
-        this.unitGfx.fillRect(x-r*0.9, y-r*0.6, r*1.8, r*1.1);
-        this.unitGfx.lineStyle(2, 0x000000, alpha); this.unitGfx.strokeRect(x-r*0.9, y-r*0.6, r*1.8, r*1.1);
-        // Ramp line
-        this.unitGfx.lineStyle(2, 0xffaa44, alpha);
-        this.unitGfx.beginPath(); this.unitGfx.moveTo(x+r*0.9, y-r*0.6); this.unitGfx.lineTo(x+r*0.9, y+r*0.5); this.unitGfx.strokePath();
-      } else if (def.shape === 'battery') {
-        // Coastal Battery: fortified emplacement — octagon + gun barrel
-        const bs = r * 0.85;
-        this.unitGfx.fillRect(x-bs, y-bs*0.7, bs*2, bs*1.4);
-        this.unitGfx.lineStyle(3, 0x000000, alpha); this.unitGfx.strokeRect(x-bs, y-bs*0.7, bs*2, bs*1.4);
-        // Gun barrel pointing right
-        this.unitGfx.lineStyle(4, 0x333333, alpha);
-        this.unitGfx.beginPath(); this.unitGfx.moveTo(x, y); this.unitGfx.lineTo(x+r*1.5, y); this.unitGfx.strokePath();
-        // Muzzle
-        this.unitGfx.fillStyle(0x333333, alpha); this.unitGfx.fillCircle(x+r*1.5, y, 3);
+        // Anti-tank: right-pointing arrow
+        sg.beginPath();
+        sg.moveTo(x - ss * 0.9, y); sg.lineTo(x + ss * 0.5, y);
+        sg.moveTo(x + ss * 0.5, y); sg.lineTo(x + ss * 0.1, y - ss * 0.55);
+        sg.moveTo(x + ss * 0.5, y); sg.lineTo(x + ss * 0.1, y + ss * 0.55);
+        sg.strokePath();
       } else if (def.shape === 'cross') {
         // Medic: red cross
-        this.unitGfx.fillStyle(0xffffff, alpha);
-        this.unitGfx.fillCircle(x, y, r);
-        this.unitGfx.fillStyle(0xdd2222, alpha);
-        this.unitGfx.fillRect(x-r*0.2, y-r*0.7, r*0.4, r*1.4);
-        this.unitGfx.fillRect(x-r*0.7, y-r*0.2, r*1.4, r*0.4);
-        this.unitGfx.lineStyle(2, 0x000000, alpha);
-        this.unitGfx.strokeCircle(x, y, r);
+        sg.lineStyle(2.2, 0xff4444, fillAlpha);
+        sg.beginPath();
+        sg.moveTo(x, y - ss * 0.9); sg.lineTo(x, y + ss * 0.9);
+        sg.moveTo(x - ss * 0.9, y); sg.lineTo(x + ss * 0.9, y);
+        sg.strokePath();
+      } else if (isNaval) {
+        if (def.shape === 'sub') {
+          // Submarine: elongated hull + conning tower
+          sg.strokeEllipse(x, y + ss * 0.1, ss * 2.4, ss * 0.8);
+          sg.fillRect(x - ss * 0.15, y - ss * 0.6, ss * 0.3, ss * 0.5);
+        } else if (def.shape === 'battleship') {
+          // Battleship: wide hull + two turret circles
+          sg.strokeEllipse(x, y + ss * 0.2, ss * 2.6, ss * 1.0);
+          sg.fillCircle(x - ss * 0.5, y - ss * 0.2, ss * 0.3);
+          sg.fillCircle(x + ss * 0.5, y - ss * 0.2, ss * 0.3);
+        } else if (def.shape === 'transport') {
+          // Transport: boxy rect + cargo dot
+          sg.strokeRect(x - ss * 1.1, y - ss * 0.5, ss * 2.2, ss * 1.0);
+          sg.fillCircle(x, y, ss * 0.25);
+        } else {
+          // Generic naval: pointed hull silhouette
+          sg.beginPath();
+          sg.moveTo(x + ss * 1.2, y); sg.lineTo(x - ss * 0.8, y - ss * 0.55);
+          sg.lineTo(x - ss * 0.8, y + ss * 0.55); sg.closePath(); sg.strokePath();
+        }
       }
 
-      // Health bar
-      const barW = HEX_SIZE * 0.85, barH = 5;
-      const bx = x - barW/2, by = y + r + 5;
+      // Spent slash overlay (unit used all AP)
+      if (spent) {
+        sg.lineStyle(1.5, 0xff3333, alpha * 0.65);
+        sg.beginPath();
+        sg.moveTo(cx2 + cW - 1, cy2 + 1); sg.lineTo(cx2 + cW - 9, cy2 + 8);
+        sg.strokePath();
+      }
+
+      // Health bar (below counter)
+      const barW = cW * 0.9, barH = 4;
+      const bx = x - barW/2, by = cy2 + cH + 3;
       const pct = unit.health / unit.maxHealth;
-      const barColor = pct > 0.6 ? 0x44ff44 : pct > 0.3 ? 0xffcc00 : 0xff3333;
-      this.unitGfx.fillStyle(0x222222, alpha); this.unitGfx.fillRect(bx, by, barW, barH);
+      const barColor = pct > 0.6 ? 0x44dd44 : pct > 0.3 ? 0xffcc00 : 0xff3333;
+      this.unitGfx.fillStyle(0x111111, alpha); this.unitGfx.fillRect(bx, by, barW, barH);
       this.unitGfx.fillStyle(barColor, alpha); this.unitGfx.fillRect(bx, by, barW * pct, barH);
-      this.unitGfx.lineStyle(1, 0x000000, alpha*0.5); this.unitGfx.strokeRect(bx, by, barW, barH);
+      this.unitGfx.lineStyle(1, 0x000000, alpha * 0.5); this.unitGfx.strokeRect(bx, by, barW, barH);
     }
   }
 
