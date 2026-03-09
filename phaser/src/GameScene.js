@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.6.0';
+const GAME_VERSION = 'v0.6.1';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -193,7 +193,7 @@ export class GameScene extends Phaser.Scene {
     const artH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH);
 
     // Terrain art overlay — only enabled when tiles are properly formatted (transparent PNG, correct hex shape)
-    const ENABLE_TERRAIN_ART = false;
+    const ENABLE_TERRAIN_ART = true;
     const hasAnyArt = ENABLE_TERRAIN_ART && Object.values(TERRAIN_ART_KEYS).some(k => this.textures.exists(k));
 
     // Draw procedural terrain first
@@ -238,7 +238,23 @@ export class GameScene extends Phaser.Scene {
         const { x, y } = hexToWorld(q, r);
         const dx = x - offX - artW / 2;
         const dy = y - offY - artH / 2;
+
+        // Clip to flat-top hex shape so rectangular tiles don't bleed outside
+        ctx.save();
+        ctx.beginPath();
+        const vx = x - offX, vy = y - offY;
+        const hw = artW / 2, hh = artH / 2;
+        // Flat-top hex: 6 vertices at 0°,60°,120°,180°,240°,300° with isometric squish
+        for (let i = 0; i < 6; i++) {
+          const angle = (Math.PI / 180) * (60 * i);
+          const px = vx + hw * Math.cos(angle);
+          const py = vy + hh * Math.sin(angle);
+          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.clip();
         ctx.drawImage(srcImg, dx, dy, artW, artH);
+        ctx.restore();
       }
     }
 
