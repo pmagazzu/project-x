@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.6.1';
+const GAME_VERSION = 'v0.6.2';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -552,6 +552,9 @@ export class GameScene extends Phaser.Scene {
     if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
       const { x, y } = hexToWorld(this.hoveredHex.q, this.hoveredHex.r);
       this._drawHex(this.highlightGfx, x, y, this.terrain[`${this.hoveredHex.q},${this.hoveredHex.r}`], false, true);
+      // Re-draw resource overlay on top of hover hex so it doesn't disappear
+      const hRes = this.gameState.resourceHexes[`${this.hoveredHex.q},${this.hoveredHex.r}`];
+      if (hRes) this._drawResourceOverlay(this.highlightGfx, x, y, hRes.type);
     }
     if (this.selectedUnit) {
       const { x, y } = hexToWorld(this.selectedUnit.q, this.selectedUnit.r);

@@ -15,6 +15,11 @@
 ### Bugs (known)
 - [ ] Engineer auto-road — verify multi-turn continuation works after v0.4.3 fix
 - [ ] VEHICLE_DEPOT oil cost missing: `_onBuildStructure('VEHICLE_DEPOT', 8)` should be `('VEHICLE_DEPOT', 8, 2)`
+- [x] Resource disappears on hover — fix needed (resource overlay not redrawn when hex redraws for hover)
+
+### Features (requested)
+- [ ] **Patrol boat double-move**: Allow patrol boats a 2nd shorter move after first move, but negates attack for that turn
+- [ ] **Naval Yard tier 1 should unlock tier 1 Destroyer** — currently tier 1 destroyers can't be made/designed at Tier 1 Naval Yard
 
 ---
 
