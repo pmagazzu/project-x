@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.7.2';
+const GAME_VERSION = 'v0.7.3';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1268,7 +1268,7 @@ export class GameScene extends Phaser.Scene {
     this.btnSettings = this._makeBtn(w - 160, 11, '⚙ Settings', 0x333355, () => this._toggleSettings(), D, 'right');
 
     // Submit button (always visible in top-right)
-    this.btnSubmit = this._makeBtn(w - 10, 11, 'END TURN', 0x226622, () => this._onSubmit(), D, 'right');
+    this.btnSubmit = this._makeBtn(w - 10, 11, 'END TURN', 0x226622, () => this._confirmEndTurn(), D, 'right');
   }
 
   _makeLabel(x, y, text, depth, center = false) {
@@ -1808,7 +1808,8 @@ export class GameScene extends Phaser.Scene {
 
     this.wasd = this.input.keyboard.addKeys('W,A,S,D');
     this.input.keyboard.on('keydown-ESC',   () => this._toggleSettings());
-    this.input.keyboard.on('keydown-X',     () => { if (this.btnSubmit?.visible) this._onSubmit(); });
+    this.input.keyboard.on('keydown-X',     () => { if (this.btnSubmit?.visible) this._confirmEndTurn(); });
+    this.input.keyboard.on('keydown-SPACE', () => { if (this._endTurnPending) this._onSubmit(); this._hideEndTurnConfirm(); });
     this.input.keyboard.on('keydown-SPACE', () => { if (this._splashDismiss) { this._splashDismiss(); this._splashDismiss = null; } });
   }
 
@@ -2916,7 +2917,63 @@ export class GameScene extends Phaser.Scene {
     if (winner) { this._showResolution([], winner); }
   }
 
+  _confirmEndTurn() {
+    if (this._endTurnPending) { this._onSubmit(); this._hideEndTurnConfirm(); return; }
+    this._endTurnPending = true;
+    const D = 200;
+    const w = this.scale.width, h = this.scale.height;
+    const bw = 260, bh = 72, bx = w - 10 - bw, by = 44;
+
+    // Dim overlay behind the confirm box
+    this._etcOverlay = this.add.rectangle(bx + bw/2, by + bh/2, bw + 4, bh + 4, 0x000000, 0.55)
+      .setScrollFactor(0).setDepth(D - 1);
+
+    // Confirm box
+    this._etcBox = this.add.rectangle(bx + bw/2, by + bh/2, bw, bh, 0x1a2a1a, 1)
+      .setScrollFactor(0).setDepth(D).setStrokeStyle(2, 0x44aa44);
+
+    this._etcLabel = this.add.text(bx + bw/2, by + 10, 'End Turn?', {
+      font: 'bold 15px monospace', fill: '#ffffff'
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(D);
+
+    // YES button
+    this._etcYes = this.add.text(bx + 20, by + 36, '[ YES ]', {
+      font: 'bold 13px monospace', fill: '#88ff88',
+      backgroundColor: '#226622', padding: { x: 10, y: 6 }
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(D).setInteractive({ useHandCursor: true });
+    this._etcYes.on('pointerdown', () => { this._onSubmit(); this._hideEndTurnConfirm(); });
+    this._etcYes.on('pointerover', () => this._etcYes.setAlpha(0.75));
+    this._etcYes.on('pointerout',  () => this._etcYes.setAlpha(1.0));
+
+    // NO button
+    this._etcNo = this.add.text(bx + bw - 20, by + 36, '[ NO ]', {
+      font: 'bold 13px monospace', fill: '#ff8888',
+      backgroundColor: '#662222', padding: { x: 10, y: 6 }
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(D).setInteractive({ useHandCursor: true });
+    this._etcNo.on('pointerdown', () => this._hideEndTurnConfirm());
+    this._etcNo.on('pointerover', () => this._etcNo.setAlpha(0.75));
+    this._etcNo.on('pointerout',  () => this._etcNo.setAlpha(1.0));
+
+    this._etcHint = this.add.text(bx + bw/2, by + bh - 10, 'SPACE to confirm  •  ESC to cancel', {
+      font: '10px monospace', fill: '#aaaaaa'
+    }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(D);
+
+    this._addToUI([this._etcOverlay, this._etcBox, this._etcLabel, this._etcYes, this._etcNo, this._etcHint]);
+
+    // ESC cancels
+    this._etcEscKey = this.input.keyboard.once('keydown-ESC', () => this._hideEndTurnConfirm());
+  }
+
+  _hideEndTurnConfirm() {
+    this._endTurnPending = false;
+    [this._etcOverlay, this._etcBox, this._etcLabel, this._etcYes, this._etcNo, this._etcHint]
+      .forEach(o => { if (o && !o.destroyed) o.destroy(); });
+    this._etcOverlay = this._etcBox = this._etcLabel = this._etcYes = this._etcNo = this._etcHint = null;
+    if (this._etcEscKey) { this._etcEscKey.destroy?.(); this._etcEscKey = null; }
+  }
+
   _onSubmit() {
+    this._hideEndTurnConfirm();
     // IGOUGO: end this player's turn (captures/income/spawns), then pass
     const gs = this.gameState;
     this._hideRecruitPanel();
