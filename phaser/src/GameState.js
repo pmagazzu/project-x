@@ -234,45 +234,47 @@ export function createGameState(scenario = 'default') {
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
 
   } else if (scenario === 'naval') {
-    // Island layout (ms=35, islandRow=22):
-    //   P1 island: offsetToAxial(4, 22)  = {q:4, r:20},  radius=5
-    //   P2 island: offsetToAxial(17, 22) = {q:17, r:14}, radius=4  (right next to P1)
-    //   Far neutral islands also exist for resource contention
-    state.units.push(createUnit('ENGINEER', 1, 4, 19));
-    state.units.push(createUnit('ENGINEER', 1, 5, 19));
-    state.units.push(createUnit('ENGINEER', 2, 17, 13));
-    state.units.push(createUnit('ENGINEER', 2, 18, 13));
-    state.buildings.push(createBuilding('HQ', 1, 4, 20));
-    state.buildings.push(createBuilding('HQ', 2, 17, 14));
-    // Starting naval facilities on coastal hexes (adjacent to water)
-    state.buildings.push(createBuilding('NAVAL_YARD', 1, 9, 20));
-    state.buildings.push(createBuilding('NAVAL_YARD', 2, 21, 14));
-    // Patrol boats spawn in the ocean channel between the two islands (~q=11-12)
-    // _fixNavalSpawns() will BFS-relocate if somehow on land
-    state.units.push(createUnit('PATROL_BOAT', 1, 10, 17));
-    state.units.push(createUnit('PATROL_BOAT', 1, 10, 18));
-    state.units.push(createUnit('PATROL_BOAT', 2, 13, 16));
-    state.units.push(createUnit('PATROL_BOAT', 2, 13, 17));
+    // Island layout (ms=35, islandRow=16):
+    //   P1 island: offsetToAxial(4, 16)  = {q:4,  r:14}, radius=5
+    //   P2 island: offsetToAxial(25, 16) = {q:25, r:4},  radius=5
+    //   Center-to-center ~21 hexes; 2-ring shallow → 7 ocean hexes between shores
+    state.units.push(createUnit('ENGINEER', 1, 4,  13));
+    state.units.push(createUnit('ENGINEER', 1, 5,  13));
+    state.units.push(createUnit('ENGINEER', 2, 25,  3));
+    state.units.push(createUnit('ENGINEER', 2, 26,  3));
+    state.buildings.push(createBuilding('HQ', 1, 4,  14));
+    state.buildings.push(createBuilding('HQ', 2, 25,  4));
+    // Naval yards on east shore of P1 / west shore of P2
+    state.buildings.push(createBuilding('NAVAL_YARD', 1,  9, 14));
+    state.buildings.push(createBuilding('NAVAL_YARD', 2, 20,  4));
+    // Patrol boats in the ocean channel between islands
+    state.units.push(createUnit('PATROL_BOAT', 1, 11, 11));
+    state.units.push(createUnit('PATROL_BOAT', 1, 11, 12));
+    state.units.push(createUnit('PATROL_BOAT', 2, 18,  7));
+    state.units.push(createUnit('PATROL_BOAT', 2, 18,  8));
     // Starting heavier naval presence: 1 submarine + 1 destroyer per side
-    state.units.push(createUnit('SUBMARINE', 1, 11, 16));
-    state.units.push(createUnit('DESTROYER', 1, 9, 17));
-    state.units.push(createUnit('SUBMARINE', 2, 12, 17));
-    state.units.push(createUnit('DESTROYER', 2, 14, 16));
+    state.units.push(createUnit('SUBMARINE', 1, 12, 11));
+    state.units.push(createUnit('DESTROYER', 1, 10, 12));
+    state.units.push(createUnit('SUBMARINE', 2, 17,  7));
+    state.units.push(createUnit('DESTROYER', 2, 19,  7));
     // P1 island resources
-    for (const [q,r] of [[3,20],[4,21],[5,20],[3,21]])
+    for (const [q,r] of [[3,14],[4,15],[5,14],[3,15]])
       state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
-    for (const [q,r] of [[4,19],[5,19]])
+    for (const [q,r] of [[4,13],[5,13]])
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
     // P2 island resources
-    for (const [q,r] of [[16,14],[17,15],[18,14]])
+    for (const [q,r] of [[24,4],[25,5],[26,4]])
       state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
-    for (const [q,r] of [[17,13],[16,15]])
+    for (const [q,r] of [[25,3],[24,5]])
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
-    // Mid-ocean neutral resource islands
-    for (const [q,r] of [[25,10],[26,10]])
+    // Mid-channel neutral island resources (q=14,r=9)
+    for (const [q,r] of [[14,9],[13,9]])
       state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
-    for (const [q,r] of [[30,7],[29,8]])
+    for (const [q,r] of [[14,8],[15,9]])
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
+    // Far-right island resources
+    for (const [q,r] of [[31,1],[32,1]])
+      state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
     state.players[1].iron = 25; state.players[1].oil = 8;
     state.players[2].iron = 25; state.players[2].oil = 8;
 
@@ -432,8 +434,9 @@ export function getMoveCost(terrainType, hasRoad, unitType = '') {
     return 999; // land terrain: impassable for naval
   }
   if (hasRoad) return 0.5;
-  if (terrainType === 1 && HEAVY_UNITS.has(unitType)) return 999; // forest: vehicles crawl (1 hex)
-  // 0=plains, 1=forest, 2=mountain, 3=hill, 4=shallow, 5=ocean, 6=sand(beach)
+  if (terrainType === 1 && HEAVY_UNITS.has(unitType)) return 999; // dense forest: vehicles blocked
+  // 0=plains, 1=dense forest, 2=mountain, 3=hill, 4=shallow, 5=ocean, 6=sand, 7=light woods
+  if (terrainType === 7) return 1.5; // light woods: slight move penalty, all units allowed
   return [1, 2, 3, 2, 999, 999, 1][terrainType] ?? 1;
 }
 export function canEnterTerrain(unitType, terrainType) {
@@ -449,11 +452,12 @@ export function canEnterTerrain(unitType, terrainType) {
   // Land units
   if (terrainType === 2) return unitType === 'INFANTRY' || unitType === 'ENGINEER'; // mountains: foot only
   if (terrainType === 4 || terrainType === 5) return false; // shallow/ocean: no land units
-  return true; // hills, forest, sand, plains: all land units allowed
+  return true; // hills, forest, light woods, sand, plains: all land units allowed
 }
 
 // Terrain that blocks line-of-sight beyond 1 hex (for future LOS system)
-export const LOS_BLOCKING = new Set([1, 2, 3]); // forest, mountain, hill all block LOS
+// 7=light woods: partial block (units inside are concealed but can still see out 1 hex)
+export const LOS_BLOCKING = new Set([1, 2, 3, 7]); // dense forest, mountain, hill, light woods
 // Units ON a hill get a sight bonus (elevated position)
 export const HILL_SIGHT_BONUS = 2;
 
@@ -854,7 +858,7 @@ export function resolveTurn(state, terrain) {
     const attackerIsNaval = NAVAL_UNITS.has(attacker.type) || attacker.type === 'COASTAL_BATTERY';
     const targetIsNaval   = NAVAL_UNITS.has(target.type);
     const targetTerrain   = (state._terrain && state._terrain[`${target.q},${target.r}`]) ?? 0;
-    const targetOnLand    = targetTerrain <= 3 || targetTerrain === 6; // plains/forest/mtn/hill/sand
+    const targetOnLand    = targetTerrain <= 3 || targetTerrain === 6 || targetTerrain === 7; // plains/forest/mtn/hill/sand/lightwoods
     // Ships attacking land: use naval_attack, halved effectiveness
     const navalVsLand = attackerIsNaval && targetOnLand && !targetIsNaval;
     const navalVsNaval = attackerIsNaval && targetIsNaval;
@@ -879,8 +883,9 @@ export function resolveTurn(state, terrain) {
     // Terrain modifier for defender
     const ttype = (state._terrain && state._terrain[`${target.q},${target.r}`]) ?? 0;
     let terrainMod = 0;
-    if (ttype === 1) terrainMod = 10; // forest
-    if (ttype === 2) terrainMod = 20; // mountain
+    if (ttype === 7) terrainMod = 5;  // light woods: slight cover
+    if (ttype === 1) terrainMod = 10; // dense forest: good cover
+    if (ttype === 2) terrainMod = 20; // mountain: strong cover
     score -= terrainMod; // terrain helps defender = hurts attacker score
 
     // Dug-in bonus
@@ -1139,7 +1144,7 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   const attackerIsNaval = NAVAL_UNITS.has(attacker.type) || attacker.type === 'COASTAL_BATTERY';
   const targetIsNaval   = NAVAL_UNITS.has(target.type);
   const targetTerrain   = (state._terrain && state._terrain[`${target.q},${target.r}`]) ?? 0;
-  const targetOnLand    = targetTerrain <= 3 || targetTerrain === 6;
+  const targetOnLand    = targetTerrain <= 3 || targetTerrain === 6 || targetTerrain === 7;
   const navalVsLand     = attackerIsNaval && targetOnLand && !targetIsNaval;
   const navalVsNaval    = attackerIsNaval && targetIsNaval;
 

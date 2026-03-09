@@ -19,18 +19,19 @@ const TERRAIN        = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2, HILL: 3, SHALLOW: 4,
 const TERRAIN_LABELS = ['Plains','Forest','Mountain','Hill','Shallow Water','Ocean','Sand'];
 const TERRAIN_COLORS = {
   0: { fill: 0x8aaa55, stroke: 0x6a8a35 },  // plains
-  1: { fill: 0x1a4010, stroke: 0x0d2008 },  // forest
+  1: { fill: 0x1a4010, stroke: 0x0d2008 },  // dense forest
   2: { fill: 0x8a7a6a, stroke: 0x6a5a4a },  // mountain
   3: { fill: 0xb8a060, stroke: 0x9a8040 },  // hill
   4: { fill: 0x4499bb, stroke: 0x2277aa },  // shallow water
   5: { fill: 0x0d2a4a, stroke: 0x071a2e },  // ocean
   6: { fill: 0xd4b96a, stroke: 0xb09050 },  // sand/beach
+  7: { fill: 0x4a7030, stroke: 0x335020 },  // light woods
 };
 const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.6.8';
+const GAME_VERSION = 'v0.6.9';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -41,16 +42,18 @@ const TERRAIN_ART_KEYS = {
   4: 'terrain_shallow',
   5: 'terrain_ocean',
   6: 'terrain_sand',
+  7: 'terrain_lightwoods',
 };
 
 const TERRAIN_ART_FILES = {
-  terrain_grass:    'user_art/grass_tile.png',
-  terrain_forest:   'user_art/forest_tile.png',
-  terrain_mountain: 'user_art/mountain_tile.png',
-  terrain_hill:     'user_art/grass_hill.png',
-  terrain_shallow:  'user_art/water_shallow_tile.png',
-  terrain_ocean:    'user_art/ocean_deep_tile.png',
-  terrain_sand:     'user_art/sand_tile.png',
+  terrain_grass:      'user_art/grass_tile.png',
+  terrain_forest:     'user_art/forest_tile.png',
+  terrain_mountain:   'user_art/mountain_tile.png',
+  terrain_hill:       'user_art/grass_hill.png',
+  terrain_shallow:    'user_art/water_shallow_tile.png',
+  terrain_ocean:      'user_art/ocean_deep_tile.png',
+  terrain_sand:       'user_art/sand_tile.png',
+  terrain_lightwoods: 'user_art/lightwoods_tile_01.png',
 };
 // Sand tile variants (10 randomized versions for map variety)
 const SAND_VARIANTS = 10;
@@ -64,6 +67,9 @@ const OCEAN_VARIANT_FILES = Array.from({length:OCEAN_VARIANTS},(_,i)=>({key:`ter
 // Shallow water tile variants
 const SHALLOW_VARIANTS = 10;
 const SHALLOW_VARIANT_FILES = Array.from({length:SHALLOW_VARIANTS},(_,i)=>({key:`terrain_shallow_${i+1}`,file:`user_art/shallow_tile_${String(i+1).padStart(2,'0')}.png`}));
+// Light woods tile variants
+const LIGHTWOODS_VARIANTS = 10;
+const LIGHTWOODS_VARIANT_FILES = Array.from({length:LIGHTWOODS_VARIANTS},(_,i)=>({key:`terrain_lightwoods_${i+1}`,file:`user_art/lightwoods_tile_${String(i+1).padStart(2,'0')}.png`}));
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -84,6 +90,9 @@ export class GameScene extends Phaser.Scene {
       this.load.image(key, file);
     }
     for (const {key, file} of SHALLOW_VARIANT_FILES) {
+      this.load.image(key, file);
+    }
+    for (const {key, file} of LIGHTWOODS_VARIANT_FILES) {
       this.load.image(key, file);
     }
     this.load.on('loaderror', () => {}); // suppress console errors for missing tiles
@@ -271,6 +280,9 @@ export class GameScene extends Phaser.Scene {
         } else if (ttype === 4) { // shallow water
           const varKey = `terrain_shallow_${(_varHash % SHALLOW_VARIANTS) + 1}`;
           if (this.textures.exists(varKey)) artKey = varKey;
+        } else if (ttype === 7) { // light woods
+          const varKey = `terrain_lightwoods_${(_varHash % LIGHTWOODS_VARIANTS) + 1}`;
+          if (this.textures.exists(varKey)) artKey = varKey;
         }
         if (!artKey || !this.textures.exists(artKey)) continue;
         const srcImg = this.textures.get(artKey).getSourceImage();
@@ -413,6 +425,17 @@ export class GameScene extends Phaser.Scene {
         gfx.fillStyle(0xddbb55, 0.55);
         for (const [ox, oy] of [[-8,0],[-4,-5],[0,2],[5,-3],[8,5],[-2,7],[4,6],[-6,5]]) {
           gfx.fillCircle(cx+ox, cy+oy, 1.2);
+        }
+      }
+      // LIGHT WOODS (7): 3 sparse trees — smaller than dense forest
+      if (terrain === 7) {
+        for (const [ox, oy, s] of [[-7,-2,4],[4,-4,4],[0,5,4]]) {
+          gfx.fillStyle(0x2a6818, 0.80);
+          gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox-s, cy+oy+s*0.6, cx+ox+s, cy+oy+s*0.6);
+          gfx.fillStyle(0x4a9a2a, 0.5);
+          gfx.fillTriangle(cx+ox, cy+oy-s-1, cx+ox-s*0.5, cy+oy, cx+ox+s*0.5, cy+oy);
+          gfx.fillStyle(0x5a3010, 0.6);
+          gfx.fillRect(cx+ox-1, cy+oy+s*0.6, 2, s*0.4);
         }
       }
     }
@@ -3307,14 +3330,24 @@ export class GameScene extends Phaser.Scene {
       // Standard procedural terrain (scout / grand / default)
       const seed = this.scenario === 'grand' ? 99999 : 12345;
       const rng = this._seededRng(seed);
-      const forestCount = this.scenario === 'grand' ? 80 : 30;
-      const hillCount   = this.scenario === 'grand' ? 50 : 20;
-      const mtCount     = this.scenario === 'grand' ? 25 : 10;
+      const forestCount    = this.scenario === 'grand' ? 80 : 30;
+      const lightWoodCount = this.scenario === 'grand' ? 60 : 25; // light woods: more frequent, smaller patches
+      const hillCount      = this.scenario === 'grand' ? 50 : 20;
+      const mtCount        = this.scenario === 'grand' ? 25 : 10;
+      // Dense forest — large blobs
       for (let i = 0; i < forestCount; i++) {
         const cq = Math.floor(rng() * ms), cr = Math.floor(rng() * ms);
         for (let dq = -2; dq <= 2; dq++)
           for (let dr = -2; dr <= 2; dr++)
             if (isValid(cq+dq, cr+dr, ms) && rng()>0.4) map[`${cq+dq},${cr+dr}`] = 1;
+      }
+      // Light woods — smaller scattered patches, often bordering dense forest or alone
+      for (let i = 0; i < lightWoodCount; i++) {
+        const cq = Math.floor(rng() * ms), cr = Math.floor(rng() * ms);
+        for (let dq = -2; dq <= 2; dq++)
+          for (let dr = -2; dr <= 2; dr++)
+            if (isValid(cq+dq, cr+dr, ms) && rng()>0.55 && map[`${cq+dq},${cr+dr}`] === 0)
+              map[`${cq+dq},${cr+dr}`] = 7; // only overwrite plains, not forests/hills
       }
       for (let i = 0; i < hillCount; i++) {
         const cq = Math.floor(rng() * ms), cr = Math.floor(rng() * ms);
@@ -3352,63 +3385,54 @@ export class GameScene extends Phaser.Scene {
     for (let q = 0; q < ms; q++)
       for (let r = 0; r < ms; r++) map[`${q},${r}`] = 5; // OCEAN
 
-    // ── Rectangular visual region via offset coordinates ──────────────────
-    // In flat-top axial hex grids, the q∈[0,ms) r∈[0,ms) grid is a parallelogram.
-    // We use "even-q offset" coords: offset_row = r + floor(q/2)
-    // The playable rectangle is q∈[0,ms), offset_row∈[rowMin, rowMax).
-    // Hexes outside this range stay OCEAN (impassable) — giving a rectangular map.
-    const RECT_H = Math.round(ms * 0.65); // visual row count
-    const rowMin = Math.round(ms * 0.1);
-    const rowMax = rowMin + RECT_H;
-
-    const inRect = (q, r) => {
-      const offsetRow = r + Math.floor(q / 2);
-      return q >= 0 && q < ms && offsetRow >= rowMin && offsetRow < rowMax;
-    };
-
     // Helper: convert offset coords (col, offsetRow) → axial (q, r)
     const offsetToAxial = (col, offsetRow) => ({ q: col, r: offsetRow - Math.floor(col / 2) });
 
+    // setIsland: land core (sand) surrounded by 2 full rings of shallow water
+    //   hexDist <= radius       → sand/land
+    //   hexDist <= radius+2     → shallow water (2-hex coastal ring)
+    //   beyond                  → ocean
     const setIsland = (cq, cr, radius) => {
-      for (let dq = -radius; dq <= radius; dq++) {
-        for (let dr = -radius; dr <= radius; dr++) {
+      const shell = radius + 2;
+      for (let dq = -shell; dq <= shell; dq++) {
+        for (let dr = -shell; dr <= shell; dr++) {
           const nq = cq+dq, nr = cr+dr;
           if (!isValid(nq, nr, ms)) continue;
-          const dist = Math.abs(dq) + Math.abs(dr) + Math.abs(-dq-dr);
-          const hexDist = dist / 2;
-          if (hexDist <= radius)          map[`${nq},${nr}`] = 6; // sand interior
-          else if (hexDist <= radius+1.5) map[`${nq},${nr}`] = 4; // shallow shore
+          const dist = (Math.abs(dq) + Math.abs(dr) + Math.abs(-dq-dr)) / 2;
+          if (dist <= radius)  map[`${nq},${nr}`] = 6; // sand interior
+          else if (dist <= shell) map[`${nq},${nr}`] = 4; // 2-hex shallow ring
         }
       }
     };
 
-    // Island row: same offset row for both → same VISUAL height (symmetric left-right)
-    // Constraint: P2 island at col=ms-5 needs axial r = islandRow - floor((ms-5)/2) >= radius+1
-    const radius = 5;
-    const p2col = ms - 5;
-    const p2floorQ = Math.floor(p2col / 2);
-    const islandRow = Math.max(rowMin + Math.round(RECT_H * 0.5), p2floorQ + radius + 2);
+    // Island row: centered vertically in the map
+    // ms=35: RECT_H≈23, rowMin≈4 → islandRow≈15+4=19, bumped to 22 for axial validity
+    const RECT_H = Math.round(ms * 0.65);
+    const rowMin = Math.round(ms * 0.1);
+    const islandRow = rowMin + Math.round(RECT_H * 0.5);
 
-    // P1 island: left side (radius 5)
+    // ── Main player islands ─────────────────────────────────────────────
+    // P1: left, col=4, radius=5
+    // P2: right, col=25, radius=5
+    // Center-to-center hex dist ≈ 21; gap between shallow rings = 21-7-7 = 7 ocean hexes ✓
     const p1 = offsetToAxial(4, islandRow);
-    setIsland(p1.q, p1.r, radius);
+    setIsland(p1.q, p1.r, 5);
 
-    // P2 island: right next to P1, ~13 hexes away center-to-center (1-hex ocean channel)
-    const p2 = offsetToAxial(17, islandRow);
-    setIsland(p2.q, p2.r, 4); // radius 4 — slightly smaller, close neighbor
+    const p2 = offsetToAxial(25, islandRow);
+    setIsland(p2.q, p2.r, 5);
 
-    // Far islands: neutral resource targets
-    const far1 = offsetToAxial(p2col, islandRow);      // original far-right position
-    setIsland(far1.q, far1.r, 3);                       // smaller neutral island
-    const far2 = offsetToAxial(Math.floor(ms*0.55), islandRow); // center-right
-    setIsland(far2.q, far2.r, 2);
+    // ── Neutral islands (resource targets in the channel) ───────────────
+    // Small mid-channel island at center
+    const mid = offsetToAxial(14, islandRow);
+    setIsland(mid.q, mid.r, 2);
 
-    // Small mid-ocean islands
+    // Two small islands slightly off-center row
     const smalls = [
-      [Math.floor(ms*0.28), islandRow - 5, 2],
-      [Math.floor(ms*0.45), islandRow + 4, 2],
-      [Math.floor(ms*0.68), islandRow - 3, 2],
-      [Math.floor(ms*0.38), islandRow + 6, 1],
+      [Math.floor(ms*0.28), islandRow - 4, 2],
+      [Math.floor(ms*0.68), islandRow + 4, 2],
+      [Math.floor(ms*0.38), islandRow + 5, 1],
+      [Math.floor(ms*0.60), islandRow - 5, 1],
+      [ms - 4, islandRow, 3],  // far-right island (neutral late-game target)
     ];
     for (const [col, orow, rad] of smalls) {
       const { q, r } = offsetToAxial(col, orow);
