@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.8.8';
+const GAME_VERSION = 'v0.8.9';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1099,7 +1099,10 @@ export class GameScene extends Phaser.Scene {
         if (!isStealthDetected(gs, unit, gs.currentPlayer)) continue; // not detected — skip render
       }
 
-      const { x, y } = hexToWorld(dispQ, dispR);
+      // Use animated display position if a slide is in progress
+      const basePos = hexToWorld(dispQ, dispR);
+      const x = unit._animX ?? basePos.x;
+      const y = unit._animY ?? basePos.y;
       const color = PLAYER_COLORS[unit.owner];
       const dim   = (unit.owner !== gs.currentPlayer);
       const alpha = dim ? 0.6 : 1.0;
@@ -2467,6 +2470,8 @@ export class GameScene extends Phaser.Scene {
         // IGOUGO: movement is immediate. Save _origQ/_origR for undo only (not used in combat).
         this.selectedUnit._origQ = this.selectedUnit.q;
         this.selectedUnit._origR = this.selectedUnit.r;
+        // Capture start world position for slide animation
+        const _slideFrom = hexToWorld(this.selectedUnit.q, this.selectedUnit.r);
         // Snapshot pre-move fog to detect if move reveals new hexes (prevent scouting exploit)
         const _preFog = this._currentFog ? new Set(this._currentFog) : null;
         // Do NOT add to pendingMoves — position is real immediately
@@ -2478,11 +2483,26 @@ export class GameScene extends Phaser.Scene {
           this.selectedUnit._scoutedMove = revealedNew;
         }
         // After move: stay in select mode. Unit remains selected.
-        // Player clicks an enemy directly to attack (Civ-style) — no auto attack mode.
         this.reachable = [];
         this.attackable = getAttackableHexes(gs, this.selectedUnit, q, r, this._currentFog);
         this.mode = 'select';
-        // Engineers: auto-open build menu after moving (if setting enabled)
+        // Slide animation: animate from old position to new
+        const _slideTo = hexToWorld(q, r);
+        const _animUnit = this.selectedUnit;
+        _animUnit._animX = _slideFrom.x;
+        _animUnit._animY = _slideFrom.y;
+        this.tweens.add({
+          targets: _animUnit,
+          _animX: _slideTo.x,
+          _animY: _slideTo.y,
+          duration: 160,
+          ease: 'Cubic.easeOut',
+          onUpdate: () => this._redrawUnits(),
+          onComplete: () => {
+            delete _animUnit._animX;
+            delete _animUnit._animY;
+          }
+        });
         this._refresh();
         // Engineer auto-build: pop open the build submenu after moving
         if (UNIT_TYPES[this.selectedUnit.type].canBuild && this.settings.engineerAutoBuild) {
