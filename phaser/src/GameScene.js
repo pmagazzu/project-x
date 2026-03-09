@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.6.5';
+const GAME_VERSION = 'v0.6.6';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -52,6 +52,9 @@ const TERRAIN_ART_FILES = {
   terrain_ocean:    'user_art/ocean_deep_tile.png',
   terrain_sand:     'user_art/sand_tile.png',
 };
+// Sand tile variants (10 randomized versions for map variety)
+const SAND_VARIANTS = 10;
+const SAND_VARIANT_FILES = Array.from({length:SAND_VARIANTS},(_,i)=>({key:`terrain_sand_${i+1}`,file:`user_art/sand_tile_${String(i+1).padStart(2,'0')}.png`}));
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -59,6 +62,10 @@ export class GameScene extends Phaser.Scene {
   preload() {
     // Load terrain tiles — missing files are silently skipped
     for (const [key, file] of Object.entries(TERRAIN_ART_FILES)) {
+      this.load.image(key, file);
+    }
+    // Load sand tile variants
+    for (const {key, file} of SAND_VARIANT_FILES) {
       this.load.image(key, file);
     }
     this.load.on('loaderror', () => {}); // suppress console errors for missing tiles
@@ -231,7 +238,14 @@ export class GameScene extends Phaser.Scene {
     for (let q = 0; q < this.mapSize; q++) {
       for (let r = 0; r < this.mapSize; r++) {
         const ttype = this.terrain[`${q},${r}`] ?? 0;
-        const artKey = TERRAIN_ART_KEYS[ttype];
+        // Sand: pick one of 10 variants deterministically by hex coords
+        let artKey = TERRAIN_ART_KEYS[ttype];
+        if (ttype === 6) {
+          const varIdx = ((q * 1619 + r * 31337) ^ (q * 6791)) & 0xFFFFFF;
+          const varNum = (varIdx % SAND_VARIANTS) + 1;
+          const varKey = `terrain_sand_${varNum}`;
+          if (this.textures.exists(varKey)) artKey = varKey;
+        }
         if (!artKey || !this.textures.exists(artKey)) continue;
         const srcImg = this.textures.get(artKey).getSourceImage();
         if (!srcImg || !srcImg.width) continue;
