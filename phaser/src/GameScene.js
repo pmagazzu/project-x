@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.7.6';
+const GAME_VERSION = 'v0.7.7';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -164,6 +164,7 @@ export class GameScene extends Phaser.Scene {
     this.terrainArtRT = this.add.renderTexture(1, 1, 1, 1).setVisible(false);
 
     // World graphics layers (depth order)
+    this.resourceOverlayGfx = this.add.graphics().setDepth(3); // above art (2), below roads/buildings/units
     this.roadGfx      = this.add.graphics().setDepth(5);
     this.highlightGfx = this.add.graphics().setDepth(10);
     this.buildingGfx  = this.add.graphics().setDepth(15);
@@ -186,7 +187,7 @@ export class GameScene extends Phaser.Scene {
     // (catches top bar, bottom panel, buttons, etc. without touching each line)
     const worldObjs = new Set([
       this.terrainGfx, this.terrainArtLayer, this.terrainArtRT, this.terrainRT,
-      this.roadGfx,
+      this.resourceOverlayGfx, this.roadGfx,
       this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT, this._uiLayer
     ]);
     for (const obj of [...this.children.list]) {
@@ -212,7 +213,7 @@ export class GameScene extends Phaser.Scene {
     this.uiCamera.transparent = true; // transparent background — must not cover world
     this.uiCamera.ignore([
       this.terrainGfx, this.terrainArtLayer, this.terrainArtRT, this.terrainRT,
-      this.roadGfx,
+      this.resourceOverlayGfx, this.roadGfx,
       this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT,
     ]);
     this.scale.on('resize', (gs) => this.uiCamera.setSize(gs.width, gs.height));
@@ -241,9 +242,6 @@ export class GameScene extends Phaser.Scene {
         const ttype = this.terrain[`${q},${r}`] ?? 0;
         const { x, y } = hexToWorld(q, r);
         this._drawHex(this.terrainGfx, x, y, ttype, false, false);
-        // Resource overlay baked into terrain layer
-        const res = this.gameState.resourceHexes[`${q},${r}`];
-        if (res) this._drawResourceOverlay(this.terrainGfx, x, y, res.type);
       }
     }
 
@@ -516,7 +514,17 @@ export class GameScene extends Phaser.Scene {
   // ── Static layers (resources, roads) ─────────────────────────────────────
   _drawStaticLayers() {
     this._drawTerrainDirect();
+    this._redrawResourceOverlays();
     this._redrawRoads();
+  }
+
+  _redrawResourceOverlays() {
+    this.resourceOverlayGfx.clear();
+    for (const [key, res] of Object.entries(this.gameState.resourceHexes)) {
+      const [q, r] = key.split(',').map(Number);
+      const { x, y } = hexToWorld(q, r);
+      this._drawResourceOverlay(this.resourceOverlayGfx, x, y, res.type);
+    }
   }
 
   _redrawRoads() {
