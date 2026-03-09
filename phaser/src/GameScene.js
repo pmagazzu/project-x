@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.5.2';
+const GAME_VERSION = 'v0.5.3';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -187,27 +187,70 @@ export class GameScene extends Phaser.Scene {
   // ── Terrain ──────────────────────────────────────────────────────────────
   _drawTerrainDirect() {
     this.terrainGfx.clear();
-    // Destroy old art images in the layer
     if (this.terrainArtLayer) this.terrainArtLayer.removeAll(true);
 
     const artW = HEX_SIZE * 2;
     const artH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH);
 
+    // Check if ANY terrain art textures are loaded
+    const hasAnyArt = Object.values(TERRAIN_ART_KEYS).some(k => this.textures.exists(k));
+
+    // Draw procedural terrain first
     for (let q = 0; q < this.mapSize; q++) {
       for (let r = 0; r < this.mapSize; r++) {
         const ttype = this.terrain[`${q},${r}`] ?? 0;
         const { x, y } = hexToWorld(q, r);
         this._drawHex(this.terrainGfx, x, y, ttype, false, false);
-        // Overlay user art tile if loaded
-        if (this.terrainArtLayer) {
-          const artKey = TERRAIN_ART_KEYS[ttype];
-          if (artKey && this.textures.exists(artKey)) {
-            const img = this.add.image(x, y, artKey).setDisplaySize(artW, artH);
-            this.terrainArtLayer.add(img);
-          }
-        }
       }
     }
+
+    // If any art tiles loaded, bake them into an OffscreenCanvas → single Phaser texture
+    if (hasAnyArt) {
+      this._bakeTerrainArt(artW, artH);
+    }
+  }
+
+  _bakeTerrainArt(artW, artH) {
+    const bounds = getMapBounds(this.mapSize);
+    const padding = HEX_SIZE * 2;
+    const cw = Math.ceil(bounds.maxX - bounds.minX + padding * 2);
+    const ch = Math.ceil(bounds.maxY - bounds.minY + padding * 2);
+    const offX = bounds.minX - padding;
+    const offY = bounds.minY - padding;
+
+    // Create or reuse an OffscreenCanvas
+    const canvas = document.createElement('canvas');
+    canvas.width = cw; canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, cw, ch);
+
+    for (let q = 0; q < this.mapSize; q++) {
+      for (let r = 0; r < this.mapSize; r++) {
+        const ttype = this.terrain[`${q},${r}`] ?? 0;
+        const artKey = TERRAIN_ART_KEYS[ttype];
+        if (!artKey || !this.textures.exists(artKey)) continue;
+        const srcImg = this.textures.get(artKey).getSourceImage();
+        if (!srcImg || !srcImg.width) continue;
+        const { x, y } = hexToWorld(q, r);
+        const dx = x - offX - artW / 2;
+        const dy = y - offY - artH / 2;
+        ctx.drawImage(srcImg, dx, dy, artW, artH);
+      }
+    }
+
+    // Register as Phaser texture (replace if already exists)
+    if (this.textures.exists('_terrain_art_baked')) {
+      this.textures.remove('_terrain_art_baked');
+    }
+    this.textures.addCanvas('_terrain_art_baked', canvas);
+
+    // Remove old baked image if exists
+    if (this._terrainArtImg) { try { this._terrainArtImg.destroy(); } catch(e){} }
+
+    // One image in world space at the map origin
+    this._terrainArtImg = this.add.image(offX, offY, '_terrain_art_baked')
+      .setOrigin(0, 0).setDepth(2);
+    if (this.terrainArtLayer) this.terrainArtLayer.add(this._terrainArtImg);
   }
 
   // Legacy — kept for reference but no longer called (RT replaced by direct gfx)
