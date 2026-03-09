@@ -61,6 +61,9 @@ const GRASS_VARIANT_FILES = Array.from({length:GRASS_VARIANTS},(_,i)=>({key:`ter
 // Ocean tile variants
 const OCEAN_VARIANTS = 10;
 const OCEAN_VARIANT_FILES = Array.from({length:OCEAN_VARIANTS},(_,i)=>({key:`terrain_ocean_${i+1}`,file:`user_art/ocean_tile_${String(i+1).padStart(2,'0')}.png`}));
+// Shallow water tile variants
+const SHALLOW_VARIANTS = 10;
+const SHALLOW_VARIANT_FILES = Array.from({length:SHALLOW_VARIANTS},(_,i)=>({key:`terrain_shallow_${i+1}`,file:`user_art/shallow_tile_${String(i+1).padStart(2,'0')}.png`}));
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -78,6 +81,9 @@ export class GameScene extends Phaser.Scene {
       this.load.image(key, file);
     }
     for (const {key, file} of OCEAN_VARIANT_FILES) {
+      this.load.image(key, file);
+    }
+    for (const {key, file} of SHALLOW_VARIANT_FILES) {
       this.load.image(key, file);
     }
     this.load.on('loaderror', () => {}); // suppress console errors for missing tiles
@@ -261,6 +267,9 @@ export class GameScene extends Phaser.Scene {
           if (this.textures.exists(varKey)) artKey = varKey;
         } else if (ttype === 5) { // ocean
           const varKey = `terrain_ocean_${(_varHash % OCEAN_VARIANTS) + 1}`;
+          if (this.textures.exists(varKey)) artKey = varKey;
+        } else if (ttype === 4) { // shallow water
+          const varKey = `terrain_shallow_${(_varHash % SHALLOW_VARIANTS) + 1}`;
           if (this.textures.exists(varKey)) artKey = varKey;
         }
         if (!artKey || !this.textures.exists(artKey)) continue;
