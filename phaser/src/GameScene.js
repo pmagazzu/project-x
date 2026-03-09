@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.7.3';
+const GAME_VERSION = 'v0.7.4';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1983,7 +1983,14 @@ export class GameScene extends Phaser.Scene {
     // (unit.abilities || []).forEach(ab => actions.push({ label: ab.name, key: ab.key, enabled: ab.canUse(gs, unit), color: 0x664488, cb: () => ab.use(gs, unit) }));
     // Undo move — only if moved but not yet attacked
     if (unit.moved && !unit.attacked && unit._origQ !== undefined) {
-      actions.push({ label: '↩ UNDO MOVE', key: 'undo', enabled: true, color: 0x554422, cb: () => this._onUndoMove() });
+      const undoBlocked = !!unit._scoutedMove;
+      actions.push({
+        label: undoBlocked ? '↩ UNDO MOVE [revealed fog]' : '↩ UNDO MOVE',
+        key: 'undo',
+        enabled: !undoBlocked,
+        color: undoBlocked ? 0x553322 : 0x554422,
+        cb: () => this._onUndoMove()
+      });
     }
     actions.push({ label: 'WAIT',   key: 'wait',   enabled: true,  color: 0x444444, cb: () => this._clearSelection() });
 
@@ -2369,8 +2376,16 @@ export class GameScene extends Phaser.Scene {
         // IGOUGO: movement is immediate. Save _origQ/_origR for undo only (not used in combat).
         this.selectedUnit._origQ = this.selectedUnit.q;
         this.selectedUnit._origR = this.selectedUnit.r;
+        // Snapshot pre-move fog to detect if move reveals new hexes (prevent scouting exploit)
+        const _preFog = this._currentFog ? new Set(this._currentFog) : null;
         // Do NOT add to pendingMoves — position is real immediately
         this.selectedUnit.q = q; this.selectedUnit.r = r; this.selectedUnit.moved = true;
+        // Check if move revealed new fog hexes — if so, undo is blocked
+        if (_preFog) {
+          const postFog = computeFog(gs, gs.currentPlayer, this.mapSize, this.terrain);
+          const revealedNew = [...postFog].some(k => !_preFog.has(k));
+          this.selectedUnit._scoutedMove = revealedNew;
+        }
         // After move: stay in select mode. Unit remains selected.
         // Player clicks an enemy directly to attack (Civ-style) — no auto attack mode.
         this.reachable = [];
@@ -2535,11 +2550,18 @@ export class GameScene extends Phaser.Scene {
   _onUndoMove() {
     const u = this.selectedUnit, gs = this.gameState;
     if (!u || !u.moved || u.attacked || u._origQ === undefined) return;
+    // Block undo if this move revealed new fog hexes (anti-scouting exploit)
+    if (u._scoutedMove) {
+      this._log.unshift('⚠ Undo blocked — move revealed new territory');
+      this._log = this._log.slice(0, 8);
+      this._refresh();
+      return;
+    }
     // Restore original position
     u.q = u._origQ; u.r = u._origR;
     u.moved = false;
     u.building = false;
-    delete u._origQ; delete u._origR;
+    delete u._origQ; delete u._origR; delete u._scoutedMove;
     u.attacked = false;
     this._clearSelection();
     this._redrawRoads(); // in case a road was staged
