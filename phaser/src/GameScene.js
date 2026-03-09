@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.5.4';
+const GAME_VERSION = 'v0.5.5';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -192,8 +192,9 @@ export class GameScene extends Phaser.Scene {
     const artW = HEX_SIZE * 2;
     const artH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH);
 
-    // Check if ANY terrain art textures are loaded
-    const hasAnyArt = Object.values(TERRAIN_ART_KEYS).some(k => this.textures.exists(k));
+    // Terrain art overlay — only enabled when tiles are properly formatted (transparent PNG, correct hex shape)
+    const ENABLE_TERRAIN_ART = false;
+    const hasAnyArt = ENABLE_TERRAIN_ART && Object.values(TERRAIN_ART_KEYS).some(k => this.textures.exists(k));
 
     // Draw procedural terrain first
     for (let q = 0; q < this.mapSize; q++) {
