@@ -429,7 +429,7 @@ export function getMoveCost(terrainType, hasRoad, unitType = '') {
   // Naval units: ocean/shallow cost 1, can't enter land terrain
   if (NAVAL_UNITS.has(unitType)) {
     if (terrainType === 5) return 1; // ocean: free sailing
-    if (terrainType === 4) return SHALLOW_UNITS.has(unitType) ? 1 : 999; // shallow: lighter ships only
+    if (terrainType === 4) return NAVAL_UNITS.has(unitType) ? 1 : 999; // shallow: all naval ships can enter (subs get debuff)
     if (terrainType === 6) return AMPHIBIOUS_UNITS.has(unitType) ? 1 : 999; // sand: amphibious only
     return 999; // land terrain: impassable for naval
   }
@@ -443,7 +443,7 @@ export function canEnterTerrain(unitType, terrainType) {
   // Naval units: can only enter water/beach terrain
   if (NAVAL_UNITS.has(unitType)) {
     if (terrainType === 5) return true;  // ocean: all naval
-    if (terrainType === 4) return SHALLOW_UNITS.has(unitType); // shallow: lighter ships only
+    if (terrainType === 4) return NAVAL_UNITS.has(unitType); // shallow: all naval ships can enter
     if (terrainType === 6) return AMPHIBIOUS_UNITS.has(unitType); // sand: amphibious only
     return false; // no land terrain for naval
   }
@@ -601,8 +601,13 @@ export function getAttackRangeHexes(mapSize, unit, fromQ, fromR, terrain) {
 // Visibility if: adjacent to enemy unit (always reveals), OR
 //   any own unit with detection > 0 is within detection range AND roll passes.
 export function isStealthDetected(state, stealthyUnit, byPlayer) {
-  const stealthVal = UNIT_TYPES[stealthyUnit.type]?.stealthy || 0;
+  let stealthVal = UNIT_TYPES[stealthyUnit.type]?.stealthy || 0;
   if (!stealthVal) return true; // not stealthy — always visible
+  // Submarine shallow-water debuff: can't dive deep → stealth drops from 5 to 2
+  if (stealthyUnit.type === 'SUBMARINE' && state._terrain) {
+    const ttype = state._terrain[`${stealthyUnit.q},${stealthyUnit.r}`] ?? 5;
+    if (ttype === 4) stealthVal = 2; // shallow water: easily detectable
+  }
   for (const u of state.units.filter(u => u.owner === byPlayer)) {
     const dist = hexDistance(u.q, u.r, stealthyUnit.q, stealthyUnit.r);
     if (dist <= 1) return true; // adjacent always spots
@@ -888,6 +893,10 @@ export function resolveTurn(state, terrain) {
     if (ttype === 2) terrainMod = 20; // mountain: strong cover
     score -= terrainMod; // terrain helps defender = hurts attacker score
 
+    // Submarine shallow-water debuff: exposed, can't dive → -10 evasion in combat
+    const subShallowPenalty = (target.type === 'SUBMARINE' && ttype === 4) ? 10 : 0;
+    score += subShallowPenalty; // makes sub easier to hit
+
     // Dug-in bonus
     let dugInMod = 0;
     if (target.dugIn) { dugInMod = 8; score -= dugInMod; }
@@ -1163,9 +1172,12 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   score -= blindFirePenalty;
   const ttype = targetTerrain;
   let terrainMod = 0;
+  if (ttype === 7) terrainMod = 5;
   if (ttype === 1) terrainMod = 10;
   if (ttype === 2) terrainMod = 20;
   score -= terrainMod;
+  const subShallowPenalty = (target.type === 'SUBMARINE' && ttype === 4) ? 10 : 0;
+  score += subShallowPenalty;
   let dugInMod = 0;
   if (target.dugIn) { dugInMod = 8; score -= dugInMod; }
   let bunkerMod = 0;

@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.6.9';
+const GAME_VERSION = 'v0.7.0';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -61,6 +61,9 @@ const SAND_VARIANT_FILES = Array.from({length:SAND_VARIANTS},(_,i)=>({key:`terra
 // Grass tile variants
 const GRASS_VARIANTS = 10;
 const GRASS_VARIANT_FILES = Array.from({length:GRASS_VARIANTS},(_,i)=>({key:`terrain_grass_${i+1}`,file:`user_art/grass_tile_${String(i+1).padStart(2,'0')}.png`}));
+// Dense forest tile variants
+const FOREST_VARIANTS = 10;
+const FOREST_VARIANT_FILES = Array.from({length:FOREST_VARIANTS},(_,i)=>({key:`terrain_forest_${i+1}`,file:`user_art/forest_tile_${String(i+1).padStart(2,'0')}.png`}));
 // Ocean tile variants
 const OCEAN_VARIANTS = 10;
 const OCEAN_VARIANT_FILES = Array.from({length:OCEAN_VARIANTS},(_,i)=>({key:`terrain_ocean_${i+1}`,file:`user_art/ocean_tile_${String(i+1).padStart(2,'0')}.png`}));
@@ -84,6 +87,9 @@ export class GameScene extends Phaser.Scene {
       this.load.image(key, file);
     }
     for (const {key, file} of GRASS_VARIANT_FILES) {
+      this.load.image(key, file);
+    }
+    for (const {key, file} of FOREST_VARIANT_FILES) {
       this.load.image(key, file);
     }
     for (const {key, file} of OCEAN_VARIANT_FILES) {
@@ -270,6 +276,9 @@ export class GameScene extends Phaser.Scene {
         const _varHash = ((q * 1619 + r * 31337) ^ (q * 6791)) & 0xFFFFFF;
         if (ttype === 6) { // sand
           const varKey = `terrain_sand_${(_varHash % SAND_VARIANTS) + 1}`;
+          if (this.textures.exists(varKey)) artKey = varKey;
+        } else if (ttype === 1) { // dense forest
+          const varKey = `terrain_forest_${(_varHash % FOREST_VARIANTS) + 1}`;
           if (this.textures.exists(varKey)) artKey = varKey;
         } else if (ttype === 0) { // grass/plains
           const varKey = `terrain_grass_${(_varHash % GRASS_VARIANTS) + 1}`;
