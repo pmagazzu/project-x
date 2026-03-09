@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.5.8';
+const GAME_VERSION = 'v0.5.9';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -955,11 +955,33 @@ export class GameScene extends Phaser.Scene {
           // Transport: boxy rect + cargo dot
           sg.strokeRect(x - ss * 1.1, y - ss * 0.5, ss * 2.2, ss * 1.0);
           sg.fillCircle(x, y, ss * 0.25);
-        } else {
-          // Generic naval: pointed hull silhouette
+        } else if (def.shape === 'boat_sm') {
+          // Patrol Boat: small compact V-hull
           sg.beginPath();
-          sg.moveTo(x + ss * 1.2, y); sg.lineTo(x - ss * 0.8, y - ss * 0.55);
-          sg.lineTo(x - ss * 0.8, y + ss * 0.55); sg.closePath(); sg.strokePath();
+          sg.moveTo(x + ss * 0.9, y); sg.lineTo(x - ss * 0.5, y - ss * 0.45);
+          sg.lineTo(x - ss * 0.5, y + ss * 0.45); sg.closePath(); sg.strokePath();
+        } else if (def.shape === 'destroyer') {
+          // Destroyer: long slim hull + mast tick
+          sg.beginPath();
+          sg.moveTo(x + ss * 1.4, y); sg.lineTo(x - ss * 1.0, y - ss * 0.45);
+          sg.lineTo(x - ss * 1.0, y + ss * 0.45); sg.closePath(); sg.strokePath();
+          // Mast
+          sg.beginPath(); sg.moveTo(x, y - ss * 0.45); sg.lineTo(x, y - ss * 0.85); sg.strokePath();
+        } else if (def.shape === 'landing') {
+          // Landing Craft: flat-front box with ramp tick
+          sg.strokeRect(x - ss * 0.9, y - ss * 0.5, ss * 1.8, ss * 1.0);
+          sg.beginPath(); sg.moveTo(x + ss * 0.9, y - ss * 0.5); sg.lineTo(x + ss * 0.9, y + ss * 0.5); sg.strokePath();
+        } else if (def.shape === 'battery') {
+          // Coastal Battery: box + gun barrel pointing right
+          sg.strokeRect(x - ss * 0.8, y - ss * 0.55, ss * 1.6, ss * 1.1);
+          sg.lineStyle(2.5, symCol, fillAlpha * 0.92);
+          sg.beginPath(); sg.moveTo(x + ss * 0.2, y); sg.lineTo(x + ss * 1.3, y); sg.strokePath();
+          sg.fillCircle(x + ss * 1.3, y, ss * 0.2);
+        } else {
+          // Generic naval: medium pointed hull
+          sg.beginPath();
+          sg.moveTo(x + ss * 1.1, y); sg.lineTo(x - ss * 0.8, y - ss * 0.5);
+          sg.lineTo(x - ss * 0.8, y + ss * 0.5); sg.closePath(); sg.strokePath();
         }
       }
 
