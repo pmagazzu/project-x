@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.1';
+const GAME_VERSION = 'v0.9.2';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1096,6 +1096,9 @@ export class GameScene extends Phaser.Scene {
       // Skip embarked units (they're inside a transport)
       if (unit.embarked) continue;
 
+      // Skip units currently being animated by a slide tween (temp gfx handles them)
+      if (unit._sliding) continue;
+
       // Hide enemy units in fog (use display position, not queued position)
       const key = `${dispQ},${dispR}`;
       if (isEnemy && fog && !fog.has(key)) continue;
@@ -1104,10 +1107,9 @@ export class GameScene extends Phaser.Scene {
         if (!isStealthDetected(gs, unit, gs.currentPlayer)) continue; // not detected — skip render
       }
 
-      // Use animated display position if a slide is in progress
       const basePos = hexToWorld(dispQ, dispR);
-      const x = unit._animX ?? basePos.x;
-      const y = unit._animY ?? basePos.y;
+      const x = basePos.x;
+      const y = basePos.y;
       const color = PLAYER_COLORS[unit.owner];
       const dim   = (unit.owner !== gs.currentPlayer);
       const alpha = dim ? 0.6 : 1.0;
@@ -2491,24 +2493,41 @@ export class GameScene extends Phaser.Scene {
         this.reachable = [];
         this.attackable = getAttackableHexes(gs, this.selectedUnit, q, r, this._currentFog);
         this.mode = 'select';
-        // Slide animation: animate from old position to new
+        // Slide animation: use a real Phaser Graphics GO so Phaser tweens it per-frame natively.
+        // Mark unit _sliding so _redrawUnits() skips it while the temp gfx is visible.
         const _slideTo = hexToWorld(q, r);
         const _animUnit = this.selectedUnit;
-        _animUnit._animX = _slideFrom.x;
-        _animUnit._animY = _slideFrom.y;
+        _animUnit._sliding = true;
+        this._refresh(); // draws scene without the sliding unit
+
+        // Build a minimal counter on a temp Graphics positioned at the FROM pixel
+        const _slideGfx = this.add.graphics();
+        _slideGfx.setDepth(25); // above unit layer
+        _slideGfx.x = _slideFrom.x;
+        _slideGfx.y = _slideFrom.y;
+        const _sc = PLAYER_COLORS[_animUnit.owner];
+        const _sr = HEX_SIZE * 0.34;
+        // Counter body
+        _slideGfx.fillStyle(_sc, 1.0);
+        _slideGfx.fillRect(-_sr, -_sr * 0.75, _sr * 2, _sr * 1.5);
+        _slideGfx.lineStyle(2, 0x000000, 0.8);
+        _slideGfx.strokeRect(-_sr, -_sr * 0.75, _sr * 2, _sr * 1.5);
+        // Inner bevel highlight
+        _slideGfx.lineStyle(1, 0xffffff, 0.35);
+        _slideGfx.strokeRect(-_sr + 2, -_sr * 0.75 + 2, _sr * 2 - 4, _sr * 1.5 - 4);
+
         this.tweens.add({
-          targets: _animUnit,
-          _animX: _slideTo.x,
-          _animY: _slideTo.y,
-          duration: 160,
+          targets: _slideGfx,
+          x: _slideTo.x,
+          y: _slideTo.y,
+          duration: 180,
           ease: 'Cubic.easeOut',
-          onUpdate: () => this._redrawUnits(),
           onComplete: () => {
-            delete _animUnit._animX;
-            delete _animUnit._animY;
+            _slideGfx.destroy();
+            delete _animUnit._sliding;
+            this._redrawUnits(); // reveal unit at final position
           }
         });
-        this._refresh();
         // Engineer auto-build: pop open the build submenu after moving
         if (UNIT_TYPES[this.selectedUnit.type].canBuild && this.settings.engineerAutoBuild) {
           // Anchor to where the player clicked to move the engineer
