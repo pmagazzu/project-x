@@ -241,15 +241,26 @@ export function createGameState(scenario = 'default') {
     //   P1 island: offsetToAxial(4, 16)  = {q:4,  r:14}, radius=5
     //   P2 island: offsetToAxial(25, 16) = {q:25, r:4},  radius=5
     //   Center-to-center ~21 hexes; 2-ring shallow → 7 ocean hexes between shores
-    state.units.push(createUnit('ENGINEER', 1, 4,  13));
-    state.units.push(createUnit('ENGINEER', 1, 5,  13));
-    state.units.push(createUnit('ENGINEER', 2, 25,  3));
-    state.units.push(createUnit('ENGINEER', 2, 26,  3));
-    state.buildings.push(createBuilding('HQ', 1, 4,  14));
-    state.buildings.push(createBuilding('HQ', 2, 25,  4));
-    // Naval yards on east shore of P1 / west shore of P2
-    state.buildings.push(createBuilding('NAVAL_YARD', 1,  9, 14));
-    state.buildings.push(createBuilding('NAVAL_YARD', 2, 20,  4));
+
+    // ── P1 starting buildings ──────────────────────────────────────────────
+    state.buildings.push(createBuilding('HQ',         1,  4, 14));
+    state.buildings.push(createBuilding('MINE',       1,  3, 14)); // iron hex adjacent to HQ
+    state.buildings.push(createBuilding('OIL_PUMP',   1,  5, 13)); // oil hex
+    state.buildings.push(createBuilding('BARRACKS',   1,  4, 16)); // inland, dist-2 from HQ
+    state.buildings.push(createBuilding('NAVAL_YARD', 1,  9, 14)); // east coast, borders shallow water
+
+    // ── P2 starting buildings ──────────────────────────────────────────────
+    state.buildings.push(createBuilding('HQ',         2, 25,  4));
+    state.buildings.push(createBuilding('MINE',       2, 24,  4)); // iron hex adjacent to HQ
+    state.buildings.push(createBuilding('OIL_PUMP',   2, 25,  3)); // oil hex
+    state.buildings.push(createBuilding('BARRACKS',   2, 25,  6)); // inland, dist-2 from HQ
+    state.buildings.push(createBuilding('NAVAL_YARD', 2, 20,  4)); // west coast, borders shallow water
+
+    // ── Starting engineers (repositioned away from resource hexes) ─────────
+    state.units.push(createUnit('ENGINEER', 1,  6, 14));
+    state.units.push(createUnit('ENGINEER', 1,  7, 14));
+    state.units.push(createUnit('ENGINEER', 2, 23,  4));
+    state.units.push(createUnit('ENGINEER', 2, 24,  3));
     // Patrol boats in the ocean channel between islands
     state.units.push(createUnit('PATROL_BOAT', 1, 11, 11));
     state.units.push(createUnit('PATROL_BOAT', 1, 11, 12));
@@ -278,8 +289,8 @@ export function createGameState(scenario = 'default') {
     // Far-right island resources
     for (const [q,r] of [[31,1],[32,1]])
       state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
-    state.players[1].iron = 25; state.players[1].oil = 8;
-    state.players[2].iron = 25; state.players[2].oil = 8;
+    state.players[1].iron = 20; state.players[1].oil = 6;
+    state.players[2].iron = 20; state.players[2].oil = 6;
 
   } else if (scenario === 'combat') {
     // All unit types lined up 5 tiles apart — centered on the 20×10 map
