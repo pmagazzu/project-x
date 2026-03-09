@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.5.5';
+const GAME_VERSION = 'v0.5.6';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2783,9 +2783,22 @@ export class GameScene extends Phaser.Scene {
     const outY = cY + cH/2 - 74;
     const tierCol  = TIER_COL[entry.tier]  || '#cccccc';
     const tierBgC  = TIER_BG[entry.tier]   || 0x1a1a1a;
-    box(cX, outY, cW - 4, 30, tierBgC, 1, 0x445566);
     if (entry.type === 'combat' || entry.panic) {
-      mk((entry.tier||'COMBAT').toUpperCase(), cX, outY, tierCol, 14, true);
+      // Override label if attacker was destroyed — "Effective" while attacker dies is misleading
+      const attackerDestroyed = entry.attackerHPBefore !== undefined ? (entry.attackerHPBefore - (entry.attackerDmg||0)) <= 0 : false;
+      const defenderDestroyed = entry.targetHPBefore   !== undefined ? (entry.targetHPBefore   - (entry.dmg||0))         <= 0 : false;
+      let outcomeLabel = (entry.tier||'COMBAT').toUpperCase();
+      let outcomeTierCol = tierCol;
+      let outcomeBgC = tierBgC;
+      if (attackerDestroyed && defenderDestroyed) {
+        outcomeLabel = 'MUTUAL DESTRUCTION'; outcomeTierCol = '#ff8833'; outcomeBgC = 0x4a2200;
+      } else if (attackerDestroyed && !defenderDestroyed) {
+        outcomeLabel = 'ATTACKER DESTROYED'; outcomeTierCol = '#ff4444'; outcomeBgC = 0x440000;
+      } else if (defenderDestroyed) {
+        outcomeLabel = 'DEFENDER DESTROYED'; outcomeTierCol = '#44ff88'; outcomeBgC = 0x004422;
+      }
+      box(cX, outY, cW - 4, 30, outcomeBgC, 1, 0x445566);
+      mk(outcomeLabel, cX, outY, outcomeTierCol, 14, true);
     } else if (entry.type === 'miss') {
       mk('MISS — TARGET OUT OF RANGE', cX, outY, '#888888', 13, true);
     } else {
