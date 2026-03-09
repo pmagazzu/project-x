@@ -166,19 +166,20 @@ export function registerDesign(state, player, chassis, moduleKeys, designName) {
 // - Dug-in (infantry field): -1 incoming damage, lost on move
 
 export const BUILDING_TYPES = {
-  HQ:            { name: 'HQ',             ironPerTurn: 3, oilPerTurn: 0, canRecruit: ['ENGINEER','RECON'],                   buildCost: null,               color: 0xffdd00, sight: 3 },
-  MINE:          { name: 'Iron Mine',      ironPerTurn: 2, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 4, oil: 0 }, color: 0xaaaaaa, sight: 2 },
-  OIL_PUMP:      { name: 'Oil Pump',       ironPerTurn: 0, oilPerTurn: 2, canRecruit: [],                                        buildCost: { iron: 4, oil: 0 }, color: 0x222244, sight: 2 },
-  BARRACKS:      { name: 'Barracks',       ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['INFANTRY','ANTI_TANK','MORTAR','MEDIC'], buildCost: { iron: 6, oil: 0 }, color: 0xaa6644, sight: 2 },
-  VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['TANK','ARTILLERY'],                      buildCost: { iron: 8, oil: 2 }, color: 0x557799, sight: 2 },
-  BUNKER:        { name: 'Bunker',         ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 5, oil: 0 }, color: 0x888866, sight: 2 },
-  OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 3, oil: 0 }, color: 0x88aacc, sight: 4 },
-  ROAD:          { name: 'Road',           ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 1, oil: 0 }, color: 0xccbbaa, sight: 0 },
+  HQ:            { name: 'HQ',             ironPerTurn: 3, oilPerTurn: 0, woodPerTurn: 0, canRecruit: ['ENGINEER','RECON'],                   buildCost: null,               color: 0xffdd00, sight: 3 },
+  MINE:          { name: 'Iron Mine',      ironPerTurn: 2, oilPerTurn: 0, woodPerTurn: 0, canRecruit: [], buildCost: { iron: 4, oil: 0 }, color: 0xaaaaaa, sight: 2 },
+  OIL_PUMP:      { name: 'Oil Pump',       ironPerTurn: 0, oilPerTurn: 2, woodPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 4, oil: 0 }, color: 0x222244, sight: 2 },
+  BARRACKS:      { name: 'Barracks',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, canRecruit: ['INFANTRY','ANTI_TANK','MORTAR','MEDIC'], buildCost: { iron: 4, oil: 0, wood: 4 }, color: 0xaa6644, sight: 2 },
+  VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, canRecruit: ['TANK','ARTILLERY'],                      buildCost: { iron: 8, oil: 2 }, color: 0x557799, sight: 2 },
+  BUNKER:        { name: 'Bunker',         ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 2 }, color: 0x888866, sight: 2 },
+  OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 0 }, color: 0x88aacc, sight: 4 },
+  ROAD:          { name: 'Road',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xccbbaa, sight: 0 },
+  LUMBER_CAMP:   { name: 'Lumber Camp',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 2, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 0 }, color: 0x7a5020, sight: 2 },
   // Naval buildings
-  NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['PATROL_BOAT','DESTROYER','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 2 },
-  HARBOR:        { name: 'Harbor',         ironPerTurn: 1, oilPerTurn: 1, canRecruit: [],                                        buildCost: { iron: 5, oil: 1 }, color: 0x4488cc, sight: 2, repairsNaval: true },
-  DRY_DOCK:      { name: 'Dry Dock',       ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['DESTROYER','CRUISER_LT','CRUISER_HV'],   buildCost: { iron:12, oil: 4 }, color: 0x225588, sight: 2 },
-  NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, canRecruit: ['BATTLESHIP'],                            buildCost: { iron:16, oil: 6 }, color: 0x113366, sight: 3 },
+  NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, canRecruit: ['PATROL_BOAT','DESTROYER','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 2 },
+  HARBOR:        { name: 'Harbor',         ironPerTurn: 1, oilPerTurn: 1, woodPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 5, oil: 1 }, color: 0x4488cc, sight: 2, repairsNaval: true },
+  DRY_DOCK:      { name: 'Dry Dock',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, canRecruit: ['DESTROYER','CRUISER_LT','CRUISER_HV'],   buildCost: { iron:12, oil: 4 }, color: 0x225588, sight: 2 },
+  NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, woodPerTurn: 0, canRecruit: ['BATTLESHIP'],                            buildCost: { iron:16, oil: 6 }, color: 0x113366, sight: 3 },
 };
 
 export const RESOURCE_TYPES = {
@@ -212,8 +213,8 @@ export function createGameState(scenario = 'default') {
     turn: 1, phase: 'planning', currentPlayer: 1,
     scenario,
     players: {
-      1: { iron: STARTING_IRON, oil: STARTING_OIL, submitted: false },
-      2: { iron: STARTING_IRON, oil: STARTING_OIL, submitted: false },
+      1: { iron: STARTING_IRON, oil: STARTING_OIL, wood: 0, submitted: false },
+      2: { iron: STARTING_IRON, oil: STARTING_OIL, wood: 0, submitted: false },
     },
     units: [], buildings: [], resourceHexes: {},
     pendingMoves: {}, pendingAttacks: {}, pendingRecruits: [],
@@ -673,14 +674,15 @@ export function computeFog(state, player, mapSize, terrain) {
 
 // ── Income ─────────────────────────────────────────────────────────────────
 export function calcIncome(state, player) {
-  let iron = BASE_IRON_PER_TURN, oil = BASE_OIL_PER_TURN;
+  let iron = BASE_IRON_PER_TURN, oil = BASE_OIL_PER_TURN, wood = 0;
   for (const b of state.buildings) {
     if (b.owner !== player) continue;
     const def = BUILDING_TYPES[b.type];
     iron += def.ironPerTurn;
     oil  += def.oilPerTurn;
+    wood += def.woodPerTurn || 0;
   }
-  return { iron, oil };
+  return { iron, oil, wood };
 }
 
 // ── Recruitment ────────────────────────────────────────────────────────────
@@ -1388,7 +1390,8 @@ export function resolveEndOfTurn(state, terrain) {
   const inc = calcIncome(state, player);
   state.players[player].iron += inc.iron;
   state.players[player].oil  += inc.oil;
-  events.push(`P${player} +${inc.iron} iron, +${inc.oil} oil`);
+  state.players[player].wood  = (state.players[player].wood || 0) + inc.wood;
+  events.push(`P${player} +${inc.iron} iron, +${inc.oil} oil${inc.wood > 0 ? `, +${inc.wood} wood` : ''}`);
 
   // Reset current player's units for next turn
   for (const unit of state.units.filter(u => u.owner === player)) {

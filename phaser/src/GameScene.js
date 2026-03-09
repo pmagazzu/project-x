@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.7.0';
+const GAME_VERSION = 'v0.7.1';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1211,9 +1211,10 @@ export class GameScene extends Phaser.Scene {
     // Resource cells — positioned right of menu button
     this.resIron = this._makeLabel(110, 11, '⚙ —', D);
     this.resOil  = this._makeLabel(230, 11, '🛢 —', D);
+    this.resWood = this._makeLabel(350, 11, '🪵 —', D);
 
-    // Version tag (right of oil, subtle)
-    this.add.text(340, 11, GAME_VERSION, {
+    // Version tag (right of wood, subtle)
+    this.add.text(460, 11, GAME_VERSION, {
       font: '11px monospace', fill: '#445566', backgroundColor: '#111111', padding: { x: 4, y: 4 }
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(D);
 
@@ -1264,6 +1265,7 @@ export class GameScene extends Phaser.Scene {
 
     this.resIron.setText(`⚙ ${pl.iron}  (+${inc.iron}/turn)`);
     this.resOil.setText(`🛢 ${pl.oil}  (+${inc.oil}/turn)`);
+    this.resWood.setText(`🪵 ${pl.wood || 0}${inc.wood > 0 ? `  (+${inc.wood}/turn)` : ''}`);
     this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  ${modeStr}${queueStr}`);
   }
 
@@ -1774,7 +1776,9 @@ export class GameScene extends Phaser.Scene {
     const existingB = buildingAt(gs, unit.q, unit.r);
     const noBuilding = !existingB || existingB.type === 'ROAD';
     const res = gs.resourceHexes[`${unit.q},${unit.r}`];
-    const iron = gs.players[p].iron, oil = gs.players[p].oil;
+    const iron = gs.players[p].iron, oil = gs.players[p].oil, wood = gs.players[p].wood || 0;
+    const ttype = this.terrain[`${unit.q},${unit.r}`] ?? 0;
+    const onForest = ttype === 1 || ttype === 7;
 
     // Priority 1: resource hex with no building → Mine / Oil Pump
     if (res && noBuilding) {
@@ -1786,9 +1790,14 @@ export class GameScene extends Phaser.Scene {
         return { label: `MINE      4⚙`, enabled: ok, cb: () => this._onBuildMine(res.type) };
       }
     }
+    // Priority 1b: forest hex → Lumber Camp
+    if (onForest && noBuilding) {
+      const ok = iron >= 2;
+      return { label: `LUMBER CAMP  2⚙`, enabled: ok, cb: () => this._onBuildLumberCamp() };
+    }
     // Priority 2: no road on this hex → Road
     if (!roadAt(gs, unit.q, unit.r) && noBuilding) {
-      return { label: `ROAD      1⚙`, enabled: iron >= 1, cb: () => this._onBuildRoad() };
+      return { label: `ROAD      1🪵`, enabled: wood >= 1, cb: () => this._onBuildRoad() };
     }
     return null; // no obvious single option → show full submenu
   }
@@ -1945,13 +1954,15 @@ export class GameScene extends Phaser.Scene {
       const existingBuilding = buildingAt(gs, unit.q, unit.r);
       const noBuilding = !existingBuilding || existingBuilding.type === 'ROAD';
       const res = gs.resourceHexes[`${unit.q},${unit.r}`];
-      const iron = gs.players[p].iron, oil = gs.players[p].oil;
+      const iron = gs.players[p].iron, oil = gs.players[p].oil, wood = gs.players[p].wood || 0;
       const coastal = this._isCoastalHex(unit.q, unit.r);
+      const ttype = this.terrain[`${unit.q},${unit.r}`] ?? 0;
+      const onForest = ttype === 1 || ttype === 7;
 
       // All possible build options — add more here as the game grows
       const allOpts = [];
       if (!roadAt(gs, unit.q, unit.r))
-        allOpts.push({ label: `Road        1⚙`,  cost: { iron:1,oil:0 }, enabled: iron>=1,  cb: () => this._onBuildRoad() });
+        allOpts.push({ label: `Road        1🪵`,  cost: { iron:0, oil:0, wood:1 }, enabled: wood>=1,  cb: () => this._onBuildRoad() });
       // Auto-road standing order (engineer pathfinds to destination, builds each turn)
       if (unit.roadOrder) {
         allOpts.push({ label: `✕ CANCEL ROAD ORDER`, cost: null, enabled: true, cb: () => { delete unit.roadOrder; this._hideContextMenu(); this._refresh(); } });
@@ -1962,17 +1973,20 @@ export class GameScene extends Phaser.Scene {
         allOpts.push({ label: `${res.type==='OIL'?'Oil Pump   4⚙ 2🛢':'Mine        4⚙'}`,
                        cost: { iron:4,oil: res.type==='OIL'?2:0 }, enabled: res.type==='OIL'?(iron>=4&&oil>=2):iron>=4,
                        cb: () => this._onBuildMine(res.type) });
+      if (onForest && noBuilding)
+        allOpts.push({ label: `Lumber Camp 2⚙`, cost:{iron:2,oil:0,wood:0}, enabled: iron>=2,
+                       cb: () => this._onBuildLumberCamp() });
       // Land military buildings
-      if (noBuilding) allOpts.push({ label: `Barracks    6⚙`,       cost:{iron:6,oil:0},  enabled: iron>=6,          cb: () => this._onBuildStructure('BARRACKS',6) });
-      if (noBuilding) allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢`, cost:{iron:8,oil:2},  enabled: iron>=8&&oil>=2,  cb: () => this._onBuildStructure('VEHICLE_DEPOT',8,2) });
+      if (noBuilding) allOpts.push({ label: `Barracks    4⚙ 4🪵`,    cost:{iron:4,oil:0,wood:4},  enabled: iron>=4&&wood>=4,        cb: () => this._onBuildStructure('BARRACKS',4,0,4) });
+      if (noBuilding) allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢`, cost:{iron:8,oil:2},          enabled: iron>=8&&oil>=2,         cb: () => this._onBuildStructure('VEHICLE_DEPOT',8,2) });
       // Naval buildings (coastal land only)
       if (noBuilding) allOpts.push({ label: `Naval Yard  8⚙ 2🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:8,oil:2},  enabled: coastal && iron>=8&&oil>=2,  cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
       if (noBuilding) allOpts.push({ label: `Harbor      5⚙ 1🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:5,oil:1},  enabled: coastal && iron>=5&&oil>=1,  cb: () => this._onBuildStructure('HARBOR',5,1) });
       if (noBuilding) allOpts.push({ label: `Dry Dock   12⚙ 4🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:12,oil:4}, enabled: coastal && iron>=12&&oil>=4, cb: () => this._onBuildStructure('DRY_DOCK',12,4) });
       if (noBuilding) allOpts.push({ label: `Naval Base 16⚙ 6🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:16,oil:6}, enabled: coastal && iron>=16&&oil>=6, cb: () => this._onBuildStructure('NAVAL_BASE',16,6) });
       // Defensive structures
-      if (noBuilding) allOpts.push({ label: `Bunker      5⚙`,       cost:{iron:5,oil:0},  enabled: iron>=5,          cb: () => this._onBuildStructure('BUNKER',5) });
-      if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙`,       cost:{iron:3,oil:0},  enabled: iron>=3,          cb: () => this._onBuildStructure('OBS_POST',3) });
+      if (noBuilding) allOpts.push({ label: `Bunker      3⚙ 2🪵`,   cost:{iron:3,oil:0,wood:2},  enabled: iron>=3&&wood>=2, cb: () => this._onBuildStructure('BUNKER',3,0,2) });
+      if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙`,       cost:{iron:3,oil:0},         enabled: iron>=3,          cb: () => this._onBuildStructure('OBS_POST',3) });
       // Coastal Battery — spawns as immobile unit (no building on hex required)
       allOpts.push({ label: `Coast. Battery 6⚙ 1🛢`, cost:{iron:6,oil:1}, enabled: iron>=6&&oil>=1, cb: () => this._onBuildCoastalBattery() });
       // Future entries just go here — pagination handles overflow automatically
@@ -2545,15 +2559,29 @@ export class GameScene extends Phaser.Scene {
     const u  = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
     if (roadAt(gs, u.q, u.r)) return;
-    if (gs.players[gs.currentPlayer].iron < 1) return;
-    gs.players[gs.currentPlayer].iron -= 1;
+    if ((gs.players[gs.currentPlayer].wood || 0) < 1) return;
+    gs.players[gs.currentPlayer].wood = (gs.players[gs.currentPlayer].wood || 0) - 1;
     gs.buildings.push(createBuilding('ROAD', gs.currentPlayer, u.q, u.r));
     u.moved = true; u.building = true;
     this._redrawRoads();
     this._clearSelection();
   }
 
-  _onBuildStructure(type, ironCost, oilCost = 0) {
+  _onBuildLumberCamp() {
+    const gs = this.gameState, u = this.selectedUnit;
+    if (!u || !UNIT_TYPES[u.type].canBuild) return;
+    if (buildingAt(gs, u.q, u.r)) return;
+    const ttype = this.terrain[`${u.q},${u.r}`] ?? 0;
+    if (ttype !== 1 && ttype !== 7) return; // must be on forest terrain
+    if (gs.players[gs.currentPlayer].iron < 2) return;
+    gs.players[gs.currentPlayer].iron -= 2;
+    gs.buildings.push(createBuilding('LUMBER_CAMP', gs.currentPlayer, u.q, u.r));
+    u.moved = true; u.building = true;
+    this._clearSelection();
+    this._refresh();
+  }
+
+  _onBuildStructure(type, ironCost, oilCost = 0, woodCost = 0) {
     const gs = this.gameState, u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
     if (buildingAt(gs, u.q, u.r)) return;
@@ -2567,8 +2595,10 @@ export class GameScene extends Phaser.Scene {
     }
     if (gs.players[gs.currentPlayer].iron < ironCost) return;
     if (gs.players[gs.currentPlayer].oil  < oilCost)  return;
+    if ((gs.players[gs.currentPlayer].wood || 0) < woodCost) return;
     gs.players[gs.currentPlayer].iron -= ironCost;
     gs.players[gs.currentPlayer].oil  -= oilCost;
+    gs.players[gs.currentPlayer].wood  = (gs.players[gs.currentPlayer].wood || 0) - woodCost;
     gs.buildings.push(createBuilding(type, gs.currentPlayer, u.q, u.r));
     u.moved = true; u.building = true;
     this._clearSelection();
@@ -2620,7 +2650,7 @@ export class GameScene extends Phaser.Scene {
     const atkIsNaval = NAVAL_SET.has(attacker.type) || attacker.type==='COASTAL_BATTERY';
     const defIsNaval = NAVAL_SET.has(target.type);
     const tTerrain = (this.terrain[`${target.q},${target.r}`]) ?? 0;
-    const tOnLand  = tTerrain <= 3 || tTerrain === 6;
+    const tOnLand  = tTerrain <= 3 || tTerrain === 6 || tTerrain === 7;
     const navalVsNaval = atkIsNaval && defIsNaval;
     const navalVsLand  = atkIsNaval && tOnLand && !defIsNaval;
     const isArmored = tDef.armor > 2;
@@ -3397,9 +3427,11 @@ export class GameScene extends Phaser.Scene {
     // Helper: convert offset coords (col, offsetRow) → axial (q, r)
     const offsetToAxial = (col, offsetRow) => ({ q: col, r: offsetRow - Math.floor(col / 2) });
 
-    // setIsland: land core (sand) surrounded by 2 full rings of shallow water
-    //   hexDist <= radius       → sand/land
-    //   hexDist <= radius+2     → shallow water (2-hex coastal ring)
+    // setIsland: terrain-varied land core surrounded by 2 rings of shallow water
+    //   dist <= 1               → grass (center of island)
+    //   dist <= radius-1        → mix of grass (0) and light woods (7)
+    //   dist <= radius          → sand coast
+    //   dist <= radius+2        → shallow water (2-hex coastal ring)
     //   beyond                  → ocean
     const setIsland = (cq, cr, radius) => {
       const shell = radius + 2;
@@ -3408,8 +3440,23 @@ export class GameScene extends Phaser.Scene {
           const nq = cq+dq, nr = cr+dr;
           if (!isValid(nq, nr, ms)) continue;
           const dist = (Math.abs(dq) + Math.abs(dr) + Math.abs(-dq-dr)) / 2;
-          if (dist <= radius)  map[`${nq},${nr}`] = 6; // sand interior
-          else if (dist <= shell) map[`${nq},${nr}`] = 4; // 2-hex shallow ring
+          if (dist <= shell) {
+            let ttype;
+            if (dist > radius) {
+              ttype = 4; // shallow coast ring
+            } else if (dist === radius) {
+              ttype = 6; // sandy beach ring
+            } else if (radius >= 3 && dist <= 1) {
+              ttype = 0; // grass center
+            } else if (radius >= 4 && dist <= radius - 2) {
+              // Interior: mix grass and light woods via deterministic hash
+              const h = (((nq * 1619 + nr * 31337) ^ (nq * 6791)) & 0xFFFF) / 0xFFFF;
+              ttype = h < 0.45 ? 7 : 0; // 45% light woods, 55% grass
+            } else {
+              ttype = 6; // inner sand / beach
+            }
+            map[`${nq},${nr}`] = ttype;
+          }
         }
       }
     };
