@@ -11,7 +11,7 @@ import {
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, computeDesignStats,
-  NAVAL_UNITS, SHALLOW_UNITS, canEnterTerrain, isStealthDetected
+  NAVAL_UNITS, SHALLOW_UNITS, AIR_UNITS, canEnterTerrain, isStealthDetected
 } from './GameState.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.2';
+const GAME_VERSION = 'v0.9.3';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -891,148 +891,247 @@ export class GameScene extends Phaser.Scene {
       const color = b.owner ? PLAYER_COLORS[b.owner] : 0x888888;
       const s = HEX_SIZE * 0.3;
 
+      // ── Helper: draw a team-colored building base rect with shadow + border ──
+      const g = this.buildingGfx;
+      const _bldgRect = (bx, by, bw, bh, bodyColor) => {
+        g.fillStyle(0x000000, 0.55); g.fillRect(bx + 2, by + 2, bw, bh); // shadow
+        g.fillStyle(bodyColor);      g.fillRect(bx, by, bw, bh);
+        g.lineStyle(2, color, 1.0);  g.strokeRect(bx, by, bw, bh);       // team-color border
+        // inner highlight
+        g.lineStyle(1, 0xffffff, 0.3); g.beginPath();
+        g.moveTo(bx, by + bh - 1); g.lineTo(bx, by); g.lineTo(bx + bw - 1, by);
+        g.strokePath();
+      };
+      const _flagpole = (px, py, fh) => {
+        g.fillStyle(0xdddddd); g.fillRect(px - s*0.06, py - fh, s*0.12, fh);
+        g.fillStyle(color);
+        g.fillTriangle(px + s*0.06, py - fh + s*0.05, px + s*0.06, py - fh + s*0.4, px + s*0.45, py - fh + s*0.22);
+      };
+
       if (b.type === 'HQ') {
-        this.buildingGfx.fillStyle(0x000000);
-        this.buildingGfx.fillRect(x - s - 2, y - s * 0.6 - 2, s * 2 + 4, s * 1.6 + 4);
-        this.buildingGfx.fillStyle(color);
-        this.buildingGfx.fillRect(x - s, y - s * 0.6, s * 2, s * 1.4);
-        this.buildingGfx.fillTriangle(x - s - 2, y - s * 0.6, x + s + 2, y - s * 0.6, x, y - s * 1.8);
-        this.buildingGfx.lineStyle(2, 0xffffff, 0.9);
-        this.buildingGfx.strokeRect(x - s, y - s * 0.6, s * 2, s * 1.4);
+        // HQ: team-colored building body + prominent flagpole
+        const bw = s * 2.0, bh = s * 1.3;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
+        // Roof peak (lighter shade)
+        g.fillStyle(0xffffff, 0.15);
+        g.fillTriangle(x - bw/2 - 2, y - bh/2, x + bw/2 + 2, y - bh/2, x, y - bh/2 - s*1.1);
+        g.lineStyle(1.5, color, 0.9);
+        g.beginPath();
+        g.moveTo(x - bw/2 - 2, y - bh/2); g.lineTo(x, y - bh/2 - s*1.1);
+        g.lineTo(x + bw/2 + 2, y - bh/2); g.strokePath();
+        _flagpole(x, y - bh/2, s * 1.4);
 
       } else if (b.type === 'MINE') {
-        this.buildingGfx.fillStyle(0x000000); this.buildingGfx.fillCircle(x, y, s + 3);
-        this.buildingGfx.fillStyle(color);    this.buildingGfx.fillCircle(x, y, s);
-        this.buildingGfx.fillStyle(0x000000, 0.7);
-        this.buildingGfx.fillRect(x - s*0.2, y - s*0.8, s*0.4, s*1.6);
-        this.buildingGfx.fillRect(x - s*0.8, y - s*0.2, s*1.6, s*0.4);
+        // Iron Mine: dark rocky base with team-colored headframe (A-frame)
+        const bw = s * 1.8, bh = s * 0.85;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x555555);
+        // Headframe A-frame in team color
+        g.lineStyle(2.5, color, 1.0);
+        g.beginPath();
+        g.moveTo(x - s*0.7, y - bh/2 + s*0.1); g.lineTo(x, y - bh/2 - s*0.9);
+        g.lineTo(x + s*0.7, y - bh/2 + s*0.1); g.strokePath();
+        g.beginPath(); g.moveTo(x - s*0.4, y - bh/2 - s*0.3); g.lineTo(x + s*0.4, y - bh/2 - s*0.3); g.strokePath();
+        // Ore cart dot
+        g.fillStyle(0xccaa55); g.fillRect(x - s*0.2, y - bh/2 + s*0.05, s*0.4, s*0.3);
 
       } else if (b.type === 'OIL_PUMP') {
-        // Oil pump: dark hexagon with drop shape
-        this.buildingGfx.fillStyle(0x111122); this.buildingGfx.fillCircle(x, y, s + 3);
-        this.buildingGfx.fillStyle(0x4466cc); this.buildingGfx.fillCircle(x, y, s);
-        // owner color border
-        this.buildingGfx.lineStyle(3, color, 1);
-        this.buildingGfx.strokeCircle(x, y, s);
-        // Oil drop shape
-        this.buildingGfx.fillStyle(0x000000, 0.7);
-        this.buildingGfx.fillTriangle(x, y - s*0.8, x - s*0.4, y + s*0.3, x + s*0.4, y + s*0.3);
-        this.buildingGfx.fillCircle(x, y + s*0.3, s*0.4);
+        // Oil Pump: dark base + team-colored nodding-donkey pump silhouette
+        const bw = s * 1.6, bh = s * 0.7;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x1a1a2a);
+        // Pump beam (nodding donkey)
+        g.lineStyle(2.5, color, 1.0);
+        g.beginPath();
+        g.moveTo(x - s*0.7, y - bh/2 - s*0.1); g.lineTo(x + s*0.7, y - bh/2 - s*0.1); // base bar
+        g.strokePath();
+        g.beginPath();
+        g.moveTo(x - s*0.1, y - bh/2 - s*0.1); g.lineTo(x - s*0.1, y - bh/2 - s*0.9); // upright
+        g.strokePath();
+        g.beginPath();
+        g.moveTo(x - s*0.6, y - bh/2 - s*0.9); g.lineTo(x + s*0.5, y - bh/2 - s*0.5); // beam arm
+        g.strokePath();
+        g.fillStyle(color); g.fillCircle(x + s*0.5, y - bh/2 - s*0.5, s*0.14); // pivot
+        // Oil drop symbol
+        g.fillStyle(0x4488ff, 0.7);
+        g.fillTriangle(x - s*0.25, y + s*0.05, x + s*0.25, y + s*0.05, x, y - bh/2 + s*0.05);
+        g.fillCircle(x, y + s*0.05, s*0.25);
 
       } else if (b.type === 'VEHICLE_DEPOT') {
-        // Vehicle Depot: wide low building (factory shape)
-        const bw = s * 2.2, bh = s * 1.0;
-        this.buildingGfx.fillStyle(0x000000);
-        this.buildingGfx.fillRect(x - bw/2 - 2, y - bh/2 - 2, bw + 4, bh + 4);
-        this.buildingGfx.fillStyle(0x334455);
-        this.buildingGfx.fillRect(x - bw/2, y - bh/2, bw, bh);
+        // Vehicle Depot: wide factory — team-colored walls, dark roof, smokestacks
+        const bw = s * 2.2, bh = s * 1.1;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
+        // Dark roof strip
+        g.fillStyle(0x000000, 0.3); g.fillRect(x - bw/2, y - bh/2, bw, bh*0.3);
         // Smokestacks
-        this.buildingGfx.fillStyle(color);
-        this.buildingGfx.fillRect(x - bw*0.3, y - bh/2 - s*0.7, s*0.35, s*0.75);
-        this.buildingGfx.fillRect(x + bw*0.1, y - bh/2 - s*0.5, s*0.35, s*0.55);
-        this.buildingGfx.lineStyle(1.5, 0xffffff, 0.6);
-        this.buildingGfx.strokeRect(x - bw/2, y - bh/2, bw, bh);
+        g.fillStyle(0x222222); g.fillRect(x - bw*0.28, y - bh/2 - s*0.8, s*0.35, s*0.85);
+        g.fillStyle(0x222222); g.fillRect(x + bw*0.1,  y - bh/2 - s*0.6, s*0.35, s*0.65);
+        g.fillStyle(0xddccbb, 0.5); g.fillRect(x - bw*0.28, y - bh/2 - s*0.85, s*0.35, s*0.12); // rim
+        g.fillStyle(0xddccbb, 0.5); g.fillRect(x + bw*0.1,  y - bh/2 - s*0.65, s*0.35, s*0.12);
+        // Vehicle silhouette (tank outline)
+        g.lineStyle(1.5, 0xffffff, 0.45);
+        g.strokeRect(x - s*0.55, y - s*0.1, s*1.1, s*0.45);
+        g.beginPath(); g.moveTo(x - s*0.2, y - s*0.1); g.lineTo(x + s*0.2, y - s*0.35); g.lineTo(x + s*0.4, y - s*0.1); g.strokePath();
 
       } else if (b.type === 'BUNKER') {
-        // Bunker: grey hexagonal low dome
-        const verts = hexVertices(x, y).map(v => ({ x: x + (v.x-x)*0.55, y: y + (v.y-y)*0.55 }));
-        this.buildingGfx.fillStyle(0x555544);
-        this.buildingGfx.beginPath(); this.buildingGfx.moveTo(verts[0].x, verts[0].y);
-        for (let i = 1; i < verts.length; i++) this.buildingGfx.lineTo(verts[i].x, verts[i].y);
-        this.buildingGfx.closePath(); this.buildingGfx.fillPath();
-        this.buildingGfx.lineStyle(2, color, 0.8);
-        this.buildingGfx.beginPath(); this.buildingGfx.moveTo(verts[0].x, verts[0].y);
-        for (let i = 1; i < verts.length; i++) this.buildingGfx.lineTo(verts[i].x, verts[i].y);
-        this.buildingGfx.closePath(); this.buildingGfx.strokePath();
+        // Bunker: team-colored low hex dome with embrasure slits
+        const verts = hexVertices(x, y).map(v => ({ x: x + (v.x-x)*0.52, y: y + (v.y-y)*0.52 }));
+        g.fillStyle(0x000000, 0.45); // shadow
+        g.beginPath(); g.moveTo(verts[0].x+2, verts[0].y+2);
+        for (let i=1;i<verts.length;i++) g.lineTo(verts[i].x+2, verts[i].y+2);
+        g.closePath(); g.fillPath();
+        // Body (blended team color + olive)
+        const bunkColor = Phaser.Display.Color.IntegerToColor(color);
+        g.fillStyle(Phaser.Display.Color.GetColor(
+          Math.floor(bunkColor.red*0.4+0x44*0.6),
+          Math.floor(bunkColor.green*0.4+0x55*0.6),
+          Math.floor(bunkColor.blue*0.4+0x33*0.6)));
+        g.beginPath(); g.moveTo(verts[0].x, verts[0].y);
+        for (let i=1;i<verts.length;i++) g.lineTo(verts[i].x, verts[i].y);
+        g.closePath(); g.fillPath();
+        g.lineStyle(2.5, color, 1.0);
+        g.beginPath(); g.moveTo(verts[0].x, verts[0].y);
+        for (let i=1;i<verts.length;i++) g.lineTo(verts[i].x, verts[i].y);
+        g.closePath(); g.strokePath();
+        // Embrasure slits
+        g.lineStyle(1.5, 0x000000, 0.7);
+        g.beginPath(); g.moveTo(x - s*0.28, y); g.lineTo(x + s*0.28, y); g.strokePath();
+        g.beginPath(); g.moveTo(x, y - s*0.28); g.lineTo(x, y + s*0.28); g.strokePath();
 
       } else if (b.type === 'OBS_POST') {
-        // Observation Post: tall thin tower
-        this.buildingGfx.fillStyle(0x000000);
-        this.buildingGfx.fillRect(x - s*0.18, y - s*1.4, s*0.36, s*1.6);
-        this.buildingGfx.fillStyle(color);
-        this.buildingGfx.fillRect(x - s*0.15, y - s*1.35, s*0.3, s*1.5);
-        // Platform on top
-        this.buildingGfx.fillStyle(0x88aacc);
-        this.buildingGfx.fillRect(x - s*0.45, y - s*1.5, s*0.9, s*0.25);
-        this.buildingGfx.lineStyle(1, 0xffffff, 0.7);
-        this.buildingGfx.strokeRect(x - s*0.45, y - s*1.5, s*0.9, s*0.25);
+        // Observation Post: team-colored tower with platform
+        // Base
+        g.fillStyle(0x000000, 0.4); g.fillRect(x - s*0.22, y - s*0.3, s*0.44, s*0.7); // shadow
+        g.fillStyle(color); g.fillRect(x - s*0.19, y - s*0.3, s*0.38, s*0.65);
+        // Tower shaft
+        g.fillStyle(0x000000, 0.4); g.fillRect(x - s*0.16, y - s*1.5, s*0.32, s*1.25); // shadow
+        g.fillStyle(color); g.fillRect(x - s*0.13, y - s*1.45, s*0.26, s*1.2);
+        // Platform (wider)
+        g.fillStyle(0x000000, 0.45); g.fillRect(x - s*0.52, y - s*1.6, s*1.04, s*0.28);
+        g.fillStyle(0xddddcc); g.fillRect(x - s*0.5, y - s*1.58, s*1.0, s*0.25);
+        g.lineStyle(1.5, color, 1.0); g.strokeRect(x - s*0.5, y - s*1.58, s*1.0, s*0.25);
+        // Telescope dot
+        g.fillStyle(color); g.fillCircle(x + s*0.3, y - s*1.5, s*0.13);
 
       } else if (b.type === 'BARRACKS') {
-        // Barracks: brown rectangle with crenellations
-        const bw = s * 1.8, bh = s * 1.2;
-        this.buildingGfx.fillStyle(0x000000);
-        this.buildingGfx.fillRect(x - bw/2 - 2, y - bh/2 - 2, bw + 4, bh + 4);
-        this.buildingGfx.fillStyle(0x884422);
-        this.buildingGfx.fillRect(x - bw/2, y - bh/2, bw, bh);
-        // Crenellations (3 teeth)
-        this.buildingGfx.fillStyle(color);
+        // Barracks: team-colored walls + pitched roof + crenellations
+        const bw = s * 1.9, bh = s * 1.1;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
+        // Pitched roof
+        g.fillStyle(0x000000, 0.3);
+        g.fillTriangle(x - bw/2 - 2, y - bh/2, x + bw/2 + 2, y - bh/2, x, y - bh/2 - s*0.8);
+        g.lineStyle(1.5, 0xffffff, 0.5);
+        g.beginPath();
+        g.moveTo(x - bw/2 - 2, y - bh/2); g.lineTo(x, y - bh/2 - s*0.8);
+        g.lineTo(x + bw/2 + 2, y - bh/2); g.strokePath();
+        // Crenellations (3 teeth on wall top)
+        g.fillStyle(0xffffff, 0.5);
         const tw = bw / 5;
         for (let i = 0; i < 3; i++) {
-          this.buildingGfx.fillRect(x - bw/2 + tw * (i*2), y - bh/2 - s*0.4, tw, s*0.45);
+          g.fillRect(x - bw/2 + tw*(i*2), y - bh/2 - s*0.07, tw, s*0.2);
         }
-        this.buildingGfx.lineStyle(1.5, 0xffffff, 0.7);
-        this.buildingGfx.strokeRect(x - bw/2, y - bh/2, bw, bh);
+        // Door
+        g.fillStyle(0x000000, 0.5); g.fillRect(x - s*0.2, y + s*0.05, s*0.4, s*0.5);
+
+      } else if (b.type === 'LUMBER_CAMP') {
+        // Lumber Camp: team-colored small hut + log cross-sections
+        const bw = s * 1.5, bh = s * 0.9;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
+        g.fillStyle(0x000000, 0.3);
+        g.fillTriangle(x - bw/2 - 1, y - bh/2, x + bw/2 + 1, y - bh/2, x, y - bh/2 - s*0.7);
+        // Axe symbol
+        g.lineStyle(2, 0xffffff, 0.75);
+        g.beginPath(); g.moveTo(x - s*0.5, y + s*0.25); g.lineTo(x + s*0.4, y - s*0.5); g.strokePath();
+        g.fillStyle(0xffffff, 0.75);
+        g.fillTriangle(x + s*0.2, y - s*0.55, x + s*0.55, y - s*0.25, x + s*0.55, y - s*0.6);
 
       } else if (b.type === 'NAVAL_YARD') {
-        // Naval Yard: blue rectangle with a mast/crane arm
-        const bw = s * 2.0, bh = s * 1.0;
-        this.buildingGfx.fillStyle(0x000000);
-        this.buildingGfx.fillRect(x - bw/2 - 2, y - bh/2 - 2, bw + 4, bh + 4);
-        this.buildingGfx.fillStyle(0x1a3a5c);
-        this.buildingGfx.fillRect(x - bw/2, y - bh/2, bw, bh);
-        // Crane arm
-        this.buildingGfx.fillStyle(color);
-        this.buildingGfx.fillRect(x - bw*0.05, y - bh/2 - s*1.2, s*0.2, s*1.2);
-        this.buildingGfx.fillRect(x - bw*0.05 - s*0.6, y - bh/2 - s*1.1, s*0.65, s*0.15);
-        this.buildingGfx.lineStyle(1.5, 0x88ccff, 0.8);
-        this.buildingGfx.strokeRect(x - bw/2, y - bh/2, bw, bh);
+        // Naval Yard: team-colored walls, big crane arm
+        const bw = s * 2.1, bh = s * 1.0;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
+        // Dark interior
+        g.fillStyle(0x000000, 0.25); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
+        // Crane vertical mast
+        g.fillStyle(0xffffff, 0.85); g.fillRect(x - s*0.08, y - bh/2 - s*1.3, s*0.16, s*1.35);
+        // Crane horizontal arm
+        g.fillStyle(0xffffff, 0.85); g.fillRect(x - s*0.08 - s*0.75, y - bh/2 - s*1.2, s*0.8, s*0.14);
+        // Hanging cable
+        g.lineStyle(1, 0xffffff, 0.65);
+        g.beginPath(); g.moveTo(x - s*0.08 - s*0.5, y - bh/2 - s*1.06); g.lineTo(x - s*0.08 - s*0.5, y - bh/2 - s*0.3); g.strokePath();
+        // Hull outline in dock
+        g.lineStyle(1.5, 0x88ccff, 0.6);
+        g.strokeEllipse(x + s*0.3, y + s*0.08, s*1.0, s*0.45);
 
       } else if (b.type === 'HARBOR') {
-        // Harbor: dark pier shape with dock arms
-        const bw = s * 1.6, bh = s * 0.7;
-        this.buildingGfx.fillStyle(0x000000);
-        this.buildingGfx.fillRect(x - bw/2 - 2, y - bh/2 - 2, bw + 4, bh + 4);
-        this.buildingGfx.fillStyle(0x2a4a3a);
-        this.buildingGfx.fillRect(x - bw/2, y - bh/2, bw, bh);
-        // Dock arms
-        this.buildingGfx.fillStyle(color);
-        this.buildingGfx.fillRect(x - bw*0.45, y - bh/2 - s*0.5, s*0.2, s*0.55);
-        this.buildingGfx.fillRect(x + bw*0.25, y - bh/2 - s*0.5, s*0.2, s*0.55);
-        this.buildingGfx.lineStyle(1.5, 0x44ff88, 0.7);
-        this.buildingGfx.strokeRect(x - bw/2, y - bh/2, bw, bh);
+        // Harbor: team-colored pier with dock arms and water suggestion
+        const bw = s * 2.0, bh = s * 0.75;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
+        // Dock arm left
+        g.fillStyle(0xffffff, 0.7); g.fillRect(x - bw*0.42, y - bh/2 - s*0.6, s*0.22, s*0.65);
+        // Dock arm right
+        g.fillStyle(0xffffff, 0.7); g.fillRect(x + bw*0.2, y - bh/2 - s*0.6, s*0.22, s*0.65);
+        // Water squiggle
+        g.lineStyle(1.5, 0x44aaff, 0.6);
+        g.beginPath(); g.moveTo(x - s*0.6, y + s*0.12); g.lineTo(x - s*0.2, y - s*0.05);
+        g.lineTo(x + s*0.2, y + s*0.12); g.lineTo(x + s*0.6, y - s*0.05); g.strokePath();
 
       } else if (b.type === 'DRY_DOCK') {
-        // Dry Dock: wide U-shaped structure
-        const bw = s * 2.2, bh = s * 1.2;
-        this.buildingGfx.fillStyle(0x000000);
-        this.buildingGfx.fillRect(x - bw/2 - 2, y - bh/2 - 2, bw + 4, bh + 4);
-        this.buildingGfx.fillStyle(0x2a2a4a);
-        this.buildingGfx.fillRect(x - bw/2, y - bh/2, bw, bh);
-        // Inner dock channel
-        this.buildingGfx.fillStyle(0x112233);
-        this.buildingGfx.fillRect(x - bw*0.25, y - bh/2 + s*0.2, bw*0.5, bh*0.7);
-        this.buildingGfx.lineStyle(2, color, 0.9);
-        this.buildingGfx.strokeRect(x - bw/2, y - bh/2, bw, bh);
+        // Dry Dock: team-colored U-shaped structure with ship hull inside
+        const bw = s * 2.3, bh = s * 1.2;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
+        // Inner dock channel (dark water)
+        g.fillStyle(0x112244); g.fillRect(x - bw*0.27, y - bh/2 + s*0.18, bw*0.54, bh*0.7);
+        // Ship hull cross-section
+        g.lineStyle(1.5, 0x88bbdd, 0.7);
+        g.strokeEllipse(x, y + s*0.15, bw*0.42, s*0.55);
+        // Supports/keel blocks
+        g.fillStyle(0x888888, 0.8);
+        for (let i = -1; i <= 1; i++) {
+          g.fillRect(x + i*s*0.35 - s*0.07, y - bh/2 + s*0.16, s*0.14, s*0.22);
+        }
 
       } else if (b.type === 'NAVAL_BASE') {
-        // Naval Base: large compound — double rect with flag
-        const bw = s * 2.4, bh = s * 1.4;
-        this.buildingGfx.fillStyle(0x000000);
-        this.buildingGfx.fillRect(x - bw/2 - 2, y - bh/2 - 2, bw + 4, bh + 4);
-        this.buildingGfx.fillStyle(0x1a2a3a);
-        this.buildingGfx.fillRect(x - bw/2, y - bh/2, bw, bh);
-        // Inner divider
-        this.buildingGfx.lineStyle(1, 0x334455, 0.8);
-        this.buildingGfx.lineBetween(x, y - bh/2, x, y + bh/2);
+        // Naval Base: largest — team-colored compound with flagpole + division line
+        const bw = s * 2.5, bh = s * 1.4;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
+        // Darker inner section
+        g.fillStyle(0x000000, 0.2); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
+        // Division line
+        g.lineStyle(1.5, 0xffffff, 0.4); g.beginPath();
+        g.moveTo(x, y - bh/2 + 2); g.lineTo(x, y + bh/2 - 2); g.strokePath();
         // Flagpole
-        this.buildingGfx.fillStyle(0xffffff);
-        this.buildingGfx.fillRect(x - bw*0.35, y - bh/2 - s*1.0, s*0.12, s*1.1);
-        this.buildingGfx.fillStyle(color);
-        this.buildingGfx.fillTriangle(x - bw*0.35 + s*0.12, y - bh/2 - s*0.95,
-          x - bw*0.35 + s*0.12, y - bh/2 - s*0.55,
-          x - bw*0.35 + s*0.55, y - bh/2 - s*0.75);
-        this.buildingGfx.lineStyle(2, color, 1.0);
-        this.buildingGfx.strokeRect(x - bw/2, y - bh/2, bw, bh);
+        _flagpole(x - bw*0.3, y - bh/2, s * 1.1);
+        // Ship prow hint
+        g.lineStyle(1.5, 0x88ccff, 0.6);
+        g.beginPath(); g.moveTo(x + bw*0.35, y); g.lineTo(x + s*0.15, y - s*0.35);
+        g.lineTo(x + s*0.15, y + s*0.35); g.closePath(); g.strokePath();
+
+      } else if (b.type === 'AIRFIELD') {
+        // Airfield: team-colored perimeter, concrete runway cross, windsock
+        const bw = s * 2.4, bh = s * 1.5;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
+        // Concrete interior
+        g.fillStyle(0xaaaaaa, 0.35); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
+        // Runway cross (two intersecting grey strips)
+        g.fillStyle(0x999999, 0.75);
+        g.fillRect(x - bw*0.42, y - s*0.1, bw*0.84, s*0.2); // horizontal
+        g.fillRect(x - s*0.1, y - bh*0.42, s*0.2, bh*0.84); // vertical
+        // Center circle
+        g.lineStyle(1.5, 0xffffff, 0.6); g.strokeCircle(x, y, s*0.22);
+        // Runway dashes (edge markers)
+        g.lineStyle(1.5, 0xffffff, 0.4);
+        for (let i = -1; i <= 1; i += 2) {
+          g.beginPath(); g.moveTo(x + i*bw*0.35, y - s*0.08); g.lineTo(x + i*bw*0.35, y + s*0.08); g.strokePath();
+        }
+        // Windsock pole
+        g.fillStyle(0xffffff, 0.8); g.fillRect(x + bw*0.3, y - bh/2 - s*0.6, s*0.1, s*0.65);
+        g.fillStyle(color); // windsock cone
+        g.fillTriangle(x + bw*0.3 + s*0.1, y - bh/2 - s*0.55,
+          x + bw*0.3 + s*0.1, y - bh/2 - s*0.25,
+          x + bw*0.3 + s*0.55, y - bh/2 - s*0.4);
+        // Aircraft silhouette on pad
+        g.lineStyle(1.5, 0xffffff, 0.4);
+        g.beginPath(); g.moveTo(x - s*0.55, y + s*0.15); g.lineTo(x + s*0.55, y + s*0.15); g.strokePath();
+        g.beginPath(); g.moveTo(x - s*0.1, y + s*0.15); g.lineTo(x - s*0.35, y - s*0.05); g.lineTo(x + s*0.25, y - s*0.05); g.lineTo(x + s*0.15, y + s*0.15); g.strokePath();
+        g.beginPath(); g.moveTo(x - s*0.1, y + s*0.15); g.lineTo(x - s*0.35, y + s*0.35); g.lineTo(x + s*0.25, y + s*0.35); g.lineTo(x + s*0.15, y + s*0.15); g.strokePath();
       }
 
       // ── Under-construction overlay ──────────────────────────────────────
@@ -1275,6 +1374,49 @@ export class GameScene extends Phaser.Scene {
           sg.moveTo(x + ss * 1.1, y); sg.lineTo(x - ss * 0.8, y - ss * 0.5);
           sg.lineTo(x - ss * 0.8, y + ss * 0.5); sg.closePath(); sg.strokePath();
         }
+      } else if (def.shape === 'aircraft') {
+        // ── Aircraft (biplane/bomber/obs) ────────────────────────────────────
+        // Fuselage: horizontal bar
+        sg.lineStyle(2.0, symCol, fillAlpha * 0.95);
+        sg.beginPath();
+        sg.moveTo(x - ss * 1.1, y); sg.lineTo(x + ss * 1.1, y); sg.strokePath();
+        // Nose cone
+        sg.beginPath();
+        sg.moveTo(x + ss * 1.1, y); sg.lineTo(x + ss * 0.8, y - ss * 0.25);
+        sg.lineTo(x + ss * 0.8, y + ss * 0.25); sg.closePath(); sg.fillPath();
+        // Main wings (wide sweep)
+        sg.lineStyle(2.0, symCol, fillAlpha * 0.95);
+        sg.beginPath();
+        sg.moveTo(x - ss * 0.15, y); sg.lineTo(x - ss * 0.65, y - ss * 0.9);
+        sg.lineTo(x + ss * 0.35, y - ss * 0.9);  sg.lineTo(x + ss * 0.25, y);
+        sg.closePath(); sg.strokePath();
+        sg.beginPath();
+        sg.moveTo(x - ss * 0.15, y); sg.lineTo(x - ss * 0.65, y + ss * 0.9);
+        sg.lineTo(x + ss * 0.35, y + ss * 0.9);  sg.lineTo(x + ss * 0.25, y);
+        sg.closePath(); sg.strokePath();
+        // Tail fins
+        sg.beginPath();
+        sg.moveTo(x - ss * 0.9, y); sg.lineTo(x - ss * 1.1, y - ss * 0.45);
+        sg.moveTo(x - ss * 0.9, y); sg.lineTo(x - ss * 1.1, y + ss * 0.45);
+        sg.strokePath();
+        // Biplane: second smaller upper wing
+        if (unit.type === 'BIPLANE_FIGHTER') {
+          sg.lineStyle(1.2, symCol, fillAlpha * 0.6);
+          sg.beginPath();
+          sg.moveTo(x - ss * 0.05, y - ss * 0.35); sg.lineTo(x - ss * 0.4, y - ss * 0.9);
+          sg.moveTo(x - ss * 0.05, y + ss * 0.35); sg.lineTo(x - ss * 0.4, y + ss * 0.9);
+          sg.strokePath();
+        }
+        // Obs plane: binoculars dot (tiny circle below nose)
+        if (unit.type === 'OBS_PLANE') {
+          sg.fillStyle(0xffffaa, fillAlpha * 0.9);
+          sg.fillCircle(x + ss * 0.5, y + ss * 0.55, ss * 0.2);
+        }
+        // Altitude shadow line (visual cue: unit is airborne)
+        sg.lineStyle(1, 0x000000, alpha * 0.2);
+        sg.beginPath();
+        sg.moveTo(x - ss * 0.6, y + cH * 0.7); sg.lineTo(x + ss * 0.6, y + cH * 0.7);
+        sg.strokePath();
       }
 
       // Spent slash overlay (unit used all AP)
@@ -2455,7 +2597,9 @@ export class GameScene extends Phaser.Scene {
 
     if (this.mode === 'sprint') {
       const isReachable = this.reachable.some(h => h.q === q && h.r === r);
-      const hexFree = !clickedUnit || clickedUnit.id === this.selectedUnit?.id;
+      const _isMovingAir0 = AIR_UNITS.has(this.selectedUnit?.type);
+      const hexFree = !clickedUnit || clickedUnit.id === this.selectedUnit?.id ||
+        (_isMovingAir0 && clickedUnit.owner === this.selectedUnit.owner && !AIR_UNITS.has(clickedUnit.type));
       if (isReachable && hexFree) {
         this.selectedUnit.q = q; this.selectedUnit.r = r;
         this.selectedUnit.sprinted = true;
@@ -2472,7 +2616,10 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'move') {
       const isReachable = this.reachable.some(h => h.q === q && h.r === r);
       // Allow move if hex is reachable and has no unit (or only the unit itself)
-      const hexFree = !clickedUnit || clickedUnit.id === this.selectedUnit?.id;
+      // Air units can share a hex with friendly ground units
+      const _isMovingAir = AIR_UNITS.has(this.selectedUnit?.type);
+      const hexFree = !clickedUnit || clickedUnit.id === this.selectedUnit?.id ||
+        (_isMovingAir && clickedUnit.owner === this.selectedUnit.owner && !AIR_UNITS.has(clickedUnit.type));
       if (isReachable && hexFree) {
         // IGOUGO: movement is immediate. Save _origQ/_origR for undo only (not used in combat).
         this.selectedUnit._origQ = this.selectedUnit.q;

@@ -49,6 +49,15 @@ export const UNIT_TYPES = {
   TRANSPORT_LG:  { name:'Transport (L)',  move:2, attack:0, health:5, range:0, cost:{iron:7,oil:3}, shape:'transport', canDigIn:false,canBuild:false, canHeal:false, sight:2,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:0, detection:0, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:2, defense:0, evasion:0,  accuracy:0,  buildTime:4, capacity:{infantry:6,vehicle:4} },
   // Coastal Battery — built by engineer, immobile, fires at water and land targets
   COASTAL_BATTERY:{ name:'Coastal Battery', move:0, attack:4, health:4, range:6, cost:{iron:6,oil:1}, shape:'battery', canDigIn:false,canBuild:false, canHeal:false, sight:5, naval:false, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:0, naval_attack:4, soft_attack:4, hard_attack:3, pierce:4, armor:3, defense:2, evasion:0, accuracy:5, buildTime:0, immobile:true },
+
+  // ── Air units ─────────────────────────────────────────────────────────────
+  // air:true         = flies over any terrain, can share hex with friendly ground units
+  // antiAir:true     = can intercept/attack other air units with priority
+  // Air units are based at an Airfield; move across any terrain at cost 1 per hex.
+  // Sight is high — they can see further from altitude.
+  BIPLANE_FIGHTER: { name:'Biplane Fighter', move:8,  attack:3, health:3, range:2, cost:{iron:4,oil:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:4, hard_attack:2, pierce:2, armor:1, defense:0, evasion:10, accuracy:5,  buildTime:2, air:true, antiAir:true  },
+  LIGHT_BOMBER:    { name:'Light Bomber',    move:6,  attack:4, health:3, range:1, cost:{iron:5,oil:3}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:7, hard_attack:5, pierce:3, armor:1, defense:0, evasion:5,  accuracy:3,  buildTime:3, air:true, antiAir:false },
+  OBS_PLANE:       { name:'Obs. Plane',      move:10, attack:0, health:2, range:0, cost:{iron:3,oil:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:8, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:8,  accuracy:0,  buildTime:1, air:true, antiAir:false },
 };
 
 // ── Module system ─────────────────────────────────────────────────────────
@@ -88,10 +97,16 @@ export const CHASSIS_BUILDINGS = {
   CRUISER_LT:      'DRY_DOCK',
   CRUISER_HV:      'DRY_DOCK',
   BATTLESHIP:      'NAVAL_BASE',
+  // Air
+  BIPLANE_FIGHTER: 'AIRFIELD',
+  LIGHT_BOMBER:    'AIRFIELD',
+  OBS_PLANE:       'AIRFIELD',
 };
 
 // Naval unit types set (for movement/terrain checks)
 export const NAVAL_UNITS = new Set(['PATROL_BOAT','MTB','SUBMARINE','DESTROYER','CRUISER_LT','CRUISER_HV','BATTLESHIP','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG']);
+// Air unit types set
+export const AIR_UNITS = new Set(['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE']);
 // Units that can enter shallow water (type 4)
 export const SHALLOW_UNITS = new Set(['PATROL_BOAT','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG']);
 // Units that can land on sand/beach (type 6) — amphibious disembark
@@ -181,6 +196,8 @@ export const BUILDING_TYPES = {
   HARBOR:        { name: 'Harbor',         ironPerTurn: 1, oilPerTurn: 1, woodPerTurn: 0, buildTurns: 3, canRecruit: [],                         buildCost: { iron: 5, oil: 1 }, color: 0x4488cc, sight: 2, repairsNaval: true },
   DRY_DOCK:      { name: 'Dry Dock',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: ['DESTROYER','CRUISER_LT','CRUISER_HV'],  buildCost: { iron:12, oil: 4 }, color: 0x225588, sight: 2 },
   NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 4, canRecruit: ['BATTLESHIP'],             buildCost: { iron:16, oil: 6 }, color: 0x113366, sight: 3 },
+  // Air buildings
+  AIRFIELD:      { name: 'Airfield',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE'], buildCost: { iron: 6, oil: 2, wood: 2 }, color: 0x888844, sight: 3 },
 };
 
 export const RESOURCE_TYPES = {
@@ -445,6 +462,8 @@ const HEAVY_UNITS = new Set(['TANK', 'ARTILLERY', 'ANTI_TANK', 'VEHICLE_DEPOT'])
 // terrain: 0=plains, 1=forest, 2=mountain, 3=hill
 // Move costs: plains=1, forest=2(infantry)/999(vehicles), mountain=3(foot only), hill=2(all)
 export function getMoveCost(terrainType, hasRoad, unitType = '') {
+  // Air units: fly over everything at cost 1, roads don't help
+  if (AIR_UNITS.has(unitType)) return 1;
   // Naval units: ocean/shallow cost 1, can't enter land terrain
   if (NAVAL_UNITS.has(unitType)) {
     if (terrainType === 5) return 1; // ocean: free sailing
@@ -459,6 +478,8 @@ export function getMoveCost(terrainType, hasRoad, unitType = '') {
   return [1, 2, 3, 2, 999, 999, 1][terrainType] ?? 1;
 }
 export function canEnterTerrain(unitType, terrainType) {
+  // Air units: can fly over any terrain
+  if (AIR_UNITS.has(unitType)) return true;
   // Naval units: can only enter water/beach terrain
   if (NAVAL_UNITS.has(unitType)) {
     if (terrainType === 5) return true;  // ocean: all naval
@@ -528,11 +549,15 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
   }
 
   // Collect all reachable hexes — exclude any that have a unit on them (can't end there)
+  // Exception: air units can share a hex with friendly ground units (not other air)
+  const isAir = AIR_UNITS.has(unit.type);
   for (const [key] of dist) {
     const [q, r] = key.split(',').map(Number);
     if (q === unit.q && r === unit.r) continue; // skip origin
     const occupant = unitAt(state, q, r);
-    if (!occupant || occupant.id === unit.id) result.push({ q, r });
+    if (!occupant || occupant.id === unit.id) { result.push({ q, r }); continue; }
+    // Air can land on hex with friendly ground unit (not another air unit)
+    if (isAir && occupant.owner === unit.owner && !AIR_UNITS.has(occupant.type)) result.push({ q, r });
   }
   return result;
 }
