@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.8.4';
+const GAME_VERSION = 'v0.8.5';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -332,8 +332,9 @@ export class GameScene extends Phaser.Scene {
         }
         ctx.closePath();
         ctx.clip();
+        ctx.globalAlpha = 0.62; // -38% opacity
         this._drawResourceOverlayCanvas(ctx, vx, vy, hw, hh, res.type);
-        ctx.restore();
+        ctx.restore(); // also resets globalAlpha
       }
     }
 
