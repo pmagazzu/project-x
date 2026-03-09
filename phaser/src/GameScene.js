@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.5.3';
+const GAME_VERSION = 'v0.5.4';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -297,6 +297,7 @@ export class GameScene extends Phaser.Scene {
 
   // ── Static layers (resources, roads) ─────────────────────────────────────
   _drawStaticLayers() {
+    this._drawTerrainDirect();
     this._redrawRoads();
     this._redrawResources();
   }
