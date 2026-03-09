@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.8.0';
+const GAME_VERSION = 'v0.8.1';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1800,11 +1800,31 @@ export class GameScene extends Phaser.Scene {
       cam.scrollY += wBefore.y - wAfter.y;
     });
 
-    // Enable global keyboard capture so WASD works even when canvas isn't focused
-    // (critical for hotseat — P2 takes over after clicking a UI button)
     this.input.keyboard.enableGlobalCapture();
-
     this.wasd = this.input.keyboard.addKeys('W,A,S,D');
+
+    // Triple-layer WASD: Phaser isDown + Phaser keydown events + raw DOM (capture phase)
+    // One of these must survive whatever focus/capture state the browser ends up in
+    this._kf = { W: false, A: false, S: false, D: false };
+    this.input.keyboard.on('keydown-W', () => this._kf.W = true);
+    this.input.keyboard.on('keyup-W',   () => this._kf.W = false);
+    this.input.keyboard.on('keydown-A', () => this._kf.A = true);
+    this.input.keyboard.on('keyup-A',   () => this._kf.A = false);
+    this.input.keyboard.on('keydown-S', () => this._kf.S = true);
+    this.input.keyboard.on('keyup-S',   () => this._kf.S = false);
+    this.input.keyboard.on('keydown-D', () => this._kf.D = true);
+    this.input.keyboard.on('keyup-D',   () => this._kf.D = false);
+
+    this._domKeys = new Set();
+    this._domKD = (e) => this._domKeys.add(e.code);
+    this._domKU = (e) => this._domKeys.delete(e.code);
+    window.addEventListener('keydown', this._domKD, true); // capture phase
+    window.addEventListener('keyup',   this._domKU, true);
+    this.events.on('shutdown', () => {
+      window.removeEventListener('keydown', this._domKD, true);
+      window.removeEventListener('keyup',   this._domKU, true);
+    });
+
     this.input.keyboard.on('keydown-ESC',   () => { if (!this._endTurnPending) this._toggleSettings(); });
     this.input.keyboard.on('keydown-X',     () => { if (this.btnSubmit?.visible) this._confirmEndTurn(); });
     this.input.keyboard.on('keydown-SPACE', () => { if (this._endTurnPending) { this._onSubmit(); this._hideEndTurnConfirm(); } });
@@ -2248,13 +2268,31 @@ export class GameScene extends Phaser.Scene {
   update() {
     const cam = this.cameras.main;
     const speed = 6 / cam.zoom;
-    const W = this.wasd;
-    const moving = W.W.isDown || W.S.isDown || W.A.isDown || W.D.isDown;
-    if (W.W.isDown) cam.scrollY -= speed;
-    if (W.S.isDown) cam.scrollY += speed;
-    if (W.A.isDown) cam.scrollX -= speed;
-    if (W.D.isDown) cam.scrollX += speed;
+    const W = this.wasd, kf = this._kf, dk = this._domKeys;
+    const up    = W.W.isDown || kf.W || dk.has('KeyW') || dk.has('ArrowUp');
+    const down  = W.S.isDown || kf.S || dk.has('KeyS') || dk.has('ArrowDown');
+    const left  = W.A.isDown || kf.A || dk.has('KeyA') || dk.has('ArrowLeft');
+    const right = W.D.isDown || kf.D || dk.has('KeyD') || dk.has('ArrowRight');
+    if (up)    cam.scrollY -= speed;
+    if (down)  cam.scrollY += speed;
+    if (left)  cam.scrollX -= speed;
+    if (right) cam.scrollX += speed;
+    const moving = up || down || left || right;
     if (moving && this._contextMenuObjs) this._hideContextMenu();
+
+    // Debug: show which WASD layer is active (temp — remove once confirmed working)
+    if (!this._dbgTxt) {
+      this._dbgTxt = this.add.text(4, this.scale.height - 18, '', {
+        font: '10px monospace', fill: '#ffff00', backgroundColor: '#000000aa'
+      }).setScrollFactor(0).setDepth(999);
+    }
+    const tag = (label, a, b, c) => `${label}:${a?'P':'.'}${b?'E':'.'}${c?'D':'.'}`;
+    this._dbgTxt.setText(
+      `${tag('W',W.W.isDown,kf.W,dk.has('KeyW'))} ` +
+      `${tag('A',W.A.isDown,kf.A,dk.has('KeyA'))} ` +
+      `${tag('S',W.S.isDown,kf.S,dk.has('KeyS'))} ` +
+      `${tag('D',W.D.isDown,kf.D,dk.has('KeyD'))}`
+    );
   }
 
   // ── Click handling ────────────────────────────────────────────────────────
