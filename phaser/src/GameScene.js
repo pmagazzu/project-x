@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.5.0';
+const GAME_VERSION = 'v0.5.1';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -202,11 +202,13 @@ export class GameScene extends Phaser.Scene {
         if (this.terrainArtRT) {
           const artKey = TERRAIN_ART_KEYS[ttype];
           if (artKey && this.textures.exists(artKey)) {
-            // RT coords = world coords - RT origin
-            this.terrainArtRT.drawFrame(artKey, undefined,
-              x - rtOx - artW / 2,
-              y - rtOy - artH / 2,
-              artW, artH);
+            const src = this.textures.get(artKey).getSourceImage();
+            const sx = src.width  > 0 ? artW / src.width  : 1;
+            const sy = src.height > 0 ? artH / src.height : 1;
+            // stamp(key, frame, x, y, config) — RT-local coords
+            this.terrainArtRT.stamp(artKey, undefined,
+              x - rtOx, y - rtOy,
+              { scaleX: sx, scaleY: sy, originX: 0.5, originY: 0.5 });
           }
         }
       }
