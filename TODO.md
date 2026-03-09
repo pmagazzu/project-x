@@ -63,3 +63,6 @@
 - [x] Auto-move standing orders for all units (v0.4.4)
 - [x] AP display restored in bottom bar (v0.4.8)
 - [x] Bottom bar shows SA/HA/PRC/ARM stats (v0.4.7/v0.4.8)
+
+## Tutorial Notes (to explain to players)
+- **Undo Move**: You can undo a move *only* if it didn't reveal new fog-of-war. Once you've seen something new, the move is committed — no scouting and retreating.
