@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.8.3';
+const GAME_VERSION = 'v0.8.4';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -164,7 +164,6 @@ export class GameScene extends Phaser.Scene {
     this.terrainArtRT = this.add.renderTexture(1, 1, 1, 1).setVisible(false);
 
     // World graphics layers (depth order)
-    this.resourceOverlayGfx = this.add.graphics().setDepth(3); // above art (2), below roads/buildings/units
     this.roadGfx      = this.add.graphics().setDepth(5);
     this.highlightGfx = this.add.graphics().setDepth(10);
     this.buildingGfx  = this.add.graphics().setDepth(15);
@@ -187,7 +186,7 @@ export class GameScene extends Phaser.Scene {
     // (catches top bar, bottom panel, buttons, etc. without touching each line)
     const worldObjs = new Set([
       this.terrainGfx, this.terrainArtLayer, this.terrainArtRT, this.terrainRT,
-      this.resourceOverlayGfx, this.roadGfx,
+      this.roadGfx,
       this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT, this._uiLayer
     ]);
     for (const obj of [...this.children.list]) {
@@ -213,7 +212,7 @@ export class GameScene extends Phaser.Scene {
     this.uiCamera.transparent = true; // transparent background — must not cover world
     this.uiCamera.ignore([
       this.terrainGfx, this.terrainArtLayer, this.terrainArtRT, this.terrainRT,
-      this.resourceOverlayGfx, this.roadGfx,
+      this.roadGfx,
       this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT,
     ]);
     this.scale.on('resize', (gs) => this.uiCamera.setSize(gs.width, gs.height));
@@ -316,6 +315,28 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Second pass: bake resource overlays on top — always visible under units/buildings
+    for (let q = 0; q < this.mapSize; q++) {
+      for (let r = 0; r < this.mapSize; r++) {
+        const res = this.gameState.resourceHexes[`${q},${r}`];
+        if (!res) continue;
+        const { x, y } = hexToWorld(q, r);
+        const vx = x - offX, vy = y - offY;
+        const hw = artW / 2, hh = artH / 2;
+        ctx.save();
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const angle = (Math.PI / 180) * (60 * i);
+          const px = vx + hw * Math.cos(angle), py = vy + hh * Math.sin(angle);
+          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.clip();
+        this._drawResourceOverlayCanvas(ctx, vx, vy, hw, hh, res.type);
+        ctx.restore();
+      }
+    }
+
     // Register as Phaser texture (replace if already exists)
     if (this.textures.exists('_terrain_art_baked')) {
       this.textures.remove('_terrain_art_baked');
@@ -329,6 +350,76 @@ export class GameScene extends Phaser.Scene {
     this._terrainArtImg = this.add.image(offX, offY, '_terrain_art_baked')
       .setOrigin(0, 0).setDepth(2);
     if (this.terrainArtLayer) this.terrainArtLayer.add(this._terrainArtImg);
+  }
+
+  // Draw resource deposit overlay using canvas 2D API (baked into terrain texture)
+  _drawResourceOverlayCanvas(ctx, cx, cy, hw, hh, type) {
+    const s = hw * 0.55; // scale relative to hex half-width
+    if (type === 'OIL') {
+      // Spread dark oil seeps across the whole tile
+      const puddles = [[-hw*0.55,hh*0.15,hw*0.38],[hw*0.35,-hh*0.35,hw*0.30],[hw*0.55,hh*0.40,hw*0.25],
+                       [-hw*0.25,-hh*0.42,hw*0.28],[hw*0.05,hh*0.30,hw*0.33],[hw*0.42,-hh*0.05,hw*0.22],
+                       [-hw*0.65,hh*0.35,hw*0.22],[-hw*0.05,-hh*0.18,hw*0.28]];
+      for (const [ox, oy, r] of puddles) {
+        ctx.beginPath();
+        ctx.ellipse(cx+ox, cy+oy, r*1.55, r*0.85, 0, 0, Math.PI*2);
+        ctx.fillStyle = 'rgba(8,8,18,0.72)';
+        ctx.fill();
+      }
+      // Iridescent sheen
+      ctx.beginPath(); ctx.ellipse(cx-hw*0.38,cy+hh*0.12,hw*0.28,hh*0.14,0,0,Math.PI*2);
+      ctx.fillStyle = 'rgba(30,50,160,0.32)'; ctx.fill();
+      ctx.beginPath(); ctx.ellipse(cx+hw*0.22,cy-hh*0.10,hw*0.20,hh*0.10,0,0,Math.PI*2);
+      ctx.fillStyle = 'rgba(80,20,140,0.22)'; ctx.fill();
+
+    } else if (type === 'IRON') {
+      // Crack network spanning the tile
+      ctx.strokeStyle = 'rgba(120,120,136,0.72)';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(cx-hw*0.65,cy-hh*0.12); ctx.lineTo(cx-hw*0.12,cy+hh*0.20);
+      ctx.lineTo(cx+hw*0.52,cy-hh*0.28);
+      ctx.moveTo(cx-hw*0.12,cy+hh*0.20); ctx.lineTo(cx+hw*0.12,cy+hh*0.68);
+      ctx.moveTo(cx+hw*0.52,cy-hh*0.28); ctx.lineTo(cx+hw*0.78,cy+hh*0.12);
+      ctx.moveTo(cx-hw*0.38,cy-hh*0.52); ctx.lineTo(cx-hw*0.12,cy+hh*0.20);
+      ctx.stroke();
+      ctx.lineWidth = 1.0;
+      ctx.strokeStyle = 'rgba(160,160,160,0.50)';
+      ctx.beginPath();
+      ctx.moveTo(cx+hw*0.12,cy+hh*0.68); ctx.lineTo(cx+hw*0.38,cy+hh*0.82);
+      ctx.moveTo(cx-hw*0.38,cy-hh*0.52); ctx.lineTo(cx-hw*0.65,cy-hh*0.72);
+      ctx.stroke();
+      // Ore nodules at crack nodes
+      const nodes = [[-hw*0.65,-hh*0.12],[hw*0.52,-hh*0.28],[hw*0.12,hh*0.68],[-hw*0.38,-hh*0.52],[hw*0.78,hh*0.12]];
+      for (const [ox, oy] of nodes) {
+        const ns = hw*0.14;
+        ctx.beginPath();
+        ctx.moveTo(cx+ox,cy+oy-ns); ctx.lineTo(cx+ox-ns,cy+oy+ns*0.5); ctx.lineTo(cx+ox+ns,cy+oy+ns*0.5);
+        ctx.closePath(); ctx.fillStyle = 'rgba(62,62,72,0.85)'; ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(cx+ox,cy+oy-ns); ctx.lineTo(cx+ox,cy+oy); ctx.lineTo(cx+ox+ns,cy+oy+ns*0.5);
+        ctx.closePath(); ctx.fillStyle = 'rgba(170,170,200,0.55)'; ctx.fill();
+      }
+      // Metallic glint dots
+      ctx.fillStyle = 'rgba(200,200,220,0.65)';
+      for (const [ox,oy] of [[-hw*0.62,0],[hw*0.55,-hh*0.2],[hw*0.18,hh*0.72],[-hw*0.35,-hh*0.5],[hw*0.8,hh*0.15]]) {
+        ctx.beginPath(); ctx.arc(cx+ox, cy+oy, 1.8, 0, Math.PI*2); ctx.fill();
+      }
+
+    } else if (type === 'WOOD') {
+      // Stacked log cross-sections
+      const logs = [[-hw*0.45,hh*0.20,hw*0.28,hh*0.16],[hw*0.12,hh*0.32,hw*0.24,hh*0.14],
+                    [hw*0.50,-hh*0.12,hw*0.22,hh*0.13],[-hw*0.18,-hh*0.38,hw*0.20,hh*0.12],
+                    [hw*0.32,hh*0.50,hw*0.18,hh*0.11]];
+      for (const [ox,oy,rw,rh] of logs) {
+        ctx.beginPath(); ctx.ellipse(cx+ox,cy+oy,rw,rh,0,0,Math.PI*2);
+        ctx.fillStyle='rgba(78,42,14,0.80)'; ctx.fill();
+        ctx.beginPath(); ctx.ellipse(cx+ox,cy+oy-rh*0.3,rw*0.8,rh*0.5,0,0,Math.PI*2);
+        ctx.fillStyle='rgba(115,66,24,0.50)'; ctx.fill();
+        ctx.beginPath(); ctx.arc(cx+ox,cy+oy,rw*0.55,0,Math.PI*2);
+        ctx.strokeStyle='rgba(38,16,4,0.45)'; ctx.lineWidth=1; ctx.stroke();
+      }
+    }
   }
 
   // Legacy — kept for reference but no longer called (RT replaced by direct gfx)
@@ -514,17 +605,7 @@ export class GameScene extends Phaser.Scene {
   // ── Static layers (resources, roads) ─────────────────────────────────────
   _drawStaticLayers() {
     this._drawTerrainDirect();
-    this._redrawResourceOverlays();
     this._redrawRoads();
-  }
-
-  _redrawResourceOverlays() {
-    this.resourceOverlayGfx.clear();
-    for (const [key, res] of Object.entries(this.gameState.resourceHexes)) {
-      const [q, r] = key.split(',').map(Number);
-      const { x, y } = hexToWorld(q, r);
-      this._drawResourceOverlay(this.resourceOverlayGfx, x, y, res.type);
-    }
   }
 
   _redrawRoads() {
