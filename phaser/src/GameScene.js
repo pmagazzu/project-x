@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.7.9';
+const GAME_VERSION = 'v0.8.0';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1800,27 +1800,15 @@ export class GameScene extends Phaser.Scene {
       cam.scrollY += wBefore.y - wAfter.y;
     });
 
-    // WASD camera via raw DOM events — more reliable than Phaser isDown polling
-    // which can break after interactive objects steal keyboard focus
-    this._keysDown = new Set();
-    this._onKeyDown = (e) => {
-      this._keysDown.add(e.code);
-      if (e.code === 'Escape' && !this._endTurnPending) this._toggleSettings();
-      if (e.code === 'KeyX' && this.btnSubmit?.visible) this._confirmEndTurn();
-      if (e.code === 'Space') {
-        if (this._endTurnPending) { this._onSubmit(); this._hideEndTurnConfirm(); }
-        if (this._splashDismiss) { this._splashDismiss(); this._splashDismiss = null; }
-      }
-    };
-    this._onKeyUp = (e) => this._keysDown.delete(e.code);
-    window.addEventListener('keydown', this._onKeyDown);
-    window.addEventListener('keyup',   this._onKeyUp);
+    // Enable global keyboard capture so WASD works even when canvas isn't focused
+    // (critical for hotseat — P2 takes over after clicking a UI button)
+    this.input.keyboard.enableGlobalCapture();
 
-    // Clean up on scene shutdown
-    this.events.on('shutdown', () => {
-      window.removeEventListener('keydown', this._onKeyDown);
-      window.removeEventListener('keyup',   this._onKeyUp);
-    });
+    this.wasd = this.input.keyboard.addKeys('W,A,S,D');
+    this.input.keyboard.on('keydown-ESC',   () => { if (!this._endTurnPending) this._toggleSettings(); });
+    this.input.keyboard.on('keydown-X',     () => { if (this.btnSubmit?.visible) this._confirmEndTurn(); });
+    this.input.keyboard.on('keydown-SPACE', () => { if (this._endTurnPending) { this._onSubmit(); this._hideEndTurnConfirm(); } });
+    this.input.keyboard.on('keydown-SPACE', () => { if (this._splashDismiss) { this._splashDismiss(); this._splashDismiss = null; } });
   }
 
   // ── World → Screen coordinate conversion ─────────────────────────────────
@@ -2260,13 +2248,12 @@ export class GameScene extends Phaser.Scene {
   update() {
     const cam = this.cameras.main;
     const speed = 6 / cam.zoom;
-    const k = this._keysDown;
-    const moving = k.has('KeyW') || k.has('KeyS') || k.has('KeyA') || k.has('KeyD') ||
-                   k.has('ArrowUp') || k.has('ArrowDown') || k.has('ArrowLeft') || k.has('ArrowRight');
-    if (k.has('KeyW') || k.has('ArrowUp'))    cam.scrollY -= speed;
-    if (k.has('KeyS') || k.has('ArrowDown'))  cam.scrollY += speed;
-    if (k.has('KeyA') || k.has('ArrowLeft'))  cam.scrollX -= speed;
-    if (k.has('KeyD') || k.has('ArrowRight')) cam.scrollX += speed;
+    const W = this.wasd;
+    const moving = W.W.isDown || W.S.isDown || W.A.isDown || W.D.isDown;
+    if (W.W.isDown) cam.scrollY -= speed;
+    if (W.S.isDown) cam.scrollY += speed;
+    if (W.A.isDown) cam.scrollX -= speed;
+    if (W.D.isDown) cam.scrollX += speed;
     if (moving && this._contextMenuObjs) this._hideContextMenu();
   }
 
