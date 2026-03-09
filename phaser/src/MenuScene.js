@@ -2,6 +2,12 @@ import Phaser from 'phaser';
 
 const SCENARIOS = [
   {
+    key:   'random',
+    label: '🎲  RANDOM MAP',
+    sub:   '40×40 proc-gen • continents • unique every game',
+    color: 0x553388,
+  },
+  {
     key:   'scout',
     label: '🌲  SCOUT MAP',
     sub:   '25×25 terrain • 2 engineers each • far apart',

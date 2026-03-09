@@ -5,7 +5,7 @@ import {
 } from './HexGrid.js';
 import { MenuScene } from './MenuScene.js';
 import {
-  createGameState, createBuilding, unitAt, buildingAt, roadAt,
+  createGameState, createUnit, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
   findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.0';
+const GAME_VERSION = 'v0.9.1';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -116,8 +116,10 @@ export class GameScene extends Phaser.Scene {
     const data = this.scene.settings.data || {};
     this.scenario = data.scenario || 'default';
     // Map sizes per scenario
-    const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, default: 25 };
+    const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, random: 40, default: 25 };
     this.mapSize   = MAP_SIZES[this.scenario] || MAP_SIZE;
+    // Random map uses a unique seed each game
+    this.mapSeed = (this.scenario === 'random') ? (Date.now() & 0xFFFFFF) : 0;
 
     this.gameState = createGameState(this.scenario);
     this.terrain   = this._generateTerrain();
@@ -216,6 +218,9 @@ export class GameScene extends Phaser.Scene {
       this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT,
     ]);
     this.scale.on('resize', (gs) => this.uiCamera.setSize(gs.width, gs.height));
+
+    // For random maps: place spawns + resources after terrain is generated
+    if (this.scenario === 'random') this._placeProcSpawns(this.mapSeed);
 
     this._setupInput();
     this._drawStaticLayers();
@@ -3636,6 +3641,8 @@ export class GameScene extends Phaser.Scene {
       // All plains — nothing to do
     } else if (this.scenario === 'naval') {
       this._genNavalTerrain(map, ms);
+    } else if (this.scenario === 'random') {
+      this._genProcTerrain(map, ms, this.mapSeed);
     } else {
       // Standard procedural terrain (scout / grand / default)
       const seed = this.scenario === 'grand' ? 99999 : 12345;
@@ -3688,6 +3695,270 @@ export class GameScene extends Phaser.Scene {
         if (isValid(b.q+dq, b.r+dr, ms)) map[`${b.q+dq},${b.r+dr}`] = spawnType;
     }
     return map;
+  }
+
+  // ── Deterministic value noise helpers ────────────────────────────────────
+  _noise2D(x, y, seed) {
+    const fade = t => t * t * (3 - 2 * t);
+    const lerp = (a, b, t) => a + t * (b - a);
+    const hash = (ix, iy) => {
+      let h = ((ix * 1619 + iy * 31337 + seed * 6791) & 0x7FFFFFFF);
+      h ^= h >>> 13; h = Math.imul(h, 0x45d9f3b) | 0; h ^= h >>> 15;
+      return (h >>> 0) / 0xFFFFFFFF;
+    };
+    const ix = Math.floor(x), iy = Math.floor(y);
+    const fx = fade(x - ix), fy = fade(y - iy);
+    return lerp(lerp(hash(ix, iy), hash(ix+1, iy), fx),
+                lerp(hash(ix, iy+1), hash(ix+1, iy+1), fx), fy);
+  }
+  _fbm(x, y, seed, octaves = 4) {
+    let v = 0, amp = 0.5, freq = 1, max = 0;
+    for (let i = 0; i < octaves; i++) {
+      v   += this._noise2D(x * freq, y * freq, seed + i * 997) * amp;
+      max += amp; amp *= 0.5; freq *= 2.1;
+    }
+    return v / max; // 0..1
+  }
+
+  // ── Procedural map generation ─────────────────────────────────────────────
+  _genProcTerrain(map, ms, seed) {
+    const SCALE     = 0.075; // noise frequency — lower = larger landmasses
+    const SEA_LV    = 0.44;  // below → ocean
+    const COAST_LV  = 0.48;  // below sea level + this buffer → shallow
+    const HILL_LV   = 0.63;
+    const MTN_LV    = 0.76;
+
+    // Build height map
+    const h = {};
+    for (let q = 0; q < ms; q++) {
+      for (let r = 0; r < ms; r++) {
+        let v = this._fbm(q * SCALE, r * SCALE, seed);
+        // Soft elliptical falloff at map edges so there's ocean border
+        const ex = ((q / ms) - 0.5) * 2, er = ((r / ms) - 0.5) * 2;
+        const edgeDist = Math.max(Math.abs(ex), Math.abs(er));
+        v -= Math.max(0, edgeDist - 0.55) * 1.2;
+        h[`${q},${r}`] = v;
+      }
+    }
+
+    // Classify terrain from height + secondary noise for forest/plains
+    const NEIGHBORS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+    for (let q = 0; q < ms; q++) {
+      for (let r = 0; r < ms; r++) {
+        const v = h[`${q},${r}`];
+        if (v < SEA_LV)     { map[`${q},${r}`] = 5; continue; } // ocean
+        if (v > MTN_LV)     { map[`${q},${r}`] = 2; continue; } // mountain
+        if (v > HILL_LV)    { map[`${q},${r}`] = 3; continue; } // hill
+        // Flat land — secondary noise for vegetation
+        const n2 = this._fbm(q * 0.18 + 200, r * 0.18 + 100, seed + 3333, 3);
+        if      (n2 > 0.67) map[`${q},${r}`] = 1; // dense forest
+        else if (n2 > 0.54) map[`${q},${r}`] = 7; // light woods
+        else                map[`${q},${r}`] = 0; // plains/grass
+      }
+    }
+
+    // Two passes of cellular automata to smooth jagged terrain
+    for (let pass = 0; pass < 2; pass++) {
+      const snap = {...map};
+      for (let q = 0; q < ms; q++) {
+        for (let r = 0; r < ms; r++) {
+          const t = snap[`${q},${r}`];
+          if (t === 2 || t === 3) continue; // keep high terrain
+          const landN = NEIGHBORS.filter(([dq,dr]) => {
+            const k = `${q+dq},${r+dr}`;
+            return snap[k] !== undefined && snap[k] !== 5;
+          }).length;
+          // Isolated ocean specks surrounded by land → fill in
+          if (t === 5 && landN >= 5) map[`${q},${r}`] = 0;
+          // Isolated land surrounded by ocean → submerge
+          if (t !== 5 && landN <= 1) map[`${q},${r}`] = 5;
+        }
+      }
+    }
+
+    // Mark shallow water (ocean hex adjacent to land) and coastal sand
+    const snap2 = {...map};
+    for (let q = 0; q < ms; q++) {
+      for (let r = 0; r < ms; r++) {
+        const t = snap2[`${q},${r}`];
+        const adjTypes = NEIGHBORS.map(([dq,dr]) => snap2[`${q+dq},${r+dr}`]);
+        if (t === 5) {
+          // Ocean next to land → shallow water
+          if (adjTypes.some(n => n !== undefined && n !== 5 && n !== 4))
+            map[`${q},${r}`] = 4;
+        } else if (t === 0 || t === 7) {
+          // Flat land next to water → sand (beach)
+          if (adjTypes.some(n => n === 5 || n === 4))
+            map[`${q},${r}`] = 6;
+        }
+      }
+    }
+  }
+
+  // ── Proc-gen spawn placement ──────────────────────────────────────────────
+  _placeProcSpawns(seed) {
+    const gs   = this.gameState;
+    const ms   = this.mapSize;
+    const map  = this.terrain;
+    const NEIGHBORS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+
+    const isLand = (q, r) => {
+      if (!isValid(q, r, ms)) return false;
+      const t = map[`${q},${r}`];
+      return t !== 4 && t !== 5; // not water
+    };
+    const isWalkable = (q, r) => isLand(q, r) && map[`${q},${r}`] !== 2; // not mountain
+    const adjWater   = (q, r) => NEIGHBORS.some(([dq,dr]) => {
+      const t = map[`${q+dq},${r+dr}`];
+      return t === 4 || t === 5;
+    });
+    const adjLand    = (q, r) => NEIGHBORS.some(([dq,dr]) => isLand(q+dq, r+dr));
+
+    // Find best HQ spawn: walkable, surrounded by mostly walkable neighbors, near center-row
+    const findSpawn = (qMin, qMax) => {
+      const centerR = Math.floor(ms / 2);
+      let best = null, bestScore = -Infinity;
+      for (let q = qMin; q <= qMax; q++) {
+        for (let r = 1; r < ms - 1; r++) {
+          if (!isWalkable(q, r)) continue;
+          const walkNeighbors = NEIGHBORS.filter(([dq,dr]) => isWalkable(q+dq, r+dr)).length;
+          if (walkNeighbors < 4) continue; // needs room for buildings
+          const score = walkNeighbors * 10 - Math.abs(r - centerR);
+          if (score > bestScore) { bestScore = score; best = { q, r }; }
+        }
+      }
+      return best;
+    };
+
+    const p1 = findSpawn(Math.floor(ms * 0.08), Math.floor(ms * 0.28));
+    const p2 = findSpawn(Math.floor(ms * 0.72), Math.floor(ms * 0.92));
+
+    if (!p1 || !p2) {
+      // Fallback: force spawn positions if terrain is too barren
+      const fb1 = { q: Math.floor(ms * 0.15), r: Math.floor(ms * 0.5) };
+      const fb2 = { q: Math.floor(ms * 0.85), r: Math.floor(ms * 0.5) };
+      [fb1, fb2].forEach(pos => { map[`${pos.q},${pos.r}`] = 0; });
+      if (!p1) { map[`${fb1.q},${fb1.r}`] = 0; Object.assign(p1 = fb1, {}); }
+      if (!p2) { map[`${fb2.q},${fb2.r}`] = 0; Object.assign(p2 = fb2, {}); }
+    }
+
+    // Force HQ hexes and nearby hexes to walkable plains
+    const clearForSpawn = (q, r) => {
+      map[`${q},${r}`] = 0;
+      NEIGHBORS.forEach(([dq,dr]) => { if (isValid(q+dq,r+dr,ms)) map[`${q+dq},${r+dr}`] = 0; });
+    };
+    clearForSpawn(p1.q, p1.r);
+    clearForSpawn(p2.q, p2.r);
+
+    // Helper: find nearest hex of a specific terrain type within radius
+    const findNearby = (cq, cr, terrainSet, maxR = 6) => {
+      for (let d = 1; d <= maxR; d++) {
+        for (let dq = -d; dq <= d; dq++) {
+          for (let dr = -d; dr <= d; dr++) {
+            if (Math.abs(dq) + Math.abs(dr) + Math.abs(dq+dr) !== d * 2) continue; // hex ring
+            const q2 = cq+dq, r2 = cr+dr;
+            if (!isValid(q2,r2,ms)) continue;
+            if (terrainSet.has(map[`${q2},${r2}`]) && !gs.buildings.find(b=>b.q===q2&&b.r===r2))
+              return { q: q2, r: r2 };
+          }
+        }
+      }
+      return null;
+    };
+    // Find a free walkable hex near origin, not occupied
+    const findFreeNear = (cq, cr, maxR = 5) => {
+      for (let d = 1; d <= maxR; d++) {
+        for (let dq = -d; dq <= d; dq++) {
+          for (let dr = -d; dr <= d; dr++) {
+            if (Math.abs(dq)+Math.abs(dr)+Math.abs(dq+dr) !== d*2) continue;
+            const q2=cq+dq, r2=cr+dr;
+            if (!isValid(q2,r2,ms)) continue;
+            if (isWalkable(q2,r2) && !gs.buildings.find(b=>b.q===q2&&b.r===r2) && !gs.units.find(u=>u.q===q2&&u.r===r2))
+              return { q:q2, r:r2 };
+          }
+        }
+      }
+      return null;
+    };
+    const findCoastalNear = (cq, cr, maxR = 8) => {
+      for (let d = 1; d <= maxR; d++) {
+        for (let dq = -d; dq <= d; dq++) {
+          for (let dr = -d; dr <= d; dr++) {
+            if (Math.abs(dq)+Math.abs(dr)+Math.abs(dq+dr) !== d*2) continue;
+            const q2=cq+dq, r2=cr+dr;
+            if (!isValid(q2,r2,ms)) continue;
+            if (isLand(q2,r2) && adjWater(q2,r2) && !gs.buildings.find(b=>b.q===q2&&b.r===r2))
+              return { q:q2, r:r2 };
+          }
+        }
+      }
+      return null;
+    };
+
+    const placeSpawns = (player, hq) => {
+      // HQ
+      gs.buildings.push(createBuilding('HQ', player, hq.q, hq.r));
+
+      // Iron Mine: prefer hill/mountain nearby, else any land hex — force iron resource on it
+      const ironHex = findNearby(hq.q, hq.r, new Set([2,3]), 5) || findFreeNear(hq.q, hq.r, 4);
+      if (ironHex) {
+        if (map[`${ironHex.q},${ironHex.r}`] === 5 || map[`${ironHex.q},${ironHex.r}`] === 4)
+          map[`${ironHex.q},${ironHex.r}`] = 3; // ensure it's land
+        gs.resourceHexes[`${ironHex.q},${ironHex.r}`] = { type: 'IRON' };
+        gs.buildings.push(createBuilding('MINE', player, ironHex.q, ironHex.r));
+      }
+
+      // Oil Pump: flat land or sand nearby (different hex from iron)
+      const oilHex = findNearby(hq.q, hq.r, new Set([0,6,7]), 5) || findFreeNear(hq.q, hq.r, 5);
+      if (oilHex && !(ironHex && oilHex.q === ironHex.q && oilHex.r === ironHex.r)) {
+        gs.resourceHexes[`${oilHex.q},${oilHex.r}`] = { type: 'OIL' };
+        gs.buildings.push(createBuilding('OIL_PUMP', player, oilHex.q, oilHex.r));
+      }
+
+      // Barracks: free walkable hex near HQ
+      const barrHex = findFreeNear(hq.q, hq.r, 3);
+      if (barrHex) gs.buildings.push(createBuilding('BARRACKS', player, barrHex.q, barrHex.r));
+
+      // Naval Yard: nearest coastal land hex (if exists within range)
+      const coastHex = findCoastalNear(hq.q, hq.r, 10);
+      if (coastHex) gs.buildings.push(createBuilding('NAVAL_YARD', player, coastHex.q, coastHex.r));
+
+      // 2 engineers near HQ
+      const eng1 = findFreeNear(hq.q, hq.r, 3);
+      if (eng1) gs.units.push(createUnit('ENGINEER', player, eng1.q, eng1.r));
+      const eng2 = findFreeNear(hq.q, hq.r, 3);
+      if (eng2) gs.units.push(createUnit('ENGINEER', player, eng2.q, eng2.r));
+    };
+
+    placeSpawns(1, p1);
+    placeSpawns(2, p2);
+
+    // Scatter extra iron/oil resources across the map
+    this._placeResources(seed);
+  }
+
+  _placeResources(seed) {
+    const gs  = this.gameState;
+    const ms  = this.mapSize;
+    const map = this.terrain;
+    const rng = this._seededRng(seed + 9999);
+
+    const IRON_TERRAIN  = new Set([2, 3]);    // mountains, hills
+    const OIL_TERRAIN   = new Set([0, 6, 7]); // plains, sand, light woods
+
+    let placed = 0;
+    for (let q = 0; q < ms && placed < 40; q++) {
+      for (let r = 0; r < ms && placed < 40; r++) {
+        if (gs.resourceHexes[`${q},${r}`]) continue; // already has resource
+        if (gs.buildings.find(b => b.q === q && b.r === r)) continue;
+        const t = map[`${q},${r}`];
+        if (IRON_TERRAIN.has(t) && rng() < 0.18) {
+          gs.resourceHexes[`${q},${r}`] = { type: 'IRON' }; placed++;
+        } else if (OIL_TERRAIN.has(t) && rng() < 0.06) {
+          gs.resourceHexes[`${q},${r}`] = { type: 'OIL' }; placed++;
+        }
+      }
+    }
   }
 
   _genNavalTerrain(map, ms) {

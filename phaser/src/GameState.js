@@ -222,7 +222,12 @@ export function createGameState(scenario = 'default') {
     designs: { 1: [], 2: [] },
   };
 
-  if (scenario === 'scout') {
+  if (scenario === 'random') {
+    // Terrain + spawns placed procedurally by GameScene after terrain gen
+    state.players[1].iron = 20; state.players[1].oil = 6;
+    state.players[2].iron = 20; state.players[2].oil = 6;
+
+  } else if (scenario === 'scout') {
     // Two engineers each, far apart — explore and build
     state.units.push(createUnit('ENGINEER', 1, 3, 4));
     state.units.push(createUnit('ENGINEER', 1, 4, 4));
