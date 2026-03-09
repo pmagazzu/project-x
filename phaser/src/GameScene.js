@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.7.7';
+const GAME_VERSION = 'v0.7.8';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3349,6 +3349,8 @@ export class GameScene extends Phaser.Scene {
     const dismiss = () => {
       this._splashDismiss = null;
       [...objects, btn].forEach(o => { try { o.destroy(); } catch(e){} });
+      // Re-focus canvas so WASD key polling works immediately for the next player
+      try { this.game.canvas.focus(); } catch(e) {}
       onDismiss();
     };
     this._splashDismiss = dismiss;
