@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.7.1';
+const GAME_VERSION = 'v0.7.2';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -939,6 +939,50 @@ export class GameScene extends Phaser.Scene {
         this.buildingGfx.lineStyle(2, color, 1.0);
         this.buildingGfx.strokeRect(x - bw/2, y - bh/2, bw, bh);
       }
+
+      // ── Under-construction overlay ──────────────────────────────────────
+      if (b.underConstruction) {
+        const prog = b.buildProgress || 0;
+        const total = b.buildTurnsRequired || 1;
+        const fraction = prog / total;
+        const hw = HEX_SIZE * 0.42;
+
+        // Diagonal scaffolding hatching
+        this.buildingGfx.lineStyle(1.5, 0xffcc00, 0.55);
+        for (let i = -3; i <= 3; i++) {
+          this.buildingGfx.beginPath();
+          this.buildingGfx.moveTo(x + i * hw * 0.5 - hw, y - hw * 0.5);
+          this.buildingGfx.lineTo(x + i * hw * 0.5 + hw, y + hw * 0.5);
+          this.buildingGfx.strokePath();
+        }
+
+        // Progress bar background
+        const barW = HEX_SIZE * 0.7, barH = 5;
+        const barX = x - barW / 2, barY = y + HEX_SIZE * 0.28;
+        this.buildingGfx.fillStyle(0x000000, 0.7);
+        this.buildingGfx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+        this.buildingGfx.fillStyle(0x888888, 0.8);
+        this.buildingGfx.fillRect(barX, barY, barW, barH);
+        this.buildingGfx.fillStyle(0xffcc00, 1.0);
+        this.buildingGfx.fillRect(barX, barY, barW * fraction, barH);
+
+        // Turn counter text: "2/3"
+        this.buildingGfx.fillStyle(0x000000, 0.75);
+        this.buildingGfx.fillRect(x - 10, barY - 12, 20, 11);
+      }
+    }
+
+    // Construction turn labels (text objects — redrawn each refresh)
+    if (this._constructionLabels) this._constructionLabels.forEach(t => t.destroy());
+    this._constructionLabels = [];
+    for (const b of this.gameState.buildings) {
+      if (!b.underConstruction) continue;
+      const { x, y } = hexToWorld(b.q, b.r);
+      const prog = b.buildProgress || 0, total = b.buildTurnsRequired || 1;
+      const lbl = this.add.text(x, y + HEX_SIZE * 0.26, `${prog}/${total}`, {
+        font: 'bold 9px monospace', fill: '#ffcc00'
+      }).setOrigin(0.5, 0).setDepth(52).setScrollFactor(1);
+      this._constructionLabels.push(lbl);
     }
   }
 
@@ -1324,9 +1368,18 @@ export class GameScene extends Phaser.Scene {
       this.unitStatsTxt.setText(`HP: ${u.health}/${u.maxHealth}  AP: ${ap}/2  SA: ${def.soft_attack}  HA: ${def.hard_attack}  PRC: ${def.pierce}  ARM: ${def.armor}  MOV: ${def.move}  RNG: ${def.range}`);
       const pa = gs.pendingAttacks[u.id];
       let status = '';
-      status += u.suppressed ? '⚡ SUPPRESSED  ' : u.moved ? '✓ Moved  ' : '○ Can move  ';
-      status += pa         ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : '○ Can attack  ';
-      if (u.dugIn) status += '🪖 Dug in';
+      // Construction status takes priority
+      if (u.constructing) {
+        const bUnderConst = gs.buildings.find(b => b.id === u.constructing);
+        if (bUnderConst && bUnderConst.underConstruction) {
+          const prog = bUnderConst.buildProgress || 0, total = bUnderConst.buildTurnsRequired || 1;
+          status = `🔨 Building ${BUILDING_TYPES[bUnderConst.type].name}: ${prog}/${total} turns  (locked)`;
+        }
+      } else {
+        status += u.suppressed ? '⚡ SUPPRESSED  ' : u.moved ? '✓ Moved  ' : '○ Can move  ';
+        status += pa         ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : '○ Can attack  ';
+        if (u.dugIn) status += '🪖 Dug in';
+      }
       this.unitStatusTxt.setText(status);
     } else if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
       const key  = `${this.hoveredHex.q},${this.hoveredHex.r}`;
@@ -1879,7 +1932,23 @@ export class GameScene extends Phaser.Scene {
         cb: () => this._enterMoveOrderMode(unit)
       });
     }
-    if (def.canBuild) {
+    // Cancel active construction
+    if (unit.constructing) {
+      const bUnderConst = gs.buildings.find(b => b.id === unit.constructing);
+      if (bUnderConst && bUnderConst.underConstruction) {
+        actions.push({ label: `✕ CANCEL BUILD (no refund)`, key: 'cancel_build', enabled: true, color: 0x662222,
+          cb: () => {
+            // Remove the under-construction building; no resource refund
+            gs.buildings = gs.buildings.filter(b => b.id !== unit.constructing);
+            delete unit.constructing;
+            unit.moved = false; // free the engineer
+            this._hideContextMenu();
+            this._refresh();
+          }
+        });
+      }
+    }
+    if (def.canBuild && !unit.constructing) {
       const smart = this._getSmartBuild(unit);
       if (smart) {
         // Promote the obvious action directly into the root menu
@@ -2572,11 +2641,26 @@ export class GameScene extends Phaser.Scene {
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
     if (buildingAt(gs, u.q, u.r)) return;
     const ttype = this.terrain[`${u.q},${u.r}`] ?? 0;
-    if (ttype !== 1 && ttype !== 7) return; // must be on forest terrain
+    if (ttype !== 1 && ttype !== 7) return;
     if (gs.players[gs.currentPlayer].iron < 2) return;
     gs.players[gs.currentPlayer].iron -= 2;
-    gs.buildings.push(createBuilding('LUMBER_CAMP', gs.currentPlayer, u.q, u.r));
-    u.moved = true; u.building = true;
+    this._placeBuilding('LUMBER_CAMP', u);
+  }
+
+  // Central building placement — handles multi-turn construction
+  _placeBuilding(type, engineer) {
+    const gs = this.gameState;
+    const def = BUILDING_TYPES[type];
+    const turns = def.buildTurns || 0;
+    const b = createBuilding(type, gs.currentPlayer, engineer.q, engineer.r);
+    if (turns > 0) {
+      b.underConstruction = true;
+      b.buildProgress = 0;
+      b.buildTurnsRequired = turns;
+      engineer.constructing = b.id;
+    }
+    gs.buildings.push(b);
+    engineer.moved = true; engineer.building = true;
     this._clearSelection();
     this._refresh();
   }
@@ -2585,7 +2669,6 @@ export class GameScene extends Phaser.Scene {
     const gs = this.gameState, u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
     if (buildingAt(gs, u.q, u.r)) return;
-    // Naval facilities must be on coastal land (adjacent to shallow/ocean)
     const NAVAL_FACILITIES = new Set(['NAVAL_YARD','HARBOR','DRY_DOCK','NAVAL_BASE']);
     if (NAVAL_FACILITIES.has(type) && !this._isCoastalHex(u.q, u.r)) {
       this._log.unshift('Build failed: naval facilities require a coastal hex');
@@ -2599,10 +2682,7 @@ export class GameScene extends Phaser.Scene {
     gs.players[gs.currentPlayer].iron -= ironCost;
     gs.players[gs.currentPlayer].oil  -= oilCost;
     gs.players[gs.currentPlayer].wood  = (gs.players[gs.currentPlayer].wood || 0) - woodCost;
-    gs.buildings.push(createBuilding(type, gs.currentPlayer, u.q, u.r));
-    u.moved = true; u.building = true;
-    this._clearSelection();
-    this._refresh();
+    this._placeBuilding(type, u);
   }
 
   _onBuildCoastalBattery() {
@@ -2634,11 +2714,10 @@ export class GameScene extends Phaser.Scene {
     const res = gs.resourceHexes[`${u.q},${u.r}`];
     if (!res || buildingAt(gs, u.q, u.r)) return;
     if (gs.players[gs.currentPlayer].iron < 4) return;
-    gs.players[gs.currentPlayer].iron -= 4;
     const btype = (resType || res.type) === 'OIL' ? 'OIL_PUMP' : 'MINE';
-    gs.buildings.push(createBuilding(btype, gs.currentPlayer, u.q, u.r));
-    u.moved = true; u.building = true;
-    this._clearSelection();
+    if (btype === 'OIL_PUMP' && gs.players[gs.currentPlayer].oil < 0) return; // safety
+    gs.players[gs.currentPlayer].iron -= 4;
+    this._placeBuilding(btype, u);
   }
 
   _showCombatPreview(attacker, target, blindFire) {
