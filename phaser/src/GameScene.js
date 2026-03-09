@@ -28,10 +28,10 @@ const TERRAIN_COLORS = {
   7: { fill: 0x4a7030, stroke: 0x335020 },  // light woods
 };
 const SELECTED_STROKE  = 0xffe066;
-const HOVER_STROKE     = 0xaaddff;
+const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.8.7';
+const GAME_VERSION = 'v0.8.8';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -672,29 +672,35 @@ export class GameScene extends Phaser.Scene {
       this.highlightGfx.beginPath(); this.highlightGfx.moveTo(verts[0].x, verts[0].y);
       for (let i = 1; i < verts.length; i++) this.highlightGfx.lineTo(verts[i].x, verts[i].y);
       this.highlightGfx.closePath(); this.highlightGfx.fillPath();
-      this.highlightGfx.lineStyle(1.5, color, 0.8);
-      this.highlightGfx.strokePath();
+    };
+    const outlineHex = (q, r, color, lineW = 2.5, alpha = 1.0) => {
+      const { x, y } = hexToWorld(q, r);
+      const verts = hexVertices(x, y);
+      this.highlightGfx.lineStyle(lineW, color, alpha);
+      this.highlightGfx.beginPath(); this.highlightGfx.moveTo(verts[0].x, verts[0].y);
+      for (let i = 1; i < verts.length; i++) this.highlightGfx.lineTo(verts[i].x, verts[i].y);
+      this.highlightGfx.closePath(); this.highlightGfx.strokePath();
     };
 
-    for (const { q, r } of this.reachable)   fillHex(q, r, MOVE_HIGHLIGHT,   0.25);
+    for (const { q, r } of this.reachable) fillHex(q, r, MOVE_HIGHLIGHT, 0.25);
     if (this.mode === 'attack_direct') {
-      // Direct attack: only visible enemy hexes, bright
-      for (const { q, r } of this.attackable) fillHex(q, r, ATTACK_HIGHLIGHT, 0.6);
+      // Direct attack: red outline only on attackable hexes
+      for (const { q, r } of this.attackable) outlineHex(q, r, ATTACK_HIGHLIGHT, 2.5);
     } else if (this.mode === 'attack') {
-      // Blind fire: dim all range hexes, bright only where fog-visible enemies are at their DISPLAY position
+      // Blind fire: outline all range hexes; bright for visible enemies, dim for unknowns
       const gs = this.gameState;
       const fog = this._currentFog;
       for (const { q, r } of this.attackable) {
         const hasVisibleEnemy = gs.units.some(u => {
           if (u.owner === gs.currentPlayer || u.dead) return false;
           if (u.q !== q || u.r !== r) return false;
-          if (fog && !fog.has(`${dq},${dr}`)) return false; // hidden in fog
+          if (fog && !fog.has(`${dq},${dr}`)) return false;
           return true;
         });
-        fillHex(q, r, ATTACK_HIGHLIGHT, hasVisibleEnemy ? 0.5 : 0.12);
+        outlineHex(q, r, ATTACK_HIGHLIGHT, 2.5, hasVisibleEnemy ? 1.0 : 0.3);
       }
     } else {
-      for (const { q, r } of this.attackable) fillHex(q, r, ATTACK_HIGHLIGHT, 0.3);
+      for (const { q, r } of this.attackable) outlineHex(q, r, ATTACK_HIGHLIGHT, 2.0, 0.7);
     }
 
     if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
