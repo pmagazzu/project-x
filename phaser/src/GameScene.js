@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.8.6';
+const GAME_VERSION = 'v0.8.7';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -699,7 +699,18 @@ export class GameScene extends Phaser.Scene {
 
     if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
       const { x, y } = hexToWorld(this.hoveredHex.q, this.hoveredHex.r);
-      this._drawHex(this.highlightGfx, x, y, this.terrain[`${this.hoveredHex.q},${this.hoveredHex.r}`], false, true);
+      // Hover = transparent tint + bright border only — don't paint over baked terrain art
+      const verts = hexVertices(x, y);
+      this.highlightGfx.fillStyle(0xffffff, 0.10);
+      this.highlightGfx.beginPath();
+      this.highlightGfx.moveTo(verts[0].x, verts[0].y);
+      for (let i = 1; i < verts.length; i++) this.highlightGfx.lineTo(verts[i].x, verts[i].y);
+      this.highlightGfx.closePath(); this.highlightGfx.fillPath();
+      this.highlightGfx.lineStyle(2, HOVER_STROKE, 1.0);
+      this.highlightGfx.beginPath();
+      this.highlightGfx.moveTo(verts[0].x, verts[0].y);
+      for (let i = 1; i < verts.length; i++) this.highlightGfx.lineTo(verts[i].x, verts[i].y);
+      this.highlightGfx.closePath(); this.highlightGfx.strokePath();
     }
     if (this.selectedUnit) {
       const { x, y } = hexToWorld(this.selectedUnit.q, this.selectedUnit.r);
