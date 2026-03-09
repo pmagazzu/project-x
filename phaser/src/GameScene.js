@@ -30,7 +30,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.6.7';
+const GAME_VERSION = 'v0.6.8';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -58,6 +58,9 @@ const SAND_VARIANT_FILES = Array.from({length:SAND_VARIANTS},(_,i)=>({key:`terra
 // Grass tile variants
 const GRASS_VARIANTS = 10;
 const GRASS_VARIANT_FILES = Array.from({length:GRASS_VARIANTS},(_,i)=>({key:`terrain_grass_${i+1}`,file:`user_art/grass_tile_${String(i+1).padStart(2,'0')}.png`}));
+// Ocean tile variants
+const OCEAN_VARIANTS = 10;
+const OCEAN_VARIANT_FILES = Array.from({length:OCEAN_VARIANTS},(_,i)=>({key:`terrain_ocean_${i+1}`,file:`user_art/ocean_tile_${String(i+1).padStart(2,'0')}.png`}));
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -72,6 +75,9 @@ export class GameScene extends Phaser.Scene {
       this.load.image(key, file);
     }
     for (const {key, file} of GRASS_VARIANT_FILES) {
+      this.load.image(key, file);
+    }
+    for (const {key, file} of OCEAN_VARIANT_FILES) {
       this.load.image(key, file);
     }
     this.load.on('loaderror', () => {}); // suppress console errors for missing tiles
@@ -252,6 +258,9 @@ export class GameScene extends Phaser.Scene {
           if (this.textures.exists(varKey)) artKey = varKey;
         } else if (ttype === 0) { // grass/plains
           const varKey = `terrain_grass_${(_varHash % GRASS_VARIANTS) + 1}`;
+          if (this.textures.exists(varKey)) artKey = varKey;
+        } else if (ttype === 5) { // ocean
+          const varKey = `terrain_ocean_${(_varHash % OCEAN_VARIANTS) + 1}`;
           if (this.textures.exists(varKey)) artKey = varKey;
         }
         if (!artKey || !this.textures.exists(artKey)) continue;
