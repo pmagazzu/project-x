@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.4';
+const GAME_VERSION = 'v0.9.5';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -116,10 +116,10 @@ export class GameScene extends Phaser.Scene {
     const data = this.scene.settings.data || {};
     this.scenario = data.scenario || 'default';
     // Map sizes per scenario
-    const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, random: 40, default: 25 };
+    const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, random: 40, air_test: 20, custom: data.customSize || 40, default: 25 };
     this.mapSize   = MAP_SIZES[this.scenario] || MAP_SIZE;
     // Random map uses a unique seed each game
-    this.mapSeed = (this.scenario === 'random') ? (Date.now() & 0xFFFFFF) : 0;
+    this.mapSeed = (this.scenario === 'random' || this.scenario === 'custom') ? (Date.now() & 0xFFFFFF) : 0;
 
     this.gameState = createGameState(this.scenario);
     this.terrain   = this._generateTerrain();
@@ -220,7 +220,7 @@ export class GameScene extends Phaser.Scene {
     this.scale.on('resize', (gs) => this.uiCamera.setSize(gs.width, gs.height));
 
     // For random maps: place spawns + resources after terrain is generated
-    if (this.scenario === 'random') this._placeProcSpawns(this.mapSeed);
+    if (this.scenario === 'random' || this.scenario === 'custom') this._placeProcSpawns(this.mapSeed);
 
     this._setupInput();
     this._drawStaticLayers();

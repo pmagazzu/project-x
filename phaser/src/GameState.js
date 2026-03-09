@@ -362,8 +362,37 @@ export function createGameState(scenario = 'default') {
     for (const [q,r] of [[58,40],[59,36],[57,37],[60,39]])
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
 
+  } else if (scenario === 'air_test') {
+    // Air Testing -- 20x20 open plains, both airfields within ~10 hexes
+    // Planes start in play; everything you need to test air combat
+    state.players[1] = { iron: 20, oil: 10, wood: 8, submitted: false };
+    state.players[2] = { iron: 20, oil: 10, wood: 8, submitted: false };
+    // P1 cluster (top-left)
+    state.buildings.push(createBuilding('HQ',       1,  4,  4));
+    state.buildings.push(createBuilding('AIRFIELD', 1,  5,  4));
+    state.buildings.push(createBuilding('BARRACKS', 1,  4,  5));
+    // P2 cluster (bottom-right) -- airfields ~10 hex apart
+    state.buildings.push(createBuilding('HQ',       2, 14, 14));
+    state.buildings.push(createBuilding('AIRFIELD', 2, 13, 14));
+    state.buildings.push(createBuilding('BARRACKS', 2, 14, 13));
+    // P1 starting air + ground
+    state.units.push(createUnit('BIPLANE_FIGHTER', 1,  4,  3));
+    state.units.push(createUnit('OBS_PLANE',       1,  5,  3));
+    state.units.push(createUnit('INFANTRY',        1,  3,  5));
+    state.units.push(createUnit('ENGINEER',        1,  3,  4));
+    // P2 starting air + ground
+    state.units.push(createUnit('BIPLANE_FIGHTER', 2, 14, 15));
+    state.units.push(createUnit('LIGHT_BOMBER',    2, 13, 15));
+    state.units.push(createUnit('INFANTRY',        2, 15, 13));
+    state.units.push(createUnit('ENGINEER',        2, 15, 14));
+    // Resources scattered mid-map
+    for (const [q,r] of [[7,7],[9,9],[11,7],[8,10],[6,8]])
+      state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
+    for (const [q,r] of [[10,8],[7,11],[12,10]])
+      state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
+
   } else {
-    // default — close combat test (original layout)
+    // default -- close combat test (original layout)
     state.units.push(createUnit('INFANTRY', 1, 9,  11));
     state.units.push(createUnit('INFANTRY', 1, 10, 10));
     state.units.push(createUnit('TANK',     1, 10, 11));
