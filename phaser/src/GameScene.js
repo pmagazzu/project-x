@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.5';
+const GAME_VERSION = 'v0.9.6';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2650,40 +2650,47 @@ export class GameScene extends Phaser.Scene {
         this.reachable = [];
         this.attackable = getAttackableHexes(gs, this.selectedUnit, q, r, this._currentFog);
         this.mode = 'select';
-        // Slide animation: use a real Phaser Graphics GO so Phaser tweens it per-frame natively.
-        // Mark unit _sliding so _redrawUnits() skips it while the temp gfx is visible.
+        // Slide animation: use Rectangle + Graphics overlay (reliable world-space positioning).
+        // Mark unit _sliding so _redrawUnits() skips it while temp objects are visible.
         const _slideTo = hexToWorld(q, r);
         const _animUnit = this.selectedUnit;
+
+        // Kill any previous in-flight slide (defensive — shouldn't happen but be safe)
+        if (this._activeSlideTween) { this._activeSlideTween.stop(); this._activeSlideTween = null; }
+        if (this._activeSlideObjs) { this._activeSlideObjs.forEach(o => o.destroy()); this._activeSlideObjs = null; }
+        if (this._activeSlideUnit) { delete this._activeSlideUnit._sliding; this._activeSlideUnit = null; }
+
         _animUnit._sliding = true;
         this._refresh(); // draws scene without the sliding unit
 
-        // Build a minimal counter on a temp Graphics positioned at the FROM pixel
-        const _slideGfx = this.add.graphics();
-        _slideGfx.setDepth(25); // above unit layer
-        _slideGfx.x = _slideFrom.x;
-        _slideGfx.y = _slideFrom.y;
+        // Build slide marker: a team-colored rectangle (pure positioned GO — Phaser tweens these perfectly)
         const _sc = PLAYER_COLORS[_animUnit.owner];
-        const _sr = HEX_SIZE * 0.34;
-        // Counter body
-        _slideGfx.fillStyle(_sc, 1.0);
-        _slideGfx.fillRect(-_sr, -_sr * 0.75, _sr * 2, _sr * 1.5);
-        _slideGfx.lineStyle(2, 0x000000, 0.8);
-        _slideGfx.strokeRect(-_sr, -_sr * 0.75, _sr * 2, _sr * 1.5);
-        // Inner bevel highlight
-        _slideGfx.lineStyle(1, 0xffffff, 0.35);
-        _slideGfx.strokeRect(-_sr + 2, -_sr * 0.75 + 2, _sr * 2 - 4, _sr * 1.5 - 4);
+        const _sw = HEX_SIZE * 0.68, _sh = HEX_SIZE * 0.50;
+        const _slideRect  = this.add.rectangle(_slideFrom.x, _slideFrom.y, _sw, _sh, _sc).setDepth(25);
+        const _slideBorder = this.add.rectangle(_slideFrom.x, _slideFrom.y, _sw, _sh)
+          .setStrokeStyle(2, 0x000000).setFillStyle().setDepth(26);
+        const _slideSlide  = this.add.rectangle(_slideFrom.x, _slideFrom.y, _sw - 4, _sh - 4)
+          .setStrokeStyle(1, 0xffffff, 0.35).setFillStyle().setDepth(26);
+        const _slideObjs = [_slideRect, _slideBorder, _slideSlide];
+        this._activeSlideObjs = _slideObjs;
+        this._activeSlideUnit = _animUnit;
 
-        this.tweens.add({
-          targets: _slideGfx,
+        const _onSlideDone = () => {
+          _slideObjs.forEach(o => o.destroy());
+          this._activeSlideTween = null;
+          this._activeSlideObjs  = null;
+          this._activeSlideUnit  = null;
+          delete _animUnit._sliding;
+          this._redrawUnits();
+        };
+
+        this._activeSlideTween = this.tweens.add({
+          targets: _slideObjs,
           x: _slideTo.x,
           y: _slideTo.y,
           duration: 180,
           ease: 'Cubic.easeOut',
-          onComplete: () => {
-            _slideGfx.destroy();
-            delete _animUnit._sliding;
-            this._redrawUnits(); // reveal unit at final position
-          }
+          onComplete: _onSlideDone,
         });
         // Engineer auto-build: pop open the build submenu after moving
         if (UNIT_TYPES[this.selectedUnit.type].canBuild && this.settings.engineerAutoBuild) {
