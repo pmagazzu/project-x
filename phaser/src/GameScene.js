@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.9';
+const GAME_VERSION = 'v0.9.10';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2222,7 +2222,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.keyboard.enableGlobalCapture();
-    this.wasd = this.input.keyboard.addKeys('W,A,S,D');
+    this.wasd = this.input.keyboard.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT');
     this.input.keyboard.on('keydown-ESC',   () => { if (!this._endTurnPending) this._toggleSettings(); });
     this.input.keyboard.on('keydown-X',     () => { this._confirmEndTurn(); });
     this.input.keyboard.on('keydown-SPACE', () => {
@@ -2670,11 +2670,12 @@ export class GameScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const speed = 6 / cam.zoom;
     const W = this.wasd;
-    if (W.W.isDown) cam.scrollY -= speed;
-    if (W.S.isDown) cam.scrollY += speed;
-    if (W.A.isDown) cam.scrollX -= speed;
-    if (W.D.isDown) cam.scrollX += speed;
-    const moving = W.W.isDown || W.S.isDown || W.A.isDown || W.D.isDown;
+    if (W.W.isDown || W.UP.isDown)    cam.scrollY -= speed;
+    if (W.S.isDown || W.DOWN.isDown)  cam.scrollY += speed;
+    if (W.A.isDown || W.LEFT.isDown)  cam.scrollX -= speed;
+    if (W.D.isDown || W.RIGHT.isDown) cam.scrollX += speed;
+    const moving = W.W.isDown || W.S.isDown || W.A.isDown || W.D.isDown ||
+                   W.UP.isDown || W.DOWN.isDown || W.LEFT.isDown || W.RIGHT.isDown;
     if (moving && this._contextMenuObjs) this._hideContextMenu();
 
     // Drive slide animation: redraw units every frame while slide is in progress
