@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.8';
+const GAME_VERSION = 'v0.9.9';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -249,21 +249,97 @@ export class GameScene extends Phaser.Scene {
     const ENABLE_TERRAIN_ART = true;
     const hasAnyArt = ENABLE_TERRAIN_ART && Object.values(TERRAIN_ART_KEYS).some(k => this.textures.exists(k));
 
-    // Draw procedural terrain first
-    for (let q = 0; q < this.mapSize; q++) {
-      for (let r = 0; r < this.mapSize; r++) {
-        const ttype = this.terrain[`${q},${r}`] ?? 0;
-        const { x, y } = hexToWorld(q, r);
-        this._drawHex(this.terrainGfx, x, y, ttype, false, false);
-      }
-    }
+    // Bake hex fills + borders to a single canvas image.
+    // This replaces 40k+ individual Phaser Graphics draw calls with one static image.
+    // terrainGfx is left empty — _bakeTerrainBase handles all static terrain visuals.
+    this._bakeTerrainBase(artW, artH);
 
-    // If any art tiles loaded, bake them into an OffscreenCanvas -> single Phaser texture
+    // Bake terrain art (PNG tiles) on top of the base fills
     if (hasAnyArt) {
       this._bakeTerrainArt(artW, artH);
     }
     // Mountain peaks rendered as overflow sprites (not hex-clipped, sorted by world Y)
     this._buildMountainPeaks(artW, artH);
+  }
+
+  // ── Bake hex fills + borders to a single canvas image (depth 0) ──────────
+  // Replaces per-hex Phaser Graphics calls. terrainGfx is left empty after this.
+  // The terrain art bake (depth 2) renders on top and provides PNG tile visuals.
+  _bakeTerrainBase(artW, artH) {
+    const bounds  = getMapBounds(this.mapSize);
+    const padding = HEX_SIZE * 2;
+    const cw = Math.ceil(bounds.maxX - bounds.minX + padding * 2);
+    const ch = Math.ceil(bounds.maxY - bounds.minY + padding * 2);
+    const offX = bounds.minX - padding;
+    const offY = bounds.minY - padding;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = cw; canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+
+    // Convert Phaser integer color + alpha to CSS rgba string
+    const rgba = (hex, a) => {
+      const r = (hex >> 16) & 0xff, g = (hex >> 8) & 0xff, b = hex & 0xff;
+      return `rgba(${r},${g},${b},${a})`;
+    };
+
+    const hw = artW / 2, hh = artH / 2;
+    for (let q = 0; q < this.mapSize; q++) {
+      for (let r = 0; r < this.mapSize; r++) {
+        const ttype = this.terrain[`${q},${r}`] ?? 0;
+        const { x, y } = hexToWorld(q, r);
+        const cx = x - offX, cy = y - offY;
+        const colors = TERRAIN_COLORS[ttype];
+
+        // Flat-top hex vertices with ISO squish (same formula as _bakeTerrainArt clip)
+        const vx = [], vy = [];
+        for (let i = 0; i < 6; i++) {
+          const angle = (Math.PI / 3) * i;
+          vx.push(cx + hw * Math.cos(angle));
+          vy.push(cy + hh * Math.sin(angle));
+        }
+
+        // Base fill
+        ctx.beginPath();
+        ctx.moveTo(vx[0], vy[0]);
+        for (let i = 1; i < 6; i++) ctx.lineTo(vx[i], vy[i]);
+        ctx.closePath();
+        ctx.fillStyle = rgba(colors.fill, 1.0);
+        ctx.fill();
+
+        // Bevel highlight: top edges (verts 4-5-0-1-2)
+        ctx.beginPath();
+        ctx.moveTo(vx[4], vy[4]); ctx.lineTo(vx[5], vy[5]);
+        ctx.lineTo(vx[0], vy[0]); ctx.lineTo(vx[1], vy[1]); ctx.lineTo(vx[2], vy[2]);
+        ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+        ctx.lineWidth = 3; ctx.stroke();
+
+        // Bevel shadow: bottom edges (verts 2-3-4)
+        ctx.beginPath();
+        ctx.moveTo(vx[2], vy[2]); ctx.lineTo(vx[3], vy[3]); ctx.lineTo(vx[4], vy[4]);
+        ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+        ctx.lineWidth = 3; ctx.stroke();
+
+        // Outer border
+        ctx.beginPath();
+        ctx.moveTo(vx[0], vy[0]);
+        for (let i = 1; i < 6; i++) ctx.lineTo(vx[i], vy[i]);
+        ctx.closePath();
+        ctx.strokeStyle = rgba(colors.stroke, 1.0);
+        ctx.lineWidth = 1; ctx.stroke();
+      }
+    }
+
+    if (this.textures.exists('_terrain_base_baked')) {
+      this.textures.remove('_terrain_base_baked');
+    }
+    this.textures.addCanvas('_terrain_base_baked', canvas);
+
+    if (this._terrainBaseImg) { try { this._terrainBaseImg.destroy(); } catch(e){} }
+    // depth 0 within terrainArtLayer so terrain art (depth 2) renders on top
+    this._terrainBaseImg = this.add.image(offX, offY, '_terrain_base_baked')
+      .setOrigin(0, 0).setDepth(0);
+    if (this.terrainArtLayer) this.terrainArtLayer.add(this._terrainBaseImg);
   }
 
   _bakeTerrainArt(artW, artH) {
@@ -376,8 +452,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.mountainPeakLayer) return;
     this.mountainPeakLayer.removeAll(true);
 
-    // Collect mountain hexes and sort by world Y ascending (top-screen first)
-    // so later-added (higher world Y) sprites render on top -- correct painter order
+    // Collect mountain hexes sorted by world Y ascending (painter's algorithm: top rows first)
     const mtnHexes = [];
     for (let q = 0; q < this.mapSize; q++) {
       for (let r = 0; r < this.mapSize; r++) {
@@ -388,19 +463,45 @@ export class GameScene extends Phaser.Scene {
         }
       }
     }
+    if (mtnHexes.length === 0) return;
     mtnHexes.sort((a, b) => a.y - b.y);
 
-    // Sprite height = 2.5x artH; bottom-anchored at hex bottom edge
-    const sprH = artH * 2.5;
-    const bottomY = artH * 0.5; // offset from hex center to hex bottom edge
+    // Bake all peaks to a single canvas (replaces O(N) individual Image game objects).
+    // Each peak is drawn at artW × sprH, bottom-anchored at (x, y + bottomY).
+    const sprH   = artH * 2.5;
+    const bottomY = artH * 0.5;
+
+    const bounds  = getMapBounds(this.mapSize);
+    const padding = HEX_SIZE * 2;
+    const cw = Math.ceil(bounds.maxX - bounds.minX + padding * 2);
+    const ch = Math.ceil(bounds.maxY - bounds.minY + padding * 2);
+    const offX = bounds.minX - padding;
+    const offY = bounds.minY - padding;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = cw; canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+
     for (const { x, y, hash } of mtnHexes) {
       const varKey = `terrain_mountain_${(hash % MOUNTAIN_VARIANTS) + 1}`;
       if (!this.textures.exists(varKey)) continue;
-      const img = this.add.image(x, y + bottomY, varKey)
-        .setOrigin(0.5, 1.0)
-        .setDisplaySize(artW, sprH);
-      this.mountainPeakLayer.add(img);
+      const srcImg = this.textures.get(varKey).getSourceImage();
+      if (!srcImg || !srcImg.width) continue;
+      // dest rect: left = x - artW/2 - offX, top = y + bottomY - sprH - offY
+      const dx = x - offX - artW / 2;
+      const dy = y - offY + bottomY - sprH;
+      ctx.drawImage(srcImg, dx, dy, artW, sprH);
     }
+
+    if (this.textures.exists('_mountain_peaks_baked')) {
+      this.textures.remove('_mountain_peaks_baked');
+    }
+    this.textures.addCanvas('_mountain_peaks_baked', canvas);
+
+    if (this._mountainPeaksImg) { try { this._mountainPeaksImg.destroy(); } catch(e){} }
+    this._mountainPeaksImg = this.add.image(offX, offY, '_mountain_peaks_baked')
+      .setOrigin(0, 0).setDepth(1);
+    if (this.mountainPeakLayer) this.mountainPeakLayer.add(this._mountainPeaksImg);
   }
 
   // Draw resource deposit overlay using canvas 2D API (baked into terrain texture)
@@ -930,9 +1031,16 @@ export class GameScene extends Phaser.Scene {
   // ── Buildings ─────────────────────────────────────────────────────────────
   _redrawBuildings() {
     this.buildingGfx.clear();
+    // Viewport culling: skip buildings outside the visible area (large-map perf)
+    const _bvp = this.cameras.main.worldView;
+    const _bvpBuf = HEX_SIZE * 3;
+    const _bvpL = _bvp.x - _bvpBuf, _bvpR = _bvp.x + _bvp.width  + _bvpBuf;
+    const _bvpT = _bvp.y - _bvpBuf, _bvpB = _bvp.y + _bvp.height + _bvpBuf;
+
     for (const b of this.gameState.buildings) {
       if (b.type === 'ROAD') continue;
       const { x, y } = hexToWorld(b.q, b.r);
+      if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
       const color = b.owner ? PLAYER_COLORS[b.owner] : 0x888888;
       const s = HEX_SIZE * 0.3;
 
@@ -1217,6 +1325,7 @@ export class GameScene extends Phaser.Scene {
     for (const b of this.gameState.buildings) {
       if (!b.underConstruction) continue;
       const { x, y } = hexToWorld(b.q, b.r);
+      if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
       const prog = b.buildProgress || 0, total = b.buildTurnsRequired || 1;
       const lbl = this.add.text(x, y + HEX_SIZE * 0.26, `${prog}/${total}`, {
         font: 'bold 9px monospace', fill: '#ffcc00'
@@ -1230,6 +1339,11 @@ export class GameScene extends Phaser.Scene {
     this.unitGfx.clear();
     const gs  = this.gameState;
     const fog = this._currentFog;
+    // Viewport culling bounds (with buffer so units at edge aren't popped)
+    const _uvp = this.cameras.main.worldView;
+    const _uvpBuf = HEX_SIZE * 3;
+    const _uvpL = _uvp.x - _uvpBuf, _uvpR = _uvp.x + _uvp.width  + _uvpBuf;
+    const _uvpT = _uvp.y - _uvpBuf, _uvpB = _uvp.y + _uvp.height + _uvpBuf;
 
     for (const unit of gs.units) {
       // IGOUGO: all positions are real/immediate — no we-go display offset needed
@@ -1263,7 +1377,9 @@ export class GameScene extends Phaser.Scene {
         x = basePos.x;
         y = basePos.y;
       }
-      // y already set above (slide interpolation or basePos.y)
+      // Viewport cull — skip off-screen units (critical during slide animation at 60fps)
+      if (x < _uvpL || x > _uvpR || y < _uvpT || y > _uvpB) continue;
+
       const color = PLAYER_COLORS[unit.owner];
       const dim   = (unit.owner !== gs.currentPlayer);
       const alpha = dim ? 0.6 : 1.0;
