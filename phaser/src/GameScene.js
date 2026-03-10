@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.11';
+const GAME_VERSION = 'v0.9.12';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1606,6 +1606,21 @@ export class GameScene extends Phaser.Scene {
       this.unitGfx.fillStyle(0x111111, alpha); this.unitGfx.fillRect(bx, by, barW, barH);
       this.unitGfx.fillStyle(barColor, alpha); this.unitGfx.fillRect(bx, by, barW * pct, barH);
       this.unitGfx.lineStyle(1, 0x000000, alpha * 0.5); this.unitGfx.strokeRect(bx, by, barW, barH);
+
+      // Fuel pip row for air units (shown below health bar)
+      if (unit.fuel !== undefined && unit.fuelMax) {
+        const fuelY = by + barH + 3;
+        const pipW  = (barW - (unit.fuelMax - 1) * 1) / unit.fuelMax;
+        for (let fi = 0; fi < unit.fuelMax; fi++) {
+          const px = bx + fi * (pipW + 1);
+          const filled = fi < unit.fuel;
+          const pipColor = unit.fuel <= 1 ? 0xff3333 : unit.fuel <= 2 ? 0xff9900 : 0x44aaff;
+          this.unitGfx.fillStyle(filled ? pipColor : 0x222222, alpha);
+          this.unitGfx.fillRect(px, fuelY, pipW, 3);
+          this.unitGfx.lineStyle(0.5, 0x000000, alpha * 0.4);
+          this.unitGfx.strokeRect(px, fuelY, pipW, 3);
+        }
+      }
     }
   }
 
@@ -1658,36 +1673,37 @@ export class GameScene extends Phaser.Scene {
     const w = this.scale.width;
     const D = 100;
 
-    // Background
-    this.topBarBg = this.add.rectangle(w/2, 22, w, 44, 0x111111, 0.92)
+    // Background — slightly darker, cleaner
+    this.topBarBg = this.add.rectangle(w/2, 22, w, 44, 0x0a0a0a, 0.96)
       .setScrollFactor(0).setDepth(D);
+    // Bottom accent line on top bar
+    this.add.rectangle(w/2, 44, w, 1, 0x2a4a2a, 1).setScrollFactor(0).setDepth(D + 1);
 
     // Back to menu button (leftmost)
-    this.btnMenu = this._makeBtn(12, 11, '← MENU', 0x333333, () => this.scene.start('MenuScene'), D);
+    this.btnMenu = this._makeBtn(10, 11, '← MENU', 0x222222, () => this.scene.start('MenuScene'), D);
 
-    // Resource cells — positioned right of menu button
-    this.resIron = this._makeLabel(110, 11, '⚙ —', D);
-    this.resOil  = this._makeLabel(230, 11, '🛢 —', D);
-    this.resWood   = this._makeLabel(350, 11, '🪵 —', D);
+    // Resource cells — iron/oil/wood with colored labels
+    this.resIron = this._makeLabel(108, 11, '⚙ —', D);
+    this.resOil  = this._makeLabel(228, 11, '🛢 —', D);
+    this.resWood = this._makeLabel(348, 11, '🪵 —', D);
 
-    // Version tag
-    this.add.text(460, 11, GAME_VERSION, {
-      font: '11px monospace', fill: '#445566', backgroundColor: '#111111', padding: { x: 4, y: 4 }
+    // Version tag (subtle)
+    this.add.text(458, 13, GAME_VERSION, {
+      font: '10px monospace', fill: '#334455'
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(D);
 
+    // Turn / mode indicator (centered)
     this.turnLbl = this._makeLabel(w/2, 11, 'Turn 1 | Player 1 | PLANNING', D, true);
 
-    // Settings gear button
-    this.btnSettings = this._makeBtn(w - 160, 11, '⚙ Settings', 0x333355, () => this._toggleSettings(), D, 'right');
-
-    // Submit button (always visible in top-right)
-    this.btnSubmit = this._makeBtn(w - 10, 11, 'END TURN', 0x226622, () => this._confirmEndTurn(), D, 'right');
+    // Settings + End Turn buttons
+    this.btnSettings = this._makeBtn(w - 158, 11, '⚙ Settings', 0x222244, () => this._toggleSettings(), D, 'right');
+    this.btnSubmit   = this._makeBtn(w - 8,   11, 'END TURN',   0x1a5c1a, () => this._confirmEndTurn(), D, 'right');
   }
 
   _makeLabel(x, y, text, depth, center = false) {
     return this.add.text(x, y, text, {
-      font: '13px monospace', fill: '#dddddd',
-      backgroundColor: '#222222cc', padding: { x: 6, y: 4 }
+      font: '12px monospace', fill: '#ccddcc',
+      backgroundColor: '#141814', padding: { x: 6, y: 5 }
     }).setOrigin(center ? 0.5 : 0, 0).setScrollFactor(0).setDepth(depth);
   }
 
@@ -1731,16 +1747,21 @@ export class GameScene extends Phaser.Scene {
     const w = this.scale.width, h = this.scale.height;
     const panH = 120, D = 100;
 
-    // Left: unit info panel
-    this.unitPanel = this.add.rectangle(200, h - panH/2, 390, panH, 0x111111, 0.92)
-      .setStrokeStyle(1, 0x444444).setScrollFactor(0).setDepth(D);
-    this.unitNameTxt = this._makeLabel(14, h - panH + 8, '', D);
-    this.unitStatsTxt = this._makeLabel(14, h - panH + 30, '', D);
-    this.unitStatusTxt = this._makeLabel(14, h - panH + 70, '', D);
+    // Left: unit info panel — dark background with subtle top border accent
+    this.unitPanel = this.add.rectangle(200, h - panH/2, 390, panH, 0x0d0d0d, 0.96)
+      .setStrokeStyle(1, 0x2a3a2a).setScrollFactor(0).setDepth(D);
+    // Accent bar along top of panel
+    this.add.rectangle(200, h - panH, 390, 2, 0x3a5c3a, 1)
+      .setScrollFactor(0).setDepth(D + 1);
+    this.unitNameTxt   = this._makeLabel(10, h - panH + 6,  '', D);
+    this.unitStatsTxt  = this._makeLabel(10, h - panH + 28, '', D);
+    this.unitStatusTxt = this._makeLabel(10, h - panH + 68, '', D);
 
-    // Right: action buttons background (buttons rebuilt dynamically in _updateBottomPanel)
-    this.actionBg = this.add.rectangle(w - 200, h - panH/2, 390, panH, 0x111111, 0.92)
-      .setStrokeStyle(1, 0x444444).setScrollFactor(0).setDepth(D);
+    // Right: action buttons background
+    this.actionBg = this.add.rectangle(w - 200, h - panH/2, 390, panH, 0x0d0d0d, 0.96)
+      .setStrokeStyle(1, 0x2a3a2a).setScrollFactor(0).setDepth(D);
+    this.add.rectangle(w - 200, h - panH, 390, 2, 0x3a5c3a, 1)
+      .setScrollFactor(0).setDepth(D + 1);
 
     this._dynBtns = [];
     this._contextMenuUnit = null;
@@ -1778,7 +1799,13 @@ export class GameScene extends Phaser.Scene {
       const nameLabel = isOwnUnit && u.designId !== undefined ? `★ ${displayName}` : `[ ${displayName} ]`;
       this.unitNameTxt.setText(`${nameLabel}  P${u.owner}`);
       const ap = (u.moved ? 0 : 1) + (u.attacked ? 0 : 1);
-      this.unitStatsTxt.setText(`HP: ${u.health}/${u.maxHealth}  AP: ${ap}/2  SA: ${def.soft_attack}  HA: ${def.hard_attack}  PRC: ${def.pierce}  ARM: ${def.armor}  MOV: ${def.move}  RNG: ${def.range}`);
+      const fuelStr = u.fuel !== undefined
+        ? `  ⛽ ${u.fuel}/${u.fuelMax}${u.fuel <= 2 ? ' ⚠' : ''}`
+        : '';
+      this.unitStatsTxt.setText(
+        `HP: ${u.health}/${u.maxHealth}  AP: ${ap}/2${fuelStr}` +
+        `  SA: ${def.soft_attack}  HA: ${def.hard_attack}  PRC: ${def.pierce}  ARM: ${def.armor}  MOV: ${def.move}  RNG: ${def.range}`
+      );
       const pa = gs.pendingAttacks[u.id];
       let status = '';
       // Construction status takes priority
@@ -1788,9 +1815,15 @@ export class GameScene extends Phaser.Scene {
           const prog = bUnderConst.buildProgress || 0, total = bUnderConst.buildTurnsRequired || 1;
           status = `🔨 Building ${BUILDING_TYPES[bUnderConst.type].name}: ${prog}/${total} turns  (locked)`;
         }
+      } else if (u.fuel !== undefined) {
+        // Air unit status line
+        const fuelWarn = u.fuel <= 1 ? '🔴 FUEL CRITICAL — RTB now!  ' : u.fuel <= 2 ? '🟡 Low fuel — return to airfield  ' : '';
+        status += fuelWarn;
+        status += u.suppressed ? '⚡ SUPPRESSED  ' : u.moved ? '✓ Moved  ' : '○ Can move  ';
+        status += pa ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : '○ Can attack';
       } else {
         status += u.suppressed ? '⚡ SUPPRESSED  ' : u.moved ? '✓ Moved  ' : '○ Can move  ';
-        status += pa         ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : '○ Can attack  ';
+        status += pa ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : '○ Can attack  ';
         if (u.dugIn) status += '🪖 Dug in';
       }
       this.unitStatusTxt.setText(status);

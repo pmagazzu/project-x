@@ -55,9 +55,9 @@ export const UNIT_TYPES = {
   // antiAir:true     = can intercept/attack other air units with priority
   // Air units are based at an Airfield; move across any terrain at cost 1 per hex.
   // Sight is high — they can see further from altitude.
-  BIPLANE_FIGHTER: { name:'Biplane Fighter', move:8,  attack:3, health:3, range:2, cost:{iron:4,oil:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:4, hard_attack:2, pierce:2, armor:1, defense:0, evasion:10, accuracy:5,  buildTime:2, air:true, antiAir:true  },
-  LIGHT_BOMBER:    { name:'Light Bomber',    move:6,  attack:4, health:3, range:1, cost:{iron:5,oil:3}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:7, hard_attack:5, pierce:3, armor:1, defense:0, evasion:5,  accuracy:3,  buildTime:3, air:true, antiAir:false },
-  OBS_PLANE:       { name:'Obs. Plane',      move:10, attack:0, health:2, range:0, cost:{iron:3,oil:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:8, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:8,  accuracy:0,  buildTime:1, air:true, antiAir:false },
+  BIPLANE_FIGHTER: { name:'Biplane Fighter', move:8,  attack:3, health:3, range:2, cost:{iron:4,oil:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:4, hard_attack:2, pierce:2, armor:1, defense:0, evasion:10, accuracy:5,  buildTime:2, air:true, antiAir:true,  fuelMax:6  },
+  LIGHT_BOMBER:    { name:'Light Bomber',    move:6,  attack:4, health:3, range:1, cost:{iron:5,oil:3}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:7, hard_attack:5, pierce:3, armor:1, defense:0, evasion:5,  accuracy:3,  buildTime:3, air:true, antiAir:false, fuelMax:4  },
+  OBS_PLANE:       { name:'Obs. Plane',      move:10, attack:0, health:2, range:0, cost:{iron:3,oil:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:8, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:8,  accuracy:0,  buildTime:1, air:true, antiAir:false, fuelMax:8  },
 };
 
 // ── Module system ─────────────────────────────────────────────────────────
@@ -216,9 +216,12 @@ let _nextId = 1;
 
 export function createUnit(type, owner, q, r) {
   const def = UNIT_TYPES[type];
-  return { id: _nextId++, type, owner, q, r,
+  const unit = { id: _nextId++, type, owner, q, r,
     health: def.health, maxHealth: def.health,
     moved: false, attacked: false, dugIn: false, building: false };
+  // Air units start with a full fuel tank
+  if (def.fuelMax) { unit.fuel = def.fuelMax; unit.fuelMax = def.fuelMax; }
+  return unit;
 }
 
 export function createBuilding(type, owner, q, r) {
@@ -1196,6 +1199,23 @@ export function resolveTurn(state, terrain) {
     }
   }
 
+  // Phase 4b: Air unit fuel (both players)
+  for (const player of [1, 2]) {
+    for (const unit of state.units.filter(u => u.owner === player && u.fuel !== undefined)) {
+      const onAirfield = state.buildings.find(
+        b => b.q === unit.q && b.r === unit.r && b.type === 'AIRFIELD' &&
+             b.owner === player && !b.underConstruction
+      );
+      if (onAirfield) {
+        unit.fuel = unit.fuelMax;
+      } else {
+        unit.fuel = Math.max(0, unit.fuel - 1);
+        if (unit.fuel === 0) { unit.health = 0; events.push(`${UNIT_TYPES[unit.type].name} (P${player}) crashed — out of fuel!`); }
+      }
+    }
+  }
+  state.units = state.units.filter(u => u.health > 0);
+
   // Phase 5: Income
   for (const player of [1, 2]) {
     const inc = calcIncome(state, player);
@@ -1482,6 +1502,30 @@ export function resolveEndOfTurn(state, terrain) {
       events.push(`P${player} completed ${BUILDING_TYPES[b.type].name}!`);
     }
   }
+
+  // ── Air unit fuel ──────────────────────────────────────────────────────────
+  // At end of each player's turn: refuel if on friendly Airfield, else burn 1 fuel.
+  // Hitting 0 = crash (unit destroyed).
+  for (const unit of state.units.filter(u => u.owner === player && u.fuel !== undefined)) {
+    const onAirfield = state.buildings.find(
+      b => b.q === unit.q && b.r === unit.r && b.type === 'AIRFIELD' &&
+           b.owner === player && !b.underConstruction
+    );
+    if (onAirfield) {
+      unit.fuel = unit.fuelMax; // refueled
+      events.push(`${UNIT_TYPES[unit.type].name} (P${player}) refueled at Airfield`);
+    } else {
+      unit.fuel = Math.max(0, unit.fuel - 1);
+      if (unit.fuel === 0) {
+        events.push(`${UNIT_TYPES[unit.type].name} (P${player}) crashed — out of fuel!`);
+        unit.health = 0; // mark for removal below
+      } else if (unit.fuel === 1) {
+        events.push(`${UNIT_TYPES[unit.type].name} (P${player}) — FUEL CRITICAL (1 turn remaining)`);
+      }
+    }
+  }
+  // Remove crashed air units
+  state.units = state.units.filter(u => u.health > 0);
 
   // Income for current player
   const inc = calcIncome(state, player);
