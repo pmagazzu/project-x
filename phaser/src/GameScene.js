@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.6';
+const GAME_VERSION = 'v0.9.7';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -73,6 +73,9 @@ const SHALLOW_VARIANT_FILES = Array.from({length:SHALLOW_VARIANTS},(_,i)=>({key:
 // Light woods tile variants
 const LIGHTWOODS_VARIANTS = 10;
 const LIGHTWOODS_VARIANT_FILES = Array.from({length:LIGHTWOODS_VARIANTS},(_,i)=>({key:`terrain_lightwoods_${i+1}`,file:`user_art/lightwoods_tile_${String(i+1).padStart(2,'0')}.png`}));
+// Mountain tile variants
+const MOUNTAIN_VARIANTS = 10;
+const MOUNTAIN_VARIANT_FILES = Array.from({length:MOUNTAIN_VARIANTS},(_,i)=>({key:`terrain_mountain_${i+1}`,file:`user_art/mountain_tile_${String(i+1).padStart(2,'0')}.png`}));
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -99,6 +102,9 @@ export class GameScene extends Phaser.Scene {
       this.load.image(key, file);
     }
     for (const {key, file} of LIGHTWOODS_VARIANT_FILES) {
+      this.load.image(key, file);
+    }
+    for (const {key, file} of MOUNTAIN_VARIANT_FILES) {
       this.load.image(key, file);
     }
     this.load.on('loaderror', () => {}); // suppress console errors for missing tiles
@@ -292,6 +298,9 @@ export class GameScene extends Phaser.Scene {
           if (this.textures.exists(varKey)) artKey = varKey;
         } else if (ttype === 7) { // light woods
           const varKey = `terrain_lightwoods_${(_varHash % LIGHTWOODS_VARIANTS) + 1}`;
+          if (this.textures.exists(varKey)) artKey = varKey;
+        } else if (ttype === 2) { // mountain
+          const varKey = `terrain_mountain_${(_varHash % MOUNTAIN_VARIANTS) + 1}`;
           if (this.textures.exists(varKey)) artKey = varKey;
         }
         if (!artKey || !this.textures.exists(artKey)) continue;
