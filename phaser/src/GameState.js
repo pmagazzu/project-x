@@ -198,19 +198,80 @@ export const BUILDING_TYPES = {
   NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 4, canRecruit: ['BATTLESHIP'],             buildCost: { iron:16, oil: 6 }, color: 0x113366, sight: 3 },
   // Air buildings
   AIRFIELD:      { name: 'Airfield',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE'], buildCost: { iron: 6, oil: 2, wood: 2 }, color: 0x888844, sight: 3 },
+
+  // ── Tier 1 New Buildings ─────────────────────────────────────────────────
+  FARM:          { name: 'Farm',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 3, goldPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 3 }, color: 0x66aa44, sight: 2, placementTerrain: new Set([0, 6, 7]) }, // plains/sand/light woods only
+  MARKET:        { name: 'Market',         ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 2, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 4 }, color: 0xddaa22, sight: 2 },
+  SCIENCE_LAB:   { name: 'Science Lab',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, rpPerTurn: 3,  buildTurns: 4, canRecruit: [], buildCost: { iron: 6, oil: 0, wood: 4 }, color: 0x8844cc, sight: 2 },
+  TRENCH:        { name: 'Trench',         ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 2 }, color: 0x887755, sight: 1, defenseBonus: 4 },
+  AT_DITCH:      { name: 'AT Ditch',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 0 }, color: 0x886644, sight: 1, blocksVehicles: true },
+  PONTOON_BRIDGE:{ name: 'Pontoon Bridge', ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 2 }, color: 0xccbb88, sight: 1, isBridge: true },
 };
 
 export const RESOURCE_TYPES = {
   IRON:   { name: 'Iron Deposit',   buildingType: 'MINE',     color: 0xbbbbcc },
   OIL:    { name: 'Oil Deposit',    buildingType: 'OIL_PUMP', color: 0x334466 },
+  FOOD:   { name: 'Fertile Land',   buildingType: 'FARM',     color: 0x66aa44 },
 };
 
 export const PLAYER_COLORS = { 1: 0x4488ff, 2: 0xff4444 };
 
 export const STARTING_IRON      = 15;
 export const STARTING_OIL       = 4;
+export const STARTING_FOOD      = 8;
+export const STARTING_GOLD      = 0;
 export const BASE_IRON_PER_TURN = 3;
 export const BASE_OIL_PER_TURN  = 0;
+
+// ── Science Lab RP formula (stacking with diminishing returns) ─────────────
+// Lab 1: 3 RP/t, Lab 2: +2, Lab 3: +1, Lab 4+: +1 each
+export function calcRPFromLabs(labCount) {
+  let rp = 0;
+  for (let i = 0; i < labCount; i++) rp += Math.max(1, 3 - i);
+  return rp;
+}
+
+// ── Unit upkeep (per turn, decimal) ────────────────────────────────────────
+// Values are floating point — accumulated and deducted each turn.
+// Two turns unsupplied = unit deserts (removed from game).
+export const UNIT_UPKEEP = {
+  INFANTRY:        { food: 0.2, iron: 0.0, oil: 0.0 },
+  ENGINEER:        { food: 0.2, iron: 0.0, oil: 0.0 },
+  RECON:           { food: 0.1, iron: 0.0, oil: 0.2 },
+  MORTAR:          { food: 0.1, iron: 0.1, oil: 0.0 },
+  ANTI_TANK:       { food: 0.1, iron: 0.1, oil: 0.0 },
+  MEDIC:           { food: 0.2, iron: 0.0, oil: 0.0 },
+  TANK:            { food: 0.0, iron: 0.2, oil: 0.4 },
+  ARTILLERY:       { food: 0.0, iron: 0.1, oil: 0.2 },
+  PATROL_BOAT:     { food: 0.0, iron: 0.1, oil: 0.2 },
+  MTB:             { food: 0.0, iron: 0.1, oil: 0.3 },
+  SUBMARINE:       { food: 0.0, iron: 0.2, oil: 0.4 },
+  DESTROYER:       { food: 0.0, iron: 0.3, oil: 0.5 },
+  CRUISER_LT:      { food: 0.0, iron: 0.4, oil: 0.6 },
+  CRUISER_HV:      { food: 0.0, iron: 0.5, oil: 0.8 },
+  BATTLESHIP:      { food: 0.0, iron: 0.8, oil: 1.2 },
+  LANDING_CRAFT:   { food: 0.0, iron: 0.1, oil: 0.1 },
+  TRANSPORT_SM:    { food: 0.0, iron: 0.1, oil: 0.2 },
+  TRANSPORT_MD:    { food: 0.0, iron: 0.2, oil: 0.3 },
+  TRANSPORT_LG:    { food: 0.0, iron: 0.3, oil: 0.4 },
+  COASTAL_BATTERY: { food: 0.0, iron: 0.1, oil: 0.0 },
+  BIPLANE_FIGHTER: { food: 0.0, iron: 0.2, oil: 0.4 },
+  LIGHT_BOMBER:    { food: 0.0, iron: 0.3, oil: 0.5 },
+  OBS_PLANE:       { food: 0.0, iron: 0.1, oil: 0.3 },
+};
+
+// Compute total upkeep for all of a player's units
+export function calcUpkeep(state, player) {
+  let food = 0, iron = 0, oil = 0;
+  for (const unit of state.units) {
+    if (unit.owner !== player || unit.embarked) continue;
+    const base = UNIT_UPKEEP[unit.type] || { food: 0, iron: 0, oil: 0 };
+    food += base.food;
+    iron += base.iron;
+    oil  += base.oil;
+  }
+  return { food: +food.toFixed(2), iron: +iron.toFixed(2), oil: +oil.toFixed(2) };
+}
 
 let _nextId = 1;
 
@@ -231,22 +292,38 @@ export function createBuilding(type, owner, q, r) {
 
 export function createGameState(scenario = 'default') {
   _nextId = 1; // reset IDs on new game
+  const makePlayer = (iron, oil, wood) => ({
+    iron, oil, wood: wood || 0,
+    food: STARTING_FOOD, gold: STARTING_GOLD,
+    // Research state
+    rp: 0,
+    research: {
+      queue:    [],        // [{ techId, rpSpent }] — index 0 is active
+      unlocked: [],        // array of tech ids (serializable)
+      slots:    1,         // active research slots (default 1, Science branch unlocks more)
+    },
+    // Upkeep debt tracker (2 turns = desert)
+    upkeepDebt: { food: 0, iron: 0, oil: 0 },
+    submitted: false,
+  });
+
   const state = {
     turn: 1, phase: 'planning', currentPlayer: 1,
     scenario,
     players: {
-      1: { iron: STARTING_IRON, oil: STARTING_OIL, wood: 0, submitted: false },
-      2: { iron: STARTING_IRON, oil: STARTING_OIL, wood: 0, submitted: false },
+      1: makePlayer(STARTING_IRON, STARTING_OIL, 0),
+      2: makePlayer(STARTING_IRON, STARTING_OIL, 0),
     },
     units: [], buildings: [], resourceHexes: {},
     pendingMoves: {}, pendingAttacks: {}, pendingRecruits: [],
     designs: { 1: [], 2: [] },
+    tradeOffers: [],  // active trade contract offers
   };
 
   if (scenario === 'random' || scenario === 'custom') {
     // Terrain + spawns placed procedurally by GameScene after terrain gen
-    state.players[1].iron = 20; state.players[1].oil = 6;
-    state.players[2].iron = 20; state.players[2].oil = 6;
+    state.players[1].iron = 20; state.players[1].oil = 6; state.players[1].food = 10;
+    state.players[2].iron = 20; state.players[2].oil = 6; state.players[2].food = 10;
 
   } else if (scenario === 'scout') {
     // Two engineers each, far apart — explore and build
@@ -755,17 +832,24 @@ export function computeFog(state, player, mapSize, terrain) {
 }
 
 // ── Income ─────────────────────────────────────────────────────────────────
-export function calcIncome(state, player) {
-  let iron = BASE_IRON_PER_TURN, oil = BASE_OIL_PER_TURN, wood = 0;
+export function calcIncome(state, player, techBonuses = null) {
+  let iron = BASE_IRON_PER_TURN, oil = BASE_OIL_PER_TURN, wood = 0, food = 0, gold = 0;
+  const labs = state.buildings.filter(b => b.type === 'SCIENCE_LAB' && b.owner === player && !b.underConstruction).length;
+  const baseRpBonus = techBonuses?.rpBonusPerLab || 0;
+  const rp = calcRPFromLabs(labs) + labs * baseRpBonus;
   for (const b of state.buildings) {
     if (b.owner !== player) continue;
-    if (b.underConstruction) continue; // no income while building
+    if (b.underConstruction) continue;
     const def = BUILDING_TYPES[b.type];
-    iron += def.ironPerTurn;
-    oil  += def.oilPerTurn;
-    wood += def.woodPerTurn || 0;
+    // Tech bonuses for building output
+    const bonus = techBonuses?.buildingBonus?.[b.type] || {};
+    iron += (def.ironPerTurn || 0) + (bonus.ironPerTurn || 0);
+    oil  += (def.oilPerTurn  || 0) + (bonus.oilPerTurn  || 0);
+    wood += (def.woodPerTurn || 0) + (bonus.woodPerTurn || 0);
+    food += (def.foodPerTurn || 0) + (bonus.foodPerTurn || 0);
+    gold += (def.goldPerTurn || 0) + (bonus.goldPerTurn || 0);
   }
-  return { iron, oil, wood };
+  return { iron, oil, wood, food, gold, rp };
 }
 
 // ── Recruitment ────────────────────────────────────────────────────────────
@@ -1536,13 +1620,81 @@ export function resolveEndOfTurn(state, terrain) {
   // Remove crashed air units
   state.units = state.units.filter(u => u.health > 0);
 
-  // Income for current player
+  // ── Unit upkeep deduction ─────────────────────────────────────────────────
+  const upkeep = calcUpkeep(state, player);
+  const pl = state.players[player];
+  if (!pl.upkeepDebt) pl.upkeepDebt = { food: 0, iron: 0, oil: 0 };
+  let unsuppliedCount = 0;
+  // For each resource: deduct. If can't afford, accumulate debt.
+  for (const res of ['food', 'iron', 'oil']) {
+    const cost = upkeep[res];
+    if (cost <= 0) continue;
+    if (pl[res] >= cost) {
+      pl[res] = +((pl[res] - cost).toFixed(2));
+      pl.upkeepDebt[res] = 0; // cleared
+    } else {
+      // Can't fully pay — take what's available, mark debt
+      pl[res] = 0;
+      pl.upkeepDebt[res] = (pl.upkeepDebt[res] || 0) + 1;
+      unsuppliedCount++;
+    }
+  }
+  // Apply unsupplied penalty to ALL current player's units
+  if (unsuppliedCount > 0) {
+    for (const unit of state.units.filter(u => u.owner === player)) {
+      unit.unsupplied = (unit.unsupplied || 0) + 1;
+      // Two turns unsupplied = unit deserts
+      if (unit.unsupplied >= 2) {
+        events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) deserted — no supplies!`);
+        unit.health = 0; // mark for removal
+      } else {
+        events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) UNSUPPLIED (-move, -attack)`);
+      }
+    }
+    state.units = state.units.filter(u => u.health > 0);
+  } else {
+    // Clear unsupplied flags when resources are restored
+    for (const unit of state.units.filter(u => u.owner === player)) {
+      unit.unsupplied = 0;
+    }
+    pl.upkeepDebt = { food: 0, iron: 0, oil: 0 };
+  }
+
+  // ── Research tick (TECH_TREE injected from GameScene via state._techTree) ──
+  const _TECH_TREE = state._techTree || {};
   const inc = calcIncome(state, player);
+  if (inc.rp > 0) {
+    const resState = pl.research;
+    if (!resState) { pl.research = { queue: [], unlocked: [], slots: 1 }; }
+    // Spend RP on queued research (up to `slots` active at once)
+    const activeCount = Math.min(resState.queue.length, resState.slots || 1);
+    for (let qi = 0; qi < activeCount; qi++) {
+      const item = resState.queue[qi];
+      if (!item) continue;
+      const tech = _TECH_TREE[item.techId];
+      if (!tech) { resState.queue.splice(qi, 1); qi--; continue; }
+      const rpGain = inc.rp / Math.max(1, activeCount);
+      item.rpSpent = (item.rpSpent || 0) + rpGain;
+      if (item.rpSpent >= tech.cost) {
+        resState.unlocked.push(item.techId);
+        resState.queue.splice(qi, 1); qi--;
+        events.push(`P${player} researched: ${tech.name}!`);
+        if (tech.effect.extraResearchSlots) resState.slots = (resState.slots || 1) + tech.effect.extraResearchSlots;
+      }
+    }
+  }
+
+  // Income for current player
   state.players[player].iron += inc.iron;
   state.players[player].oil  += inc.oil;
   state.players[player].wood  = (state.players[player].wood || 0) + inc.wood;
+  state.players[player].food  = +((state.players[player].food  || 0) + inc.food).toFixed(2);
+  state.players[player].gold  = +((state.players[player].gold  || 0) + inc.gold).toFixed(2);
   let incStr = `P${player} +${inc.iron} iron, +${inc.oil} oil`;
-  if (inc.wood > 0) incStr += `, +${inc.wood} wood`;
+  if (inc.wood  > 0) incStr += `, +${inc.wood} wood`;
+  if (inc.food  > 0) incStr += `, +${inc.food} food`;
+  if (inc.gold  > 0) incStr += `, +${inc.gold} gold`;
+  if (inc.rp    > 0) incStr += `, +${inc.rp} RP`;
   events.push(incStr);
 
   // Reset current player's units for next turn

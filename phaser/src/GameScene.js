@@ -9,11 +9,13 @@ import {
   createGameState, createUnit, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
   findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
+  calcUpkeep, calcRPFromLabs,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, computeDesignStats,
   NAVAL_UNITS, SHALLOW_UNITS, AIR_UNITS, canEnterTerrain, isStealthDetected
 } from './GameState.js';
+import { TECH_TREE, RESEARCH_BRANCHES, prereqsMet, computeTechBonuses } from './ResearchData.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
 const TERRAIN        = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2, HILL: 3, SHALLOW: 4, OCEAN: 5, SAND: 6 };
@@ -32,7 +34,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.18';
+const GAME_VERSION = 'v1.0.0';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -133,6 +135,7 @@ export class GameScene extends Phaser.Scene {
     this.mapSeed = (this.scenario === 'random' || this.scenario === 'custom') ? (Date.now() & 0xFFFFFF) : 0;
 
     this.gameState = createGameState(this.scenario);
+    this.gameState._techTree = TECH_TREE; // inject for resolveEndOfTurn research tick
     this.terrain   = this._generateTerrain();
     // After terrain is known, relocate any naval unit that spawned on invalid terrain
     this._fixNavalSpawns();
@@ -1301,6 +1304,84 @@ export class GameScene extends Phaser.Scene {
         g.beginPath(); g.moveTo(x - s*0.55, y + s*0.15); g.lineTo(x + s*0.55, y + s*0.15); g.strokePath();
         g.beginPath(); g.moveTo(x - s*0.1, y + s*0.15); g.lineTo(x - s*0.35, y - s*0.05); g.lineTo(x + s*0.25, y - s*0.05); g.lineTo(x + s*0.15, y + s*0.15); g.strokePath();
         g.beginPath(); g.moveTo(x - s*0.1, y + s*0.15); g.lineTo(x - s*0.35, y + s*0.35); g.lineTo(x + s*0.25, y + s*0.35); g.lineTo(x + s*0.15, y + s*0.15); g.strokePath();
+
+      } else if (b.type === 'FARM') {
+        // Farm: green field rows + small barn
+        const bw = s * 1.8, bh = s * 1.2;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
+        // Crop rows (green lines)
+        g.lineStyle(1.5, 0x44bb44, 0.75);
+        for (let i = 0; i < 4; i++) {
+          const ry = y - bh/2 + 4 + i * (bh - 8) / 3;
+          g.beginPath(); g.moveTo(x - bw/2 + 4, ry); g.lineTo(x + bw/2 - 4, ry); g.strokePath();
+        }
+        // Barn silhouette
+        g.fillStyle(0xaa4422, 0.9); g.fillRect(x + bw/2 - s*0.55, y - s*0.35, s*0.45, s*0.4);
+        g.fillStyle(0x882200, 0.9);
+        g.fillTriangle(x + bw/2 - s*0.58, y - s*0.35, x + bw/2 + s*0.01, y - s*0.35, x + bw/2 - s*0.28, y - s*0.65);
+
+      } else if (b.type === 'MARKET') {
+        // Market: team-colored stall + awning stripes
+        const bw = s * 1.8, bh = s * 0.9;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
+        // Awning stripes
+        const stripeW = bw / 5;
+        for (let i = 0; i < 5; i++) {
+          g.fillStyle(i%2===0 ? 0xffffff : color, 0.4);
+          g.fillRect(x - bw/2 + i*stripeW, y - bh/2 - s*0.4, stripeW, s*0.4);
+        }
+        // Gold coin symbol
+        g.fillStyle(0xffcc00, 0.95); g.fillCircle(x, y + s*0.05, s*0.25);
+        g.lineStyle(1.5, 0x000000, 0.3); g.strokeCircle(x, y + s*0.05, s*0.25);
+        g.lineStyle(1, 0x000000, 0.5);
+        g.beginPath(); g.moveTo(x, y - s*0.12); g.lineTo(x, y + s*0.22); g.strokePath();
+
+      } else if (b.type === 'SCIENCE_LAB') {
+        // Science Lab: dark building + flask symbol + antenna
+        const bw = s * 1.7, bh = s * 1.1;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
+        g.fillStyle(0x000000, 0.25); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
+        // Antenna
+        g.fillStyle(0xffffff, 0.9); g.fillRect(x - s*0.05, y - bh/2 - s*0.8, s*0.1, s*0.8);
+        g.fillStyle(0xcc88ff, 0.9); g.fillCircle(x, y - bh/2 - s*0.85, s*0.12);
+        // Flask icon (purple outline)
+        g.lineStyle(2, 0xcc88ff, 0.95);
+        g.beginPath();
+        g.moveTo(x - s*0.18, y - s*0.3); g.lineTo(x - s*0.18, y - s*0.05);
+        g.lineTo(x - s*0.35, y + s*0.3); g.lineTo(x + s*0.35, y + s*0.3);
+        g.lineTo(x + s*0.18, y - s*0.05); g.lineTo(x + s*0.18, y - s*0.3);
+        g.strokePath();
+        // Flask liquid fill
+        g.fillStyle(0x8844cc, 0.55); g.fillRect(x - s*0.3, y + s*0.1, s*0.6, s*0.18);
+
+      } else if (b.type === 'TRENCH') {
+        // Trench: earthy zigzag
+        g.fillStyle(0x887755, 0.7);
+        g.fillRect(x - s*0.9, y - s*0.15, s*1.8, s*0.3);
+        g.lineStyle(2, 0x665533, 0.9);
+        g.beginPath(); g.moveTo(x - s*0.8, y); g.lineTo(x - s*0.4, y - s*0.3);
+        g.lineTo(x, y + s*0.1); g.lineTo(x + s*0.4, y - s*0.3); g.lineTo(x + s*0.8, y); g.strokePath();
+
+      } else if (b.type === 'AT_DITCH') {
+        // AT Ditch: dark diagonal cuts
+        g.fillStyle(0x553300, 0.8); g.fillRect(x - s*0.9, y - s*0.2, s*1.8, s*0.4);
+        g.lineStyle(2, 0x221100, 0.9);
+        for (let i = -3; i <= 3; i++) {
+          g.beginPath(); g.moveTo(x + i*s*0.28 - s*0.15, y - s*0.2);
+          g.lineTo(x + i*s*0.28 + s*0.15, y + s*0.2); g.strokePath();
+        }
+
+      } else if (b.type === 'PONTOON_BRIDGE') {
+        // Pontoon Bridge: light brown planks over water
+        g.fillStyle(0xccbb88, 0.85); g.fillRect(x - s*0.95, y - s*0.18, s*1.9, s*0.36);
+        g.lineStyle(1.5, 0x998866, 0.8);
+        for (let i = -3; i <= 3; i++) {
+          const bx = x + i * s*0.28;
+          g.beginPath(); g.moveTo(bx, y - s*0.18); g.lineTo(bx, y + s*0.18); g.strokePath();
+        }
+        // Float circles
+        g.fillStyle(0x8899aa, 0.6);
+        for (let i = -2; i <= 2; i++) g.fillCircle(x + i*s*0.35, y, s*0.1);
       }
 
       // ── Under-construction overlay ──────────────────────────────────────
@@ -1733,20 +1814,24 @@ export class GameScene extends Phaser.Scene {
     // Back to menu button (leftmost)
     this.btnMenu = this._makeBtn(10, 11, '← MENU', 0x222222, () => this.scene.start('MenuScene'), D);
 
-    // Resource cells — iron/oil/wood with colored labels
+    // Resource cells — iron/oil/wood/food/gold/rp
     this.resIron = this._makeLabel(108, 11, '⚙ —', D);
-    this.resOil  = this._makeLabel(228, 11, '🛢 —', D);
-    this.resWood = this._makeLabel(348, 11, '🪵 —', D);
+    this.resOil  = this._makeLabel(208, 11, '🛢 —', D);
+    this.resWood = this._makeLabel(308, 11, '🪵 —', D);
+    this.resFood = this._makeLabel(400, 11, '🍞 —', D);
+    this.resGold = this._makeLabel(490, 11, '💰 —', D);
+    this.resRp   = this._makeLabel(570, 11, '⚗ —', D);
 
     // Version tag (subtle)
-    this.add.text(458, 13, GAME_VERSION, {
+    this.add.text(658, 13, GAME_VERSION, {
       font: '10px monospace', fill: '#334455'
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(D);
 
     // Turn / mode indicator (centered)
     this.turnLbl = this._makeLabel(w/2, 11, 'Turn 1 | Player 1 | PLANNING', D, true);
 
-    // Settings + End Turn buttons
+    // Research button + Settings + End Turn
+    this.btnResearch = this._makeBtn(w - 272, 11, '⚗ RESEARCH', 0x442266, () => this._toggleResearch(), D, 'right');
     this.btnSettings = this._makeBtn(w - 158, 11, '⚙ Settings', 0x222244, () => this._toggleSettings(), D, 'right');
     this.btnSubmit   = this._makeBtn(w - 8,   11, 'END TURN',   0x1a5c1a, () => this._confirmEndTurn(), D, 'right');
   }
@@ -1787,9 +1872,30 @@ export class GameScene extends Phaser.Scene {
         }).join(' ')
       : '';
 
-    this.resIron.setText(`⚙ ${pl.iron}  (+${inc.iron}/t)`);
-    this.resOil.setText(`🛢 ${pl.oil}  (+${inc.oil}/t)`);
-    this.resWood.setText(`🪵 ${pl.wood || 0}${inc.wood > 0 ? `  (+${inc.wood}/t)` : ''}`);
+    const upkeep = calcUpkeep(gs, p);
+    const unsupplied = gs.players[p].upkeepDebt && (gs.players[p].upkeepDebt.food > 0 || gs.players[p].upkeepDebt.iron > 0 || gs.players[p].upkeepDebt.oil > 0);
+    const warnClr = unsupplied ? '#ff6644' : '#ccddcc';
+
+    const fmtRes = (v) => typeof v === 'number' ? (v % 1 === 0 ? v : v.toFixed(1)) : '—';
+
+    this.resIron.setText(`⚙ ${fmtRes(pl.iron)}${upkeep.iron > 0 ? `(-${upkeep.iron.toFixed(1)})` : `(+${inc.iron})`}`);
+    this.resOil.setText(`🛢 ${fmtRes(pl.oil)}${upkeep.oil > 0 ? `(-${upkeep.oil.toFixed(1)})` : `(+${inc.oil})`}`);
+    this.resWood.setText(`🪵 ${fmtRes(pl.wood || 0)}${inc.wood > 0 ? `(+${inc.wood})` : ''}`);
+    this.resFood.setText(`🍞 ${fmtRes(pl.food || 0)}${upkeep.food > 0 ? `(-${upkeep.food.toFixed(1)})` : inc.food > 0 ? `(+${inc.food})` : ''}`);
+    this.resGold.setText(`💰 ${fmtRes(pl.gold || 0)}${inc.gold > 0 ? `(+${inc.gold})` : ''}`);
+    // Research RP display
+    const resState = pl.research;
+    const activeRes = resState?.queue?.[0];
+    const activeTech = activeRes ? TECH_TREE[activeRes.techId] : null;
+    const rpPct = activeTech ? Math.floor(((activeRes.rpSpent || 0) / activeTech.cost) * 100) : 0;
+    const rpStr = activeTech ? `${activeTech.name.substring(0,10)} ${rpPct}%` : 'idle';
+    this.resRp.setText(`⚗ ${rpStr}  (+${inc.rp}/t)`);
+    if (unsupplied) {
+      this.resFood.setStyle({ fill: '#ff6644' });
+    } else {
+      this.resFood.setStyle({ fill: '#ccddcc' });
+    }
+
     this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  ${modeStr}${queueStr}`);
   }
 
@@ -2565,6 +2671,13 @@ export class GameScene extends Phaser.Scene {
       // Defensive structures
       if (noBuilding) allOpts.push({ label: `Bunker      3⚙ 2🪵`,   cost:{iron:3,oil:0,wood:2},  enabled: iron>=3&&wood>=2, cb: () => this._onBuildStructure('BUNKER',3,0,2) });
       if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙`,       cost:{iron:3,oil:0},         enabled: iron>=3,          cb: () => this._onBuildStructure('OBS_POST',3) });
+      // Economy & Production
+      const foodGold = gs.players[p].food || 0;
+      const gold = gs.players[p].gold || 0;
+      const onPlains = (ttype === 0 || ttype === 6 || ttype === 7);
+      if (noBuilding && onPlains) allOpts.push({ label: `Farm 🍞     2⚙ 3🪵`,   cost:{iron:2,oil:0,wood:3}, enabled: iron>=2&&wood>=3, cb: () => this._onBuildStructure('FARM',2,0,3) });
+      if (noBuilding) allOpts.push({ label: `Market 💰   3⚙ 4🪵`,             cost:{iron:3,oil:0,wood:4}, enabled: iron>=3&&wood>=4, cb: () => this._onBuildStructure('MARKET',3,0,4) });
+      if (noBuilding) allOpts.push({ label: `Science Lab ⚗  6⚙ 4🪵`,         cost:{iron:6,oil:0,wood:4}, enabled: iron>=6&&wood>=4, cb: () => this._onBuildStructure('SCIENCE_LAB',6,0,4) });
       // Coastal Battery — spawns as immobile unit (no building on hex required)
       allOpts.push({ label: `Coast. Battery 6⚙ 1🛢`, cost:{iron:6,oil:1}, enabled: iron>=6&&oil>=1, cb: () => this._onBuildCoastalBattery() });
       // Future entries just go here — pagination handles overflow automatically
@@ -2799,6 +2912,179 @@ export class GameScene extends Phaser.Scene {
       this._settingsObjs = null;
     }
     this._settingsOpen = false;
+  }
+
+  // ── Research Panel ─────────────────────────────────────────────────────────
+  _toggleResearch() {
+    if (this._researchOpen) { this._closeResearch(); }
+    else { this._openResearch(); }
+  }
+
+  _openResearch() {
+    this._closeResearch();
+    this._closeSettings();
+    this._researchOpen = true;
+    const gs = this.gameState;
+    const p  = gs.currentPlayer;
+    const pl = gs.players[p];
+    const res = pl.research || { queue: [], unlocked: [], slots: 1 };
+    const unlockedSet = new Set(res.unlocked || []);
+    const w = this.scale.width, h = this.scale.height;
+    const panW = Math.min(720, w - 40), panH = Math.min(520, h - 80);
+    const px = w / 2, py = h / 2;
+    const D = 195;
+    const objs = [];
+
+    // Panel background
+    const bg = this.add.rectangle(px, py, panW, panH, 0x0d0d1a, 0.97)
+      .setStrokeStyle(2, 0x664499).setScrollFactor(0).setDepth(D);
+    objs.push(bg);
+    objs.push(this.add.text(px, py - panH/2 + 14, '── RESEARCH ──', {
+      font: 'bold 14px monospace', fill: '#cc88ff'
+    }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+1));
+
+    // Labs info
+    const labs = gs.buildings.filter(b => b.type === 'SCIENCE_LAB' && b.owner === p && !b.underConstruction).length;
+    const inc = calcIncome(gs, p);
+    const bonuses = computeTechBonuses(unlockedSet);
+    const rpBonus = bonuses.rpBonusPerLab;
+    objs.push(this.add.text(px, py - panH/2 + 32, `Science Labs: ${labs}  |  RP/turn: +${inc.rp}  |  Slots: ${res.slots || 1}`, {
+      font: '11px monospace', fill: '#9966cc'
+    }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+1));
+
+    // Branch tabs
+    const branches = Object.entries(RESEARCH_BRANCHES);
+    const tabW = Math.floor((panW - 20) / branches.length);
+    const tabY = py - panH/2 + 52;
+    let selBranch = this._researchSelBranch || branches[0][0];
+    const _TECH_TREE = TECH_TREE;
+
+    const makePanel = (branch) => {
+      // Clear existing content (but keep bg/header/tabs)
+      if (this._researchContentObjs) {
+        for (const o of this._researchContentObjs) { try { o.destroy(); } catch(e){} }
+      }
+      this._researchContentObjs = [];
+      this._researchSelBranch = branch;
+      const addC = (obj) => { this._researchContentObjs.push(obj); this._addToUI([obj]); };
+
+      const techs = Object.values(_TECH_TREE).filter(t => t.branch === branch);
+      const cellW = Math.floor((panW - 30) / 2);
+      const cellH = 72;
+      const startX = px - panW/2 + 15;
+      const startY = tabY + 28;
+
+      techs.forEach((tech, idx) => {
+        const col = idx % 2, row = Math.floor(idx / 2);
+        const cx = startX + col * (cellW + 10);
+        const cy = startY + row * (cellH + 6);
+        const isUnlocked = unlockedSet.has(tech.id);
+        const inQueue = res.queue.some(q => q.techId === tech.id);
+        const active = res.queue[0]?.techId === tech.id;
+        const prereqOk = prereqsMet(tech.id, unlockedSet);
+        const canQueue = !isUnlocked && !inQueue && prereqOk;
+
+        let bgColor = isUnlocked ? 0x1a3a1a : (inQueue ? 0x1a1a3a : (prereqOk ? 0x1a1a2a : 0x111118));
+        const cellBg = this.add.rectangle(cx + cellW/2, cy + cellH/2, cellW, cellH, bgColor, 0.95)
+          .setStrokeStyle(active ? 2 : 1, active ? 0xcc88ff : (isUnlocked ? 0x44aa44 : 0x334455))
+          .setScrollFactor(0).setDepth(D+2).setOrigin(0.5, 0.5);
+        addC(cellBg);
+
+        const statusTag = isUnlocked ? '✓' : (active ? '▶' : (inQueue ? '◌' : (prereqOk ? '' : '🔒')));
+        addC(this.add.text(cx + 4, cy + 4, `${statusTag} ${tech.name}`, {
+          font: `bold 11px monospace`, fill: isUnlocked ? '#66cc66' : (prereqOk ? '#ddccff' : '#556677'),
+          wordWrap: { width: cellW - 8 }
+        }).setScrollFactor(0).setDepth(D+3));
+        addC(this.add.text(cx + 4, cy + 22, tech.desc, {
+          font: '10px monospace', fill: '#8888aa',
+          wordWrap: { width: cellW - 8 }
+        }).setScrollFactor(0).setDepth(D+3));
+
+        // Progress bar if in queue
+        if (inQueue) {
+          const item = res.queue.find(q => q.techId === tech.id);
+          const pct  = Math.min(1, (item.rpSpent || 0) / tech.cost);
+          addC(this.add.rectangle(cx + 4, cy + cellH - 10, (cellW - 8) * pct, 6, 0x8844ff, 1).setScrollFactor(0).setDepth(D+3).setOrigin(0,0.5));
+          addC(this.add.rectangle(cx + 4, cy + cellH - 10, cellW - 8, 6, 0x334455, 0.4).setScrollFactor(0).setDepth(D+2).setOrigin(0,0.5));
+          addC(this.add.text(cx + cellW - 4, cy + cellH - 10, `${Math.round(pct*100)}%`, {
+            font: '9px monospace', fill: '#9966cc'
+          }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D+3));
+        }
+
+        // Cost / Queue button
+        if (canQueue) {
+          const qBtn = this.add.text(cx + cellW - 4, cy + 4, `▶ Queue (${tech.cost} RP)`, {
+            font: '10px monospace', fill: '#ffcc44',
+            backgroundColor: '#2a1a44', padding: { x: 4, y: 2 }
+          }).setOrigin(1, 0).setScrollFactor(0).setDepth(D+4).setInteractive({ useHandCursor: true });
+          qBtn.on('pointerdown', () => {
+            this._contextMenuClicked = true;
+            if (!pl.research) pl.research = { queue: [], unlocked: [], slots: 1 };
+            pl.research.queue.push({ techId: tech.id, rpSpent: 0 });
+            this._closeResearch();
+            this._openResearch();
+          });
+          qBtn.on('pointerover', () => qBtn.setAlpha(0.8));
+          qBtn.on('pointerout',  () => qBtn.setAlpha(1.0));
+          addC(qBtn);
+        }
+        // Cancel button for queued
+        if (inQueue && !isUnlocked) {
+          const cBtn = this.add.text(cx + 4, cy + cellH - 22, '✕ Cancel', {
+            font: '10px monospace', fill: '#ff6644',
+            backgroundColor: '#2a1111', padding: { x: 3, y: 2 }
+          }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+4).setInteractive({ useHandCursor: true });
+          cBtn.on('pointerdown', () => {
+            this._contextMenuClicked = true;
+            pl.research.queue = pl.research.queue.filter(q => q.techId !== tech.id);
+            this._closeResearch();
+            this._openResearch();
+          });
+          cBtn.on('pointerover', () => cBtn.setAlpha(0.8));
+          cBtn.on('pointerout',  () => cBtn.setAlpha(1.0));
+          addC(cBtn);
+        }
+      });
+    };
+
+    // Draw tabs
+    branches.forEach(([key, branchDef], i) => {
+      const tx = px - panW/2 + 10 + i * (tabW + 2) + tabW/2;
+      const isSel = key === selBranch;
+      const tabBg = this.add.rectangle(tx, tabY, tabW, 22, isSel ? 0x442266 : 0x1a1a2a, 1)
+        .setStrokeStyle(1, isSel ? 0xcc88ff : 0x334455).setScrollFactor(0).setDepth(D+2).setOrigin(0.5, 0.5);
+      const tabTxt = this.add.text(tx, tabY, `${branchDef.icon} ${branchDef.label}`, {
+        font: `${isSel ? 'bold ' : ''}10px monospace`, fill: isSel ? '#cc88ff' : '#778899'
+      }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+3);
+      tabBg.setInteractive({ useHandCursor: true });
+      tabBg.on('pointerdown', () => { this._contextMenuClicked = true; makePanel(key); });
+      objs.push(tabBg, tabTxt);
+    });
+
+    // Close button
+    const closeBtn = this.add.text(px + panW/2 - 8, py - panH/2 + 8, '✕', {
+      font: 'bold 16px monospace', fill: '#cc4444',
+      backgroundColor: '#220000', padding: { x: 6, y: 3 }
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(D+4).setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerdown', () => this._closeResearch());
+    objs.push(closeBtn);
+
+    this._addToUI(objs);
+    this._researchObjs = objs;
+    this._researchContentObjs = [];
+    makePanel(selBranch);
+  }
+
+  _closeResearch() {
+    if (this._researchObjs) {
+      for (const o of this._researchObjs) { try { o.destroy(); } catch(e){} }
+      this._researchObjs = null;
+    }
+    if (this._researchContentObjs) {
+      for (const o of this._researchContentObjs) { try { o.destroy(); } catch(e){} }
+      this._researchContentObjs = null;
+    }
+    this._researchOpen = false;
   }
 
   update() {
@@ -4543,6 +4829,13 @@ export class GameScene extends Phaser.Scene {
       // Naval Yard: nearest coastal land hex (if exists within range)
       const coastHex = findCoastalNear(hq.q, hq.r, 10);
       if (coastHex) gs.buildings.push(createBuilding('NAVAL_YARD', player, coastHex.q, coastHex.r));
+
+      // Farm: plains hex near HQ (gives starting food production)
+      const farmHex = findNearby(hq.q, hq.r, new Set([0, 7]), 4) || findFreeNear(hq.q, hq.r, 3);
+      if (farmHex) {
+        map[`${farmHex.q},${farmHex.r}`] = 0; // ensure plains
+        gs.buildings.push(createBuilding('FARM', player, farmHex.q, farmHex.r));
+      }
 
       // 2 engineers near HQ
       const eng1 = findFreeNear(hq.q, hq.r, 3);
