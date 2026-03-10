@@ -32,7 +32,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.16';
+const GAME_VERSION = 'v0.9.17';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1355,6 +1355,14 @@ export class GameScene extends Phaser.Scene {
     this.unitGfx.clear();
     const gs  = this.gameState;
     const fog = this._currentFog;
+
+    // Build stacked-hex map: key "q,r" -> count of non-embarked visible units on that hex
+    const _stackCount = new Map();
+    for (const u of gs.units) {
+      if (u.embarked) continue;
+      const k = `${u.q},${u.r}`;
+      _stackCount.set(k, (_stackCount.get(k) || 0) + 1);
+    }
     // Viewport culling (large-map perf) — uses scroll+zoom, not worldView (avoids stale rect)
     const { L: _uvpL, R: _uvpR, T: _uvpT, B: _uvpB } = this._vpBounds();
 
@@ -1438,6 +1446,18 @@ export class GameScene extends Phaser.Scene {
       const cx2 = x - cW/2, cy2 = y - cH/2;
       const spent = unit.moved && unit.attacked;
       const fillAlpha = spent ? alpha * 0.5 : alpha;
+
+      // Stack indicator: draw a second offset counter shadow behind main unit when 2+ units share hex
+      const stackKey = `${dispQ},${dispR}`;
+      if ((_stackCount.get(stackKey) || 0) > 1) {
+        const offX = 4, offY = -4;
+        this.unitGfx.fillStyle(0x000000, alpha * 0.25);
+        this.unitGfx.fillRect(cx2 + offX + 2, cy2 + offY + 2, cW, cH);
+        this.unitGfx.fillStyle(color, fillAlpha * 0.55);
+        this.unitGfx.fillRect(cx2 + offX, cy2 + offY, cW, cH);
+        this.unitGfx.lineStyle(1, 0x000000, alpha * 0.5);
+        this.unitGfx.strokeRect(cx2 + offX, cy2 + offY, cW, cH);
+      }
 
       // Drop shadow
       this.unitGfx.fillStyle(0x000000, alpha * 0.4);
@@ -1633,6 +1653,24 @@ export class GameScene extends Phaser.Scene {
           this.unitGfx.lineStyle(0.5, 0x000000, alpha * 0.4);
           this.unitGfx.strokeRect(px, fuelY, pipW, 3);
         }
+      }
+
+      // Engineer busy indicator: small amber dot + wrench-arm lines in top-right corner of counter
+      if (unit.type === 'ENGINEER' && (unit.roadOrder || unit.constructing)) {
+        const dotR = 4;
+        const dotX = cx2 + cW - dotR - 1;
+        const dotY = cy2 + dotR + 1;
+        // Amber fill
+        this.unitGfx.fillStyle(0xffaa00, alpha);
+        this.unitGfx.fillCircle(dotX, dotY, dotR);
+        this.unitGfx.lineStyle(1, 0x000000, alpha * 0.6);
+        this.unitGfx.strokeCircle(dotX, dotY, dotR);
+        // Two short lines (wrench silhouette)
+        this.unitGfx.lineStyle(1.5, 0x000000, alpha * 0.8);
+        this.unitGfx.beginPath();
+        this.unitGfx.moveTo(dotX - 2.5, dotY - 2.5); this.unitGfx.lineTo(dotX + 2.5, dotY + 2.5);
+        this.unitGfx.moveTo(dotX + 2.5, dotY - 2.5); this.unitGfx.lineTo(dotX - 2.5, dotY + 2.5);
+        this.unitGfx.strokePath();
       }
     }
   }

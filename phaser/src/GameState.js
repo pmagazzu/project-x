@@ -584,7 +584,9 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
 
   // Collect all reachable hexes — exclude any that have a unit on them (can't end there)
   // Exception: air units can share a hex with friendly ground units (not other air)
+  // Exception: engineers can share a hex with any friendly unit (road building through occupied tiles)
   const isAir = AIR_UNITS.has(unit.type);
+  const isEngineer = unit.type === 'ENGINEER';
   for (const [key] of dist) {
     const [q, r] = key.split(',').map(Number);
     if (q === unit.q && r === unit.r) continue; // skip origin
@@ -593,6 +595,8 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
     if (!occupant || occupant.id === unit.id) { result.push({ q, r, cost: movCost }); continue; }
     // Air can land on hex with friendly ground unit (not another air unit)
     if (isAir && occupant.owner === unit.owner && !AIR_UNITS.has(occupant.type)) result.push({ q, r, cost: movCost });
+    // Engineers can share a hex with any friendly unit to continue road building
+    if (isEngineer && occupant.owner === unit.owner) result.push({ q, r, cost: movCost });
   }
   return result;
 }
@@ -1130,10 +1134,10 @@ export function resolveTurn(state, terrain) {
     const next = path[0];
     const nq = next.q, nr = next.r;
 
-    // Don't step on a unit that isn't the engineer itself
-    const blocker = state.units.find(u => u.q === nq && u.r === nr && u.id !== unit.id && !u.embarked);
+    // Don't step on a unit that isn't the engineer itself (enemies block; friendly units allow stacking)
+    const blocker = state.units.find(u => u.q === nq && u.r === nr && u.id !== unit.id && !u.embarked && u.owner !== owner);
     if (blocker) {
-      events.push(`Engineer (P${owner}) auto-road stalled — hex (${nq},${nr}) occupied by ${UNIT_TYPES[blocker.type]?.name}`);
+      events.push(`Engineer (P${owner}) auto-road stalled — hex (${nq},${nr}) occupied by enemy`);
       continue; // keep order, try again next turn
     }
 
@@ -1468,9 +1472,10 @@ export function resolveEndOfTurn(state, terrain) {
     // Move one step
     const next = path[0];
     const nq = next.q, nr = next.r;
-    const blocker = state.units.find(u => u.q === nq && u.r === nr && u.id !== unit.id && !u.embarked);
+    // Friendly units can share the hex with an engineer (stacking allowed); enemies block
+    const blocker = state.units.find(u => u.q === nq && u.r === nr && u.id !== unit.id && !u.embarked && u.owner !== player);
     if (blocker) {
-      events.push(`Engineer (P${player}) auto-road stalled — hex (${nq},${nr}) occupied`);
+      events.push(`Engineer (P${player}) auto-road stalled — hex (${nq},${nr}) occupied by enemy`);
       continue; // keep order
     }
     unit.q = nq; unit.r = nr; unit.moved = true;
