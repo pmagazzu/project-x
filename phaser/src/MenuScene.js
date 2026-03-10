@@ -57,6 +57,7 @@ export class MenuScene extends Phaser.Scene {
 
   create() {
     const w = this.scale.width, h = this.scale.height;
+    this._aiP2 = false; // default: P2 is human
 
     this.add.rectangle(w/2, h/2, w, h, 0x0d0d0d);
 
@@ -97,7 +98,7 @@ export class MenuScene extends Phaser.Scene {
         if (sc.customSize) {
           this._showSizePicker(sc.key);
         } else {
-          this.scene.start('GameScene', { scenario: sc.key });
+          this.scene.start('GameScene', { scenario: sc.key, aiP2: this._aiP2 });
         }
       });
     });
@@ -105,6 +106,23 @@ export class MenuScene extends Phaser.Scene {
     this.add.text(w/2, h - 28, 'Right-click = action menu  |  WASD = pan  |  Scroll = zoom  |  ESC = settings', {
       font: '11px monospace', fill: '#333333',
     }).setOrigin(0.5);
+
+    // AI toggle — top right corner
+    this._aiToggleBtn = this.add.text(w - 16, 16, '[ P2: HUMAN ]', {
+      font: 'bold 13px monospace', fill: '#888888',
+      backgroundColor: '#1a1a1a', padding: { x: 10, y: 6 }
+    }).setOrigin(1, 0).setInteractive({ useHandCursor: true });
+
+    this._aiToggleBtn.on('pointerover', () => this._aiToggleBtn.setAlpha(0.8));
+    this._aiToggleBtn.on('pointerout',  () => this._aiToggleBtn.setAlpha(1.0));
+    this._aiToggleBtn.on('pointerdown', () => {
+      this._aiP2 = !this._aiP2;
+      this._aiToggleBtn.setText(this._aiP2 ? '[ P2: AI  🤖 ]' : '[ P2: HUMAN ]');
+      this._aiToggleBtn.setStyle({
+        fill: this._aiP2 ? '#ffcc44' : '#888888',
+        backgroundColor: this._aiP2 ? '#332200' : '#1a1a1a',
+      });
+    });
   }
 
   _showSizePicker(scenarioKey) {
@@ -147,7 +165,7 @@ export class MenuScene extends Phaser.Scene {
       tbg.on('pointerover', () => { tbg.setFillStyle(0x3a3a66, 1); tlabel.setStyle({ fill: '#ffee88' }); tsub.setStyle({ fill: '#ccccdd' }); });
       tbg.on('pointerout',  () => { tbg.setFillStyle(0x2a2a44, 0.95); tlabel.setStyle({ fill: '#ffffff' }); tsub.setStyle({ fill: '#888899' }); });
       tbg.on('pointerdown', () => {
-        this.scene.start('GameScene', { scenario: scenarioKey, customSize: tier.size });
+        this.scene.start('GameScene', { scenario: scenarioKey, customSize: tier.size, aiP2: this._aiP2 });
       });
 
       created.push(tbg, tlabel, tsub);

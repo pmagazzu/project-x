@@ -4,6 +4,7 @@ import {
   MAP_SIZE, HEX_SIZE, ISO_SQUISH, getMapBounds
 } from './HexGrid.js';
 import { MenuScene } from './MenuScene.js';
+import { runAITurn } from './AIPlayer.js';
 import {
   createGameState, createUnit, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
@@ -31,7 +32,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.14';
+const GAME_VERSION = 'v0.9.15';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -124,6 +125,8 @@ export class GameScene extends Phaser.Scene {
     // Map sizes per scenario
     const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, random: 40, air_test: 20, custom: data.customSize || 40, default: 25 };
     this.mapSize   = MAP_SIZES[this.scenario] || MAP_SIZE;
+    // AI players: set of player numbers controlled by AI
+    this.aiPlayers = new Set(data.aiP2 ? [2] : []);
     // Random map uses a unique seed each game
     this.mapSeed = (this.scenario === 'random' || this.scenario === 'custom') ? (Date.now() & 0xFFFFFF) : 0;
 
@@ -2688,6 +2691,31 @@ export class GameScene extends Phaser.Scene {
     };
     makeZoom();
 
+    // AI toggle row
+    const aiY = h/2 + 92;
+    const makeAiRow = () => {
+      if (this._aiRowObjs) { for (const o of this._aiRowObjs) { try { o.destroy(); } catch(e){} } }
+      this._aiRowObjs = [];
+      const aiLbl = this.add.text(w/2 - 140, aiY, 'Player 2 AI', { font: '12px monospace', fill: '#cccccc' })
+        .setOrigin(0, 0.5).setScrollFactor(0).setDepth(D+1);
+      const isAI = this.aiPlayers.has(2);
+      const aiTog = this.add.text(w/2 + 70, aiY, isAI ? '[ ON  🤖 ]' : '[ OFF ]', {
+        font: 'bold 12px monospace', fill: isAI ? '#ffcc44' : '#888888',
+        backgroundColor: isAI ? '#332200' : '#222222', padding: { x: 8, y: 5 }
+      }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
+      aiTog.on('pointerdown', () => {
+        if (this.aiPlayers.has(2)) this.aiPlayers.delete(2);
+        else this.aiPlayers.add(2);
+        makeAiRow();
+      });
+      aiTog.on('pointerover', () => aiTog.setAlpha(0.8));
+      aiTog.on('pointerout',  () => aiTog.setAlpha(1.0));
+      this._aiRowObjs = [aiLbl, aiTog];
+      objs.push(aiLbl, aiTog);
+      this._addToUI([aiLbl, aiTog]);
+    };
+    makeAiRow();
+
     const closeBtn = this.add.text(w/2, h/2 + 130, '[ CLOSE ]', {
       font: 'bold 13px monospace', fill: '#ffffff', backgroundColor: '#444444', padding: { x: 14, y: 7 }
     }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
@@ -3528,7 +3556,42 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this._freezeFog();
-    this._showPassScreen(`Player ${gs.currentPlayer}'s turn — take the controls`);
+    this._refresh();
+
+    // If the next player is AI-controlled, skip the pass screen and run AI automatically
+    if (this.aiPlayers.has(gs.currentPlayer)) {
+      this._runAITurn();
+    } else {
+      this._showPassScreen(`Player ${gs.currentPlayer}'s turn — take the controls`);
+    }
+  }
+
+  // ── AI turn runner ────────────────────────────────────────────────────────
+  _runAITurn() {
+    const gs = this.gameState;
+    const w  = this.scale.width, h = this.scale.height;
+
+    // Brief "AI thinking" overlay
+    const overlay = this.add.rectangle(w/2, h/2, w, h, 0x000000, 0.55)
+      .setScrollFactor(0).setDepth(200);
+    const lbl = this.add.text(w/2, h/2, `⚙  AI Player ${gs.currentPlayer} is thinking…`, {
+      font: 'bold 22px monospace', fill: '#ffcc44',
+      backgroundColor: '#1a1600', padding: { x: 20, y: 12 }
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
+    this._addToUI([overlay, lbl]);
+
+    // Small delay so the overlay renders, then run logic synchronously
+    this.time.delayedCall(400, () => {
+      // Execute AI actions
+      runAITurn(gs, this.terrain, this.mapSize);
+
+      // Dismiss overlay
+      try { overlay.destroy(); } catch(e){}
+      try { lbl.destroy(); }     catch(e){}
+
+      // End AI's turn (same as player clicking END TURN)
+      this._onSubmit();
+    });
   }
 
   // ── Animated resolution playback ──────────────────────────────────────────
