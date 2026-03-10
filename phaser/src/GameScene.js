@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.7';
+const GAME_VERSION = 'v0.9.8';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1204,8 +1204,7 @@ export class GameScene extends Phaser.Scene {
       // Skip embarked units (they're inside a transport)
       if (unit.embarked) continue;
 
-      // Skip units currently being animated by a slide tween (temp gfx handles them)
-      if (unit._sliding) continue;
+      // (no skip needed — slide animation is handled by interpolated position below)
 
       // Hide enemy units in fog (use display position, not queued position)
       const key = `${dispQ},${dispR}`;
@@ -1215,9 +1214,20 @@ export class GameScene extends Phaser.Scene {
         if (!isStealthDetected(gs, unit, gs.currentPlayer)) continue; // not detected — skip render
       }
 
-      const basePos = hexToWorld(dispQ, dispR);
-      const x = basePos.x;
-      const y = basePos.y;
+      // If this unit is currently sliding, interpolate between from/to world coords
+      let x, y;
+      const _ss = this._slideState;
+      if (_ss && _ss.unit === unit) {
+        const t    = Math.min(1, (performance.now() - _ss.startTime) / _ss.duration);
+        const ease = 1 - Math.pow(1 - t, 3); // cubic ease-out
+        x = _ss.fromX + (_ss.toX - _ss.fromX) * ease;
+        y = _ss.fromY + (_ss.toY - _ss.fromY) * ease;
+      } else {
+        const basePos = hexToWorld(dispQ, dispR);
+        x = basePos.x;
+        y = basePos.y;
+      }
+      // y already set above (slide interpolation or basePos.y)
       const color = PLAYER_COLORS[unit.owner];
       const dim   = (unit.owner !== gs.currentPlayer);
       const alpha = dim ? 0.6 : 1.0;
@@ -1740,7 +1750,8 @@ export class GameScene extends Phaser.Scene {
       const def = UNIT_TYPES[unitType];
       const alreadyOrdered = !!existingOrder;
       const canAfford = !alreadyOrdered && gs.players[p].iron >= def.cost.iron && gs.players[p].oil >= def.cost.oil;
-      const label = `${def.name}  ⚙${def.cost.iron}${def.cost.oil > 0 ? ` 🛢${def.cost.oil}` : ''}  HP:${def.health} ATK:${def.attack} MOV:${def.move}`;
+      const _bt = def.buildTime ?? 1;
+      const label = `${def.name}  ⚙${def.cost.iron}${def.cost.oil > 0 ? ` 🛢${def.cost.oil}` : ''}  HP:${def.health} ATK:${def.attack} MOV:${def.move}  ⏱${_bt}t`;
       const btn = this.add.text(w/2, py + 60 + (existingOrder ? 36 : 0) + i * 48, label, {
         font: '13px monospace', fill: canAfford ? '#ccffcc' : alreadyOrdered ? '#666666' : '#ff6666',
         backgroundColor: canAfford ? '#224422' : '#222222',
@@ -1767,7 +1778,8 @@ export class GameScene extends Phaser.Scene {
     customDesigns.forEach((design, i) => {
       const idx = available.length + i;
       const canAfford = !existingOrder && gs.players[p].iron >= design.trainCost.iron && gs.players[p].oil >= design.trainCost.oil;
-      const label = `★ ${design.name}  ⚙${design.trainCost.iron}${design.trainCost.oil > 0 ? ` 🛢${design.trainCost.oil}` : ''}  HP:${design.stats.health} ATK:${design.stats.soft_attack}/${design.stats.hard_attack} MOV:${design.stats.move}`;
+      const _dbt = UNIT_TYPES[design.chassis]?.buildTime ?? 1;
+      const label = `★ ${design.name}  ⚙${design.trainCost.iron}${design.trainCost.oil > 0 ? ` 🛢${design.trainCost.oil}` : ''}  HP:${design.stats.health} ATK:${design.stats.soft_attack}/${design.stats.hard_attack} MOV:${design.stats.move}  ⏱${_dbt}t`;
       const btn = this.add.text(w/2, py + 60 + (existingOrder ? 36 : 0) + idx * 48, label, {
         font: '12px monospace', fill: canAfford ? '#ffffaa' : '#666655',
         backgroundColor: canAfford ? '#333311' : '#222211',
@@ -2512,6 +2524,16 @@ export class GameScene extends Phaser.Scene {
     if (W.D.isDown) cam.scrollX += speed;
     const moving = W.W.isDown || W.S.isDown || W.A.isDown || W.D.isDown;
     if (moving && this._contextMenuObjs) this._hideContextMenu();
+
+    // Drive slide animation: redraw units every frame while slide is in progress
+    if (this._slideState) {
+      const { startTime, duration } = this._slideState;
+      this._redrawUnits();
+      if (performance.now() - startTime >= duration) {
+        this._slideState = null;
+        this._redrawUnits(); // final draw at destination
+      }
+    }
   }
 
   // ── Click handling ────────────────────────────────────────────────────────
@@ -2659,48 +2681,24 @@ export class GameScene extends Phaser.Scene {
         this.reachable = [];
         this.attackable = getAttackableHexes(gs, this.selectedUnit, q, r, this._currentFog);
         this.mode = 'select';
-        // Slide animation: use Rectangle + Graphics overlay (reliable world-space positioning).
-        // Mark unit _sliding so _redrawUnits() skips it while temp objects are visible.
+        // Slide animation: no separate Game Objects — driven purely by update() loop.
+        // _slideState stores the unit + from/to world coords + timing.
+        // _redrawUnits() reads _slideState to draw the unit at an interpolated position
+        // every frame until the animation completes. No camera/transform ambiguity possible.
         const _slideTo = hexToWorld(q, r);
-        const _animUnit = this.selectedUnit;
-
-        // Kill any previous in-flight slide (defensive — shouldn't happen but be safe)
-        if (this._activeSlideTween) { this._activeSlideTween.stop(); this._activeSlideTween = null; }
-        if (this._activeSlideObjs) { this._activeSlideObjs.forEach(o => o.destroy()); this._activeSlideObjs = null; }
-        if (this._activeSlideUnit) { delete this._activeSlideUnit._sliding; this._activeSlideUnit = null; }
-
-        _animUnit._sliding = true;
-        this._refresh(); // draws scene without the sliding unit
-
-        // Build slide marker: a team-colored rectangle (pure positioned GO — Phaser tweens these perfectly)
-        const _sc = PLAYER_COLORS[_animUnit.owner];
-        const _sw = HEX_SIZE * 0.68, _sh = HEX_SIZE * 0.50;
-        const _slideRect  = this.add.rectangle(_slideFrom.x, _slideFrom.y, _sw, _sh, _sc).setDepth(25);
-        const _slideBorder = this.add.rectangle(_slideFrom.x, _slideFrom.y, _sw, _sh)
-          .setStrokeStyle(2, 0x000000).setFillStyle().setDepth(26);
-        const _slideSlide  = this.add.rectangle(_slideFrom.x, _slideFrom.y, _sw - 4, _sh - 4)
-          .setStrokeStyle(1, 0xffffff, 0.35).setFillStyle().setDepth(26);
-        const _slideObjs = [_slideRect, _slideBorder, _slideSlide];
-        this._activeSlideObjs = _slideObjs;
-        this._activeSlideUnit = _animUnit;
-
-        const _onSlideDone = () => {
-          _slideObjs.forEach(o => o.destroy());
-          this._activeSlideTween = null;
-          this._activeSlideObjs  = null;
-          this._activeSlideUnit  = null;
-          delete _animUnit._sliding;
-          this._redrawUnits();
+        // Kill any previous slide
+        this._slideState = null;
+        this._refresh(); // draws scene; _redrawUnits will use normal positions (no slide yet)
+        // Start new slide state — update() drives _redrawUnits() every frame
+        this._slideState = {
+          unit:      this.selectedUnit,
+          fromX:     _slideFrom.x,
+          fromY:     _slideFrom.y,
+          toX:       _slideTo.x,
+          toY:       _slideTo.y,
+          startTime: performance.now(),
+          duration:  180,
         };
-
-        this._activeSlideTween = this.tweens.add({
-          targets: _slideObjs,
-          x: _slideTo.x,
-          y: _slideTo.y,
-          duration: 180,
-          ease: 'Cubic.easeOut',
-          onComplete: _onSlideDone,
-        });
         // Engineer auto-build: pop open the build submenu after moving
         if (UNIT_TYPES[this.selectedUnit.type].canBuild && this.settings.engineerAutoBuild) {
           // Anchor to where the player clicked to move the engineer
