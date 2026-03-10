@@ -4,7 +4,7 @@ import {
   MAP_SIZE, HEX_SIZE, ISO_SQUISH, getMapBounds
 } from './HexGrid.js';
 import { MenuScene } from './MenuScene.js';
-import { runAITurn } from './AIPlayer.js';
+import { planAITurn, AI_STRATEGIES, randomStrategy } from './AIPlayer.js';
 import {
   createGameState, createUnit, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
@@ -32,7 +32,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.15';
+const GAME_VERSION = 'v0.9.16';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -126,7 +126,9 @@ export class GameScene extends Phaser.Scene {
     const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, random: 40, air_test: 20, custom: data.customSize || 40, default: 25 };
     this.mapSize   = MAP_SIZES[this.scenario] || MAP_SIZE;
     // AI players: set of player numbers controlled by AI
-    this.aiPlayers = new Set(data.aiP2 ? [2] : []);
+    this.aiPlayers  = new Set(data.aiP2 ? [2] : []);
+    // AI strategy: randomly assigned each game, configurable in settings
+    this.aiStrategy = data.aiStrategy || randomStrategy();
     // Random map uses a unique seed each game
     this.mapSeed = (this.scenario === 'random' || this.scenario === 'custom') ? (Date.now() & 0xFFFFFF) : 0;
 
@@ -2692,7 +2694,7 @@ export class GameScene extends Phaser.Scene {
     makeZoom();
 
     // AI toggle row
-    const aiY = h/2 + 92;
+    const aiY = h/2 + 84;
     const makeAiRow = () => {
       if (this._aiRowObjs) { for (const o of this._aiRowObjs) { try { o.destroy(); } catch(e){} } }
       this._aiRowObjs = [];
@@ -2715,6 +2717,31 @@ export class GameScene extends Phaser.Scene {
       this._addToUI([aiLbl, aiTog]);
     };
     makeAiRow();
+
+    // AI strategy row
+    const stratY = aiY + 30;
+    const stratKeys = Object.keys(AI_STRATEGIES);
+    const makeStratRow = () => {
+      if (this._stratRowObjs) { for (const o of this._stratRowObjs) { try { o.destroy(); } catch(e){} } }
+      this._stratRowObjs = [];
+      const stratLbl = this.add.text(w/2 - 140, stratY, 'AI Strategy', { font: '12px monospace', fill: '#cccccc' })
+        .setOrigin(0, 0.5).setScrollFactor(0).setDepth(D+1);
+      const btns = stratKeys.map((key, i) => {
+        const isActive = this.aiStrategy === key;
+        const sb = this.add.text(w/2 - 54 + i * 62, stratY, AI_STRATEGIES[key].label, {
+          font: '10px monospace', fill: isActive ? '#ffcc44' : '#888888',
+          backgroundColor: isActive ? '#332200' : '#222222', padding: { x: 5, y: 4 }
+        }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
+        sb.on('pointerdown', () => { this.aiStrategy = key; makeStratRow(); });
+        sb.on('pointerover', () => sb.setAlpha(0.8));
+        sb.on('pointerout',  () => sb.setAlpha(1.0));
+        return sb;
+      });
+      this._stratRowObjs = [stratLbl, ...btns];
+      objs.push(...this._stratRowObjs);
+      this._addToUI(this._stratRowObjs);
+    };
+    makeStratRow();
 
     const closeBtn = this.add.text(w/2, h/2 + 130, '[ CLOSE ]', {
       font: 'bold 13px monospace', fill: '#ffffff', backgroundColor: '#444444', padding: { x: 14, y: 7 }
@@ -3567,30 +3594,118 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ── AI turn runner ────────────────────────────────────────────────────────
-  _runAITurn() {
-    const gs = this.gameState;
-    const w  = this.scale.width, h = this.scale.height;
 
-    // Brief "AI thinking" overlay
-    const overlay = this.add.rectangle(w/2, h/2, w, h, 0x000000, 0.55)
+  _runAITurn() {
+    const gs  = this.gameState;
+    const w   = this.scale.width, h = this.scale.height;
+    const stratLabel = AI_STRATEGIES[this.aiStrategy]?.label || 'Balanced';
+
+    // Status bar (replaces pass screen for AI turn)
+    const overlay = this.add.rectangle(w/2, 22, w, 44, 0x1a1200, 0.92)
       .setScrollFactor(0).setDepth(200);
-    const lbl = this.add.text(w/2, h/2, `⚙  AI Player ${gs.currentPlayer} is thinking…`, {
-      font: 'bold 22px monospace', fill: '#ffcc44',
-      backgroundColor: '#1a1600', padding: { x: 20, y: 12 }
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
+    const lbl = this.add.text(w/2, 22, `⚙  AI Player ${gs.currentPlayer} — ${stratLabel} — acting…`, {
+      font: 'bold 14px monospace', fill: '#ffcc44',
+    }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(201);
     this._addToUI([overlay, lbl]);
 
-    // Small delay so the overlay renders, then run logic synchronously
-    this.time.delayedCall(400, () => {
-      // Execute AI actions
-      runAITurn(gs, this.terrain, this.mapSize);
+    // Plan all actions (does NOT execute — pure data)
+    const actions = planAITurn(gs, this.terrain, this.mapSize, this.aiStrategy);
 
-      // Dismiss overlay
+    // Execute actions sequentially with delays and visual feedback
+    this._executeAIActions(actions, 0, () => {
+      // All done — dismiss status bar and end AI's turn
       try { overlay.destroy(); } catch(e){}
-      try { lbl.destroy(); }     catch(e){}
-
-      // End AI's turn (same as player clicking END TURN)
+      try { lbl.destroy();     } catch(e){}
       this._onSubmit();
+    });
+  }
+
+  _executeAIActions(actions, index, onDone) {
+    if (index >= actions.length) { onDone(); return; }
+
+    const action = actions[index];
+    const next   = () => this._executeAIActions(actions, index + 1, onDone);
+    const gs     = this.gameState;
+
+    if (action.type === 'move') {
+      const unit = gs.units.find(u => u.id === action.unitId);
+      if (!unit) { next(); return; }
+
+      // Snap position and play slide animation
+      const fromW = hexToWorld(action.fromQ, action.fromR);
+      unit.q = action.toQ; unit.r = action.toR;
+      unit.moved = true; unit.movesLeft = 0;
+
+      this._slideState = {
+        unit, fromX: fromW.x, fromY: fromW.y,
+        toX: hexToWorld(action.toQ, action.toR).x,
+        toY: hexToWorld(action.toQ, action.toR).y,
+        startTime: performance.now(), duration: 220,
+      };
+      this._refresh();
+      // Wait for slide to finish + small gap
+      this.time.delayedCall(350, next);
+
+    } else if (action.type === 'attack') {
+      const attacker = gs.units.find(u => u.id === action.attackerId);
+      const target   = gs.units.find(u => u.id === action.targetId);
+      if (!attacker || !target) { next(); return; }
+
+      // Execute the attack
+      resolveImmediateAttack(gs, attacker, action.targetId);
+      attacker.attacked = true;
+      this._refresh();
+
+      // Show combat flash
+      this._showAICombatFlash(action.attackerQ, action.attackerR, action.targetQ, action.targetR);
+      this.time.delayedCall(700, next);
+
+    } else if (action.type === 'recruit') {
+      queueRecruit(gs, gs.currentPlayer, action.unitType, action.buildingId);
+      const cost = UNIT_TYPES[action.unitType]?.cost || {};
+      const res  = gs.players[gs.currentPlayer];
+      res.iron -= (cost.iron || 0);
+      res.oil  -= (cost.oil  || 0);
+      res.wood  = (res.wood || 0) - (cost.wood || 0);
+      this._updateTopBar();
+      next();
+
+    } else if (action.type === 'digin') {
+      const unit = gs.units.find(u => u.id === action.unitId);
+      if (unit && UNIT_TYPES[unit.type]?.canDigIn) {
+        unit.dugIn = true; unit.moved = true;
+        this._refresh();
+      }
+      next();
+
+    } else {
+      next();
+    }
+  }
+
+  // Brief visual flash on attacker + target hexes when AI attacks
+  _showAICombatFlash(aqQ, aqR, tqQ, tqR) {
+    const aPos  = hexToWorld(aqQ, aqR);
+    const tPos  = hexToWorld(tqQ, tqR);
+    const flash = this.add.graphics().setDepth(35);
+
+    // Attacker: orange ring
+    flash.lineStyle(3, 0xff8800, 0.9);
+    flash.strokeCircle(aPos.x, aPos.y, HEX_SIZE * 0.55);
+    // Target: red ring
+    flash.lineStyle(3, 0xff2222, 0.9);
+    flash.strokeCircle(tPos.x, tPos.y, HEX_SIZE * 0.55);
+    // Arrow-like line
+    flash.lineStyle(2, 0xff5500, 0.6);
+    flash.beginPath();
+    flash.moveTo(aPos.x, aPos.y);
+    flash.lineTo(tPos.x, tPos.y);
+    flash.strokePath();
+
+    // Fade and destroy after 600ms
+    this.tweens.add({
+      targets: flash, alpha: 0, duration: 550, ease: 'Linear',
+      onComplete: () => { try { flash.destroy(); } catch(e){} }
     });
   }
 

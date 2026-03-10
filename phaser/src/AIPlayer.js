@@ -1,182 +1,255 @@
 /**
- * AIPlayer.js — First-iteration AI for Attrition
+ * AIPlayer.js — Attrition AI (v2)
  *
- * Strategy (priority order per unit):
- *   1. Attack from current position if enemy in range
- *   2. Move toward best scored destination (capture > attack-after-move > advance toward enemy)
- *   3. Attack again from new position
- * Then:
- *   4. Recruit cheapest affordable unit at each available building
+ * planAITurn() returns a list of action objects — it does NOT execute them.
+ * GameScene._executeAIActions() plays them one by one with visual delays.
  *
- * The AI has "perfect" positional knowledge (no fog penalty) but plays
- * straightforward tactics — no look-ahead or flanking.
+ * Strategies
+ * ─────────────────────────────────────────────────────────────────────
+ *  aggressive : rush enemies, buy heavy offense (infantry, tanks, mortars)
+ *  defensive  : retreat toward HQ, dig in, buy anti-tank + artillery
+ *  balanced   : default mix (attack if easy, otherwise advance)
+ * ─────────────────────────────────────────────────────────────────────
  */
 
 import {
-  UNIT_TYPES, BUILDING_TYPES, AIR_UNITS,
+  UNIT_TYPES, BUILDING_TYPES, AIR_UNITS, NAVAL_UNITS,
   getReachableHexes, getAttackableHexes, hexDistance,
-  resolveImmediateAttack, queueRecruit,
 } from './GameState.js';
+
+// ── Strategy definitions ───────────────────────────────────────────────────
+
+export const AI_STRATEGIES = {
+  aggressive: {
+    label:         'Aggressive',
+    recruitPrio:   ['TANK','INFANTRY','MORTAR','ARTILLERY','ANTI_TANK'],
+    navalPrio:     ['DESTROYER','MTB','CRUISER_LT','PATROL_BOAT'],
+    airPrio:       ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE'],
+    attackBonus:   20,   // extra score for attack-after-move
+    captureBonus:  20,   // bonus for moving toward HQ or flag position
+    retreatToHQ:   false,
+    digInChance:   0,
+  },
+  defensive: {
+    label:         'Defensive',
+    recruitPrio:   ['ANTI_TANK','ARTILLERY','INFANTRY','MORTAR','MEDIC'],
+    navalPrio:     ['COASTAL_BATTERY','DESTROYER','PATROL_BOAT'],
+    airPrio:       ['BIPLANE_FIGHTER','OBS_PLANE','LIGHT_BOMBER'],
+    attackBonus:   0,
+    captureBonus:  40,
+    retreatToHQ:   true,
+    digInChance:   0.5,  // 50% chance to dig in after moving if no target
+  },
+  balanced: {
+    label:         'Balanced',
+    recruitPrio:   ['INFANTRY','ANTI_TANK','TANK','ARTILLERY','MORTAR'],
+    navalPrio:     ['DESTROYER','PATROL_BOAT','MTB','TRANSPORT_SM'],
+    airPrio:       ['BIPLANE_FIGHTER','OBS_PLANE','LIGHT_BOMBER'],
+    attackBonus:   10,
+    captureBonus:  30,
+    retreatToHQ:   false,
+    digInChance:   0.2,
+  },
+};
+
+export function randomStrategy() {
+  const keys = Object.keys(AI_STRATEGIES);
+  return keys[Math.floor(Math.random() * keys.length)];
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function chooseBestTarget(gs, unit, attackTargets) {
-  // Prefer: enemies close to death > closest distance
   let best = null, bestScore = -Infinity;
   for (const hex of attackTargets) {
-    const target = gs.units.find(u => u.q === hex.q && u.r === hex.r && u.owner !== unit.owner && !u.embarked);
+    const target = gs.units.find(u =>
+      u.q === hex.q && u.r === hex.r && u.owner !== unit.owner && !u.embarked
+    );
     if (!target) continue;
-    // Score: almost-dead targets first, then low health, then proximity
-    const hpScore   = (target.maxHealth - target.health) * 3;
-    const nearScore = 5 - hexDistance(unit.q, unit.r, target.q, target.r);
-    const score = hpScore + target.maxHealth - target.health + nearScore;
+    // Prefer almost-dead targets, then high-value types, then closest
+    const dyingBonus  = (target.maxHealth - target.health) * 4;
+    const typeBonus   = target.type === 'ARTILLERY' || target.type === 'MORTAR' ? 6 : 0;
+    const distPenalty = hexDistance(unit.q, unit.r, target.q, target.r);
+    const score = dyingBonus + target.maxHealth - target.health + typeBonus - distPenalty * 0.5;
     if (score > bestScore) { bestScore = score; best = target; }
   }
   return best;
 }
 
-function scoreDestination(gs, unit, q, r, enemies, capTargets) {
+function scoreMove(gs, unit, q, r, strat, enemies, myHQs) {
+  const cfg = AI_STRATEGIES[strat] ?? AI_STRATEGIES.balanced;
   let score = 0;
 
-  // Capture bonus: land on an unowned building
-  const bldg = gs.buildings.find(b => b.q === q && b.r === r &&
-    b.type !== 'ROAD' && b.owner !== unit.owner);
-  if (bldg) score += 60;
-
-  // Attack-after-move bonus
+  // Attack bonus: can we hit someone from here?
   const attackable = getAttackableHexes(gs, unit, q, r, null);
   if (attackable.length > 0) {
-    score += 25 + attackable.length * 4;
-    // Extra reward if a near-death enemy is reachable
+    score += (cfg.attackBonus + 10) + attackable.length * 3;
     for (const h of attackable) {
       const t = gs.units.find(u => u.q === h.q && u.r === h.r && u.owner !== unit.owner);
-      if (t && t.health <= 1) score += 30;
+      if (t && t.health <= 1) score += 25; // kill-shot bonus
     }
   }
 
-  // Proximity to nearest enemy (small bonus for advancing)
+  // Advance toward nearest enemy (or retreat if defensive)
   if (enemies.length > 0) {
-    const nearestEnemyDist = Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r)));
-    score += Math.max(0, 10 - nearestEnemyDist);
+    const nearestEnemy = Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r)));
+    const currentDist  = Math.min(...enemies.map(e => hexDistance(unit.q, unit.r, e.q, e.r)));
+    if (cfg.retreatToHQ) {
+      // Defensive: reward moving AWAY from enemies
+      if (nearestEnemy > currentDist) score += cfg.captureBonus;
+    } else {
+      // Aggressive/balanced: reward closing on enemies
+      if (nearestEnemy < currentDist) score += cfg.attackBonus + 5;
+      score += Math.max(0, 8 - nearestEnemy); // proximity bonus
+    }
   }
 
-  // Proximity to nearest capture target
-  if (capTargets.length > 0) {
-    const nearestCapDist = Math.min(...capTargets.map(b => hexDistance(q, r, b.q, b.r)));
-    const currentCapDist = Math.min(...capTargets.map(b => hexDistance(unit.q, unit.r, b.q, b.r)));
-    if (nearestCapDist < currentCapDist) score += 15;
+  // Defensive: reward moving toward own HQ
+  if (cfg.retreatToHQ && myHQs.length > 0) {
+    const nearestHQ  = Math.min(...myHQs.map(b => hexDistance(q, r, b.q, b.r)));
+    const curHQDist  = Math.min(...myHQs.map(b => hexDistance(unit.q, unit.r, b.q, b.r)));
+    if (nearestHQ < curHQDist) score += cfg.captureBonus;
   }
 
-  // Small random tiebreaker so AI doesn't always pick the same hex
+  // Small random tiebreaker
   score += Math.random() * 2;
-
   return score;
 }
 
-// ── Main AI turn runner ────────────────────────────────────────────────────
+// ── Plan AI turn — returns action list, does NOT execute ──────────────────
 
-export function runAITurn(gs, terrain, mapSize) {
+export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const player  = gs.currentPlayer;
-  const log     = [];
+  const cfg     = AI_STRATEGIES[strategy] ?? AI_STRATEGIES.balanced;
+  const actions = [];
 
-  const getEnemies    = () => gs.units.filter(u => u.owner !== player && !u.embarked);
-  const getCapTargets = () => gs.buildings.filter(b => b.owner !== player && b.type !== 'ROAD');
+  const getEnemies = () => gs.units.filter(u => u.owner !== player && !u.embarked);
+  const getMyHQs   = () => gs.buildings.filter(b => b.owner === player && b.type === 'HQ');
 
-  // Process units in a stable order: attackers first, then movers
+  // Clone unit list so we can track "virtual" positions for multi-step planning
+  // (Simple approach: plan each unit independently with live state)
   const unitIds = gs.units
     .filter(u => u.owner === player && !u.embarked)
     .sort((a, b) => {
-      // Prioritise units that can already attack without moving
-      const aAtk = getAttackableHexes(gs, a, a.q, a.r, null).length;
-      const bAtk = getAttackableHexes(gs, b, b.q, b.r, null).length;
-      return bAtk - aAtk;
+      // Attack-capable units first
+      const aA = getAttackableHexes(gs, a, a.q, a.r, null).length;
+      const bA = getAttackableHexes(gs, b, b.q, b.r, null).length;
+      return bA - aA;
     })
     .map(u => u.id);
 
   for (const uid of unitIds) {
     const unit = gs.units.find(u => u.id === uid);
     if (!unit || unit.owner !== player || unit.embarked) continue;
+    if (unit.fuel !== undefined && unit.fuel <= 0) continue; // no fuel
 
-    // Air units: skip if out of fuel (they'll crash at end-of-turn anyway)
-    if (unit.fuel !== undefined && unit.fuel <= 0) continue;
+    // Snapshot original position so we can restore after planning
+    unit._aiOrigQ = unit.q; unit._aiOrigR = unit.r;
 
     // A) Attack from current position
-    if (!unit.attacked) {
-      const targets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
-      const target  = chooseBestTarget(gs, unit, targets);
-      if (target) {
-        resolveImmediateAttack(gs, unit, target.id);
-        unit.attacked = true;
-        // Unit may have died in counter-attack
-        if (!gs.units.find(u => u.id === uid)) continue;
-        log.push(`${UNIT_TYPES[unit.type].name} attacked`);
-      }
+    const preMoveTargets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
+    const preMoveTarget  = chooseBestTarget(gs, unit, preMoveTargets);
+    if (preMoveTarget) {
+      actions.push({
+        type:       'attack',
+        attackerId: unit.id,
+        targetId:   preMoveTarget.id,
+        attackerQ:  unit.q, attackerR: unit.r,
+        targetQ:    preMoveTarget.q, targetR: preMoveTarget.r,
+      });
+      // Mark attacked in planning so we don't double-attack
+      unit._aiPlannedAttack = true;
     }
 
     // B) Move toward best destination
     if (!unit.moved) {
-      // Temporarily set movesLeft so getReachableHexes uses full budget
+      // Temporarily restore full budget for reachable calc
       const savedMovesLeft = unit.movesLeft;
       unit.movesLeft = UNIT_TYPES[unit.type].move;
-
       const reachable = getReachableHexes(gs, unit, terrain, mapSize);
-      unit.movesLeft  = savedMovesLeft; // restore
+      unit.movesLeft  = savedMovesLeft;
 
       if (reachable.length > 0) {
-        const enemies    = getEnemies();
-        const capTargets = getCapTargets();
+        const enemies = getEnemies();
+        const myHQs   = getMyHQs();
 
         let bestDest = null, bestScore = -Infinity;
         for (const hex of reachable) {
-          const s = scoreDestination(gs, unit, hex.q, hex.r, enemies, capTargets);
+          const s = scoreMove(gs, unit, hex.q, hex.r, strategy, enemies, myHQs);
           if (s > bestScore) { bestScore = s; bestDest = hex; }
         }
 
-        // Fallback: if nothing scored well, just advance toward nearest enemy
-        if (!bestDest || bestScore <= 0) {
-          if (enemies.length > 0) {
-            const nearest = enemies.reduce((a, b) =>
-              hexDistance(unit.q, unit.r, a.q, a.r) <= hexDistance(unit.q, unit.r, b.q, b.r) ? a : b
-            );
-            bestDest = reachable.reduce((a, b) =>
-              hexDistance(a.q, a.r, nearest.q, nearest.r) <= hexDistance(b.q, b.r, nearest.q, nearest.r) ? a : b
-            );
-          } else {
-            bestDest = reachable[0];
-          }
+        // Last-resort fallback
+        if (!bestDest) {
+          bestDest = enemies.length > 0
+            ? reachable.reduce((a, b) => {
+                const ne = enemies.reduce((x,y) => hexDistance(x.q,x.r,unit.q,unit.r) < hexDistance(y.q,y.r,unit.q,unit.r)?x:y);
+                return hexDistance(a.q,a.r,ne.q,ne.r) <= hexDistance(b.q,b.r,ne.q,ne.r) ? a : b;
+              })
+            : reachable[0];
         }
 
-        if (bestDest) {
-          unit.q = bestDest.q;
-          unit.r = bestDest.r;
+        if (bestDest && (bestDest.q !== unit.q || bestDest.r !== unit.r)) {
+          actions.push({
+            type:    'move',
+            unitId:  unit.id,
+            fromQ:   unit.q, fromR: unit.r,
+            toQ:     bestDest.q, toR: bestDest.r,
+          });
+          // Update planning position so attack-after-move uses new coords
+          unit.q = bestDest.q; unit.r = bestDest.r;
           unit.moved     = true;
           unit.movesLeft = 0;
-          log.push(`${UNIT_TYPES[unit.type].name} moved to (${bestDest.q},${bestDest.r})`);
+        }
+      }
 
-          // C) Attack from new position
-          if (!unit.attacked) {
-            const targets2 = getAttackableHexes(gs, unit, unit.q, unit.r, null);
-            const target2  = chooseBestTarget(gs, unit, targets2);
-            if (target2) {
-              resolveImmediateAttack(gs, unit, target2.id);
-              unit.attacked = true;
-              if (!gs.units.find(u => u.id === uid)) continue;
-              log.push(`${UNIT_TYPES[unit.type].name} attacked after move`);
-            }
-          }
+      // C) Attack from new position (if didn't already attack)
+      if (!unit._aiPlannedAttack) {
+        const postMoveTargets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
+        const postMoveTarget  = chooseBestTarget(gs, unit, postMoveTargets);
+        if (postMoveTarget) {
+          actions.push({
+            type:       'attack',
+            attackerId: unit.id,
+            targetId:   postMoveTarget.id,
+            attackerQ:  unit.q, attackerR: unit.r,
+            targetQ:    postMoveTarget.q, targetR: postMoveTarget.r,
+          });
+          unit._aiPlannedAttack = true;
+        }
+      }
+
+      // D) Dig in if defensive and idle
+      if (cfg.digInChance > 0 && !unit._aiPlannedAttack && Math.random() < cfg.digInChance) {
+        const def = UNIT_TYPES[unit.type];
+        if (def?.canDigIn && !unit.dugIn) {
+          actions.push({ type: 'digin', unitId: unit.id });
         }
       }
     }
 
-    // Mark unit as done (so it doesn't appear available for more moves)
-    if (!unit.moved)    unit.moved    = true;
-    if (!unit.attacked) unit.attacked = true;
+      // Clean up planning markers
+    delete unit._aiPlannedAttack;
   }
 
-  // --- Phase 2: Recruit at buildings ---
+  // Restore original unit positions after planning.
+  // Planning mutated q/r for attack-after-move scoring; execution replays from real positions.
+  for (const uid of unitIds) {
+    const unit = gs.units.find(u => u.id === uid);
+    if (!unit || unit._aiOrigQ === undefined) continue;
+    unit.q = unit._aiOrigQ; unit.r = unit._aiOrigR;
+    unit.moved     = false;
+    unit.movesLeft = UNIT_TYPES[unit.type]?.move ?? (unit.movesLeft || 1);
+    delete unit._aiOrigQ; delete unit._aiOrigR;
+  }
+
+  // --- Phase 2: Recruit at buildings (non-executing; resolved in GameScene) ---
   const myBuildings = gs.buildings.filter(
     b => b.owner === player && !b.underConstruction && b.type !== 'ROAD'
   );
+
+  // Temporarily track resource spend so we don't over-recruit
+  const resSim = { iron: gs.players[player].iron, oil: gs.players[player].oil, wood: gs.players[player].wood || 0 };
 
   for (const b of myBuildings) {
     const bType = BUILDING_TYPES[b.type];
@@ -185,22 +258,28 @@ export function runAITurn(gs, terrain, mapSize) {
     const alreadyQueued = gs.pendingRecruits.some(r => r.buildingId === b.id && r.owner === player);
     if (alreadyQueued) continue;
 
-    const res = gs.players[player];
-    for (const unitType of bType.canRecruit) {
+    // Build priority list from strategy, filtered to what this building can recruit
+    const isNaval = ['HARBOR','SHIPYARD','DRYDOCK'].includes(b.type);
+    const isAir   = b.type === 'AIRFIELD';
+    const prio    = isNaval ? cfg.navalPrio : isAir ? cfg.airPrio : cfg.recruitPrio;
+    const sorted  = [...bType.canRecruit].sort((a, b2) => {
+      const ai = prio.indexOf(a), bi = prio.indexOf(b2);
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+    });
+
+    for (const unitType of sorted) {
       const cost = UNIT_TYPES[unitType]?.cost || {};
-      if ((res.iron || 0) >= (cost.iron || 0) &&
-          (res.oil  || 0) >= (cost.oil  || 0) &&
-          (res.wood || 0) >= (cost.wood || 0)) {
-        queueRecruit(gs, player, unitType, b.id);
-        // Deduct cost immediately so later buildings see updated resources
-        res.iron = (res.iron || 0) - (cost.iron || 0);
-        res.oil  = (res.oil  || 0) - (cost.oil  || 0);
-        res.wood = (res.wood || 0) - (cost.wood || 0);
-        log.push(`Recruited ${UNIT_TYPES[unitType].name} at ${BUILDING_TYPES[b.type].name}`);
+      if (resSim.iron >= (cost.iron || 0) &&
+          resSim.oil  >= (cost.oil  || 0) &&
+          resSim.wood >= (cost.wood || 0)) {
+        actions.push({ type: 'recruit', buildingId: b.id, unitType });
+        resSim.iron -= (cost.iron || 0);
+        resSim.oil  -= (cost.oil  || 0);
+        resSim.wood -= (cost.wood || 0);
         break;
       }
     }
   }
 
-  return log;
+  return actions;
 }
