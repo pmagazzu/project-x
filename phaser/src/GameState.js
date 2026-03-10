@@ -243,7 +243,7 @@ export function createGameState(scenario = 'default') {
     designs: { 1: [], 2: [] },
   };
 
-  if (scenario === 'random') {
+  if (scenario === 'random' || scenario === 'custom') {
     // Terrain + spawns placed procedurally by GameScene after terrain gen
     state.players[1].iron = 20; state.players[1].oil = 6;
     state.players[2].iron = 20; state.players[2].oil = 6;
