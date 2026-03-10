@@ -1,228 +1,133 @@
 """
-gen_mountain_tiles.py  v3 — mountain_tile_01.png .. _10.png
-256x256 RGB, 1935 military wargame aesthetic.
+gen_mountain_tiles.py  v6 -- RGBA with transparent background.
 
-Key improvements over v2:
-  - Shadow face lightened (not near-black) + 2-tone gradient
-  - Organic slopes: 5-point polygons with mid-slope wobble
-  - Snow caps: larger, slightly irregular edges
-  - Better base: foothills/slope fades into rocky floor
-  - Capped peak aspect ratio (no church-spire peaks)
+Technique:
+  - Background is fully transparent so unclipped peak sprites don't bleed
+    over neighbouring hex terrain when rendered in the overflow layer.
+  - Mountain BODY drawn with sun/shadow faces, organic edge perturbation.
+  - Snow caps on taller peaks.
+  - Rocky base footprint fill beneath each peak for a grounded look.
+  - Dithered edge scatter stays within each peak's horizontal bounds.
+  - No full-tile base noise -- the terrainGfx hex fill provides the floor.
+
+Cell size: 4px (64x64 grid).
 """
 
-import math, random, os
-from PIL import Image, ImageDraw, ImageFilter
+import random, os
+from PIL import Image, ImageDraw
 
-W, H = 256, 256
+W, H   = 256, 256
+CELL   = 4
+COLS   = W // CELL   # 64
+ROWS   = H // CELL   # 64
 OUT_DIR = "phaser/public/user_art"
 
-# ── Palette ─────────────────────────────────────────────────────────────────
-BASE_BG      = ( 92,  85,  72)   # rocky floor
-ROCK_MID     = (112, 104,  90)   # mid-tone rock
-ROCK_LIGHT   = (152, 144, 128)   # sun-facing slope
-ROCK_LIGHTER = (172, 165, 148)   # upper highlight strip
-SHADOW_OUTER = ( 78,  70,  58)   # shadow face outer (lighter than v2)
-SHADOW_INNER = ( 94,  86,  72)   # shadow face inner (ambient bounce)
-STRATA_LT    = (165, 158, 142)   # light strata (sun face alternating)
-STRATA_DK    = ( 96,  89,  76)   # dark strata (sun face)
-STRATA_SHAD  = ( 68,  62,  52)   # strata on shadow face
-SNOW         = (222, 223, 232)   # snow
-SNOW_SHADE   = (175, 178, 192)   # snow shadow side
-SNOW_EDGE    = (200, 203, 215)   # snow irregular edge
-RUBBLE       = ( 80,  73,  62)
-SCREE        = (102,  95,  82)
-CAST_SHADOW  = ( 58,  52,  42)   # ellipse at peak base
+# All palette entries are RGBA (alpha=255)
+def rgb(r, g, b): return (r, g, b, 255)
 
+P_BASE   = [rgb(60,55,48), rgb(70,65,58), rgb(78,73,65), rgb(56,52,46),
+            rgb(75,70,62), rgb(65,60,53), rgb(82,76,68)]
+P_SHADOW = [rgb(42,42,52), rgb(52,52,62), rgb(60,60,70), rgb(44,45,54),
+            rgb(56,56,66), rgb(46,47,57), rgb(38,40,50)]
+P_MID    = [rgb(80,76,70), rgb(94,90,83), rgb(88,84,76), rgb(76,72,66),
+            rgb(98,93,86), rgb(84,80,73), rgb(92,88,80)]
+P_SUN    = [rgb(108,103,94), rgb(126,120,110), rgb(118,113,104), rgb(104,100,91),
+            rgb(132,126,116), rgb(114,108,100), rgb(122,117,107)]
+P_SNOW   = [rgb(198,200,210), rgb(215,217,225), rgb(205,208,216), rgb(190,193,203),
+            rgb(222,224,232), rgb(208,210,220), rgb(195,198,208)]
+P_SNOW_S = [rgb(162,165,178), rgb(180,183,196), rgb(170,173,186), rgb(155,158,172),
+            rgb(185,188,200), rgb(168,171,184), rgb(175,178,190)]
+P_PEAK   = [rgb(132,127,118), rgb(146,141,132), rgb(138,133,124), rgb(128,123,115),
+            rgb(150,144,135)]
 
-def clamp(v, lo=0, hi=255):
-    return max(lo, min(hi, int(v)))
+def fill_cell(draw, cx, cy, color):
+    x0, y0 = cx * CELL, cy * CELL
+    draw.rectangle([x0, y0, x0 + CELL - 1, y0 + CELL - 1], fill=color)
 
+def pick(rng, palette):
+    return rng.choice(palette)
 
-def draw_mountain_tile(variant_idx):
-    rng = random.Random(variant_idx * 7919 + 12345)
-
-    img = Image.new('RGB', (W, H), BASE_BG)
+def draw_tile(variant: int) -> Image.Image:
+    rng = random.Random(variant * 6271 + 998244353)
+    # Transparent RGBA background -- no base fill
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    # ── 1. Base texture ──────────────────────────────────────────────────────
-    for _ in range(2500):
-        px = rng.randint(0, W-1)
-        py = rng.randint(0, H-1)
-        y_darken = 0.14 * (1.0 - py / H)
-        jitter = rng.randint(-16, 16)
-        c = tuple(clamp(ROCK_MID[i] * (1.0 - y_darken) + jitter) for i in range(3))
-        sz = rng.choice([1, 1, 2])
-        draw.point((px, py), fill=c)
-        if sz == 2:
-            draw.point((min(px+1, W-1), py), fill=c)
-
-    # ── 2. Peak configs ──────────────────────────────────────────────────────
-    # (cx_frac, base_y_frac, half_width, peak_height, snow_frac)
-    # half_width capped to 0.6*peak_height (no spires)
-    def mk(cxf, byf, hw, ph, sf):
-        hw = min(hw, int(ph * 0.62))   # cap aspect ratio
-        return (cxf, byf, hw, ph, sf)
-
-    peak_defs = [
-        [mk(0.50, 0.83, 78, 148, 0.44)],
-        [mk(0.34, 0.85, 60, 112, 0.30), mk(0.66, 0.80, 66, 132, 0.38)],
-        [mk(0.22, 0.87, 48,  88, 0.18), mk(0.52, 0.78, 72, 142, 0.44), mk(0.78, 0.85, 50, 94, 0.22)],
-        [mk(0.40, 0.83, 62, 122, 0.34), mk(0.63, 0.80, 56, 108, 0.28)],
-        [mk(0.32, 0.86, 78,  94, 0.16), mk(0.68, 0.79, 56, 132, 0.44)],
-        [mk(0.22, 0.85, 46,  86, 0.12), mk(0.50, 0.82, 54, 104, 0.26), mk(0.78, 0.85, 46, 84, 0.12)],
-        [mk(0.40, 0.80, 80, 144, 0.40)],
-        [mk(0.43, 0.82, 68, 124, 0.32), mk(0.59, 0.80, 64, 116, 0.28)],
-        [mk(0.28, 0.88, 52,  74, 0.08), mk(0.62, 0.77, 76, 150, 0.48)],
-        [mk(0.18, 0.88, 40,  72, 0.0),  mk(0.38, 0.83, 55, 108, 0.22),
-         mk(0.60, 0.80, 60, 122, 0.30), mk(0.80, 0.85, 42,  80, 0.06)],
+    # Peak configurations (cell coords 0-63):
+    # (apex_cx, apex_cy, base_lx, base_rx, base_cy, has_snow)
+    configs = [
+        [(32, 7,  14, 50, 48, True)],
+        [(20, 9,  4,  36, 48, True),  (44, 8,  28, 62, 49, True)],
+        [(14, 12, 2,  27, 49, False), (33, 6,  16, 50, 47, True), (52, 11, 37, 62, 49, False)],
+        [(24, 8,  6,  43, 48, True),  (46, 9,  30, 62, 50, True)],
+        [(20, 9,  2,  40, 49, True),  (48, 7,  34, 62, 47, True)],
+        [(14, 11, 1,  26, 49, False), (32, 8,  18, 46, 48, True), (50, 11, 36, 62, 49, False)],
+        [(30, 5,  8,  54, 47, True)],
+        [(26, 8,  8,  44, 47, True),  (40, 7,  22, 58, 46, True)],
+        [(38, 5,  16, 58, 47, True),  (18, 12, 2,  32, 50, False)],
+        [(10, 12, 1,  20, 50, False), (24, 7,  10, 38, 48, True),
+         (40, 6,  26, 54, 47, True),  (54, 11, 42, 63, 50, False)],
     ]
-    peaks = peak_defs[variant_idx % len(peak_defs)]
+    peaks = configs[variant % len(configs)]
 
-    # ── 3. Cast shadows ──────────────────────────────────────────────────────
-    for (cxf, byf, hw, ph, sf) in sorted(peaks, key=lambda p: p[1], reverse=True):
-        cx  = int(cxf * W)
-        by  = int(byf * H)
-        sx  = cx + int(hw * 0.45)
-        ew  = int(hw * 1.3)
-        eh  = int(hw * 0.26)
-        draw.ellipse([sx - ew, by - eh, sx + ew, by + eh], fill=CAST_SHADOW)
+    # ── Rocky base footprint beneath each peak (drawn first, behind peaks) ──
+    for (ax, ay, blx, brx, by, snow) in peaks:
+        # Fill a few rows of base-rock texture at the foot of each peak
+        for cy in range(by - 2, min(by + 6, ROWS)):
+            t_base = (cy - (by - 2)) / 7.0
+            lx = blx + int(t_base * 3)   # taper slightly inward
+            rx = brx - int(t_base * 3)
+            for cx in range(max(0, lx), min(COLS, rx + 1)):
+                fill_cell(draw, cx, cy, pick(rng, P_BASE))
 
-    # ── 4. Foothills base: soft blended mound beneath each peak ─────────────
-    for (cxf, byf, hw, ph, sf) in sorted(peaks, key=lambda p: p[1]):
-        cx = int(cxf * W)
-        by = int(byf * H)
-        # Wide gentle mound at base (blends peak into floor)
-        hill_pts = [
-            (cx - int(hw * 1.5), by + 8),
-            (cx - int(hw * 0.8), by - int(ph * 0.14)),
-            (cx,                 by - int(ph * 0.18)),
-            (cx + int(hw * 0.8), by - int(ph * 0.12)),
-            (cx + int(hw * 1.5), by + 8),
-        ]
-        draw.polygon(hill_pts, fill=ROCK_MID)
+    # ── Draw peaks back-to-front (highest apex_cy = furthest back) ──────────
+    for (ax, ay, blx, brx, by, snow) in sorted(peaks, key=lambda p: p[1], reverse=True):
+        height = by - ay
+        if height <= 0: continue
+        snow_rows = int(height * 0.32) if snow else 0
 
-    # ── 5. Draw peaks back-to-front ──────────────────────────────────────────
-    for (cxf, byf, hw, ph, sf) in sorted(peaks, key=lambda p: p[1]):
-        cx     = int(cxf * W)
-        by     = int(byf * H)
-        apex_x = cx + rng.randint(-int(hw * 0.15), int(hw * 0.15))
-        apex_y = (by - ph) + rng.randint(-int(ph * 0.04), int(ph * 0.04))
+        for cy in range(ay, by + 1):
+            t = (cy - ay) / height   # 0=apex, 1=base
+            lx = ax + t * (blx - ax)
+            rx = ax + t * (brx - ax)
+            edge_noise = 1.5 * (1 - t * 0.5)
+            lxi = max(0, int(lx + rng.uniform(-edge_noise, edge_noise * 0.3)))
+            rxi = min(COLS - 1, int(rx + rng.uniform(-edge_noise * 0.3, edge_noise)))
 
-        # Organic slope wobble (mid-slope point displaced inward/outward)
-        sun_mid_t  = rng.uniform(0.40, 0.60)
-        sun_mid_y  = int(apex_y + sun_mid_t * (by - apex_y))
-        sun_mid_x  = int(apex_x + sun_mid_t * (cx - hw - apex_x))
-        sun_mid_x += rng.randint(-int(hw * 0.12), int(hw * 0.12))  # wobble
+            for cx in range(lxi, rxi + 1):
+                in_snow = (cy - ay) < snow_rows
+                if in_snow:
+                    c = pick(rng, P_SNOW if cx <= ax else P_SNOW_S)
+                elif cy - ay < 3:
+                    c = pick(rng, P_PEAK)
+                elif cx < ax - 1:
+                    fade = t
+                    c = pick(rng, P_SUN if fade < 0.45 else P_MID)
+                elif cx > ax + 1:
+                    c = pick(rng, P_SHADOW)
+                else:
+                    c = pick(rng, P_MID)
+                fill_cell(draw, cx, cy, c)
 
-        shad_mid_t = rng.uniform(0.40, 0.60)
-        shad_mid_y = int(apex_y + shad_mid_t * (by - apex_y))
-        shad_mid_x = int(apex_x + shad_mid_t * (cx + hw - apex_x))
-        shad_mid_x += rng.randint(-int(hw * 0.10), int(hw * 0.10))
+        # ── Dithered edge scatter (constrained to peak horizontal range) ───
+        for cy in range(ay + 2, by):
+            t = (cy - ay) / height
+            lx = ax + t * (blx - ax)
+            rx = ax + t * (brx - ax)
+            for _ in range(2):
+                scatter_cx = int(lx) - rng.randint(1, 2)
+                if blx - 2 <= scatter_cx < COLS:
+                    c = pick(rng, P_MID if t < 0.5 else P_BASE)
+                    fill_cell(draw, scatter_cx, cy, c)
+                scatter_cx = int(rx) + rng.randint(1, 2)
+                if 0 <= scatter_cx <= brx + 2:
+                    fill_cell(draw, scatter_cx, cy, pick(rng, P_SHADOW if t > 0.3 else P_BASE))
 
-        left_base  = (cx - hw, by)
-        right_base = (cx + hw, by)
-        base_ctr   = (cx, by)
-
-        # Shadow face — outer dark band
-        shad_outer = [
-            (apex_x, apex_y),
-            (shad_mid_x + int(hw * 0.18), shad_mid_y),
-            right_base,
-            base_ctr,
-        ]
-        draw.polygon(shad_outer, fill=SHADOW_OUTER)
-        # Shadow face — inner slightly lighter ambient strip
-        shad_inner = [
-            (apex_x, apex_y),
-            (shad_mid_x - int(hw * 0.05), shad_mid_y),
-            (cx + hw//3, by),
-            base_ctr,
-        ]
-        draw.polygon(shad_inner, fill=SHADOW_INNER)
-
-        # Sun face — 5-point organic polygon
-        sun_pts = [
-            (apex_x,   apex_y),
-            (sun_mid_x, sun_mid_y),
-            left_base,
-            base_ctr,
-        ]
-        draw.polygon(sun_pts, fill=ROCK_LIGHT)
-
-        # Strata on sun face
-        n_strata = rng.randint(4, 7)
-        for si in range(1, n_strata + 1):
-            t   = si / (n_strata + 1)
-            # Vary spacing: tighter near top (more elevation lines at altitude)
-            tt  = t * t  # quadratic spacing
-            sy  = int(apex_y + tt * (by - apex_y))
-            slx = int(sun_mid_x + (tt - sun_mid_t) / (1.0 - sun_mid_t + 0.001) * (cx - hw - sun_mid_x)) if tt > sun_mid_t else int(apex_x + tt/sun_mid_t * (sun_mid_x - apex_x))
-            srx = int(apex_x + tt * (cx - apex_x))
-            sc  = STRATA_LT if si % 2 == 0 else STRATA_DK
-            draw.line([(min(slx,srx), sy), (max(slx,srx), sy)], fill=sc, width=1)
-
-        # Strata on shadow face
-        for si in range(1, n_strata + 1):
-            t   = si / (n_strata + 1)
-            tt  = t * t
-            sy  = int(apex_y + tt * (by - apex_y))
-            slx = int(apex_x + tt * (cx - apex_x))
-            srx = int(shad_mid_x + (tt - shad_mid_t) / (1.0 - shad_mid_t + 0.001) * (cx + hw - shad_mid_x)) if tt > shad_mid_t else int(apex_x + tt/shad_mid_t * (shad_mid_x - apex_x))
-            draw.line([(min(slx,srx), sy), (max(slx,srx), sy)], fill=STRATA_SHAD, width=1)
-
-        # Ridge edges
-        draw.line([(apex_x, apex_y), left_base],  fill=CAST_SHADOW, width=1)
-        draw.line([(apex_x, apex_y), right_base], fill=CAST_SHADOW, width=2)
-
-        # Snow cap — bigger, irregular, extends onto shadow side slightly
-        if sf > 0:
-            snow_h = int(ph * sf)
-            # Jagged snow line: add a few mid-points
-            snow_l  = (apex_x - int(hw * sf * 0.68), apex_y + snow_h)
-            snow_r  = (apex_x + int(hw * sf * 0.28), apex_y + snow_h)
-            snow_m  = (apex_x - int(hw * sf * 0.18) + rng.randint(-6, 6),
-                       apex_y + int(snow_h * rng.uniform(0.55, 0.75)))
-            snow_pts = [
-                (apex_x, apex_y),
-                snow_m,
-                snow_l,
-                snow_r,
-            ]
-            draw.polygon(snow_pts, fill=SNOW)
-            # Shadow snow sliver (right of apex, darker)
-            snow_shd = [
-                (apex_x, apex_y),
-                (apex_x + int(hw * sf * 0.28), apex_y + snow_h),
-                (apex_x + int(hw * sf * 0.10), apex_y + snow_h),
-            ]
-            draw.polygon(snow_shd, fill=SNOW_SHADE)
-            # Tiny irregular edge dots along snow boundary
-            for ei in range(rng.randint(3, 6)):
-                t = ei / 5.0
-                ex = int(snow_l[0] + t * (snow_r[0] - snow_l[0])) + rng.randint(-4, 4)
-                ey = int(snow_l[1] + t * (snow_r[1] - snow_l[1])) + rng.randint(-3, 3)
-                draw.ellipse([ex-2, ey-1, ex+2, ey+1], fill=SNOW_EDGE)
-
-        # Upper highlight strip (just below apex)
-        strip_h = int(ph * 0.18)
-        slx = int(apex_x + 0.18 * (cx - hw - apex_x))
-        srx = int(apex_x + 0.18 * (cx - apex_x))
-        draw.polygon([
-            (apex_x, apex_y + 1),
-            (slx,    apex_y + strip_h),
-            (srx,    apex_y + strip_h),
-        ], fill=ROCK_LIGHTER)
-
-    # ── 6. Foreground rubble ─────────────────────────────────────────────────
-    for _ in range(rng.randint(10, 18)):
-        rx = rng.randint(16, W - 16)
-        ry = rng.randint(int(H * 0.74), H - 8)
-        rs = rng.randint(2, 5)
-        c  = rng.choice([RUBBLE, SCREE, ROCK_MID])
-        draw.ellipse([rx - rs, ry - rs//2, rx + rs, ry + rs//2], fill=c)
-
-    # ── 7. Light blur to smooth stipple ─────────────────────────────────────
-    img = img.filter(ImageFilter.GaussianBlur(radius=0.45))
+        # ── Rock detail flecks -- constrained to within peak bounds ─────────
+        for _ in range(rng.randint(8, 16)):
+            cx = rng.randint(blx, brx)
+            cy = rng.randint(ay + 2, by - 1)
+            fill_cell(draw, cx, cy, pick(rng, P_MID if rng.random() < 0.6 else P_SHADOW))
 
     return img
 
@@ -230,12 +135,11 @@ def draw_mountain_tile(variant_idx):
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     for i in range(1, 11):
-        tile = draw_mountain_tile(i - 1)
-        out_path = os.path.join(OUT_DIR, f"mountain_tile_{i:02d}.png")
-        tile.save(out_path)
-        print(f"  Saved {out_path}")
+        tile = draw_tile(i - 1)
+        path = os.path.join(OUT_DIR, f"mountain_tile_{i:02d}.png")
+        tile.save(path)
+        print(f"  {path}")
     print("Done.")
-
 
 if __name__ == "__main__":
     main()

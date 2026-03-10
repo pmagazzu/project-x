@@ -167,6 +167,8 @@ export class GameScene extends Phaser.Scene {
     this.terrainGfx = this.add.graphics().setDepth(0);
     // Layer for terrain art image objects (depth 2, world space, camera-managed)
     this.terrainArtLayer = this.add.layer().setDepth(2);
+    // Mountain peak sprites overflow above their hex tile (depth 3, drawn in row order)
+    this.mountainPeakLayer = this.add.layer().setDepth(3);
     // Keep terrainRT and terrainArtRT as dummy objects so camera ignore lists don't break
     this.terrainRT    = this.add.renderTexture(1, 1, 1, 1).setVisible(false);
     this.terrainArtRT = this.add.renderTexture(1, 1, 1, 1).setVisible(false);
@@ -193,7 +195,7 @@ export class GameScene extends Phaser.Scene {
     // Move all scroll-factor-0 objects created so far into _uiLayer
     // (catches top bar, bottom panel, buttons, etc. without touching each line)
     const worldObjs = new Set([
-      this.terrainGfx, this.terrainArtLayer, this.terrainArtRT, this.terrainRT,
+      this.terrainGfx, this.terrainArtLayer, this.mountainPeakLayer, this.terrainArtRT, this.terrainRT,
       this.roadGfx,
       this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT, this._uiLayer
     ]);
@@ -219,7 +221,7 @@ export class GameScene extends Phaser.Scene {
     this.uiCamera = this.cameras.add(0, 0, sw, sh).setName('ui').setScroll(0, 0).setZoom(1);
     this.uiCamera.transparent = true; // transparent background — must not cover world
     this.uiCamera.ignore([
-      this.terrainGfx, this.terrainArtLayer, this.terrainArtRT, this.terrainRT,
+      this.terrainGfx, this.terrainArtLayer, this.mountainPeakLayer, this.terrainArtRT, this.terrainRT,
       this.roadGfx,
       this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT,
     ]);
@@ -238,6 +240,7 @@ export class GameScene extends Phaser.Scene {
   _drawTerrainDirect() {
     this.terrainGfx.clear();
     if (this.terrainArtLayer) this.terrainArtLayer.removeAll(true);
+    if (this.mountainPeakLayer) this.mountainPeakLayer.removeAll(true);
 
     const artW = HEX_SIZE * 2;
     const artH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH);
@@ -255,10 +258,12 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // If any art tiles loaded, bake them into an OffscreenCanvas → single Phaser texture
+    // If any art tiles loaded, bake them into an OffscreenCanvas -> single Phaser texture
     if (hasAnyArt) {
       this._bakeTerrainArt(artW, artH);
     }
+    // Mountain peaks rendered as overflow sprites (not hex-clipped, sorted by world Y)
+    this._buildMountainPeaks(artW, artH);
   }
 
   _bakeTerrainArt(artW, artH) {
@@ -299,9 +304,8 @@ export class GameScene extends Phaser.Scene {
         } else if (ttype === 7) { // light woods
           const varKey = `terrain_lightwoods_${(_varHash % LIGHTWOODS_VARIANTS) + 1}`;
           if (this.textures.exists(varKey)) artKey = varKey;
-        } else if (ttype === 2) { // mountain
-          const varKey = `terrain_mountain_${(_varHash % MOUNTAIN_VARIANTS) + 1}`;
-          if (this.textures.exists(varKey)) artKey = varKey;
+        } else if (ttype === 2) { // mountain -- skip bake; rendered as overflow peak sprites
+          continue;
         }
         if (!artKey || !this.textures.exists(artKey)) continue;
         const srcImg = this.textures.get(artKey).getSourceImage();
@@ -365,6 +369,38 @@ export class GameScene extends Phaser.Scene {
     this._terrainArtImg = this.add.image(offX, offY, '_terrain_art_baked')
       .setOrigin(0, 0).setDepth(2);
     if (this.terrainArtLayer) this.terrainArtLayer.add(this._terrainArtImg);
+  }
+
+  // Mountain peaks: unclipped sprites that overflow above their hex tile (painter's order)
+  _buildMountainPeaks(artW, artH) {
+    if (!this.mountainPeakLayer) return;
+    this.mountainPeakLayer.removeAll(true);
+
+    // Collect mountain hexes and sort by world Y ascending (top-screen first)
+    // so later-added (higher world Y) sprites render on top -- correct painter order
+    const mtnHexes = [];
+    for (let q = 0; q < this.mapSize; q++) {
+      for (let r = 0; r < this.mapSize; r++) {
+        if ((this.terrain[`${q},${r}`] ?? 0) === 2) {
+          const { x, y } = hexToWorld(q, r);
+          const hash = ((q * 1619 + r * 31337) ^ (q * 6791)) & 0xFFFFFF;
+          mtnHexes.push({ x, y, hash });
+        }
+      }
+    }
+    mtnHexes.sort((a, b) => a.y - b.y);
+
+    // Sprite height = 2.5x artH; bottom-anchored at hex bottom edge
+    const sprH = artH * 2.5;
+    const bottomY = artH * 0.5; // offset from hex center to hex bottom edge
+    for (const { x, y, hash } of mtnHexes) {
+      const varKey = `terrain_mountain_${(hash % MOUNTAIN_VARIANTS) + 1}`;
+      if (!this.textures.exists(varKey)) continue;
+      const img = this.add.image(x, y + bottomY, varKey)
+        .setOrigin(0.5, 1.0)
+        .setDisplaySize(artW, sprH);
+      this.mountainPeakLayer.add(img);
+    }
   }
 
   // Draw resource deposit overlay using canvas 2D API (baked into terrain texture)
