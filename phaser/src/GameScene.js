@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.10';
+const GAME_VERSION = 'v0.9.11';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2223,6 +2223,7 @@ export class GameScene extends Phaser.Scene {
 
     this.input.keyboard.enableGlobalCapture();
     this.wasd = this.input.keyboard.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT');
+    this._shiftKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
     this.input.keyboard.on('keydown-ESC',   () => { if (!this._endTurnPending) this._toggleSettings(); });
     this.input.keyboard.on('keydown-X',     () => { this._confirmEndTurn(); });
     this.input.keyboard.on('keydown-SPACE', () => {
@@ -2626,14 +2627,14 @@ export class GameScene extends Phaser.Scene {
     const zy = h/2 + 68;
     objs.push(this.add.text(w/2 - 140, zy, 'Scroll zoom speed', { font: '12px monospace', fill: '#cccccc' })
       .setOrigin(0, 0.5).setScrollFactor(0).setDepth(D+1));
-    const zoomSteps = [0.5, 0.75, 1.0, 1.5, 2.0];
-    const zoomLabels = ['Slow', 'Slow+', 'Default', 'Fast', 'Fast+'];
+    const zoomSteps = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0];
+    const zoomLabels = ['Crawl', 'Slow', 'Slow+', 'Default', 'Fast', 'Fast+', 'Turbo', 'Ludicrous'];
     const makeZoom = () => {
       if (this._zoomBtns) this._zoomBtns.forEach(b => b.destroy());
       this._zoomBtns = [];
       zoomSteps.forEach((spd, i) => {
         const active = Math.abs(this.settings.zoomSpeed - spd) < 0.01;
-        const bx = w/2 - 80 + i * 46;
+        const bx = w/2 - 126 + i * 36;
         const zb = this.add.text(bx, zy + 22, zoomLabels[i], {
           font: '10px monospace', fill: active ? '#ffee44' : '#888888',
           backgroundColor: active ? '#443300' : '#222222', padding: { x: 5, y: 4 }
@@ -2668,7 +2669,8 @@ export class GameScene extends Phaser.Scene {
 
   update() {
     const cam = this.cameras.main;
-    const speed = 6 / cam.zoom;
+    const shiftHeld = this._shiftKey?.isDown ?? false;
+    const speed = (6 / cam.zoom) * (shiftHeld ? 2.5 : 1);
     const W = this.wasd;
     if (W.W.isDown || W.UP.isDown)    cam.scrollY -= speed;
     if (W.S.isDown || W.DOWN.isDown)  cam.scrollY += speed;
