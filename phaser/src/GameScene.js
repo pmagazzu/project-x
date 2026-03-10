@@ -32,7 +32,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.17';
+const GAME_VERSION = 'v0.9.18';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2948,9 +2948,12 @@ export class GameScene extends Phaser.Scene {
       const isReachable = this.reachable.some(h => h.q === q && h.r === r);
       // Allow move if hex is reachable and has no unit (or only the unit itself)
       // Air units can share a hex with friendly ground units
+      // Engineers can share a hex with any friendly unit (road building through occupied tiles)
       const _isMovingAir = AIR_UNITS.has(this.selectedUnit?.type);
+      const _isMovingEngineer = this.selectedUnit?.type === 'ENGINEER';
       const hexFree = !clickedUnit || clickedUnit.id === this.selectedUnit?.id ||
-        (_isMovingAir && clickedUnit.owner === this.selectedUnit.owner && !AIR_UNITS.has(clickedUnit.type));
+        (_isMovingAir && clickedUnit.owner === this.selectedUnit.owner && !AIR_UNITS.has(clickedUnit.type)) ||
+        (_isMovingEngineer && clickedUnit.owner === this.selectedUnit.owner);
       if (isReachable && hexFree) {
         // IGOUGO: movement is immediate.
         // Save _origQ/_origR on FIRST move only (undo returns to turn-start position).
