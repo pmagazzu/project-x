@@ -16,7 +16,7 @@ import {
 
 // ── Constants ─────────────────────────────────────────────────────────────
 const TERRAIN        = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2, HILL: 3, SHALLOW: 4, OCEAN: 5, SAND: 6 };
-const TERRAIN_LABELS = ['Plains','Forest','Mountain','Hill','Shallow Water','Ocean','Sand'];
+const TERRAIN_LABELS = ['Plains','Forest','Mountain','Hill','Shallow Water','Ocean','Sand','Light Woods'];
 const TERRAIN_COLORS = {
   0: { fill: 0x8aaa55, stroke: 0x6a8a35 },  // plains
   1: { fill: 0x1a4010, stroke: 0x0d2008 },  // dense forest
@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.12';
+const GAME_VERSION = 'v0.9.13';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
