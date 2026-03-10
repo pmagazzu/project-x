@@ -31,7 +31,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v0.9.13';
+const GAME_VERSION = 'v0.9.14';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1029,13 +1029,24 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ── Buildings ─────────────────────────────────────────────────────────────
+  // Compute camera viewport bounds in world space from scroll+zoom directly.
+  // Using camera.worldView can return stale/zero dimensions during input event handlers,
+  // causing all units/buildings to fail the cull check and disappear.
+  _vpBounds(buf = HEX_SIZE * 3) {
+    const cam = this.cameras.main;
+    const cw  = cam.width  || this.scale.width;
+    const ch  = cam.height || this.scale.height;
+    const hw  = (cw / 2) / cam.zoom;
+    const hh  = (ch / 2) / cam.zoom;
+    const cx  = cam.scrollX + hw;
+    const cy  = cam.scrollY + hh;
+    return { L: cx - hw - buf, R: cx + hw + buf, T: cy - hh - buf, B: cy + hh + buf };
+  }
+
   _redrawBuildings() {
     this.buildingGfx.clear();
-    // Viewport culling: skip buildings outside the visible area (large-map perf)
-    const _bvp = this.cameras.main.worldView;
-    const _bvpBuf = HEX_SIZE * 3;
-    const _bvpL = _bvp.x - _bvpBuf, _bvpR = _bvp.x + _bvp.width  + _bvpBuf;
-    const _bvpT = _bvp.y - _bvpBuf, _bvpB = _bvp.y + _bvp.height + _bvpBuf;
+    // Viewport culling (large-map perf)
+    const { L: _bvpL, R: _bvpR, T: _bvpT, B: _bvpB } = this._vpBounds();
 
     for (const b of this.gameState.buildings) {
       if (b.type === 'ROAD') continue;
@@ -1339,11 +1350,8 @@ export class GameScene extends Phaser.Scene {
     this.unitGfx.clear();
     const gs  = this.gameState;
     const fog = this._currentFog;
-    // Viewport culling bounds (with buffer so units at edge aren't popped)
-    const _uvp = this.cameras.main.worldView;
-    const _uvpBuf = HEX_SIZE * 3;
-    const _uvpL = _uvp.x - _uvpBuf, _uvpR = _uvp.x + _uvp.width  + _uvpBuf;
-    const _uvpT = _uvp.y - _uvpBuf, _uvpB = _uvp.y + _uvp.height + _uvpBuf;
+    // Viewport culling (large-map perf) — uses scroll+zoom, not worldView (avoids stale rect)
+    const { L: _uvpL, R: _uvpR, T: _uvpT, B: _uvpB } = this._vpBounds();
 
     for (const unit of gs.units) {
       // IGOUGO: all positions are real/immediate — no we-go display offset needed
@@ -2833,6 +2841,7 @@ export class GameScene extends Phaser.Scene {
         this.selectedUnit.q = q; this.selectedUnit.r = r;
         this.selectedUnit.sprinted = true;
         this.selectedUnit.attacked = true; // sprint negates attack
+        this.selectedUnit.movesLeft = 0;
         this.reachable = []; this.attackable = [];
         this.mode = 'select';
         this._refresh();
@@ -2850,23 +2859,38 @@ export class GameScene extends Phaser.Scene {
       const hexFree = !clickedUnit || clickedUnit.id === this.selectedUnit?.id ||
         (_isMovingAir && clickedUnit.owner === this.selectedUnit.owner && !AIR_UNITS.has(clickedUnit.type));
       if (isReachable && hexFree) {
-        // IGOUGO: movement is immediate. Save _origQ/_origR for undo only (not used in combat).
-        this.selectedUnit._origQ = this.selectedUnit.q;
-        this.selectedUnit._origR = this.selectedUnit.r;
+        // IGOUGO: movement is immediate.
+        // Save _origQ/_origR on FIRST move only (undo returns to turn-start position).
+        if (this.selectedUnit._origQ === undefined) {
+          this.selectedUnit._origQ = this.selectedUnit.q;
+          this.selectedUnit._origR = this.selectedUnit.r;
+        }
         // Capture start world position for slide animation
         const _slideFrom = hexToWorld(this.selectedUnit.q, this.selectedUnit.r);
         // Snapshot pre-move fog to detect if move reveals new hexes (prevent scouting exploit)
         const _preFog = this._currentFog ? new Set(this._currentFog) : null;
+        // Deduct movement cost and update partial-move budget
+        const _movedHex = this.reachable.find(h => h.q === q && h.r === r);
+        const _moveCost  = _movedHex?.cost ?? UNIT_TYPES[this.selectedUnit.type].move;
+        const _maxMove   = UNIT_TYPES[this.selectedUnit.type].move;
+        this.selectedUnit.movesLeft = Math.max(0,
+          (this.selectedUnit.movesLeft ?? _maxMove) - _moveCost);
         // Do NOT add to pendingMoves — position is real immediately
-        this.selectedUnit.q = q; this.selectedUnit.r = r; this.selectedUnit.moved = true;
+        this.selectedUnit.q = q; this.selectedUnit.r = r;
+        this.selectedUnit.moved = (this.selectedUnit.movesLeft <= 0);
         // Check if move revealed new fog hexes — if so, undo is blocked
         if (_preFog) {
           const postFog = computeFog(gs, gs.currentPlayer, this.mapSize, this.terrain);
           const revealedNew = [...postFog].some(k => !_preFog.has(k));
           this.selectedUnit._scoutedMove = revealedNew;
         }
-        // After move: stay in select mode. Unit remains selected.
-        this.reachable = [];
+        // After move: if movement budget remains, keep reachable highlighted from new position.
+        // Otherwise clear reachable (unit is done moving).
+        if (this.selectedUnit.movesLeft > 0) {
+          this.reachable = getReachableHexes(gs, this.selectedUnit, this.terrain, this.mapSize);
+        } else {
+          this.reachable = [];
+        }
         this.attackable = getAttackableHexes(gs, this.selectedUnit, q, r, this._currentFog);
         this.mode = 'select';
         // Slide animation: no separate Game Objects — driven purely by update() loop.

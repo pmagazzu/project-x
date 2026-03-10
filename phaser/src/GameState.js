@@ -218,7 +218,8 @@ export function createUnit(type, owner, q, r) {
   const def = UNIT_TYPES[type];
   const unit = { id: _nextId++, type, owner, q, r,
     health: def.health, maxHealth: def.health,
-    moved: false, attacked: false, dugIn: false, building: false };
+    moved: false, attacked: false, dugIn: false, building: false,
+    movesLeft: def.move };
   // Air units start with a full fuel tank
   if (def.fuelMax) { unit.fuel = def.fuelMax; unit.fuelMax = def.fuelMax; }
   return unit;
@@ -535,7 +536,8 @@ export const HILL_SIGHT_BONUS = 2;
 
 // ── Pathfinding (Dijkstra for terrain costs) ───────────────────────────────
 export function getReachableHexes(state, unit, terrain, mapSize) {
-  const maxMove = UNIT_TYPES[unit.type].move;
+  // Use remaining movement budget if tracked, otherwise full move allowance
+  const maxMove = unit.movesLeft ?? UNIT_TYPES[unit.type].move;
   const dist  = new Map();
   const visited = new Set();
   const queue = [{ q: unit.q, r: unit.r, cost: 0 }];
@@ -587,9 +589,10 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
     const [q, r] = key.split(',').map(Number);
     if (q === unit.q && r === unit.r) continue; // skip origin
     const occupant = unitAt(state, q, r);
-    if (!occupant || occupant.id === unit.id) { result.push({ q, r }); continue; }
+    const movCost = dist.get(key) ?? 0;
+    if (!occupant || occupant.id === unit.id) { result.push({ q, r, cost: movCost }); continue; }
     // Air can land on hex with friendly ground unit (not another air unit)
-    if (isAir && occupant.owner === unit.owner && !AIR_UNITS.has(occupant.type)) result.push({ q, r });
+    if (isAir && occupant.owner === unit.owner && !AIR_UNITS.has(occupant.type)) result.push({ q, r, cost: movCost });
   }
   return result;
 }
@@ -1227,6 +1230,7 @@ export function resolveTurn(state, terrain) {
   // Reset
   for (const unit of state.units) {
     unit.moved = false; unit.attacked = false; unit.building = false; unit.suppressed = false; unit.sprinted = false;
+    unit.movesLeft = UNIT_TYPES[unit.type]?.move ?? (unit.movesLeft || 1);
     delete unit._origQ; delete unit._origR; // clear undo anchors
   }
   state.pendingMoves = {}; state.pendingAttacks = {};
@@ -1539,8 +1543,9 @@ export function resolveEndOfTurn(state, terrain) {
   // Reset current player's units for next turn
   for (const unit of state.units.filter(u => u.owner === player)) {
     unit.moved = false; unit.attacked = false; unit.building = false; unit.suppressed = false; unit.sprinted = false;
+    unit.movesLeft = UNIT_TYPES[unit.type]?.move ?? (unit.movesLeft || 1);
     // Keep constructing engineers locked in place
-    if (unit.constructing) unit.moved = true;
+    if (unit.constructing) { unit.moved = true; unit.movesLeft = 0; }
     delete unit._origQ; delete unit._origR;
   }
   state.pendingMoves = {}; state.pendingAttacks = {};
