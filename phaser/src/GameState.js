@@ -43,6 +43,7 @@ export const UNIT_TYPES = {
   CRUISER_LT:    { name:'Light Cruiser',  move:3, attack:3, health:6, range:4, cost:{iron:6,oil:3}, shape:'cruiser',   canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:3, soft_attack:3, hard_attack:3, pierce:3, armor:3, defense:2, evasion:3,  accuracy:5,  buildTime:4 },
   CRUISER_HV:    { name:'Heavy Cruiser',  move:2, attack:4, health:8, range:5, cost:{iron:8,oil:4}, shape:'cruiser_hv',canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:5, soft_attack:4, hard_attack:4, pierce:4, armor:5, defense:2, evasion:1,  accuracy:5,  buildTime:5 },
   BATTLESHIP:    { name:'Battleship',     move:1, attack:5, health:12, range:7, cost:{iron:12,oil:6},shape:'battleship',canDigIn:false,canBuild:false, canHeal:false, sight:5,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:7, soft_attack:5, hard_attack:5, pierce:5, armor:8, defense:3, evasion:0,  accuracy:5,  buildTime:7 },
+  SUPPLY_SHIP:   { name:'Supply Ship',    move:3, attack:0, health:5, range:0, cost:{iron:7,oil:3}, shape:'transport', canDigIn:false,canBuild:false, canHeal:false, sight:4, naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:3, defense:2, evasion:1, accuracy:0, buildTime:4, supplyRadius:2, tier:2 },
   LANDING_CRAFT: { name:'Landing Craft',  move:2, attack:0, health:2, range:0, cost:{iron:2,oil:1}, shape:'landing',   canDigIn:false,canBuild:false, canHeal:false, sight:2,  naval:true, canEnterShallow:true,  canEnterSand:true,  stealthy:0, detection:0, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:2, capacity:{infantry:1,vehicle:0} },
   TRANSPORT_SM:  { name:'Transport (S)',  move:2, attack:0, health:3, range:0, cost:{iron:3,oil:1}, shape:'transport', canDigIn:false,canBuild:false, canHeal:false, sight:2,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:0, detection:0, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:2, capacity:{infantry:2,vehicle:1} },
   TRANSPORT_MD:  { name:'Transport (M)',  move:2, attack:0, health:4, range:0, cost:{iron:5,oil:2}, shape:'transport', canDigIn:false,canBuild:false, canHeal:false, sight:2,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:0, detection:0, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:2, defense:0, evasion:0,  accuracy:0,  buildTime:3, capacity:{infantry:4,vehicle:2} },
@@ -160,7 +161,7 @@ export const LOCKED_CHASSIS = new Set([
 ]);
 
 // Naval unit types set (for movement/terrain checks)
-export const NAVAL_UNITS = new Set(['PATROL_BOAT','MTB','SUBMARINE','DESTROYER','CRUISER_LT','CRUISER_HV','BATTLESHIP','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG','TORPEDO_BOAT','MOTOR_GUNBOAT','DESTROYER_MK1']);
+export const NAVAL_UNITS = new Set(['PATROL_BOAT','MTB','SUBMARINE','DESTROYER','CRUISER_LT','CRUISER_HV','BATTLESHIP','SUPPLY_SHIP','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG','TORPEDO_BOAT','MOTOR_GUNBOAT','DESTROYER_MK1']);
 // Air unit types set (base + unlockable)
 export const AIR_UNITS = new Set(['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE','MONOPLANE_FIGHTER','DIVE_BOMBER','HEAVY_BOMBER']);
 // Units that can enter shallow water (type 4)
@@ -257,7 +258,7 @@ export const BUILDING_TYPES = {
   SUPPLY_DEPOT:  { name: 'Supply Depot',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 1, wood: 1 }, color: 0xddaa44, sight: 2, supplyRadius: 3, moveBonus: 1 },
   HARBOR:        { name: 'Harbor',         ironPerTurn: 1, oilPerTurn: 1, woodPerTurn: 0, buildTurns: 3, canRecruit: [],                         buildCost: { iron: 5, oil: 1 }, color: 0x4488cc, sight: 2, repairsNaval: true },
   DRY_DOCK:      { name: 'Dry Dock',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: ['DESTROYER','CRUISER_LT','CRUISER_HV'],  buildCost: { iron:12, oil: 4 }, color: 0x225588, sight: 2 },
-  NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 4, canRecruit: ['BATTLESHIP'],             buildCost: { iron:16, oil: 6 }, color: 0x113366, sight: 3 },
+  NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 4, canRecruit: ['BATTLESHIP','SUPPLY_SHIP'],             buildCost: { iron:16, oil: 6 }, color: 0x113366, sight: 3 },
   // Air buildings
   AIRFIELD:      { name: 'Airfield',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE'], buildCost: { iron: 6, oil: 2, wood: 2 }, color: 0x888844, sight: 3 },
 
@@ -338,6 +339,7 @@ export const UNIT_UPKEEP = {
   TORPEDO_BOAT:     { food: 0.0, iron: 0.1, oil: 0.3 },
   MOTOR_GUNBOAT:    { food: 0.0, iron: 0.1, oil: 0.2 },
   DESTROYER_MK1:    { food: 0.0, iron: 0.3, oil: 0.5 },
+  SUPPLY_SHIP:      { food: 0.0, iron: 0.1, oil: 0.3 },
 };
 
 // Compute total upkeep for all of a player's units
@@ -1936,10 +1938,12 @@ export function computeSupply(state, player, mapSize) {
     if (radius > 0) floodFill(b.q, b.r, radius);
   }
 
-  // Flood from Supply Trucks (mobile supply nodes)
+  // Flood from mobile supply nodes (truck + supply ship)
   for (const u of state.units) {
-    if (u.owner !== player || u.type !== 'SUPPLY_TRUCK' || u.embarked) continue;
-    floodFill(u.q, u.r, UNIT_TYPES['SUPPLY_TRUCK'].supplyRadius || 3);
+    if (u.owner !== player || u.embarked) continue;
+    if (u.type !== 'SUPPLY_TRUCK' && u.type !== 'SUPPLY_SHIP') continue;
+    const rad = UNIT_TYPES[u.type]?.supplyRadius || (u.type === 'SUPPLY_SHIP' ? 2 : 3);
+    floodFill(u.q, u.r, rad);
   }
 
   return supplied;
