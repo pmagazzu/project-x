@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.2.7';
+const GAME_VERSION = 'v1.2.8';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2614,9 +2614,11 @@ export class GameScene extends Phaser.Scene {
         },
         () => this._closeDesigner()
       );
+      // IMPORTANT: each rebuild creates fresh objects — reattach to UI layer
+      // so they aren't rendered by both world+UI cameras (duplicate ghosting).
+      this._addToUI(objs);
     };
     rebuild();
-    this._addToUI(objs);
   }
 
   _renderDesignerPanel(gs, p, w, h, D, objs, allChassis, selChassis, selMods, designName, onChassis, onMod, onRegister, onClose) {
