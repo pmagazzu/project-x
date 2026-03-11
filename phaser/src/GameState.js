@@ -1527,7 +1527,8 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
 // ── IGOUGO: end-of-turn for current player (captures, income, spawns) ─────────
 export function resolveEndOfTurn(state, terrain) {
   const events = [];
-  const player = state.currentPlayer;
+  const player = Number(state.currentPlayer) || 1;
+  state.currentPlayer = player;
   state._terrain = terrain;
 
   // Captures (only by current player's units)

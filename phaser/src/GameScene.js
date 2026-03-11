@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.2.3';
+const GAME_VERSION = 'v1.2.4';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1565,19 +1565,11 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Construction turn labels (text objects — redrawn each refresh)
-    if (this._constructionLabels) this._constructionLabels.forEach(t => t.destroy());
-    this._constructionLabels = [];
-    for (const b of this.gameState.buildings) {
-      if (!b.underConstruction) continue;
-      if (this._currentFog && this._currentFog.size > 0 && Number(b.owner) !== Number(this.gameState.currentPlayer) && !this._currentFog.has(`${b.q},${b.r}`)) continue;
-      const { x, y } = hexToWorld(b.q, b.r);
-      if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
-      const prog = b.buildProgress || 0, total = b.buildTurnsRequired || 1;
-      const lbl = this.add.text(x, y + HEX_SIZE * 0.26, `${prog}/${total}`, {
-        font: 'bold 9px monospace', fill: '#ffcc00'
-      }).setOrigin(0.5, 0).setDepth(52).setScrollFactor(1);
-      this._constructionLabels.push(lbl);
+    // Remove floating construction text labels (they were duplicating/confusing).
+    // Keep only the on-tile progress bar/scaffolding visual in buildingGfx.
+    if (this._constructionLabels) {
+      this._constructionLabels.forEach(t => t.destroy());
+      this._constructionLabels = [];
     }
   }
 
