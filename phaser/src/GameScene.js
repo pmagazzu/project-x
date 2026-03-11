@@ -34,7 +34,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.0.7';
+const GAME_VERSION = 'v1.0.8';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1878,8 +1878,9 @@ export class GameScene extends Phaser.Scene {
     this.turnLbl = this._makeLabel(w/2, 11, 'Turn 1 | Player 1 | PLANNING', D, true);
 
     // Supply / Research / Settings / End Turn
-    this.btnSupply   = this._makeBtn(w - 390, 11, '⬡ SUPPLY',   0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
-    this.btnResearch = this._makeBtn(w - 272, 11, '⚗ RESEARCH', 0x442266, () => this._toggleResearch(), D, 'right');
+    this.btnSupply   = this._makeBtn(w - 510, 11, '⬡ SUPPLY',   0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
+    this.btnResearch = this._makeBtn(w - 392, 11, '⚗ RESEARCH', 0x442266, () => this._toggleResearch(), D, 'right');
+    this.btnDesigner = this._makeBtn(w - 272, 11, '🔧 DESIGNER', 0x1a3322, () => this._toggleDesigner(), D, 'right');
     this.btnSettings = this._makeBtn(w - 158, 11, '⚙ Settings', 0x222244, () => this._toggleSettings(), D, 'right');
     this.btnSubmit   = this._makeBtn(w - 8,   11, 'END TURN',   0x1a5c1a, () => this._confirmEndTurn(), D, 'right');
   }
@@ -2421,6 +2422,329 @@ export class GameScene extends Phaser.Scene {
       for (const o of this.designPanelObj.objects) o.destroy();
     }
     this.designPanelObj = null;
+  }
+
+  // ── Standalone Unit Designer (top-bar button) ─────────────────────────────
+  _toggleDesigner() {
+    if (this._designerOpen) this._closeDesigner();
+    else this._openDesigner();
+  }
+
+  _closeDesigner() {
+    if (this._designerObjs) {
+      for (const o of this._designerObjs) o.destroy();
+      this._designerObjs = null;
+    }
+    this._designerOpen = false;
+    if (this.btnDesigner) this.btnDesigner.setStyle({ backgroundColor: '#1a3322' });
+  }
+
+  _openDesigner() {
+    this._closeDesigner();
+    this._closeResearch?.();   // close research if open
+    const gs  = this.gameState;
+    const p   = gs.currentPlayer;
+    const w   = this.scale.width, h = this.scale.height;
+    const D   = 215;
+    const objs = [];
+    this._designerObjs  = objs;
+    this._designerOpen  = true;
+    if (this.btnDesigner) this.btnDesigner.setStyle({ backgroundColor: '#2a6644' });
+
+    // All chassis types and whether they're unlocked for this player
+    // Chassis unlocked by default or via research tech bonuses
+    const bonuses = computeTechBonuses(gs.players[p].research?.unlocked || []);
+    const ALWAYS_UNLOCKED = new Set(Object.keys(CHASSIS_BUILDINGS));
+    // Future: filter by bonuses.unlockedChassis — for now all are available
+
+    const ALL_CHASSIS = Object.keys(CHASSIS_BUILDINGS);
+
+    let selChassis = ALL_CHASSIS[0] || null;
+    let selMods    = new Set();
+    let designName = '';
+
+    const rebuild = () => {
+      for (const o of objs) o.destroy();
+      objs.length = 0;
+      this._renderDesignerPanel(gs, p, w, h, D, objs, ALL_CHASSIS, selChassis, selMods, designName,
+        (ch) => { selChassis = ch; selMods = new Set(); rebuild(); },
+        (mk) => { selMods.has(mk) ? selMods.delete(mk) : selMods.add(mk); rebuild(); },
+        () => {
+          // Register
+          const chassis = selChassis;
+          const def = `${UNIT_TYPES[chassis]?.name || chassis} Mk.${(gs.designs[p]?.length || 0) + 1}`;
+          const entered = window.prompt(`Name this design:\n(Enemy sees only chassis type)`, designName || def);
+          if (entered === null) return;
+          designName = entered.trim() || def;
+          const mods  = [...selMods];
+          const cost  = designRegistrationCost(mods);
+          if (gs.players[p].iron < cost.iron || gs.players[p].oil < cost.oil) return;
+          if ((gs.designs[p]?.length || 0) >= MAX_DESIGNS_PER_PLAYER) return;
+          const res = registerDesign(gs, p, chassis, mods, designName);
+          if (res.ok) {
+            this._pushLog(`P${p} designed: "${designName}"`);
+            selMods = new Set(); designName = '';
+            this._refresh();
+            rebuild();
+          }
+        },
+        () => this._closeDesigner()
+      );
+    };
+    rebuild();
+    this._addToUI(objs);
+  }
+
+  _renderDesignerPanel(gs, p, w, h, D, objs, allChassis, selChassis, selMods, designName, onChassis, onMod, onRegister, onClose) {
+    const panW  = Math.min(w - 40, 860);
+    const panH  = h - 60;
+    const px    = w / 2 - panW / 2;
+    const py    = 50;
+    const col1X = px + 16;        // left column x (chassis + modules)
+    const col2X = px + panW * 0.55; // right column x (stat comparison + designs)
+    const col2W = panW * 0.42;
+
+    // Background
+    const bg = this.add.rectangle(w/2, py + panH/2, panW, panH, 0x080c10, 0.97)
+      .setStrokeStyle(2, 0x3a6a3a).setScrollFactor(0).setDepth(D);
+    objs.push(bg);
+
+    // Header strip
+    const hdr = this.add.rectangle(w/2, py + 22, panW, 44, 0x0d1a14, 1)
+      .setScrollFactor(0).setDepth(D);
+    objs.push(hdr);
+    objs.push(this.add.text(w/2, py + 22, '🔧  UNIT DESIGNER', {
+      font: 'bold 15px monospace', fill: '#88ddaa'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1));
+
+    // Slot / resource info
+    const slotFull = (gs.designs[p]?.length || 0) >= MAX_DESIGNS_PER_PLAYER;
+    objs.push(this.add.text(col2X + col2W, py + 22,
+      `Designs: ${gs.designs[p]?.length || 0}/${MAX_DESIGNS_PER_PLAYER}  ⚙${gs.players[p].iron}  🛢${gs.players[p].oil}`, {
+      font: '11px monospace', fill: slotFull ? '#ff8888' : '#88aa88'
+    }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D+1));
+
+    // Close button (top-right)
+    const closeX = px + panW - 10;
+    const closeBtn = this.add.text(closeX, py + 22, '✕', {
+      font: 'bold 16px monospace', fill: '#888888'
+    }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerdown', onClose);
+    closeBtn.on('pointerover', () => closeBtn.setStyle({ fill: '#ffffff' }));
+    closeBtn.on('pointerout',  () => closeBtn.setStyle({ fill: '#888888' }));
+    objs.push(closeBtn);
+
+    // ── LEFT COLUMN: Chassis tabs ────────────────────────────────────────
+    let ly = py + 56;
+    objs.push(this.add.text(col1X, ly, 'CHASSIS', {
+      font: 'bold 10px monospace', fill: '#668866'
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+1));
+    ly += 16;
+
+    const tabW = 110, tabH = 28, tabGap = 4;
+    allChassis.forEach((ch, i) => {
+      const col = i % 3, row = Math.floor(i / 3);
+      const tx = col1X + col * (tabW + tabGap);
+      const ty = ly + row * (tabH + tabGap);
+      const sel = ch === selChassis;
+      const def = UNIT_TYPES[ch];
+      const tabBg = this.add.rectangle(tx + tabW/2, ty + tabH/2, tabW, tabH,
+        sel ? 0x1e4e2e : 0x111a14, 1)
+        .setStrokeStyle(1, sel ? 0x44cc66 : 0x223322)
+        .setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
+      tabBg.on('pointerdown', () => onChassis(ch));
+      tabBg.on('pointerover', () => { if (!sel) tabBg.setFillStyle(0x1a3a22); });
+      tabBg.on('pointerout',  () => { if (!sel) tabBg.setFillStyle(0x111a14); });
+      objs.push(tabBg);
+      const lbl = this.add.text(tx + tabW/2, ty + tabH/2, def?.name || ch, {
+        font: `${sel ? 'bold ' : ''}10px monospace`, fill: sel ? '#aaffcc' : '#668866'
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(D+2);
+      objs.push(lbl);
+    });
+    const tabRows = Math.ceil(allChassis.length / 3);
+    ly += tabRows * (tabH + tabGap) + 10;
+
+    // ── Modules for selected chassis ─────────────────────────────────────
+    if (selChassis) {
+      const base = UNIT_TYPES[selChassis];
+      objs.push(this.add.text(col1X, ly, 'MODULES', {
+        font: 'bold 10px monospace', fill: '#668866'
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+1));
+      ly += 16;
+
+      const validMods = Object.entries(MODULES).filter(([, m]) => m.chassis.includes(selChassis));
+      if (validMods.length === 0) {
+        objs.push(this.add.text(col1X, ly, '(no modules for this chassis)', {
+          font: '10px monospace', fill: '#445544'
+        }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+1));
+        ly += 16;
+      }
+
+      const modW = panW * 0.50 - 20;
+      for (const [key, mod] of validMods) {
+        const sel = selMods.has(key);
+        const deltaStr = Object.entries(mod.statDelta).map(([k, v]) => `${k}${v>0?'+':''}${v}`).join(' ');
+        const regCost  = `reg⚙${mod.designCost.iron}${mod.designCost.oil ? `🛢${mod.designCost.oil}` : ''}`;
+        const trainCst = `train⚙${mod.trainCost.iron}${mod.trainCost.oil ? `🛢${mod.trainCost.oil}` : ''}`;
+        const rowBg = this.add.rectangle(col1X + modW/2, ly + 13, modW, 26,
+          sel ? 0x1a3a1a : 0x0e140e, 1)
+          .setStrokeStyle(1, sel ? 0x44cc44 : 0x1e2e1e)
+          .setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
+        rowBg.on('pointerdown', () => onMod(key));
+        rowBg.on('pointerover', () => rowBg.setFillStyle(sel ? 0x1a4a1a : 0x141e14));
+        rowBg.on('pointerout',  () => rowBg.setFillStyle(sel ? 0x1a3a1a : 0x0e140e));
+        objs.push(rowBg);
+
+        // Check mark + name
+        objs.push(this.add.text(col1X + 6, ly + 13, `${sel ? '✓' : '○'} ${mod.name}`, {
+          font: `${sel ? 'bold ' : ''}10px monospace`, fill: sel ? '#aaffaa' : '#668866'
+        }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(D+2));
+
+        // Delta
+        objs.push(this.add.text(col1X + modW * 0.45, ly + 13, deltaStr, {
+          font: '10px monospace', fill: sel ? '#88ffcc' : '#446644'
+        }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(D+2));
+
+        // Cost
+        objs.push(this.add.text(col1X + modW - 6, ly + 13, `${regCost} ${trainCst}`, {
+          font: '9px monospace', fill: '#556655'
+        }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D+2));
+
+        ly += 28;
+      }
+    }
+
+    // ── RIGHT COLUMN: Stat comparison + existing designs ──────────────────
+    let ry = py + 56;
+
+    if (selChassis) {
+      const base    = UNIT_TYPES[selChassis];
+      const preview = computeDesignStats(selChassis, [...selMods]);
+      const regCost = designRegistrationCost([...selMods]);
+      const canAfford = gs.players[p].iron >= regCost.iron && gs.players[p].oil >= regCost.oil;
+
+      // Stat comparison table header
+      objs.push(this.add.text(col2X, ry, 'STAT COMPARISON', {
+        font: 'bold 10px monospace', fill: '#668866'
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+1));
+      ry += 16;
+
+      const STATS = [
+        ['Health',      'health'],
+        ['Movement',    'move'],
+        ['Range',       'range'],
+        ['Soft Atk',    'soft_attack'],
+        ['Hard Atk',    'hard_attack'],
+        ['Pierce',      'pierce'],
+        ['Armor',       'armor'],
+        ['Defense',     'defense'],
+        ['Evasion',     'evasion'],
+        ['Accuracy',    'accuracy'],
+      ];
+
+      // Column headers
+      objs.push(this.add.text(col2X + 90,  ry, 'BASE', { font: 'bold 9px monospace', fill: '#557755' }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(D+1));
+      objs.push(this.add.text(col2X + 130, ry, 'WITH MODS', { font: 'bold 9px monospace', fill: '#88cc88' }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(D+1));
+      objs.push(this.add.text(col2X + 185, ry, 'DELTA', { font: 'bold 9px monospace', fill: '#aaaaaa' }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(D+1));
+      ry += 14;
+
+      for (const [label, key] of STATS) {
+        const bv = base[key] ?? 0;
+        const pv = preview[key] ?? 0;
+        const dv = pv - bv;
+        const dColor = dv > 0 ? '#44ff88' : dv < 0 ? '#ff6655' : '#444444';
+        const dStr   = dv === 0 ? '—' : `${dv > 0 ? '+' : ''}${dv}`;
+
+        // Row bg alternating
+        const rowBg2 = this.add.rectangle(col2X + col2W/2, ry + 8, col2W, 18,
+          ry % 36 < 18 ? 0x0c140c : 0x0a120a, 1).setScrollFactor(0).setDepth(D+1);
+        objs.push(rowBg2);
+
+        objs.push(this.add.text(col2X + 2,   ry + 8, label, { font: '10px monospace', fill: '#668866' }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(D+2));
+        objs.push(this.add.text(col2X + 90,  ry + 8, `${bv}`, { font: '10px monospace', fill: '#557755' }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+2));
+        objs.push(this.add.text(col2X + 130, ry + 8, `${pv}`, { font: `bold 10px monospace`, fill: '#aaffaa' }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+2));
+        objs.push(this.add.text(col2X + 185, ry + 8, dStr, { font: 'bold 10px monospace', fill: dColor }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+2));
+        ry += 18;
+      }
+
+      ry += 8;
+      // Train cost preview
+      const trainCost = computeDesignStats(selChassis, [...selMods]); // reuse
+      const baseCost  = UNIT_TYPES[selChassis]?.cost || {};
+      let tIron = baseCost.iron || 0, tOil = baseCost.oil || 0;
+      for (const mk of selMods) {
+        const m = MODULES[mk];
+        if (m) { tIron += m.trainCost.iron || 0; tOil += m.trainCost.oil || 0; }
+      }
+      tIron = Math.max(0, tIron);
+
+      objs.push(this.add.text(col2X, ry, `Train cost per unit:  ⚙${tIron}${tOil > 0 ? `  🛢${tOil}` : ''}`, {
+        font: '10px monospace', fill: '#99aa66'
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+1));
+      ry += 16;
+      objs.push(this.add.text(col2X, ry, `Register cost (one-time):  ⚙${regCost.iron}${regCost.oil > 0 ? `  🛢${regCost.oil}` : ''}`, {
+        font: '10px monospace', fill: canAfford ? '#88cc66' : '#cc4444'
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+1));
+      ry += 22;
+
+      // Register button
+      const btnColor = (canAfford && !slotFull) ? 0x226633 : 0x222222;
+      const btnTxtClr = (canAfford && !slotFull) ? '#aaffaa' : '#555555';
+      const regBtnW = col2W, regBtnH = 30;
+      const regBtnBg = this.add.rectangle(col2X + col2W/2, ry + regBtnH/2, regBtnW, regBtnH, btnColor, 1)
+        .setStrokeStyle(1, canAfford && !slotFull ? 0x44aa66 : 0x333333)
+        .setScrollFactor(0).setDepth(D+1);
+      objs.push(regBtnBg);
+      const regBtnLbl = this.add.text(col2X + col2W/2, ry + regBtnH/2,
+        slotFull ? '[ DESIGN SLOTS FULL ]' : (canAfford ? '[ NAME & REGISTER DESIGN ]' : '[ CANNOT AFFORD ]'), {
+        font: 'bold 11px monospace', fill: btnTxtClr
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(D+2);
+      objs.push(regBtnLbl);
+      if (canAfford && !slotFull) {
+        regBtnBg.setInteractive({ useHandCursor: true });
+        regBtnBg.on('pointerdown', onRegister);
+        regBtnBg.on('pointerover', () => regBtnBg.setFillStyle(0x2a8844));
+        regBtnBg.on('pointerout',  () => regBtnBg.setFillStyle(btnColor));
+      }
+      ry += regBtnH + 12;
+    }
+
+    // ── Existing designs list ─────────────────────────────────────────────
+    const designs = gs.designs[p] || [];
+    if (designs.length > 0) {
+      objs.push(this.add.text(col2X, ry, `MY DESIGNS  (${designs.length}/${MAX_DESIGNS_PER_PLAYER})`, {
+        font: 'bold 10px monospace', fill: '#668866'
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+1));
+      ry += 16;
+
+      for (const d of designs) {
+        const base    = UNIT_TYPES[d.chassis];
+        const bldType = CHASSIS_BUILDINGS[d.chassis] || '?';
+        const modNames = (d.modules || []).map(mk => MODULES[mk]?.name || mk).join(', ') || 'none';
+        const statStr  = `HP${d.stats.health} MOV${d.stats.move} SA${d.stats.soft_attack} HA${d.stats.hard_attack} ARM${d.stats.armor}`;
+        const trainStr = `⚙${d.trainCost.iron}${d.trainCost.oil ? ` 🛢${d.trainCost.oil}` : ''}`;
+
+        const rowH2 = 44;
+        const dRowBg = this.add.rectangle(col2X + col2W/2, ry + rowH2/2, col2W, rowH2, 0x0c1a10, 1)
+          .setStrokeStyle(1, 0x224422).setScrollFactor(0).setDepth(D+1);
+        objs.push(dRowBg);
+
+        objs.push(this.add.text(col2X + 6, ry + 6, `★ ${d.name}`, {
+          font: 'bold 10px monospace', fill: '#aaffaa'
+        }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+2));
+        objs.push(this.add.text(col2X + 6, ry + 20, `${base?.name || d.chassis}  |  ${statStr}  |  ${trainStr}`, {
+          font: '9px monospace', fill: '#668866'
+        }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+2));
+        objs.push(this.add.text(col2X + 6, ry + 32, `mods: ${modNames}  |  built@${bldType.replace('_',' ')}`, {
+          font: '9px monospace', fill: '#445544'
+        }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+2));
+        ry += rowH2 + 4;
+      }
+    } else if (selChassis) {
+      objs.push(this.add.text(col2X, ry, 'No designs registered yet.', {
+        font: '10px monospace', fill: '#445544'
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+1));
+    }
   }
 
   // ── Input ─────────────────────────────────────────────────────────────────
@@ -3004,6 +3328,7 @@ export class GameScene extends Phaser.Scene {
   _openResearch() {
     this._closeResearch();
     this._closeSettings();
+    this._closeDesigner?.();
     this._researchOpen = true;
     const gs = this.gameState;
     const p  = gs.currentPlayer;
