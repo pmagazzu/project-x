@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.0';
+const GAME_VERSION = 'v1.3.1';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2236,29 +2236,31 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
     objs.push(title);
 
-    // Show current pending order for this building (1-per-building limit)
-    const existingOrder = gs.pendingRecruits.find(r => r.buildingId === building.id && r.owner === p);
-    if (existingOrder) {
-      const orderName = existingOrder.designId !== undefined
-        ? (gs.designs[p].find(d => d.id === existingOrder.designId)?.name || 'Custom Unit')
-        : UNIT_TYPES[existingOrder.type]?.name || '?';
-      const turnsStr = existingOrder.turnsLeft > 0 ? ` — ${existingOrder.turnsLeft} turn${existingOrder.turnsLeft !== 1 ? 's' : ''} left` : ' — ready next turn';
-      const orderTxt = this.add.text(w/2, py + 48, `⏳ ${orderName}${turnsStr}`, {
+    // Show queue summary for this building (queue supported)
+    const buildingQueue = gs.pendingRecruits.filter(r => r.buildingId === building.id && r.owner === p);
+    if (buildingQueue.length > 0) {
+      const next = buildingQueue[0];
+      const orderName = next.designId !== undefined
+        ? (gs.designs[p].find(d => d.id === next.designId)?.name || 'Custom Unit')
+        : UNIT_TYPES[next.type]?.name || '?';
+      const turnsStr = next.turnsLeft > 0 ? `${next.turnsLeft}t left` : 'ready next turn';
+      const orderTxt = this.add.text(w/2, py + 48, `⏳ Queue ${buildingQueue.length}  |  Next: ${orderName} (${turnsStr})`, {
         font: 'bold 12px monospace', fill: '#ffdd44', backgroundColor: '#333300', padding: { x: 10, y: 5 }
       }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
       objs.push(orderTxt);
-      const cancelBtn = this.add.text(w/2 + 130, py + 48, '✕ cancel', {
+      const cancelBtn = this.add.text(w/2 + 170, py + 48, '✕ cancel next', {
         font: '11px monospace', fill: '#ff8888', backgroundColor: '#330000', padding: { x: 8, y: 5 }
       }).setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true });
       cancelBtn.on('pointerdown', () => {
         this._contextMenuClicked = true;
-        // Refund cost
-        const refundType = existingOrder.type;
-        const refundDesign = existingOrder.designId !== undefined ? gs.designs[p].find(d => d.id === existingOrder.designId) : null;
+        const toCancel = buildingQueue[0];
+        const refundType = toCancel.type;
+        const refundDesign = toCancel.designId !== undefined ? gs.designs[p].find(d => d.id === toCancel.designId) : null;
         const cost = refundDesign ? refundDesign.trainCost : (refundType ? UNIT_TYPES[refundType].cost : { iron: 0, oil: 0 });
         gs.players[p].iron += cost.iron;
         gs.players[p].oil  += cost.oil;
-        gs.pendingRecruits = gs.pendingRecruits.filter(r => !(r.buildingId === building.id && r.owner === p));
+        const idx = gs.pendingRecruits.findIndex(r => r === toCancel);
+        if (idx >= 0) gs.pendingRecruits.splice(idx, 1);
         this._hideRecruitPanel();
         this._showRecruitPanel(building);
         this._refresh();
@@ -2268,13 +2270,13 @@ export class GameScene extends Phaser.Scene {
       objs.push(cancelBtn);
     }
 
-    const baseRowY = py + 50 + (existingOrder ? 42 : 0);
+    const baseRowY = py + 50 + (buildingQueue.length > 0 ? 42 : 0);
     const rowH = 52, rowW = panelW - 24;
 
     available.forEach((unitType, i) => {
       const def = UNIT_TYPES[unitType];
-      const alreadyOrdered = !!existingOrder;
-      const canAfford = !alreadyOrdered && gs.players[p].iron >= def.cost.iron && gs.players[p].oil >= def.cost.oil;
+      const queueCapReached = buildingQueue.length >= 6;
+      const canAfford = !queueCapReached && gs.players[p].iron >= def.cost.iron && gs.players[p].oil >= def.cost.oil;
       const _bt = def.buildTime ?? 1;
       const ry = baseRowY + i * rowH + rowH/2;
 
@@ -2285,7 +2287,7 @@ export class GameScene extends Phaser.Scene {
       objs.push(rowBg);
 
       // Unit name left
-      const nameClr = canAfford ? '#c8e0b0' : alreadyOrdered ? '#445544' : '#664444';
+      const nameClr = canAfford ? '#c8e0b0' : queueCapReached ? '#445544' : '#664444';
       const tierTag = `T${def.tier ?? 0}`;
       const nameTxt = this.add.text(w/2 - rowW/2 + 12, ry - 8, `${def.name}  [${tierTag}]`, {
         font: `bold 13px monospace`, fill: nameClr
@@ -2325,7 +2327,8 @@ export class GameScene extends Phaser.Scene {
     const customDesigns = (gs.designs[p] || []).filter(d => CHASSIS_BUILDINGS[d.chassis] === btype);
     customDesigns.forEach((design, i) => {
       const idx = available.length + i;
-      const canAfford = !existingOrder && gs.players[p].iron >= design.trainCost.iron && gs.players[p].oil >= design.trainCost.oil;
+      const queueCapReached = buildingQueue.length >= 6;
+      const canAfford = !queueCapReached && gs.players[p].iron >= design.trainCost.iron && gs.players[p].oil >= design.trainCost.oil;
       const _dbt = UNIT_TYPES[design.chassis]?.buildTime ?? 1;
       const ry = baseRowY + idx * rowH + rowH/2;
       const modTier = Math.max(0, ...((design.modules || []).map(mk => MODULES[mk]?.tier ?? 0)));

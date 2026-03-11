@@ -342,13 +342,14 @@ export const UNIT_UPKEEP = {
 
 // Compute total upkeep for all of a player's units
 export function calcUpkeep(state, player) {
+  const UPKEEP_SCALE = 0.5; // global balance knob (50% upkeep)
   let food = 0, iron = 0, oil = 0;
   for (const unit of state.units) {
     if (unit.owner !== player || unit.embarked) continue;
     const base = UNIT_UPKEEP[unit.type] || { food: 0, iron: 0, oil: 0 };
-    food += base.food;
-    iron += base.iron;
-    oil  += base.oil;
+    food += base.food * UPKEEP_SCALE;
+    iron += base.iron * UPKEEP_SCALE;
+    oil  += base.oil  * UPKEEP_SCALE;
   }
   return { food: +food.toFixed(2), iron: +iron.toFixed(2), oil: +oil.toFixed(2) };
 }
@@ -1546,30 +1547,37 @@ export function resolveEndOfTurn(state, terrain) {
   for (const recruit of state.pendingRecruits.filter(r => r.owner === player)) {
     recruit.turnsLeft = Math.max(0, (recruit.turnsLeft ?? 1) - 1);
   }
-  const toSpawn = state.pendingRecruits.filter(r => r.owner === player && r.turnsLeft <= 0);
-  state.pendingRecruits = state.pendingRecruits.filter(r => !(r.owner === player && r.turnsLeft <= 0));
-  for (const recruit of toSpawn) {
+  for (const recruit of state.pendingRecruits.filter(r => r.owner === player && r.turnsLeft <= 0)) {
     const b = state.buildings.find(b => b.id === recruit.buildingId);
     if (!b || b.owner !== recruit.owner) continue;
     const spawnChassis = recruit.designId !== undefined
       ? (state.designs[recruit.owner].find(d => d.id === recruit.designId)?.chassis ?? null)
       : (recruit.type ?? null);
     const spawnHex = findFreeAdjacentHex(state, b.q, b.r, spawnChassis, state._terrain);
-    if (spawnHex) {
-      if (recruit.designId !== undefined) {
-        const design = state.designs[recruit.owner].find(d => d.id === recruit.designId);
-        if (design) {
-          const unit = createUnit(design.chassis, recruit.owner, spawnHex.q, spawnHex.r);
-          Object.assign(unit, { ...design.stats, q: spawnHex.q, r: spawnHex.r, owner: recruit.owner, id: unit.id, type: design.chassis, health: design.stats.health, maxHealth: design.stats.health, moved: false, attacked: false, dugIn: false, building: false, suppressed: false, designId: design.id, designName: design.name });
-          state.units.push(unit);
-          events.push(`P${recruit.owner} recruits ${design.name}`);
-        }
-      } else {
-        state.units.push(createUnit(recruit.type, recruit.owner, spawnHex.q, spawnHex.r));
-        events.push(`P${recruit.owner} recruits ${UNIT_TYPES[recruit.type].name}`);
+    if (!spawnHex) {
+      // Keep queued unit ready; retry next turn instead of dropping it.
+      recruit.turnsLeft = 0;
+      events.push(`P${recruit.owner} recruit delayed at ${BUILDING_TYPES[b.type]?.name || 'building'} (spawn blocked)`);
+      continue;
+    }
+
+    if (recruit.designId !== undefined) {
+      const design = state.designs[recruit.owner].find(d => d.id === recruit.designId);
+      if (design) {
+        const unit = createUnit(design.chassis, recruit.owner, spawnHex.q, spawnHex.r);
+        Object.assign(unit, { ...design.stats, q: spawnHex.q, r: spawnHex.r, owner: recruit.owner, id: unit.id, type: design.chassis, health: design.stats.health, maxHealth: design.stats.health, moved: false, attacked: false, dugIn: false, building: false, suppressed: false, designId: design.id, designName: design.name });
+        state.units.push(unit);
+        events.push(`P${recruit.owner} recruits ${design.name}`);
+        recruit._spawned = true;
       }
+    } else {
+      state.units.push(createUnit(recruit.type, recruit.owner, spawnHex.q, spawnHex.r));
+      events.push(`P${recruit.owner} recruits ${UNIT_TYPES[recruit.type].name}`);
+      recruit._spawned = true;
     }
   }
+  // Remove only recruits that actually spawned
+  state.pendingRecruits = state.pendingRecruits.filter(r => !r._spawned);
 
   // Medic healing for current player
   for (const medic of state.units.filter(u => u.type === 'MEDIC' && u.owner === player)) {
