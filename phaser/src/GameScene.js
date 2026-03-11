@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.2.10';
+const GAME_VERSION = 'v1.3.0';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3204,8 +3204,11 @@ export class GameScene extends Phaser.Scene {
       const ttype = this.terrain[`${unit.q},${unit.r}`] ?? 0;
       const onForest  = ttype === 1 || ttype === 7;
 
-      // All possible build options — add more here as the game grows
+      // All possible build options — grouped for readability
       const allOpts = [];
+      const addHeader = (label) => allOpts.push({ header: true, label: `── ${label} ──`, enabled: false, cb: () => {} });
+
+      addHeader('ROADS');
       // Road building — show upgrade option if existing road is lower tier
       const existingRoad = roadAt(gs, unit.q, unit.r);
       const existingTier = existingRoad ? (BUILDING_TYPES[existingRoad.type]?.roadTier ?? 0) : -1;
@@ -3228,6 +3231,7 @@ export class GameScene extends Phaser.Scene {
       } else {
         allOpts.push({ label: `AUTO-ROAD →`, cost: null, enabled: true, cb: () => this._enterRoadDestMode(unit) });
       }
+      addHeader('RESOURCE EXTRACTION');
       if (res && noBuilding)
         allOpts.push({ label: `${res.type==='OIL'?'Oil Pump   4⚙ 2🛢':'Mine        4⚙'}`,
                        cost: { iron:4,oil: res.type==='OIL'?2:0 }, enabled: res.type==='OIL'?(iron>=4&&oil>=2):iron>=4,
@@ -3235,15 +3239,15 @@ export class GameScene extends Phaser.Scene {
       if (onForest && noBuilding)
         allOpts.push({ label: `Lumber Camp 2⚙`, cost:{iron:2,oil:0,wood:0}, enabled: iron>=2,
                        cb: () => this._onBuildLumberCamp() });
-      // Land military buildings
+      addHeader('LAND MILITARY');
       if (noBuilding) allOpts.push({ label: `Barracks    4⚙ 4🪵`,    cost:{iron:4,oil:0,wood:4},  enabled: iron>=4&&wood>=4,        cb: () => this._onBuildStructure('BARRACKS',4,0,4) });
       if (noBuilding) allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢`, cost:{iron:8,oil:2},          enabled: iron>=8&&oil>=2,         cb: () => this._onBuildStructure('VEHICLE_DEPOT',8,2) });
-      // Naval buildings (coastal land only)
+      addHeader('NAVAL');
       if (noBuilding) allOpts.push({ label: `Naval Yard  8⚙ 2🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:8,oil:2},  enabled: coastal && iron>=8&&oil>=2,  cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
       if (noBuilding) allOpts.push({ label: `Harbor      5⚙ 1🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:5,oil:1},  enabled: coastal && iron>=5&&oil>=1,  cb: () => this._onBuildStructure('HARBOR',5,1) });
       if (noBuilding) allOpts.push({ label: `Dry Dock   12⚙ 4🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:12,oil:4}, enabled: coastal && iron>=12&&oil>=4, cb: () => this._onBuildStructure('DRY_DOCK',12,4) });
       if (noBuilding) allOpts.push({ label: `Naval Base 16⚙ 6🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:16,oil:6}, enabled: coastal && iron>=16&&oil>=6, cb: () => this._onBuildStructure('NAVAL_BASE',16,6) });
-      // Defensive structures
+      addHeader('DEFENSE & OBSTACLES');
       if (noBuilding) allOpts.push({ label: `Bunker      3⚙ 2🪵`,   cost:{iron:3,oil:0,wood:2},  enabled: iron>=3&&wood>=2, cb: () => this._onBuildStructure('BUNKER',3,0,2) });
       if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙`,       cost:{iron:3,oil:0},         enabled: iron>=3,          cb: () => this._onBuildStructure('OBS_POST',3) });
       // Obstacles & logistics (require research)
@@ -3253,7 +3257,7 @@ export class GameScene extends Phaser.Scene {
         allOpts.push({ label: `Sandbag Post 1🪵`, cost:{iron:0,oil:0,wood:1}, enabled: wood>=1,    cb: () => this._onBuildStructure('SANDBAG',0,0,1) });
       if (unlocked.includes('supply_depot') && noBuilding)
         allOpts.push({ label: `Supply Depot 3⚙ 1🛢 1🪵`, cost:{iron:3,oil:1,wood:1}, enabled: iron>=3&&oil>=1&&wood>=1, cb: () => this._onBuildStructure('SUPPLY_DEPOT',3,1,1) });
-      // Economy & Production
+      addHeader('ECONOMY & RESEARCH');
       const foodGold = gs.players[p].food || 0;
       const gold = gs.players[p].gold || 0;
       const onPlains = (ttype === 0 || ttype === 6 || ttype === 7);
@@ -3269,10 +3273,11 @@ export class GameScene extends Phaser.Scene {
       const slice = allOpts.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
       items = slice.map(o => ({
-        label:   o.enabled ? o.label : `${o.label}  ✗`,
-        color:   o.enabled ? 0x2a5533 : 0x222222,
-        enabled: o.enabled,
+        label:   o.header ? o.label : (o.enabled ? o.label : `${o.label}  ✗`),
+        color:   o.header ? 0x1d2b1d : (o.enabled ? 0x2a5533 : 0x222222),
+        enabled: o.header ? false : o.enabled,
         cb:      o.cb,
+        header:  !!o.header,
       }));
 
       // Pagination row (prev / page indicator / next) appended as items
@@ -3508,6 +3513,17 @@ export class GameScene extends Phaser.Scene {
       for (const o of objs) { try { o.destroy(); } catch(e){} }
       objs.length = 0;
 
+      // Trade v2 rules
+      const MAX_PENDING_PER_PLAYER = 5;
+      const OFFER_EXPIRY_TURNS = 3;
+      // Expire old pending offers
+      for (const t of gs.tradeOffers) {
+        if (t.status === 'pending' && (gs.turn - (t.createdTurn || gs.turn)) > OFFER_EXPIRY_TURNS) {
+          t.status = 'expired';
+          t.resolvedTurn = gs.turn;
+        }
+      }
+
       const bg = this.add.rectangle(px, py, panW, panH, 0x120f0a, 0.98)
         .setStrokeStyle(2, 0x886633).setScrollFactor(0).setDepth(D).setInteractive();
       bg.on('pointerdown', () => { this._contextMenuClicked = true; });
@@ -3534,6 +3550,8 @@ export class GameScene extends Phaser.Scene {
       y += 18;
 
       const incoming = gs.tradeOffers.filter(t => t.status === 'pending' && t.to === p).slice(-6);
+      const myPendingOutgoing = gs.tradeOffers.filter(t => t.status === 'pending' && t.from === p).length;
+      const resValue = (pack) => ((pack.iron||0)*10 + (pack.oil||0)*12 + (pack.wood||0)*6 + (pack.food||0)*5 + (pack.gold||0));
       if (incoming.length === 0) {
         objs.push(this.add.text(px - panW/2 + 16, y, '(none)', { font:'10px monospace', fill:'#776655' })
           .setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
@@ -3544,8 +3562,12 @@ export class GameScene extends Phaser.Scene {
         const row = this.add.rectangle(px, y + 11, panW - 32, 22, 0x1a140c, 1)
           .setStrokeStyle(1, 0x4a3a22).setScrollFactor(0).setDepth(D+1);
         objs.push(row);
+        const turnsLeft = Math.max(0, OFFER_EXPIRY_TURNS - (gs.turn - (t.createdTurn || gs.turn)));
+        const giveV = resValue(t.give || {}), getV = resValue(t.get || {});
+        const ratio = getV > 0 ? (giveV / getV) : 0;
+        const fair = ratio >= 0.9 && ratio <= 1.1 ? '≈ fair' : (ratio < 0.9 ? 'good for you' : 'expensive');
         objs.push(this.add.text(px - panW/2 + 22, y + 11,
-          `P${t.from} offers: give 💰${t.give.gold||0}  for  ⚙${t.get.iron||0} 🛢${t.get.oil||0} 🪵${t.get.wood||0} 🍞${t.get.food||0}`,
+          `P${t.from}: 💰${t.give.gold||0} → ⚙${t.get.iron||0} 🛢${t.get.oil||0} 🪵${t.get.wood||0} 🍞${t.get.food||0}  | ${fair} | ${turnsLeft}t left`,
           { font:'10px monospace', fill:'#ccbb99' }).setOrigin(0,0.5).setScrollFactor(0).setDepth(D+2));
 
         const accept = this.add.text(px + panW/2 - 120, y + 11, '[ACCEPT]', {
@@ -3583,20 +3605,22 @@ export class GameScene extends Phaser.Scene {
       }
 
       y += 12;
-      objs.push(this.add.text(px - panW/2 + 16, y, `Create Offer to P${other}:`, {
-        font:'bold 11px monospace', fill:'#ddbb88'
+      const capReached = myPendingOutgoing >= MAX_PENDING_PER_PLAYER;
+      objs.push(this.add.text(px - panW/2 + 16, y, `Create Offer to P${other}:  (${myPendingOutgoing}/${MAX_PENDING_PER_PLAYER} pending)`, {
+        font:'bold 11px monospace', fill: capReached ? '#cc6666' : '#ddbb88'
       }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
       y += 18;
 
       const mkOfferBtn = (label, giveGold, getIron=0, getOil=0, getWood=0, getFood=0) => {
         const canAfford = (my.gold||0) >= giveGold;
+        const enabled = canAfford && !capReached;
         const b = this.add.text(px - panW/2 + 16, y, `${label}  (give 💰${giveGold} for ⚙${getIron} 🛢${getOil} 🪵${getWood} 🍞${getFood})`, {
           font:'10px monospace',
-          fill: canAfford ? '#ffeeaa' : '#776655',
-          backgroundColor: canAfford ? '#2a220f' : '#15120c',
+          fill: enabled ? '#ffeeaa' : '#776655',
+          backgroundColor: enabled ? '#2a220f' : '#15120c',
           padding:{x:8,y:5}
         }).setOrigin(0,0).setScrollFactor(0).setDepth(D+2);
-        if (canAfford) {
+        if (enabled) {
           b.setInteractive({ useHandCursor:true });
           b.on('pointerdown', () => {
             this._contextMenuClicked = true;
@@ -3621,9 +3645,11 @@ export class GameScene extends Phaser.Scene {
       mkOfferBtn('Offer D', 40, 0, 0, 0, 8);
 
       const custom = this.add.text(px - panW/2 + 16, y + 6, '[CUSTOM OFFER…]', {
-        font:'bold 10px monospace', fill:'#aaddff', backgroundColor:'#112233', padding:{x:8,y:5}
-      }).setOrigin(0,0).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor:true });
+        font:'bold 10px monospace', fill: capReached ? '#667788' : '#aaddff', backgroundColor: capReached ? '#11161b' : '#112233', padding:{x:8,y:5}
+      }).setOrigin(0,0).setScrollFactor(0).setDepth(D+2);
+      if (!capReached) custom.setInteractive({ useHandCursor:true });
       custom.on('pointerdown', () => {
+        if (capReached) return;
         this._contextMenuClicked = true;
         const g = Number(window.prompt('Gold you give?', '50') || '0');
         const i = Number(window.prompt('Iron you want?', '0') || '0');
