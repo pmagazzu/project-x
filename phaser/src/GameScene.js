@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.1.6';
+const GAME_VERSION = 'v1.1.7';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2312,20 +2312,8 @@ export class GameScene extends Phaser.Scene {
     // Footer button row
     const totalRows = available.length + customDesigns.length;
     const footerY = baseRowY + totalRows * rowH + 10;
-    const designBtn = this.add.text(w/2 - 70, footerY, '+ DESIGN UNIT', {
-      font: 'bold 11px monospace', fill: '#88ccff',
-      backgroundColor: '#0d1e2a', padding: { x: 10, y: 6 }
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true });
-    designBtn.on('pointerdown', () => {
-      this._hideRecruitPanel();
-      this._showDesignPanel(building);
-    });
-    designBtn.on('pointerover', () => designBtn.setAlpha(0.8));
-    designBtn.on('pointerout',  () => designBtn.setAlpha(1.0));
-    objs.push(designBtn);
-
     const closeBtnY = footerY;
-    const closeBtn = this.add.text(w/2 + 70, closeBtnY, 'CLOSE  ✕', {
+    const closeBtn = this.add.text(w/2, closeBtnY, 'CLOSE  ✕', {
       font: 'bold 11px monospace', fill: '#aaaaaa',
       backgroundColor: '#1a1a1a', padding: { x: 10, y: 6 }
     }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
@@ -2535,6 +2523,9 @@ export class GameScene extends Phaser.Scene {
     this._closeDesigner();
     this._closeResearch?.();   // close research if open
     this._closeTrade?.();
+    this._hideRecruitPanel?.();
+    this._hideDesignPanel?.();
+    this._hideContextMenu?.();
     const gs  = this.gameState;
     const p   = gs.currentPlayer;
     const w   = this.scale.width, h = this.scale.height;
@@ -3303,123 +3294,89 @@ export class GameScene extends Phaser.Scene {
     this._closeTrade?.();
     this._settingsOpen = true;
     const w = this.scale.width, h = this.scale.height;
-    const panelW = 340, D = 210;
+    const panelW = 560, panelH = 420, D = 210;
     const objs = [];
 
-    const bg = this.add.rectangle(w/2, h/2, panelW, 330, 0x111122, 0.97)
+    const bg = this.add.rectangle(w/2, h/2, panelW, panelH, 0x111122, 0.97)
       .setStrokeStyle(2, 0x4466aa).setScrollFactor(0).setDepth(D);
     objs.push(bg);
-    objs.push(this.add.text(w/2, h/2 - 120, '── SETTINGS ──', { font: 'bold 15px monospace', fill: '#88ccff' })
-      .setOrigin(0.5).setScrollFactor(0).setDepth(D+1));
+    objs.push(this.add.text(w/2, h/2 - panelH/2 + 22, '── SETTINGS ──', {
+      font: 'bold 15px monospace', fill: '#88ccff'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1));
 
-    const toggles = [
-      { key: 'engineerAutoBuild', label: 'Engineer auto-build menu' },
-      { key: 'autoAttackMode',    label: 'Auto-enter attack after move' },
-      { key: 'showContextMenu',   label: 'Show unit context menu' },
-    ];
+    let y = h/2 - panelH/2 + 62;
+    const leftX = w/2 - panelW/2 + 24;
+    const rightX = w/2 + panelW/2 - 90;
 
-    toggles.forEach((t, i) => {
-      const ty = h/2 - 75 + i * 48;
-      const makeRow = () => {
-        if (this[`_settingRow_${t.key}`]) { for (const o of this[`_settingRow_${t.key}`]) o.destroy(); }
-        const rowObjs = [];
-        const lbl = this.add.text(w/2 - 140, ty, t.label, { font: '12px monospace', fill: '#cccccc' })
-          .setOrigin(0, 0.5).setScrollFactor(0).setDepth(D+1);
-        const val = this.settings[t.key];
-        const tog = this.add.text(w/2 + 70, ty, val ? '[ ON ]' : '[ OFF ]', {
-          font: 'bold 12px monospace', fill: val ? '#88ff88' : '#ff8888',
-          backgroundColor: val ? '#224422' : '#442222', padding: { x: 8, y: 5 }
-        }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
-        tog.on('pointerdown', () => {
-          this.settings[t.key] = !this.settings[t.key];
-          makeRow();
-        });
-        tog.on('pointerover', () => tog.setAlpha(0.8));
-        tog.on('pointerout',  () => tog.setAlpha(1.0));
-        rowObjs.push(lbl, tog);
-        this._addToUI(rowObjs);
-        this[`_settingRow_${t.key}`] = rowObjs;
-        // Replace in master objs list
-        objs.push(...rowObjs);
-      };
-      makeRow();
-    });
-
-    // Zoom speed control
-    const zy = h/2 + 68;
-    objs.push(this.add.text(w/2 - 140, zy, 'Scroll zoom speed', { font: '12px monospace', fill: '#cccccc' })
-      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(D+1));
-    const zoomSteps = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0];
-    const zoomLabels = ['Crawl', 'Slow', 'Slow+', 'Default', 'Fast', 'Fast+', 'Turbo', 'Ludicrous'];
-    const makeZoom = () => {
-      if (this._zoomBtns) this._zoomBtns.forEach(b => b.destroy());
-      this._zoomBtns = [];
-      zoomSteps.forEach((spd, i) => {
-        const active = Math.abs(this.settings.zoomSpeed - spd) < 0.01;
-        const bx = w/2 - 126 + i * 36;
-        const zb = this.add.text(bx, zy + 22, zoomLabels[i], {
-          font: '10px monospace', fill: active ? '#ffee44' : '#888888',
-          backgroundColor: active ? '#443300' : '#222222', padding: { x: 5, y: 4 }
-        }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
-        zb.on('pointerdown', () => { this.settings.zoomSpeed = spd; makeZoom(); });
-        this._zoomBtns.push(zb);
-        objs.push(zb);
-        this._addToUI([zb]);
-      });
+    const mkToggleRow = (key, label) => {
+      const lbl = this.add.text(leftX, y, label, { font: '12px monospace', fill: '#cccccc' })
+        .setOrigin(0, 0.5).setScrollFactor(0).setDepth(D+1);
+      const val = !!this.settings[key];
+      const tog = this.add.text(rightX, y, val ? '[ ON ]' : '[ OFF ]', {
+        font: 'bold 12px monospace', fill: val ? '#88ff88' : '#ff8888',
+        backgroundColor: val ? '#224422' : '#442222', padding: { x: 10, y: 5 }
+      }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
+      tog.on('pointerdown', () => { this.settings[key] = !this.settings[key]; this._openSettings(); });
+      tog.on('pointerover', () => tog.setAlpha(0.8));
+      tog.on('pointerout',  () => tog.setAlpha(1.0));
+      objs.push(lbl, tog);
+      y += 40;
     };
-    makeZoom();
+
+    mkToggleRow('engineerAutoBuild', 'Engineer auto-build menu');
+    mkToggleRow('autoAttackMode',    'Auto-enter attack after move');
+    mkToggleRow('showContextMenu',   'Show unit context menu');
+
+    // Zoom speed row (compact, no collisions)
+    objs.push(this.add.text(leftX, y, 'Scroll zoom speed', {
+      font: '12px monospace', fill: '#cccccc'
+    }).setOrigin(0,0.5).setScrollFactor(0).setDepth(D+1));
+
+    const zoomSteps = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0];
+    let zi = zoomSteps.findIndex(v => Math.abs(v - this.settings.zoomSpeed) < 0.01);
+    if (zi < 0) zi = 3;
+
+    const minus = this.add.text(rightX - 60, y, '[-]', {
+      font:'bold 12px monospace', fill:'#dddddd', backgroundColor:'#222222', padding:{x:8,y:5}
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor:true });
+    const valLbl = this.add.text(rightX, y, `${zoomSteps[zi]}x`, {
+      font:'bold 12px monospace', fill:'#ffee88', backgroundColor:'#332b11', padding:{x:10,y:5}
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1);
+    const plus = this.add.text(rightX + 60, y, '[+]', {
+      font:'bold 12px monospace', fill:'#dddddd', backgroundColor:'#222222', padding:{x:8,y:5}
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor:true });
+    minus.on('pointerdown', () => { this.settings.zoomSpeed = zoomSteps[Math.max(0, zi - 1)]; this._openSettings(); });
+    plus.on('pointerdown',  () => { this.settings.zoomSpeed = zoomSteps[Math.min(zoomSteps.length - 1, zi + 1)]; this._openSettings(); });
+    objs.push(minus, valLbl, plus);
+    y += 44;
 
     // AI toggle row
-    const aiY = h/2 + 84;
-    const makeAiRow = () => {
-      if (this._aiRowObjs) { for (const o of this._aiRowObjs) { try { o.destroy(); } catch(e){} } }
-      this._aiRowObjs = [];
-      const aiLbl = this.add.text(w/2 - 140, aiY, 'Player 2 AI', { font: '12px monospace', fill: '#cccccc' })
-        .setOrigin(0, 0.5).setScrollFactor(0).setDepth(D+1);
-      const isAI = this.aiPlayers.has(2);
-      const aiTog = this.add.text(w/2 + 70, aiY, isAI ? '[ ON  🤖 ]' : '[ OFF ]', {
-        font: 'bold 12px monospace', fill: isAI ? '#ffcc44' : '#888888',
-        backgroundColor: isAI ? '#332200' : '#222222', padding: { x: 8, y: 5 }
-      }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
-      aiTog.on('pointerdown', () => {
-        if (this.aiPlayers.has(2)) this.aiPlayers.delete(2);
-        else this.aiPlayers.add(2);
-        makeAiRow();
-      });
-      aiTog.on('pointerover', () => aiTog.setAlpha(0.8));
-      aiTog.on('pointerout',  () => aiTog.setAlpha(1.0));
-      this._aiRowObjs = [aiLbl, aiTog];
-      objs.push(aiLbl, aiTog);
-      this._addToUI([aiLbl, aiTog]);
-    };
-    makeAiRow();
+    objs.push(this.add.text(leftX, y, 'Player 2 AI', { font: '12px monospace', fill: '#cccccc' })
+      .setOrigin(0,0.5).setScrollFactor(0).setDepth(D+1));
+    const isAI = this.aiPlayers.has(2);
+    const aiTog = this.add.text(rightX, y, isAI ? '[ ON 🤖 ]' : '[ OFF ]', {
+      font:'bold 12px monospace', fill:isAI ? '#ffcc44' : '#888888',
+      backgroundColor:isAI ? '#332200' : '#222222', padding:{x:10,y:5}
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor:true });
+    aiTog.on('pointerdown', () => { if (this.aiPlayers.has(2)) this.aiPlayers.delete(2); else this.aiPlayers.add(2); this._openSettings(); });
+    objs.push(aiTog);
+    y += 40;
 
-    // AI strategy row
-    const stratY = aiY + 30;
+    // AI strategy row (wider spacing)
+    objs.push(this.add.text(leftX, y, 'AI Strategy', { font: '12px monospace', fill: '#cccccc' })
+      .setOrigin(0,0.5).setScrollFactor(0).setDepth(D+1));
     const stratKeys = Object.keys(AI_STRATEGIES);
-    const makeStratRow = () => {
-      if (this._stratRowObjs) { for (const o of this._stratRowObjs) { try { o.destroy(); } catch(e){} } }
-      this._stratRowObjs = [];
-      const stratLbl = this.add.text(w/2 - 140, stratY, 'AI Strategy', { font: '12px monospace', fill: '#cccccc' })
-        .setOrigin(0, 0.5).setScrollFactor(0).setDepth(D+1);
-      const btns = stratKeys.map((key, i) => {
-        const isActive = this.aiStrategy === key;
-        const sb = this.add.text(w/2 - 54 + i * 62, stratY, AI_STRATEGIES[key].label, {
-          font: '10px monospace', fill: isActive ? '#ffcc44' : '#888888',
-          backgroundColor: isActive ? '#332200' : '#222222', padding: { x: 5, y: 4 }
-        }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
-        sb.on('pointerdown', () => { this.aiStrategy = key; makeStratRow(); });
-        sb.on('pointerover', () => sb.setAlpha(0.8));
-        sb.on('pointerout',  () => sb.setAlpha(1.0));
-        return sb;
-      });
-      this._stratRowObjs = [stratLbl, ...btns];
-      objs.push(...this._stratRowObjs);
-      this._addToUI(this._stratRowObjs);
-    };
-    makeStratRow();
+    stratKeys.forEach((key, i) => {
+      const isActive = this.aiStrategy === key;
+      const sb = this.add.text(w/2 - 60 + i * 72, y + 26, AI_STRATEGIES[key].label, {
+        font:'10px monospace', fill:isActive ? '#ffcc44' : '#888888',
+        backgroundColor:isActive ? '#332200' : '#222222', padding:{x:6,y:4}
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor:true });
+      sb.on('pointerdown', () => { this.aiStrategy = key; this._openSettings(); });
+      objs.push(sb);
+    });
 
-    const closeBtn = this.add.text(w/2, h/2 + 130, '[ CLOSE ]', {
+    const closeBtn = this.add.text(w/2, h/2 + panelH/2 - 26, '[ CLOSE ]', {
       font: 'bold 13px monospace', fill: '#ffffff', backgroundColor: '#444444', padding: { x: 14, y: 7 }
     }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
     closeBtn.on('pointerdown', () => this._closeSettings());
