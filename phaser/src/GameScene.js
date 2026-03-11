@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.2';
+const GAME_VERSION = 'v1.3.3';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -4072,6 +4072,24 @@ export class GameScene extends Phaser.Scene {
         (_isMovingAir && clickedUnit.owner === this.selectedUnit.owner && !AIR_UNITS.has(clickedUnit.type)) ||
         (_isMovingEngineer && clickedUnit.owner === this.selectedUnit.owner);
       if (isReachable && hexFree) {
+        // If engineer is currently constructing, moving off tile must confirm cancel first.
+        if (this.selectedUnit.constructing) {
+          const b = gs.buildings.find(x => x.id === this.selectedUnit.constructing);
+          const bName = b ? (BUILDING_TYPES[b.type]?.name || b.type) : 'construction';
+          const ok = window.confirm(`Cancel current build (${bName}) and move engineer?\nNo refund.`);
+          if (!ok) {
+            this.mode = 'select';
+            this.reachable = [];
+            this.attackable = [];
+            this._refresh();
+            return;
+          }
+          // Cancel in-progress build (no refund)
+          if (b) gs.buildings = gs.buildings.filter(x => x.id !== b.id);
+          delete this.selectedUnit.constructing;
+          this._pushLog(`P${gs.currentPlayer} canceled build to move engineer.`);
+        }
+
         // IGOUGO: movement is immediate.
         // Save _origQ/_origR on FIRST move only (undo returns to turn-start position).
         if (this.selectedUnit._origQ === undefined) {
