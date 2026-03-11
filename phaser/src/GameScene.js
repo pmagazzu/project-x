@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.2.9';
+const GAME_VERSION = 'v1.2.10';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -921,14 +921,12 @@ export class GameScene extends Phaser.Scene {
     const p  = gs.currentPlayer;
     const ms = this.mapSize;
     const supplied = computeSupply(gs, p, ms);
-    const { L, R, T, B } = this._vpBounds(HEX_SIZE * 2);
     const NBR = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
 
-    // 1) Base area fill (stronger than before)
+    // 1) Base area fill (draw full set; no viewport cull to avoid camera-dependent artifacts)
     for (const key of supplied) {
       const [q, r] = key.split(',').map(Number);
       const { x, y } = hexToWorld(q, r);
-      if (x < L || x > R || y < T || y > B) continue;
       const verts = hexVertices(x, y);
       this.supplyGfx.fillStyle(0x44ff88, 0.18);
       this.supplyGfx.fillPoints(verts, true);
@@ -941,7 +939,6 @@ export class GameScene extends Phaser.Scene {
     for (const key of supplied) {
       const [q, r] = key.split(',').map(Number);
       const { x, y } = hexToWorld(q, r);
-      if (x < L || x > R || y < T || y > B) continue;
       const verts = hexVertices(x, y);
       for (let i = 0; i < 6; i++) {
         const [dq, dr] = NBR[i];
