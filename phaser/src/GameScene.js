@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.1.8';
+const GAME_VERSION = 'v1.1.9';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5518,8 +5518,8 @@ export class GameScene extends Phaser.Scene {
       return best;
     };
 
-    const p1 = findSpawn(Math.floor(ms * 0.08), Math.floor(ms * 0.28));
-    const p2 = findSpawn(Math.floor(ms * 0.72), Math.floor(ms * 0.92));
+    let p1 = findSpawn(Math.floor(ms * 0.08), Math.floor(ms * 0.28));
+    let p2 = findSpawn(Math.floor(ms * 0.72), Math.floor(ms * 0.92));
 
     if (!p1 || !p2) {
       // Fallback: force spawn positions if terrain is too barren
