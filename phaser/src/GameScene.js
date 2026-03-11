@@ -13,7 +13,8 @@ import {
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, computeDesignStats,
-  NAVAL_UNITS, SHALLOW_UNITS, AIR_UNITS, canEnterTerrain, isStealthDetected
+  NAVAL_UNITS, SHALLOW_UNITS, AIR_UNITS, canEnterTerrain, isStealthDetected,
+  ROAD_TYPES
 } from './GameState.js';
 import { TECH_TREE, RESEARCH_BRANCHES, prereqsMet, computeTechBonuses } from './ResearchData.js';
 
@@ -34,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.0.8';
+const GAME_VERSION = 'v1.0.9';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -79,6 +80,9 @@ const LIGHTWOODS_VARIANT_FILES = Array.from({length:LIGHTWOODS_VARIANTS},(_,i)=>
 // Mountain tile variants
 const MOUNTAIN_VARIANTS = 10;
 const MOUNTAIN_VARIANT_FILES = Array.from({length:MOUNTAIN_VARIANTS},(_,i)=>({key:`terrain_mountain_${i+1}`,file:`user_art/mountain_tile_${String(i+1).padStart(2,'0')}.png`}));
+// Hill tile variants
+const HILL_VARIANTS = 10;
+const HILL_VARIANT_FILES = Array.from({length:HILL_VARIANTS},(_,i)=>({key:`terrain_hill_${i+1}`,file:`user_art/hill_tile_${String(i+1).padStart(2,'0')}.png`}));
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -108,6 +112,9 @@ export class GameScene extends Phaser.Scene {
       this.load.image(key, file);
     }
     for (const {key, file} of MOUNTAIN_VARIANT_FILES) {
+      this.load.image(key, file);
+    }
+    for (const {key, file} of HILL_VARIANT_FILES) {
       this.load.image(key, file);
     }
     this.load.on('loaderror', () => {}); // suppress console errors for missing tiles
@@ -389,6 +396,9 @@ export class GameScene extends Phaser.Scene {
           if (this.textures.exists(varKey)) artKey = varKey;
         } else if (ttype === 7) { // light woods
           const varKey = `terrain_lightwoods_${(_varHash % LIGHTWOODS_VARIANTS) + 1}`;
+          if (this.textures.exists(varKey)) artKey = varKey;
+        } else if (ttype === 3) { // hill variants
+          const varKey = `terrain_hill_${(_varHash % HILL_VARIANTS) + 1}`;
           if (this.textures.exists(varKey)) artKey = varKey;
         } else if (ttype === 2) { // mountain -- skip bake; rendered as overflow peak sprites
           continue;
@@ -773,35 +783,94 @@ export class GameScene extends Phaser.Scene {
   _redrawRoads() {
     this.roadGfx.clear();
     const gs = this.gameState;
-    const roadSet = new Set(gs.buildings.filter(b => b.type === 'ROAD').map(b => `${b.q},${b.r}`));
     const HEX_NEIGHBORS_LOCAL = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
 
+    // Build a map of road hex -> tier (0=dirt, 1=concrete, 2=rail)
+    const roadMap = new Map(); // key -> { tier, building }
     for (const b of gs.buildings) {
-      if (b.type !== 'ROAD') continue;
-      const { x, y } = hexToWorld(b.q, b.r);
-      // Light hex fill
-      const verts = hexVertices(x, y);
-      this.roadGfx.fillStyle(0xd4b896, 0.35);
-      this.roadGfx.beginPath(); this.roadGfx.moveTo(verts[0].x, verts[0].y);
-      for (let i = 1; i < verts.length; i++) this.roadGfx.lineTo(verts[i].x, verts[i].y);
-      this.roadGfx.closePath(); this.roadGfx.fillPath();
+      if (b.type === 'ROAD' || b.type === 'CONCRETE_ROAD' || b.type === 'RAILWAY') {
+        const tier = b.type === 'RAILWAY' ? 2 : b.type === 'CONCRETE_ROAD' ? 1 : 0;
+        roadMap.set(`${b.q},${b.r}`, { tier, b });
+      }
+    }
 
-      // Draw a thick brown line segment from center toward each adjacent road hex
-      this.roadGfx.lineStyle(4, 0xaa8855, 0.9);
+    // Road tier styling
+    const TIER_STYLE = [
+      { color: 0xb89a6a, width: 3, alpha: 0.85 },  // 0: dirt — warm tan
+      { color: 0xaaaaaa, width: 4, alpha: 0.90 },  // 1: concrete — grey
+      { color: 0x555566, width: 5, alpha: 0.95 },  // 2: railway — dark steel
+    ];
+
+    // Seeded jitter helper (deterministic per hex pair so it's stable)
+    const jitter = (q, r, nq, nr, t) => {
+      const seed = ((q * 1619 + r * 31337 + nq * 7919 + nr * 4001) & 0xFFFFF);
+      const rng  = ((seed ^ (seed >> 5)) * 0x9e3779b9) & 0xFFFFF;
+      return (((rng >> 3) & 0xFF) / 255 - 0.5) * 6 * (1 - t); // max ±3px, zero at endpoints
+    };
+
+    // Draw road segments — each edge drawn from both hexes, deduplicate by only drawing q<=nq
+    for (const [key, { tier }] of roadMap) {
+      const [q, r] = key.split(',').map(Number);
+      const { x, y } = hexToWorld(q, r);
+      const style = TIER_STYLE[tier] || TIER_STYLE[0];
+
       for (const [dq, dr] of HEX_NEIGHBORS_LOCAL) {
-        const nq = b.q + dq, nr = b.r + dr;
-        if (!roadSet.has(`${nq},${nr}`)) continue;
+        const nq = q + dq, nr = r + dr;
+        const nKey = `${nq},${nr}`;
+        if (!roadMap.has(nKey)) continue;
+        // Only draw once per pair (lower q, or same q lower r)
+        if (nq < q || (nq === q && nr < r)) continue;
+
+        // Use the higher tier of the two endpoints
+        const nTier = roadMap.get(nKey).tier;
+        const drawTier = Math.max(tier, nTier);
+        const s = TIER_STYLE[drawTier] || TIER_STYLE[0];
         const { x: nx, y: ny } = hexToWorld(nq, nr);
-        // Draw from center to midpoint between the two hex centers
+
+        // Midpoint with natural perpendicular jitter
         const mx = (x + nx) / 2, my = (y + ny) / 2;
+        // Perpendicular direction
+        const dx = nx - x, dy = ny - y;
+        const len = Math.sqrt(dx*dx + dy*dy) || 1;
+        const px = -dy / len, py = dx / len; // perpendicular unit vector
+        const j = jitter(q, r, nq, nr, 0.5);
+        const cpx = mx + px * j, cpy = my + py * j; // curved control point
+
+        // Draw shadow (1px wider, dark)
+        this.roadGfx.lineStyle(s.width + 2, 0x000000, s.alpha * 0.3);
         this.roadGfx.beginPath();
         this.roadGfx.moveTo(x, y);
-        this.roadGfx.lineTo(mx, my);
+        this.roadGfx.lineTo(cpx + 1, cpy + 1);
+        this.roadGfx.lineTo(nx, ny);
         this.roadGfx.strokePath();
+
+        // Draw road line with slight curve (quadratic via midpoint jitter)
+        this.roadGfx.lineStyle(s.width, s.color, s.alpha);
+        this.roadGfx.beginPath();
+        this.roadGfx.moveTo(x, y);
+        this.roadGfx.lineTo(cpx, cpy);
+        this.roadGfx.lineTo(nx, ny);
+        this.roadGfx.strokePath();
+
+        // Railway ties
+        if (drawTier === 2) {
+          const steps = 4;
+          this.roadGfx.lineStyle(2, 0x7a6a55, 0.7);
+          for (let i = 1; i < steps; i++) {
+            const t = i / steps;
+            const tx = x + (nx - x) * t, ty = y + (ny - y) * t;
+            const tpx = px * 4, tpy = py * 4;
+            this.roadGfx.beginPath();
+            this.roadGfx.moveTo(tx - tpx, ty - tpy);
+            this.roadGfx.lineTo(tx + tpx, ty + tpy);
+            this.roadGfx.strokePath();
+          }
+        }
       }
-      // Center dot
-      this.roadGfx.fillStyle(0xaa8855, 0.95);
-      this.roadGfx.fillCircle(x, y, 4);
+
+      // Center junction dot
+      this.roadGfx.fillStyle(style.color, style.alpha);
+      this.roadGfx.fillCircle(x, y, style.width * 0.7);
     }
   }
 
@@ -1091,7 +1160,7 @@ export class GameScene extends Phaser.Scene {
     const { L: _bvpL, R: _bvpR, T: _bvpT, B: _bvpB } = this._vpBounds();
 
     for (const b of this.gameState.buildings) {
-      if (b.type === 'ROAD') continue;
+      if (ROAD_TYPES.has(b.type)) continue;
       const { x, y } = hexToWorld(b.q, b.r);
       if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
       const color = b.owner ? PLAYER_COLORS[b.owner] : 0x888888;
@@ -2843,7 +2912,7 @@ export class GameScene extends Phaser.Scene {
   _getSmartBuild(unit) {
     const gs = this.gameState, p = gs.currentPlayer;
     const existingB = buildingAt(gs, unit.q, unit.r);
-    const noBuilding = !existingB || existingB.type === 'ROAD';
+    const noBuilding = !existingB || ROAD_TYPES.has(existingB.type);
     const res = gs.resourceHexes[`${unit.q},${unit.r}`];
     const iron = gs.players[p].iron, oil = gs.players[p].oil, wood = gs.players[p].wood || 0;
     const ttype = this.terrain[`${unit.q},${unit.r}`] ?? 0;
@@ -2984,7 +3053,7 @@ export class GameScene extends Phaser.Scene {
     // Engineer (or any unit) standing on a building with canRecruit: show USE BUILDING button
     if (def.canBuild) {
       const bldg = buildingAt(gs, unit.q, unit.r);
-      if (bldg && bldg.owner === gs.currentPlayer && bldg.type !== 'ROAD' &&
+      if (bldg && bldg.owner === gs.currentPlayer && !ROAD_TYPES.has(bldg.type) &&
           BUILDING_TYPES[bldg.type].canRecruit.length > 0) {
         actions.push({ label: `USE ${BUILDING_TYPES[bldg.type].name.toUpperCase()} ▸`, key: 'use_building', enabled: true, color: 0x225577,
           cb: () => { this._clearSelection(); this._showRecruitPanel(bldg); }
@@ -3041,7 +3110,7 @@ export class GameScene extends Phaser.Scene {
       const gs = this.gameState, p = gs.currentPlayer;
       // Roads don't count as "a building" for placement purposes
       const existingBuilding = buildingAt(gs, unit.q, unit.r);
-      const noBuilding = !existingBuilding || existingBuilding.type === 'ROAD';
+      const noBuilding = !existingBuilding || ROAD_TYPES.has(existingBuilding.type);
       const res = gs.resourceHexes[`${unit.q},${unit.r}`];
       const iron = gs.players[p].iron, oil = gs.players[p].oil, wood = gs.players[p].wood || 0;
       const coastal = this._isCoastalHex(unit.q, unit.r);
@@ -3050,8 +3119,22 @@ export class GameScene extends Phaser.Scene {
 
       // All possible build options — add more here as the game grows
       const allOpts = [];
-      if (!roadAt(gs, unit.q, unit.r))
-        allOpts.push({ label: `Road        1🪵`,  cost: { iron:0, oil:0, wood:1 }, enabled: wood>=1,  cb: () => this._onBuildRoad() });
+      // Road building — show upgrade option if existing road is lower tier
+      const existingRoad = roadAt(gs, unit.q, unit.r);
+      const existingTier = existingRoad ? (BUILDING_TYPES[existingRoad.type]?.roadTier ?? 0) : -1;
+      const unlocked = gs.players[p].research?.unlocked || [];
+      const hasConcreteTech = unlocked.includes('CONCRETE_ROADS');
+      const hasRailTech     = unlocked.includes('RAILWAYS');
+      if (!existingRoad) {
+        allOpts.push({ label: `Dirt Road   1🪵`,  cost: { iron:0, oil:0, wood:1 }, enabled: wood>=1,  cb: () => this._onBuildRoad('ROAD') });
+      } else if (existingTier < 1 && hasConcreteTech) {
+        allOpts.push({ label: `Upgrade→Concrete  2⚙`, cost: { iron:2,oil:0,wood:0 }, enabled: iron>=2,
+          cb: () => this._onUpgradeRoad(unit, 'CONCRETE_ROAD') });
+      } else if (existingTier < 2 && hasRailTech) {
+        allOpts.push({ label: `Upgrade→Railway  4⚙ 1🛢 2🪵`, cost: { iron:4,oil:1,wood:2 },
+          enabled: iron>=4 && oil>=1 && wood>=2,
+          cb: () => this._onUpgradeRoad(unit, 'RAILWAY') });
+      }
       // Auto-road standing order (engineer pathfinds to destination, builds each turn)
       if (unit.roadOrder) {
         allOpts.push({ label: `✕ CANCEL ROAD ORDER`, cost: null, enabled: true, cb: () => { delete unit.roadOrder; this._hideContextMenu(); this._refresh(); } });
@@ -3606,7 +3689,7 @@ export class GameScene extends Phaser.Scene {
           const gs = this.gameState;
           const owner = unit.owner;
           const roadCost = BUILDING_TYPES['ROAD'].buildCost;
-          const hasRoadAlready = gs.buildings.some(b => b.type === 'ROAD' && b.q === unit.q && b.r === unit.r);
+          const hasRoadAlready = gs.buildings.some(b => ROAD_TYPES.has(b.type) && b.q === unit.q && b.r === unit.r);
           const canAfford = gs.players[owner].wood >= (roadCost.wood || 1);
           if (!hasRoadAlready && canAfford) {
             gs.players[owner].wood -= (roadCost.wood || 1);
@@ -3957,15 +4040,45 @@ export class GameScene extends Phaser.Scene {
     this._refresh();
   }
 
-  _onBuildRoad() {
+  _onBuildRoad(roadType = 'ROAD') {
     const gs = this.gameState;
     const u  = this.selectedUnit;
+    const p  = gs.currentPlayer;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
     if (roadAt(gs, u.q, u.r)) return;
-    if ((gs.players[gs.currentPlayer].wood || 0) < 1) return;
-    gs.players[gs.currentPlayer].wood = (gs.players[gs.currentPlayer].wood || 0) - 1;
-    gs.buildings.push(createBuilding('ROAD', gs.currentPlayer, u.q, u.r));
+    const cost = BUILDING_TYPES[roadType]?.buildCost || { iron:0, oil:0, wood:1 };
+    const pl = gs.players[p];
+    if ((pl.wood || 0) < (cost.wood || 0)) return;
+    if ((pl.iron || 0) < (cost.iron || 0)) return;
+    if ((pl.oil  || 0) < (cost.oil  || 0)) return;
+    pl.wood = (pl.wood || 0) - (cost.wood || 0);
+    pl.iron = (pl.iron || 0) - (cost.iron || 0);
+    pl.oil  = (pl.oil  || 0) - (cost.oil  || 0);
+    gs.buildings.push(createBuilding(roadType, p, u.q, u.r));
     u.moved = true; u.building = true;
+    this._redrawRoads();
+    this._clearSelection();
+  }
+
+  _onUpgradeRoad(unit, newType) {
+    const gs = this.gameState;
+    const p  = gs.currentPlayer;
+    if (!unit || !UNIT_TYPES[unit.type].canBuild) return;
+    const existing = roadAt(gs, unit.q, unit.r);
+    if (!existing) return;
+    const cost = BUILDING_TYPES[newType]?.buildCost || {};
+    const pl = gs.players[p];
+    if ((pl.wood || 0) < (cost.wood || 0)) return;
+    if ((pl.iron || 0) < (cost.iron || 0)) return;
+    if ((pl.oil  || 0) < (cost.oil  || 0)) return;
+    pl.wood = (pl.wood || 0) - (cost.wood || 0);
+    pl.iron = (pl.iron || 0) - (cost.iron || 0);
+    pl.oil  = (pl.oil  || 0) - (cost.oil  || 0);
+    // Replace old road with upgraded type
+    const idx = gs.buildings.indexOf(existing);
+    if (idx >= 0) gs.buildings.splice(idx, 1, createBuilding(newType, existing.owner, existing.q, existing.r));
+    unit.moved = true; unit.building = true;
+    this._hideContextMenu();
     this._redrawRoads();
     this._clearSelection();
   }
@@ -4228,6 +4341,35 @@ export class GameScene extends Phaser.Scene {
     const hpBefore = { atk: attacker.health, def: target.health };
     const log = resolveImmediateAttack(gs, attacker.id, targetId, blindFire);
     this.reachable = []; this.attackable = []; this.mode = 'select';
+    // Road sabotage: air units or artillery can damage roads on the target hex
+    const defender = gs.units.find(u => u.id === targetId);
+    const defQ = defender?.q ?? targetId?.q;
+    const defR = defender?.r ?? targetId?.r;
+    if (defQ != null) {
+      const isAirAttacker = attacker && UNIT_TYPES[attacker.type]?.air;
+      const isArtilleryAttacker = attacker && (attacker.type === 'ARTILLERY' || attacker.type === 'MORTAR');
+      if (isAirAttacker || isArtilleryAttacker) {
+        const roadB = roadAt(gs, defQ, defR);
+        if (roadB) {
+          const tier = BUILDING_TYPES[roadB.type]?.roadTier ?? 0;
+          if (tier > 0) {
+            // Downgrade: railway → concrete → dirt
+            const downgradeType = tier === 2 ? 'CONCRETE_ROAD' : 'ROAD';
+            const idx = gs.buildings.indexOf(roadB);
+            if (idx >= 0) {
+              gs.buildings.splice(idx, 1, createBuilding(downgradeType, roadB.owner, roadB.q, roadB.r));
+              this._pushLog(`Road on (${roadB.q},${roadB.r}) damaged — downgraded to ${BUILDING_TYPES[downgradeType].name}`);
+            }
+          } else {
+            // Dirt road — destroy with 40% chance
+            if (Math.random() < 0.4) {
+              gs.buildings = gs.buildings.filter(b => b !== roadB);
+              this._pushLog(`Dirt road on (${roadB.q},${roadB.r}) destroyed!`);
+            }
+          }
+        }
+      }
+    }
     // If attacker died from retaliation, clear selection
     const atkAlive = gs.units.find(u => u.id === attacker.id);
     if (!atkAlive) this.selectedUnit = null;

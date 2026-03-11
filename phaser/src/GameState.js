@@ -194,7 +194,9 @@ export const BUILDING_TYPES = {
   VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['TANK','ARTILLERY','SUPPLY_TRUCK'],        buildCost: { iron: 8, oil: 2 }, color: 0x557799, sight: 2 },
   BUNKER:        { name: 'Bunker',         ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 2 }, color: 0x888866, sight: 2 },
   OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 0 }, color: 0x88aacc, sight: 4 },
-  ROAD:          { name: 'Road',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 0, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xccbbaa, sight: 0 },
+  ROAD:          { name: 'Dirt Road',      ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xccbbaa, sight: 0, roadTier: 0, moveCost: 0.5 },
+  CONCRETE_ROAD: { name: 'Concrete Road',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 0 }, color: 0xaaaaaa, sight: 0, roadTier: 1, moveCost: 0.25, requiresTech: 'CONCRETE_ROADS' },
+  RAILWAY:       { name: 'Railway',        ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: [], buildCost: { iron: 4, oil: 1, wood: 2 }, color: 0x555566, sight: 0, roadTier: 2, moveCost: 0.1,  requiresTech: 'RAILWAYS', tier: 3 },
   LUMBER_CAMP:   { name: 'Lumber Camp',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 2, buildTurns: 1, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 0 }, color: 0x7a5020, sight: 2 },
   // Naval buildings
   NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['PATROL_BOAT','MTB','DESTROYER','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 2 },
@@ -510,8 +512,9 @@ export function unitAt(state, q, r) {
 export function buildingAt(state, q, r) {
   return state.buildings.find(b => b.q === q && b.r === r) || null;
 }
+export const ROAD_TYPES = new Set(['ROAD', 'CONCRETE_ROAD', 'RAILWAY']);
 export function roadAt(state, q, r) {
-  return state.buildings.find(b => b.type === 'ROAD' && b.q === q && b.r === r) || null;
+  return state.buildings.find(b => ROAD_TYPES.has(b.type) && b.q === q && b.r === r) || null;
 }
 export function hexDistance(q1, r1, q2, r2) {
   return (Math.abs(q1-q2) + Math.abs(q1+r1-q2-r2) + Math.abs(r1-r2)) / 2;
@@ -1254,7 +1257,7 @@ export function resolveTurn(state, terrain) {
 
   // Phase 3: Captures
   for (const b of state.buildings) {
-    if (b.type === 'ROAD') continue;
+    if (ROAD_TYPES.has(b.type)) continue;
     const unit = unitAt(state, b.q, b.r);
     if (unit && unit.owner !== b.owner) {
       events.push(`P${unit.owner} captures ${BUILDING_TYPES[b.type].name}!`);
@@ -1457,7 +1460,7 @@ export function resolveEndOfTurn(state, terrain) {
 
   // Captures (only by current player's units)
   for (const b of state.buildings) {
-    if (b.type === 'ROAD') continue;
+    if (ROAD_TYPES.has(b.type)) continue;
     const unit = unitAt(state, b.q, b.r);
     if (unit && unit.owner !== b.owner && unit.owner === player) {
       events.push(`P${player} captures ${BUILDING_TYPES[b.type].name}!`);
@@ -1798,7 +1801,7 @@ export function computeSupply(state, player, mapSize) {
   const supplied = new Set();
   const ms = mapSize || state._mapSize || 25;
 
-  const isRoadHex = (q, r) => state.buildings.some(b => b.type === 'ROAD' && b.q === q && b.r === r);
+  const isRoadHex = (q, r) => state.buildings.some(b => ROAD_TYPES.has(b.type) && b.q === q && b.r === r);
 
   const _isValid = (q, r) => q >= 0 && r >= 0 && q < ms && r < ms;
 
