@@ -249,7 +249,7 @@ export const BUILDING_TYPES = {
   RAILWAY:       { name: 'Railway',        ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: [], buildCost: { iron: 4, oil: 1, wood: 2 }, color: 0x555566, sight: 0, roadTier: 2, moveCost: 0.1,  requiresTech: 'RAILWAYS', tier: 3 },
   LUMBER_CAMP:   { name: 'Lumber Camp',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 2, buildTurns: 1, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 0 }, color: 0x7a5020, sight: 2 },
   // Naval buildings
-  NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['PATROL_BOAT','MTB','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG','TORPEDO_BOAT','MOTOR_GUNBOAT'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 2 },
+  NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['PATROL_BOAT','SUBMARINE','LANDING_CRAFT','TRANSPORT_MD','TORPEDO_BOAT','MOTOR_GUNBOAT'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 2 },
   // Obstacle / fortification buildings (engineer-built, no recruitment)
   BARBED_WIRE:   { name: 'Barbed Wire',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0x888866, sight: 0, obstacle: true, infantryMoveCost: 1 },
   SANDBAG:       { name: 'Sandbag Post',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xc8aa66, sight: 0, defenseBonus: 2 },
