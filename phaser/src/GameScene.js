@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.2.1';
+const GAME_VERSION = 'v1.2.2';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1200,8 +1200,8 @@ export class GameScene extends Phaser.Scene {
     for (const b of this.gameState.buildings) {
       try {
         if (ROAD_TYPES.has(b.type)) continue;
-        // Fog-of-war: hide enemy buildings on unseen hexes, but always show own buildings
-        if (fog && Number(b.owner) !== curP && !fog.has(`${b.q},${b.r}`)) continue;
+        // Fog-of-war: hide enemy buildings only when fog set is valid/non-empty
+        if (fog && fog.size > 0 && Number(b.owner) !== curP && !fog.has(`${b.q},${b.r}`)) continue;
         const { x, y } = hexToWorld(b.q, b.r);
         // TEMP safety: disable building viewport culling to prevent disappearance regressions
         // if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
@@ -1570,7 +1570,7 @@ export class GameScene extends Phaser.Scene {
     this._constructionLabels = [];
     for (const b of this.gameState.buildings) {
       if (!b.underConstruction) continue;
-      if (this._currentFog && Number(b.owner) !== Number(this.gameState.currentPlayer) && !this._currentFog.has(`${b.q},${b.r}`)) continue;
+      if (this._currentFog && this._currentFog.size > 0 && Number(b.owner) !== Number(this.gameState.currentPlayer) && !this._currentFog.has(`${b.q},${b.r}`)) continue;
       const { x, y } = hexToWorld(b.q, b.r);
       if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
       const prog = b.buildProgress || 0, total = b.buildTurnsRequired || 1;
@@ -1611,7 +1611,7 @@ export class GameScene extends Phaser.Scene {
 
       // Hide enemy units in fog (use display position, not queued position)
       const key = `${dispQ},${dispR}`;
-      if (isEnemy && fog && !fog.has(key)) continue;
+      if (isEnemy && fog && fog.size > 0 && !fog.has(key)) continue;
       // Stealth: hide stealthy enemy units unless detected
       if (isEnemy && (UNIT_TYPES[unit.type]?.stealthy || 0) > 0) {
         if (!isStealthDetected(gs, unit, gs.currentPlayer)) continue; // not detected — skip render
