@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.2.2';
+const GAME_VERSION = 'v1.2.3';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3020,7 +3020,8 @@ export class GameScene extends Phaser.Scene {
       actions.push({ label: 'MOVE',   key: 'move',   enabled: true,  color: 0x1a5c8a, cb: () => this._onMoveMode() });
     }
     // Patrol Boat sprint: 2nd shorter move after first, but negates attack
-    if (def.canSprint && unit.moved && !unit.sprinted && !unit.attacked && !unit.suppressed) {
+    const movedThisTurn = unit._origQ !== undefined && (unit.q !== unit._origQ || unit.r !== unit._origR);
+    if (def.canSprint && movedThisTurn && !unit.sprinted && !unit.attacked && !unit.suppressed) {
       actions.push({ label: `SPRINT +${def.sprintMove} (no attack)`, key: 'sprint', enabled: true, color: 0x1a6655,
         cb: () => this._onSprintMode(unit) });
     }
@@ -4165,12 +4166,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   _onSprintMode(unit) {
-    if (!unit || !unit.moved || unit.sprinted || unit.attacked) return;
+    const movedThisTurn = unit && unit._origQ !== undefined && (unit.q !== unit._origQ || unit.r !== unit._origR);
+    if (!unit || !movedThisTurn || unit.sprinted || unit.attacked) return;
     this.selectedUnit = unit;
     this.mode = 'sprint';
     const def = UNIT_TYPES[unit.type];
-    // Temporarily override move range for sprint calculation
-    const sprintUnit = Object.assign({}, unit, { move: def.sprintMove, moved: false });
+    // Sprint uses a fresh fixed movement budget (do not inherit current movesLeft)
+    const sprintUnit = Object.assign({}, unit, { move: def.sprintMove, movesLeft: def.sprintMove, moved: false });
     this.reachable  = getReachableHexes(this.gameState, sprintUnit, this.terrain, this.mapSize);
     this.attackable = [];
     this._hideContextMenu();
