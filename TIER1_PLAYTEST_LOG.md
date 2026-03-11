@@ -30,12 +30,16 @@
 - v1.2.9: infantry AT module + tier labels + custom recruit card parity
 - v1.2.10: supply overlay deterministic render (no camera-dependent cull)
 
-### Current status snapshot (not full manual matrix yet)
+### Current status snapshot
 - Code/build status: PASS (build succeeds)
-- Full 3-map x 10-turn manual matrix: PENDING
+- Automated logic smoke (10 turn ticks each):
+  - scout: PASS
+  - naval: PASS
+  - combat: PASS
+- Full UI manual matrix (Tiny custom / Archipelago / Naval supremacy): IN PROGRESS (needs live interactive play validation)
 
 ### Next logged action
-- Run matrix:
+- Run live UI matrix:
   1) Tiny custom
   2) Archipelago
   3) Naval supremacy
