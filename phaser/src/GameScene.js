@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.3';
+const GAME_VERSION = 'v1.3.4';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5300,6 +5300,27 @@ export class GameScene extends Phaser.Scene {
     btn.on('pointerout',  () => btn.setAlpha(1.0));
   }
 
+  _focusPlayerHQ(player, smooth = true) {
+    const hq = this.gameState.buildings.find(b => b.type === 'HQ' && Number(b.owner) === Number(player));
+    if (!hq) return;
+    const cam = this.cameras.main;
+    const { x, y } = hexToWorld(hq.q, hq.r);
+    const targetX = x - (cam.width  * 0.5) / cam.zoom;
+    const targetY = y - (cam.height * 0.5) / cam.zoom;
+    if (!smooth) {
+      cam.scrollX = targetX;
+      cam.scrollY = targetY;
+      return;
+    }
+    this.tweens.add({
+      targets: cam,
+      scrollX: targetX,
+      scrollY: targetY,
+      duration: 320,
+      ease: 'Sine.easeOut',
+    });
+  }
+
   _showPassScreen(msg) {
     const w = this.scale.width, h = this.scale.height;
     const gs = this.gameState;
@@ -5318,7 +5339,11 @@ export class GameScene extends Phaser.Scene {
       font: '11px monospace', fill: '#334433'
     }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
     this._addToUI([overlay, card, accent, playerLbl, subLbl]);
-    this._showSplash([overlay, card, accent, playerLbl, subLbl], () => { this._freezeFog(); this._refresh(); });
+    this._showSplash([overlay, card, accent, playerLbl, subLbl], () => {
+      this._focusPlayerHQ(p, true);
+      this._freezeFog();
+      this._refresh();
+    });
   }
 
   _showResolution(events, winner) {
