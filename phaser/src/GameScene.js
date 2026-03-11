@@ -3192,6 +3192,8 @@ export class GameScene extends Phaser.Scene {
         const path = findPath(this.terrain, this.mapSize, unit.q, unit.r, q, r, 'ENGINEER');
         if (path && path.length > 0) {
           unit.roadOrder = { destQ: q, destR: r, path };
+          // Lock engineer for this turn — order counts as their action
+          unit.moved = true; unit.movesLeft = 0; unit.building = true;
           // Immediately place a road on the engineer's current tile (starting hex)
           const gs = this.gameState;
           const owner = unit.owner;
@@ -3202,6 +3204,7 @@ export class GameScene extends Phaser.Scene {
             gs.players[owner].wood -= (roadCost.wood || 1);
             gs.buildings.push({ id: Date.now(), type: 'ROAD', q: unit.q, r: unit.r, owner });
           }
+          this._clearSelection();
         } else {
           // Show brief "no path" feedback — just log; could add toast later
           console.log(`Auto-road: no path from (${unit.q},${unit.r}) to (${q},${r})`);
