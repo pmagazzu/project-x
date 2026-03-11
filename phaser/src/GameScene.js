@@ -34,7 +34,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.0.5';
+const GAME_VERSION = 'v1.0.6';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -4955,22 +4955,83 @@ export class GameScene extends Phaser.Scene {
     const map = this.terrain;
     const rng = this._seededRng(seed + 9999);
 
-    const IRON_TERRAIN  = new Set([2, 3]);    // mountains, hills
-    const OIL_TERRAIN   = new Set([0, 6, 7]); // plains, sand, light woods
+    // Terrain affinity per resource (preferred terrain types)
+    const IRON_PREFER  = new Set([2, 3]);       // mountain, hill (best)
+    const IRON_OK      = new Set([0, 7]);        // plains, light woods (fallback)
+    const OIL_TERRAIN  = new Set([0, 6, 7]);     // plains, sand, light woods
+    const WOOD_TERRAIN = new Set([1, 7]);        // dense forest, light woods
+    const FOOD_TERRAIN = new Set([0, 7]);        // plains, light woods
 
-    let placed = 0;
-    for (let q = 0; q < ms && placed < 40; q++) {
-      for (let r = 0; r < ms && placed < 40; r++) {
-        if (gs.resourceHexes[`${q},${r}`]) continue; // already has resource
-        if (gs.buildings.find(b => b.q === q && b.r === r)) continue;
+    // Scale minimum deposits to map size (per resource per player = 2-3 nodes)
+    const scale = ms * ms / (40 * 40); // normalized to 40x40 base
+    const MIN_IRON = Math.max(6,  Math.round(10 * scale));
+    const MIN_OIL  = Math.max(4,  Math.round(7  * scale));
+    const MIN_WOOD = Math.max(4,  Math.round(6  * scale));
+    const MIN_FOOD = Math.max(4,  Math.round(6  * scale));
+
+    const free = (q, r) =>
+      !gs.resourceHexes[`${q},${r}`] &&
+      !gs.buildings.find(b => b.q === q && b.r === r);
+
+    const isLandType = t => t !== 4 && t !== 5;
+
+    // First pass: probability scatter across map
+    for (let q = 0; q < ms; q++) {
+      for (let r = 0; r < ms; r++) {
+        if (!free(q, r)) continue;
         const t = map[`${q},${r}`];
-        if (IRON_TERRAIN.has(t) && rng() < 0.18) {
-          gs.resourceHexes[`${q},${r}`] = { type: 'IRON' }; placed++;
-        } else if (OIL_TERRAIN.has(t) && rng() < 0.06) {
-          gs.resourceHexes[`${q},${r}`] = { type: 'OIL' }; placed++;
+        if (!isLandType(t)) continue;
+        if (IRON_PREFER.has(t) && rng() < 0.22) {
+          gs.resourceHexes[`${q},${r}`] = { type: 'IRON' };
+        } else if (OIL_TERRAIN.has(t) && rng() < 0.08) {
+          gs.resourceHexes[`${q},${r}`] = { type: 'OIL' };
+        } else if (WOOD_TERRAIN.has(t) && rng() < 0.12) {
+          gs.resourceHexes[`${q},${r}`] = { type: 'WOOD' };
+        } else if (FOOD_TERRAIN.has(t) && rng() < 0.08) {
+          gs.resourceHexes[`${q},${r}`] = { type: 'FOOD' };
         }
       }
     }
+
+    // Second pass: guarantee minimums — place on any valid land if under target
+    const counts = () => {
+      let iron=0, oil=0, wood=0, food=0;
+      for (const v of Object.values(gs.resourceHexes)) {
+        if (v.type==='IRON') iron++; else if (v.type==='OIL') oil++;
+        else if (v.type==='WOOD') wood++; else if (v.type==='FOOD') food++;
+      }
+      return { iron, oil, wood, food };
+    };
+
+    const forcePlace = (type, terrainSets, needed) => {
+      if (needed <= 0) return;
+      // Collect all valid candidate hexes, shuffle, pick needed
+      const candidates = [];
+      for (let q = 0; q < ms; q++) {
+        for (let r = 0; r < ms; r++) {
+          if (!free(q, r)) continue;
+          const t = map[`${q},${r}`];
+          if (!isLandType(t)) continue;
+          if (terrainSets.some(s => s.has(t))) candidates.push(`${q},${r}`);
+        }
+      }
+      // shuffle (Fisher-Yates with seeded rng)
+      for (let i = candidates.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+      }
+      let placed = 0;
+      for (const key of candidates) {
+        if (placed >= needed) break;
+        if (!gs.resourceHexes[key]) { gs.resourceHexes[key] = { type }; placed++; }
+      }
+    };
+
+    const c = counts();
+    forcePlace('IRON', [IRON_PREFER, IRON_OK], MIN_IRON - c.iron);
+    forcePlace('OIL',  [OIL_TERRAIN],           MIN_OIL  - c.oil);
+    forcePlace('WOOD', [WOOD_TERRAIN],           MIN_WOOD - c.wood);
+    forcePlace('FOOD', [FOOD_TERRAIN],           MIN_FOOD - c.food);
   }
 
   _genNavalTerrain(map, ms) {
