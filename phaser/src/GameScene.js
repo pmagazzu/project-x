@@ -4553,7 +4553,7 @@ export class GameScene extends Phaser.Scene {
       // All plains — nothing to do
     } else if (this.scenario === 'naval') {
       this._genNavalTerrain(map, ms);
-    } else if (this.scenario === 'random') {
+    } else if (this.scenario === 'random' || this.scenario === 'custom') {
       this._genProcTerrain(map, ms, this.mapSeed);
     } else {
       // Standard procedural terrain (scout / grand / default)
