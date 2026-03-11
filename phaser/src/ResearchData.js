@@ -165,11 +165,11 @@ export const TECH_TREE = {
     effect:{ unlockModule:'INF_LMG_PACKAGE' },
   },
   at_rifle_upgrade: {
-    id:'at_rifle_upgrade', branch:'infantry', tier:1, kind:'stat',
+    id:'at_rifle_upgrade', branch:'infantry', tier:1, kind:'module',
     name:'AT Rifle (Improved)',
-    desc:'Anti-Tank units +1 pierce, +1 hard attack.',
+    desc:'🔩 MODULE — Unlocks infantry AT-rifle package (+hard attack, +pierce). Also buffs anti-tank squads.',
     cost:25, prereqs:['steel_helmet'],
-    effect:{ unitStatBonus:{ ANTI_TANK:{ pierce:1, hard_attack:1 } } },
+    effect:{ unlockModule:'INF_AT_RIFLE_PACKAGE', unitStatBonus:{ ANTI_TANK:{ pierce:1, hard_attack:1 } } },
   },
   field_medic_kit: {
     id:'field_medic_kit', branch:'infantry', tier:1, kind:'stat',

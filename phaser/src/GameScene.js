@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.2.8';
+const GAME_VERSION = 'v1.2.9';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2289,7 +2289,8 @@ export class GameScene extends Phaser.Scene {
 
       // Unit name left
       const nameClr = canAfford ? '#c8e0b0' : alreadyOrdered ? '#445544' : '#664444';
-      const nameTxt = this.add.text(w/2 - rowW/2 + 12, ry - 8, def.name, {
+      const tierTag = `T${def.tier ?? 0}`;
+      const nameTxt = this.add.text(w/2 - rowW/2 + 12, ry - 8, `${def.name}  [${tierTag}]`, {
         font: `bold 13px monospace`, fill: nameClr
       }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(201);
       objs.push(nameTxt);
@@ -2322,7 +2323,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    // Custom designs trained from this building
+    // Custom designs trained from this building (same visual card style as standard units)
     const btype = building.type;
     const customDesigns = (gs.designs[p] || []).filter(d => CHASSIS_BUILDINGS[d.chassis] === btype);
     customDesigns.forEach((design, i) => {
@@ -2330,25 +2331,43 @@ export class GameScene extends Phaser.Scene {
       const canAfford = !existingOrder && gs.players[p].iron >= design.trainCost.iron && gs.players[p].oil >= design.trainCost.oil;
       const _dbt = UNIT_TYPES[design.chassis]?.buildTime ?? 1;
       const ry = baseRowY + idx * rowH + rowH/2;
-      const label = `★ ${design.name}  ⚙${design.trainCost.iron}${design.trainCost.oil > 0 ? ` 🛢${design.trainCost.oil}` : ''}  HP:${design.stats.health} ATK:${design.stats.soft_attack}/${design.stats.hard_attack} MOV:${design.stats.move}  ⏱${_dbt}t`;
-      const btn = this.add.text(w/2, ry, label, {
-        font: '12px monospace', fill: canAfford ? '#ffffaa' : '#666655',
-        backgroundColor: canAfford ? '#1e1e0a' : '#111108',
-        padding: { x: 12, y: 8 }
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+      const modTier = Math.max(0, ...((design.modules || []).map(mk => MODULES[mk]?.tier ?? 0)));
+      const chassisTier = UNIT_TYPES[design.chassis]?.tier ?? 0;
+      const shownTier = Math.max(chassisTier, modTier);
+
+      const rowBg = this.add.rectangle(w/2, ry, rowW, rowH - 4, canAfford ? 0x1a1a0d : 0x0e0e0e, 1)
+        .setStrokeStyle(1, canAfford ? 0x666622 : 0x333333)
+        .setScrollFactor(0).setDepth(201)
         .setInteractive({ useHandCursor: canAfford });
+      objs.push(rowBg);
+
+      const nameTxt = this.add.text(w/2 - rowW/2 + 12, ry - 8, `★ ${design.name}  [T${shownTier}]`, {
+        font: 'bold 13px monospace', fill: canAfford ? '#f2e9a8' : '#666655'
+      }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(201);
+      objs.push(nameTxt);
+
+      const statTxt = this.add.text(w/2 - rowW/2 + 12, ry + 10,
+        `HP ${design.stats.health}  ·  MOV ${design.stats.move}  ·  SA ${design.stats.soft_attack}  HA ${design.stats.hard_attack}  ·  ⏱${_dbt}t`, {
+        font: '10px monospace', fill: '#666655'
+      }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(201);
+      objs.push(statTxt);
+
+      const costTxt = this.add.text(w/2 + rowW/2 - 12, ry, `⚙${design.trainCost.iron}${design.trainCost.oil > 0 ? `  🛢${design.trainCost.oil}` : ''}`, {
+        font: 'bold 12px monospace', fill: canAfford ? '#d6c86a' : '#554444'
+      }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(201);
+      objs.push(costTxt);
+
       if (canAfford) {
-        btn.on('pointerdown', () => {
+        rowBg.on('pointerdown', () => {
           this._contextMenuClicked = true;
           queueRecruit(gs, p, design.id, building.id);
           this._pushLog(`P${p} queued ${design.name}`);
           this._hideRecruitPanel();
           this._refresh();
         });
-        btn.on('pointerover', () => btn.setAlpha(0.8));
-        btn.on('pointerout',  () => btn.setAlpha(1.0));
+        rowBg.on('pointerover', () => { rowBg.setFillStyle(0x2b2b14, 1).setStrokeStyle(1, 0x888833); nameTxt.setStyle({ fill: '#fff7bb' }); });
+        rowBg.on('pointerout',  () => { rowBg.setFillStyle(0x1a1a0d, 1).setStrokeStyle(1, 0x666622); nameTxt.setStyle({ fill: '#f2e9a8' }); });
       }
-      objs.push(btn);
     });
 
     // Footer button row
@@ -2684,8 +2703,8 @@ export class GameScene extends Phaser.Scene {
       tabBg.on('pointerover', () => { if (!sel) tabBg.setFillStyle(0x1a3a22); });
       tabBg.on('pointerout',  () => { if (!sel) tabBg.setFillStyle(0x111a14); });
       objs.push(tabBg);
-      const lbl = this.add.text(tx + tabW/2, ty + tabH/2, def?.name || ch, {
-        font: `${sel ? 'bold ' : ''}10px monospace`, fill: sel ? '#aaffcc' : '#668866'
+      const lbl = this.add.text(tx + tabW/2, ty + tabH/2, `${def?.name || ch} [T${def?.tier ?? 0}]`, {
+        font: `${sel ? 'bold ' : ''}9px monospace`, fill: sel ? '#aaffcc' : '#668866'
       }).setOrigin(0.5).setScrollFactor(0).setDepth(D+2);
       objs.push(lbl);
     });
