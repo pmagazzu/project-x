@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.1';
+const GAME_VERSION = 'v1.3.2';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2961,16 +2961,14 @@ export class GameScene extends Phaser.Scene {
     this.game.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
     this.input.on('wheel', (ptr, _o, _dx, dy) => {
-      // Very conservative zoom step for playability (trackpads fire many wheel events)
-      const zs = this.settings.zoomSpeed ?? 0.10; // recommended range ~0.03..0.30
+      // New zoom behavior: fixed ~10% step per gesture tick, smoothed in update().
+      const step = 1.10;
       const dir = dy > 0 ? -1 : 1; // wheel down => zoom out
-      const factor = Math.exp(dir * zs); // smooth exponential scaling
-      const newZoom = Phaser.Math.Clamp(cam.zoom * factor, 0.2, 4.0);
-      const wBefore = cam.getWorldPoint(ptr.x, ptr.y);
-      cam.setZoom(newZoom);
-      const wAfter = cam.getWorldPoint(ptr.x, ptr.y);
-      cam.scrollX += wBefore.x - wAfter.x;
-      cam.scrollY += wBefore.y - wAfter.y;
+      const factor = dir > 0 ? step : (1 / step);
+      if (this._zoomTarget === undefined) this._zoomTarget = cam.zoom;
+      this._zoomTarget = Phaser.Math.Clamp(this._zoomTarget * factor, 0.2, 4.0);
+      this._zoomPointer = { x: ptr.x, y: ptr.y };
+      this._zoomLastInputAt = performance.now();
     });
 
     this.input.keyboard.enableGlobalCapture();
@@ -3891,6 +3889,25 @@ export class GameScene extends Phaser.Scene {
 
   update() {
     const cam = this.cameras.main;
+
+    // Smooth zoom toward target with soft speed ramp (trackpad-friendly)
+    if (this._zoomTarget !== undefined) {
+      const dz = this._zoomTarget - cam.zoom;
+      if (Math.abs(dz) > 0.0005) {
+        const ramp = 0.14 + Math.min(0.26, Math.abs(dz) * 0.35); // soft acceleration
+        const nextZoom = cam.zoom + dz * ramp;
+        const px = this._zoomPointer?.x ?? (this.scale.width / 2);
+        const py = this._zoomPointer?.y ?? (this.scale.height / 2);
+        const before = cam.getWorldPoint(px, py);
+        cam.setZoom(Phaser.Math.Clamp(nextZoom, 0.2, 4.0));
+        const after = cam.getWorldPoint(px, py);
+        cam.scrollX += before.x - after.x;
+        cam.scrollY += before.y - after.y;
+      } else {
+        this._zoomTarget = cam.zoom;
+      }
+    }
+
     const shiftHeld = this._shiftKey?.isDown ?? false;
     const speed = (6 / cam.zoom) * (shiftHeld ? 2.5 : 1);
     const W = this.wasd;
