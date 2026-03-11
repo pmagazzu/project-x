@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.1.11';
+const GAME_VERSION = 'v1.1.12';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -164,7 +164,7 @@ export class GameScene extends Phaser.Scene {
       engineerAutoBuild: true,  // auto-open build menu after engineer moves
       autoAttackMode:    true,  // auto-enter attack mode after move if enemies in range
       showContextMenu:   true,  // contextual action popup near selected unit
-      zoomSpeed:         1.0,   // scroll wheel zoom speed (0.5 = slow, 1.0 = default, 2.0 = fast)
+      zoomSpeed:         0.10,  // scroll wheel zoom speed (0.03 very slow .. 0.30 fast)
     };
 
     // Recruitment panel state
@@ -2894,10 +2894,10 @@ export class GameScene extends Phaser.Scene {
     this.game.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
     this.input.on('wheel', (ptr, _o, _dx, dy) => {
-      const zs = this.settings.zoomSpeed ?? 1.0; // 1.0 = default, <1 = slower, >1 = faster
-      const inFactor  = 1 - (1 - 0.85) * zs;   // zoom-out step scaled by speed
-      const outFactor = 1 + (1.18 - 1)  * zs;   // zoom-in step scaled by speed
-      const factor = dy > 0 ? inFactor : outFactor;
+      // Very conservative zoom step for playability (trackpads fire many wheel events)
+      const zs = this.settings.zoomSpeed ?? 0.10; // recommended range ~0.03..0.30
+      const dir = dy > 0 ? -1 : 1; // wheel down => zoom out
+      const factor = Math.exp(dir * zs); // smooth exponential scaling
       const newZoom = Phaser.Math.Clamp(cam.zoom * factor, 0.2, 4.0);
       const wBefore = cam.getWorldPoint(ptr.x, ptr.y);
       cam.setZoom(newZoom);
@@ -3334,7 +3334,7 @@ export class GameScene extends Phaser.Scene {
       font: '12px monospace', fill: '#cccccc'
     }).setOrigin(0,0.5).setScrollFactor(0).setDepth(D+1));
 
-    const zoomSteps = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0];
+    const zoomSteps = [0.03, 0.05, 0.08, 0.10, 0.14, 0.18, 0.24, 0.30];
     let zi = zoomSteps.findIndex(v => Math.abs(v - this.settings.zoomSpeed) < 0.01);
     if (zi < 0) zi = 3;
 
