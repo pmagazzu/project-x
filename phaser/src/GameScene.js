@@ -25,7 +25,7 @@ const TERRAIN_COLORS = {
   0: { fill: 0x8aaa55, stroke: 0x6a8a35 },  // plains
   1: { fill: 0x1a4010, stroke: 0x0d2008 },  // dense forest
   2: { fill: 0x8a7a6a, stroke: 0x6a5a4a },  // mountain
-  3: { fill: 0xb8a060, stroke: 0x9a8040 },  // hill
+  3: { fill: 0x8aaa55, stroke: 0x6a8a35 },  // hill (grass base — hill art overlaid)
   4: { fill: 0x4499bb, stroke: 0x2277aa },  // shallow water
   5: { fill: 0x0d2a4a, stroke: 0x071a2e },  // ocean
   6: { fill: 0xd4b96a, stroke: 0xb09050 },  // sand/beach
@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.1.0';
+const GAME_VERSION = 'v1.1.1';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -397,7 +397,7 @@ export class GameScene extends Phaser.Scene {
         } else if (ttype === 7) { // light woods
           const varKey = `terrain_lightwoods_${(_varHash % LIGHTWOODS_VARIANTS) + 1}`;
           if (this.textures.exists(varKey)) artKey = varKey;
-        } else if (ttype === 3) { // hill variants
+        } else if (ttype === 3) { // hill variants — draw grass base first, then hill art on top
           const varKey = `terrain_hill_${(_varHash % HILL_VARIANTS) + 1}`;
           if (this.textures.exists(varKey)) artKey = varKey;
         } else if (ttype === 2) { // mountain -- skip bake; rendered as overflow peak sprites
@@ -424,6 +424,14 @@ export class GameScene extends Phaser.Scene {
         }
         ctx.closePath();
         ctx.clip();
+        // For hills: draw a grass variant tile as background so transparent
+        // parts of the hill art show grass pixels instead of flat fill color
+        if (ttype === 3) {
+          const grassKey = `terrain_grass_${(_varHash % GRASS_VARIANTS) + 1}`;
+          const grassImg = this.textures.exists(grassKey)
+            ? this.textures.get(grassKey).getSourceImage() : null;
+          if (grassImg?.width) ctx.drawImage(grassImg, dx, dy, artW, artH);
+        }
         ctx.drawImage(srcImg, dx, dy, artW, artH);
         ctx.restore();
       }
