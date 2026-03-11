@@ -34,7 +34,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.0.0';
+const GAME_VERSION = 'v1.0.4';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1878,23 +1878,23 @@ export class GameScene extends Phaser.Scene {
 
     const fmtRes = (v) => typeof v === 'number' ? (v % 1 === 0 ? v : v.toFixed(1)) : '—';
 
-    this.resIron.setText(`⚙ ${fmtRes(pl.iron)}${upkeep.iron > 0 ? `(-${upkeep.iron.toFixed(1)})` : `(+${inc.iron})`}`);
-    this.resOil.setText(`🛢 ${fmtRes(pl.oil)}${upkeep.oil > 0 ? `(-${upkeep.oil.toFixed(1)})` : `(+${inc.oil})`}`);
-    this.resWood.setText(`🪵 ${fmtRes(pl.wood || 0)}${inc.wood > 0 ? `(+${inc.wood})` : ''}`);
-    this.resFood.setText(`🍞 ${fmtRes(pl.food || 0)}${upkeep.food > 0 ? `(-${upkeep.food.toFixed(1)})` : inc.food > 0 ? `(+${inc.food})` : ''}`);
-    this.resGold.setText(`💰 ${fmtRes(pl.gold || 0)}${inc.gold > 0 ? `(+${inc.gold})` : ''}`);
-    // Research RP display
+    const ironDelta = upkeep.iron > 0 ? `-${upkeep.iron.toFixed(1)}` : `+${inc.iron}`;
+    const oilDelta  = upkeep.oil  > 0 ? `-${upkeep.oil.toFixed(1)}`  : `+${inc.oil}`;
+    const foodDelta = upkeep.food > 0 ? `-${upkeep.food.toFixed(1)}` : inc.food > 0 ? `+${inc.food}` : '';
+    const goldDelta = inc.gold > 0 ? `+${inc.gold}` : '';
+    this.resIron.setText(`⚙ ${fmtRes(pl.iron)} ${ironDelta}`);
+    this.resOil.setText(`🛢 ${fmtRes(pl.oil)} ${oilDelta}`);
+    this.resWood.setText(`🪵 ${fmtRes(pl.wood || 0)}${inc.wood > 0 ? ` +${inc.wood}` : ''}`);
+    this.resFood.setText(`🍞 ${fmtRes(pl.food || 0)}${foodDelta ? ` ${foodDelta}` : ''}`);
+    this.resGold.setText(`💰 ${fmtRes(pl.gold || 0)}${goldDelta ? ` ${goldDelta}` : ''}`);
+    // Research: show active tech name + % or "no lab"
     const resState = pl.research;
     const activeRes = resState?.queue?.[0];
     const activeTech = activeRes ? TECH_TREE[activeRes.techId] : null;
     const rpPct = activeTech ? Math.floor(((activeRes.rpSpent || 0) / activeTech.cost) * 100) : 0;
-    const rpStr = activeTech ? `${activeTech.name.substring(0,10)} ${rpPct}%` : 'idle';
-    this.resRp.setText(`⚗ ${rpStr}  (+${inc.rp}/t)`);
-    if (unsupplied) {
-      this.resFood.setStyle({ fill: '#ff6644' });
-    } else {
-      this.resFood.setStyle({ fill: '#ccddcc' });
-    }
+    const rpLabel = inc.rp === 0 ? 'no lab' : activeTech ? `${activeTech.name.substring(0,12)} ${rpPct}%` : `idle (+${inc.rp}/t)`;
+    this.resRp.setText(`⚗ ${rpLabel}`);
+    this.resFood.setStyle({ fill: unsupplied ? '#ff6644' : '#ccddcc' });
 
     this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  ${modeStr}${queueStr}`);
   }
@@ -2044,16 +2044,22 @@ export class GameScene extends Phaser.Scene {
     const available = BUILDING_TYPES[building.type].canRecruit;
     const p  = gs.currentPlayer;
     const w  = this.scale.width, h = this.scale.height;
-    const panelW = 440, panelH = 80 + available.length * 48 + 60;
+    const panelW = 480, panelH = 80 + available.length * 52 + 60;
     const px = w / 2 - panelW / 2, py = h / 2 - panelH / 2;
     const objs = [];
 
-    const bg = this.add.rectangle(w/2, h/2, panelW, panelH, 0x111111, 0.96)
-      .setStrokeStyle(2, 0x888888).setScrollFactor(0).setDepth(200);
+    // Panel background
+    const bg = this.add.rectangle(w/2, h/2, panelW, panelH, 0x0b0e0b, 0.98)
+      .setStrokeStyle(2, 0x334433).setScrollFactor(0).setDepth(200);
     objs.push(bg);
 
-    const title = this.add.text(w/2, py + 20, `RECRUIT — ${BUILDING_TYPES[building.type].name}`, {
-      font: 'bold 15px monospace', fill: '#ffffff'
+    // Top header strip
+    const headerStrip = this.add.rectangle(w/2, py + 22, panelW, 44, 0x111a11, 1)
+      .setScrollFactor(0).setDepth(200);
+    objs.push(headerStrip);
+
+    const title = this.add.text(w/2, py + 22, `RECRUIT  ·  ${BUILDING_TYPES[building.type].name.toUpperCase()}`, {
+      font: 'bold 14px monospace', fill: '#c8b87a'
     }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
     objs.push(title);
 
@@ -2088,30 +2094,54 @@ export class GameScene extends Phaser.Scene {
       objs.push(cancelBtn);
     }
 
+    const baseRowY = py + 50 + (existingOrder ? 42 : 0);
+    const rowH = 52, rowW = panelW - 24;
+
     available.forEach((unitType, i) => {
       const def = UNIT_TYPES[unitType];
       const alreadyOrdered = !!existingOrder;
       const canAfford = !alreadyOrdered && gs.players[p].iron >= def.cost.iron && gs.players[p].oil >= def.cost.oil;
       const _bt = def.buildTime ?? 1;
-      const label = `${def.name}  ⚙${def.cost.iron}${def.cost.oil > 0 ? ` 🛢${def.cost.oil}` : ''}  HP:${def.health} ATK:${def.attack} MOV:${def.move}  ⏱${_bt}t`;
-      const btn = this.add.text(w/2, py + 60 + (existingOrder ? 36 : 0) + i * 48, label, {
-        font: '13px monospace', fill: canAfford ? '#ccffcc' : alreadyOrdered ? '#666666' : '#ff6666',
-        backgroundColor: canAfford ? '#224422' : '#222222',
-        padding: { x: 12, y: 8 }
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
+      const ry = baseRowY + i * rowH + rowH/2;
+
+      // Row background
+      const rowBg = this.add.rectangle(w/2, ry, rowW, rowH - 4, canAfford ? 0x112211 : 0x0e0e0e, 1)
+        .setStrokeStyle(1, canAfford ? 0x2a4a2a : 0x1a1a1a).setScrollFactor(0).setDepth(200)
         .setInteractive({ useHandCursor: canAfford });
+      objs.push(rowBg);
+
+      // Unit name left
+      const nameClr = canAfford ? '#c8e0b0' : alreadyOrdered ? '#445544' : '#664444';
+      const nameTxt = this.add.text(w/2 - rowW/2 + 12, ry - 8, def.name, {
+        font: `bold 13px monospace`, fill: nameClr
+      }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(201);
+      objs.push(nameTxt);
+
+      // Stats line below name
+      const statStr = `HP ${def.health}  ·  MOV ${def.move}  ·  SA ${def.soft_attack}  HA ${def.hard_attack}  ·  ⏱${_bt}t`;
+      const statTxt = this.add.text(w/2 - rowW/2 + 12, ry + 10, statStr, {
+        font: '10px monospace', fill: '#445544'
+      }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(201);
+      objs.push(statTxt);
+
+      // Cost right
+      const costStr = `⚙${def.cost.iron}${def.cost.oil > 0 ? `  🛢${def.cost.oil}` : ''}`;
+      const costClr = canAfford ? '#88bb66' : '#554444';
+      const costTxt = this.add.text(w/2 + rowW/2 - 12, ry, costStr, {
+        font: 'bold 12px monospace', fill: costClr
+      }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(201);
+      objs.push(costTxt);
 
       if (canAfford) {
-        btn.on('pointerdown', () => {
+        rowBg.on('pointerdown', () => {
           queueRecruit(gs, p, unitType, building.id);
           this._pushLog(`P${p} queued ${def.name}`);
           this._hideRecruitPanel();
           this._refresh();
         });
-        btn.on('pointerover', () => btn.setAlpha(0.8));
-        btn.on('pointerout',  () => btn.setAlpha(1.0));
+        rowBg.on('pointerover', () => { rowBg.setFillStyle(0x1a3a1a, 1).setStrokeStyle(1, 0x44aa44); nameTxt.setStyle({ fill: '#eeff88' }); });
+        rowBg.on('pointerout',  () => { rowBg.setFillStyle(0x112211, 1).setStrokeStyle(1, 0x2a4a2a); nameTxt.setStyle({ fill: nameClr }); });
       }
-      objs.push(btn);
     });
 
     // Custom designs trained from this building
@@ -2121,10 +2151,11 @@ export class GameScene extends Phaser.Scene {
       const idx = available.length + i;
       const canAfford = !existingOrder && gs.players[p].iron >= design.trainCost.iron && gs.players[p].oil >= design.trainCost.oil;
       const _dbt = UNIT_TYPES[design.chassis]?.buildTime ?? 1;
+      const ry = baseRowY + idx * rowH + rowH/2;
       const label = `★ ${design.name}  ⚙${design.trainCost.iron}${design.trainCost.oil > 0 ? ` 🛢${design.trainCost.oil}` : ''}  HP:${design.stats.health} ATK:${design.stats.soft_attack}/${design.stats.hard_attack} MOV:${design.stats.move}  ⏱${_dbt}t`;
-      const btn = this.add.text(w/2, py + 60 + (existingOrder ? 36 : 0) + idx * 48, label, {
+      const btn = this.add.text(w/2, ry, label, {
         font: '12px monospace', fill: canAfford ? '#ffffaa' : '#666655',
-        backgroundColor: canAfford ? '#333311' : '#222211',
+        backgroundColor: canAfford ? '#1e1e0a' : '#111108',
         padding: { x: 12, y: 8 }
       }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
         .setInteractive({ useHandCursor: canAfford });
@@ -2141,12 +2172,12 @@ export class GameScene extends Phaser.Scene {
       objs.push(btn);
     });
 
-    // "Design new unit" button
+    // Footer button row
     const totalRows = available.length + customDesigns.length;
-    const queueOffset = existingOrder ? 36 : 0;
-    const designBtn = this.add.text(w/2, py + 60 + queueOffset + totalRows * 48 + 8, '[ + DESIGN NEW UNIT ]', {
-      font: 'bold 12px monospace', fill: '#88ccff',
-      backgroundColor: '#112233', padding: { x: 12, y: 7 }
+    const footerY = baseRowY + totalRows * rowH + 10;
+    const designBtn = this.add.text(w/2 - 70, footerY, '+ DESIGN UNIT', {
+      font: 'bold 11px monospace', fill: '#88ccff',
+      backgroundColor: '#0d1e2a', padding: { x: 10, y: 6 }
     }).setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true });
     designBtn.on('pointerdown', () => {
       this._hideRecruitPanel();
@@ -2156,10 +2187,10 @@ export class GameScene extends Phaser.Scene {
     designBtn.on('pointerout',  () => designBtn.setAlpha(1.0));
     objs.push(designBtn);
 
-    const closeBtnY = py + 60 + queueOffset + totalRows * 48 + 50;
-    const closeBtn = this.add.text(w/2, closeBtnY, '[ CLOSE ]', {
-      font: 'bold 13px monospace', fill: '#ffffff',
-      backgroundColor: '#444444', padding: { x: 14, y: 7 }
+    const closeBtnY = footerY;
+    const closeBtn = this.add.text(w/2 + 70, closeBtnY, 'CLOSE  ✕', {
+      font: 'bold 11px monospace', fill: '#aaaaaa',
+      backgroundColor: '#1a1a1a', padding: { x: 10, y: 6 }
     }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
       .setInteractive({ useHandCursor: true });
     closeBtn.on('pointerdown', () => this._hideRecruitPanel());
@@ -4398,11 +4429,23 @@ export class GameScene extends Phaser.Scene {
 
   _showPassScreen(msg) {
     const w = this.scale.width, h = this.scale.height;
-    const overlay = this.add.rectangle(w/2, h/2, w, h, 0x000000, 0.92).setScrollFactor(0).setDepth(200);
-    const txt = this.add.text(w/2, h/2, msg, { font: 'bold 26px monospace', fill: '#ffffff' })
-      .setOrigin(0.5).setScrollFactor(0).setDepth(201);
-    this._addToUI([overlay, txt]);
-    this._showSplash([overlay, txt], () => { this._freezeFog(); this._refresh(); });
+    const gs = this.gameState;
+    const p = gs.currentPlayer;
+    const PC_HEX = p === 1 ? '#2255aa' : '#aa2222';
+    const overlay = this.add.rectangle(w/2, h/2, w, h, 0x000000, 0.88).setScrollFactor(0).setDepth(200);
+    // Center card
+    const card = this.add.rectangle(w/2, h/2, 440, 120, 0x0a0d0a, 0.98).setScrollFactor(0).setDepth(200);
+    card.setStrokeStyle(2, p === 1 ? 0x2255aa : 0xaa2222);
+    // Top accent
+    const accent = this.add.rectangle(w/2, h/2 - 58, 440, 4, p === 1 ? 0x2255aa : 0xaa2222, 1).setScrollFactor(0).setDepth(201);
+    const playerLbl = this.add.text(w/2, h/2 - 22, `PLAYER ${p}`, {
+      font: 'bold 28px monospace', fill: PC_HEX
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
+    const subLbl = this.add.text(w/2, h/2 + 16, 'TAKE THE CONTROLS  ·  CLICK TO CONTINUE', {
+      font: '11px monospace', fill: '#334433'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
+    this._addToUI([overlay, card, accent, playerLbl, subLbl]);
+    this._showSplash([overlay, card, accent, playerLbl, subLbl], () => { this._freezeFog(); this._refresh(); });
   }
 
   _showResolution(events, winner) {
