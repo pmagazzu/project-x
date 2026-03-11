@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.1.14';
+const GAME_VERSION = 'v1.1.15';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -884,6 +884,8 @@ export class GameScene extends Phaser.Scene {
 
   // ── Full refresh ──────────────────────────────────────────────────────────
   _refresh() {
+    // Normalize currentPlayer defensively (prevents '2' string vs 2 number bugs across visibility logic)
+    this.gameState.currentPlayer = Number(this.gameState.currentPlayer) || 1;
     // Recompute fog based on current unit positions (own units may have moved during planning).
     // We-go integrity is maintained by _origQ/_origR on enemy units — enemy display positions
     // are locked to turn-start regardless of fog recomputation.
@@ -1918,6 +1920,7 @@ export class GameScene extends Phaser.Scene {
   // ── Fog of war ────────────────────────────────────────────────────────────
   // Call at turn start to lock in fog for the planning phase
   _freezeFog() {
+    this.gameState.currentPlayer = Number(this.gameState.currentPlayer) || 1;
     this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
   }
 

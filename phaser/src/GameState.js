@@ -1405,7 +1405,7 @@ export function resolveTurn(state, terrain) {
   state.pendingMoves = {}; state.pendingAttacks = {};
   state.players[1].submitted = false; state.players[2].submitted = false;
   // IGOUGO: alternate the active player each resolution
-  state.currentPlayer = state.currentPlayer === 1 ? 2 : 1;
+  state.currentPlayer = Number(state.currentPlayer) === 1 ? 2 : 1;
   state.phase = 'planning'; state.turn++;
 
   return events;
@@ -1832,7 +1832,7 @@ export function resolveEndOfTurn(state, terrain) {
   state.pendingMoves = {}; state.pendingAttacks = {};
 
   // Switch player
-  state.currentPlayer = player === 1 ? 2 : 1;
+  state.currentPlayer = Number(player) === 1 ? 2 : 1;
   // Increment turn counter every time P2 ends their turn (full round)
   if (player === 2) state.turn++;
   state.phase = 'planning';
