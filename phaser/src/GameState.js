@@ -96,6 +96,12 @@ export const MODULES = {
   REINFORCED_POS:{ name: 'Reinforced Pos.',  tier: 1, chassis: ['MORTAR','ARTILLERY'],              statDelta: { defense: 2, move: -1 },                designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1,  oil:  0 } },
   SKELETON_CREW: { name: 'Skeleton Crew',    tier: 0, chassis: ['INFANTRY','ENGINEER','MEDIC'],     statDelta: { health: -1, defense: -1 },             designCost: { iron: 0, oil: 0 }, trainCost: { iron: -1, oil:  0 } },
   LONG_RANGE:    { name: 'Long Barrel',      tier: 1, chassis: ['ARTILLERY','MORTAR'],              statDelta: { range: 1, soft_attack: 1, move: -1 },  designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1,  oil:  0 } },
+  // Infantry loadout modules (research-unlocked)
+  INF_SMG_PACKAGE:      { name: 'SMG Package',        tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY'], statDelta: { range: -1, soft_attack: 2, fortification_assault: 2 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'smg_doctrine' },
+  INF_GRENADE_KIT:      { name: 'Grenade Kit',        tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY','ENGINEER'], statDelta: { soft_attack: 1, fortification_assault: 1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'grenade_training' },
+  INF_LMG_PACKAGE:      { name: 'LMG Package',        tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY'], statDelta: { range: 1, soft_attack: 1, move: -1, suppression: 1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'lmg_suppression' },
+  INF_HMG_EMPLACEMENT:  { name: 'HMG Emplacement',    tier: 2, chassis: ['INFANTRY','ASSAULT_INFANTRY'], statDelta: { range: 2, soft_attack: 2, move: -2, suppression: 2 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 2, oil: 0 }, requiredTech: 'hmg_team' },
+  INF_SNIPER_PACKAGE:   { name: 'Sniper Package',     tier: 2, chassis: ['INFANTRY','RECON'], statDelta: { range: 2, accuracy: 6, move: -1, soft_attack: 1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'sniper_team' },
 };
 
 // Which building trains which chassis types (for design registration)

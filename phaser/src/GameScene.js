@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.1.3';
+const GAME_VERSION = 'v1.1.4';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1166,13 +1166,17 @@ export class GameScene extends Phaser.Scene {
     this.buildingGfx.clear();
     // Viewport culling (large-map perf)
     const { L: _bvpL, R: _bvpR, T: _bvpT, B: _bvpB } = this._vpBounds();
+    const fog = this._currentFog || null;
 
     for (const b of this.gameState.buildings) {
-      if (ROAD_TYPES.has(b.type)) continue;
-      const { x, y } = hexToWorld(b.q, b.r);
-      if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
-      const color = b.owner ? PLAYER_COLORS[b.owner] : 0x888888;
-      const s = HEX_SIZE * 0.3;
+      try {
+        if (ROAD_TYPES.has(b.type)) continue;
+        // Fog-of-war: never render buildings on unseen hexes
+        if (fog && !fog[`${b.q},${b.r}`]) continue;
+        const { x, y } = hexToWorld(b.q, b.r);
+        if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
+        const color = PLAYER_COLORS[b.owner] || 0x888888;
+        const s = HEX_SIZE * 0.3;
 
       // ── Helper: draw a team-colored building base rect with shadow + border ──
       const g = this.buildingGfx;
@@ -1525,6 +1529,10 @@ export class GameScene extends Phaser.Scene {
         this.buildingGfx.fillStyle(0x000000, 0.75);
         this.buildingGfx.fillRect(x - 10, barY - 12, 20, 11);
       }
+      } catch (e) {
+        // Prevent a single bad building definition from wiping the whole layer
+        continue;
+      }
     }
 
     // Construction turn labels (text objects — redrawn each refresh)
@@ -1532,6 +1540,7 @@ export class GameScene extends Phaser.Scene {
     this._constructionLabels = [];
     for (const b of this.gameState.buildings) {
       if (!b.underConstruction) continue;
+      if (this._currentFog && !this._currentFog[`${b.q},${b.r}`]) continue;
       const { x, y } = hexToWorld(b.q, b.r);
       if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
       const prog = b.buildProgress || 0, total = b.buildTurnsRequired || 1;
@@ -2441,7 +2450,12 @@ export class GameScene extends Phaser.Scene {
 
     // Module list
     line('MODULES  (click to toggle):', '#aaaaaa', true);
-    const validMods = Object.entries(MODULES).filter(([, m]) => m.chassis.includes(selectedChassis));
+    const unlockedTechs = new Set(gs.players[player]?.research?.unlocked || []);
+    const validMods = Object.entries(MODULES).filter(([, m]) => {
+      if (!m.chassis.includes(selectedChassis)) return false;
+      if (m.requiredTech && !unlockedTechs.has(m.requiredTech)) return false;
+      return true;
+    });
 
     for (const [key, mod] of validMods) {
       const sel = selectedModules.has(key);
@@ -2649,7 +2663,12 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+1));
       ly += 16;
 
-      const validMods = Object.entries(MODULES).filter(([, m]) => m.chassis.includes(selChassis));
+      const unlockedTechs = new Set(gs.players[p]?.research?.unlocked || []);
+      const validMods = Object.entries(MODULES).filter(([, m]) => {
+        if (!m.chassis.includes(selChassis)) return false;
+        if (m.requiredTech && !unlockedTechs.has(m.requiredTech)) return false;
+        return true;
+      });
       if (validMods.length === 0) {
         objs.push(this.add.text(col1X, ly, '(no modules for this chassis)', {
           font: '10px monospace', fill: '#445544'
