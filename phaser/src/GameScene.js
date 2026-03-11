@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.1.5';
+const GAME_VERSION = 'v1.1.6';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1963,11 +1963,12 @@ export class GameScene extends Phaser.Scene {
     // Turn / mode indicator (centered)
     this.turnLbl = this._makeLabel(w/2, 11, 'Turn 1 | Player 1 | PLANNING', D, true);
 
-    // Supply / Research / Settings / End Turn
-    this.btnSupply   = this._makeBtn(w - 510, 11, '⬡ SUPPLY',   0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
-    this.btnResearch = this._makeBtn(w - 392, 11, '⚗ RESEARCH', 0x442266, () => this._toggleResearch(), D, 'right');
-    this.btnDesigner = this._makeBtn(w - 272, 11, '🔧 DESIGNER', 0x1a3322, () => this._toggleDesigner(), D, 'right');
-    this.btnSettings = this._makeBtn(w - 158, 11, '⚙ Settings', 0x222244, () => this._toggleSettings(), D, 'right');
+    // Supply / Research / Designer / Trade / Settings / End Turn
+    this.btnSupply   = this._makeBtn(w - 620, 11, '⬡ SUPPLY',   0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
+    this.btnResearch = this._makeBtn(w - 502, 11, '⚗ RESEARCH', 0x442266, () => this._toggleResearch(), D, 'right');
+    this.btnDesigner = this._makeBtn(w - 382, 11, '🔧 DESIGNER', 0x1a3322, () => this._toggleDesigner(), D, 'right');
+    this.btnTrade    = this._makeBtn(w - 262, 11, '💱 TRADE',    0x3a2a11, () => this._toggleTrade(), D, 'right');
+    this.btnSettings = this._makeBtn(w - 148, 11, '⚙ Settings', 0x222244, () => this._toggleSettings(), D, 'right');
     this.btnSubmit   = this._makeBtn(w - 8,   11, 'END TURN',   0x1a5c1a, () => this._confirmEndTurn(), D, 'right');
   }
 
@@ -2533,6 +2534,7 @@ export class GameScene extends Phaser.Scene {
   _openDesigner() {
     this._closeDesigner();
     this._closeResearch?.();   // close research if open
+    this._closeTrade?.();
     const gs  = this.gameState;
     const p   = gs.currentPlayer;
     const w   = this.scale.width, h = this.scale.height;
@@ -3298,6 +3300,7 @@ export class GameScene extends Phaser.Scene {
 
   _openSettings() {
     this._closeSettings();
+    this._closeTrade?.();
     this._settingsOpen = true;
     const w = this.scale.width, h = this.scale.height;
     const panelW = 340, D = 210;
@@ -3436,6 +3439,190 @@ export class GameScene extends Phaser.Scene {
     this._settingsOpen = false;
   }
 
+  // ── Trade Contracts Panel ─────────────────────────────────────────────────
+  _toggleTrade() {
+    if (this._tradeOpen) this._closeTrade();
+    else this._openTrade();
+  }
+
+  _closeTrade() {
+    if (this._tradeObjs) {
+      for (const o of this._tradeObjs) { try { o.destroy(); } catch(e){} }
+      this._tradeObjs = null;
+    }
+    this._tradeOpen = false;
+    if (this.btnTrade) this.btnTrade.setStyle({ backgroundColor: '#3a2a11' });
+  }
+
+  _openTrade() {
+    this._closeTrade();
+    this._closeResearch?.();
+    this._closeDesigner?.();
+    this._closeSettings?.();
+    this._tradeOpen = true;
+    if (this.btnTrade) this.btnTrade.setStyle({ backgroundColor: '#6a4a11' });
+
+    const gs = this.gameState;
+    const p = gs.currentPlayer;
+    const other = p === 1 ? 2 : 1;
+    if (!gs.tradeOffers) gs.tradeOffers = [];
+
+    const w = this.scale.width, h = this.scale.height;
+    const D = 220;
+    const panW = Math.min(760, w - 30), panH = Math.min(520, h - 40);
+    const px = w / 2, py = h / 2;
+    const objs = [];
+
+    const rebuild = () => {
+      for (const o of objs) { try { o.destroy(); } catch(e){} }
+      objs.length = 0;
+
+      const bg = this.add.rectangle(px, py, panW, panH, 0x120f0a, 0.98)
+        .setStrokeStyle(2, 0x886633).setScrollFactor(0).setDepth(D).setInteractive();
+      bg.on('pointerdown', () => { this._contextMenuClicked = true; });
+      objs.push(bg);
+
+      objs.push(this.add.text(px, py - panH/2 + 16, '💱 TRADE CONTRACTS', {
+        font: 'bold 14px monospace', fill: '#ffdd88'
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1));
+
+      const closeBtn = this.add.text(px + panW/2 - 12, py - panH/2 + 16, '✕', {
+        font: 'bold 16px monospace', fill: '#aaaaaa'
+      }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor: true });
+      closeBtn.on('pointerdown', () => { this._contextMenuClicked = true; this._closeTrade(); });
+      objs.push(closeBtn);
+
+      const my = gs.players[p], op = gs.players[other];
+      objs.push(this.add.text(px - panW/2 + 16, py - panH/2 + 40,
+        `P${p} You: ⚙${my.iron} 🛢${my.oil} 🪵${my.wood||0} 🍞${(my.food||0).toFixed(1)} 💰${(my.gold||0).toFixed(1)}   |   P${other}: ⚙${op.iron} 🛢${op.oil} 🪵${op.wood||0} 🍞${(op.food||0).toFixed(1)} 💰${(op.gold||0).toFixed(1)}`,
+        { font:'10px monospace', fill:'#c8b890' }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
+
+      let y = py - panH/2 + 70;
+      objs.push(this.add.text(px - panW/2 + 16, y, 'Incoming Offers:', { font:'bold 11px monospace', fill:'#ddbb88' })
+        .setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
+      y += 18;
+
+      const incoming = gs.tradeOffers.filter(t => t.status === 'pending' && t.to === p).slice(-6);
+      if (incoming.length === 0) {
+        objs.push(this.add.text(px - panW/2 + 16, y, '(none)', { font:'10px monospace', fill:'#776655' })
+          .setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
+        y += 18;
+      }
+
+      for (const t of incoming) {
+        const row = this.add.rectangle(px, y + 11, panW - 32, 22, 0x1a140c, 1)
+          .setStrokeStyle(1, 0x4a3a22).setScrollFactor(0).setDepth(D+1);
+        objs.push(row);
+        objs.push(this.add.text(px - panW/2 + 22, y + 11,
+          `P${t.from} offers: give 💰${t.give.gold||0}  for  ⚙${t.get.iron||0} 🛢${t.get.oil||0} 🪵${t.get.wood||0} 🍞${t.get.food||0}`,
+          { font:'10px monospace', fill:'#ccbb99' }).setOrigin(0,0.5).setScrollFactor(0).setDepth(D+2));
+
+        const accept = this.add.text(px + panW/2 - 120, y + 11, '[ACCEPT]', {
+          font:'bold 10px monospace', fill:'#88dd88', backgroundColor:'#163016', padding:{x:6,y:3}
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor:true });
+        accept.on('pointerdown', () => {
+          this._contextMenuClicked = true;
+          const from = gs.players[t.from], to = gs.players[t.to];
+          const can = (from.gold||0) >= (t.give.gold||0) &&
+                      (to.iron||0) >= (t.get.iron||0) &&
+                      (to.oil||0) >= (t.get.oil||0) &&
+                      (to.wood||0) >= (t.get.wood||0) &&
+                      (to.food||0) >= (t.get.food||0);
+          if (!can) { this._pushLog('Trade failed: resources changed since offer was made.'); t.status = 'void'; rebuild(); return; }
+          from.gold -= (t.give.gold||0);
+          to.gold   = (to.gold||0) + (t.give.gold||0);
+          to.iron   -= (t.get.iron||0); from.iron += (t.get.iron||0);
+          to.oil    -= (t.get.oil||0);  from.oil  += (t.get.oil||0);
+          to.wood   = (to.wood||0) - (t.get.wood||0); from.wood = (from.wood||0) + (t.get.wood||0);
+          to.food   = +((to.food||0) - (t.get.food||0)).toFixed(1);
+          from.food = +((from.food||0) + (t.get.food||0)).toFixed(1);
+          t.status = 'accepted'; t.resolvedTurn = gs.turn;
+          this._pushLog(`Trade accepted: P${t.from}⇄P${t.to}`);
+          this._refresh();
+          rebuild();
+        });
+        objs.push(accept);
+
+        const decline = this.add.text(px + panW/2 - 48, y + 11, '[DECLINE]', {
+          font:'bold 10px monospace', fill:'#dd8888', backgroundColor:'#301616', padding:{x:6,y:3}
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor:true });
+        decline.on('pointerdown', () => { this._contextMenuClicked = true; t.status='declined'; t.resolvedTurn = gs.turn; rebuild(); });
+        objs.push(decline);
+        y += 26;
+      }
+
+      y += 12;
+      objs.push(this.add.text(px - panW/2 + 16, y, `Create Offer to P${other}:`, {
+        font:'bold 11px monospace', fill:'#ddbb88'
+      }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
+      y += 18;
+
+      const mkOfferBtn = (label, giveGold, getIron=0, getOil=0, getWood=0, getFood=0) => {
+        const canAfford = (my.gold||0) >= giveGold;
+        const b = this.add.text(px - panW/2 + 16, y, `${label}  (give 💰${giveGold} for ⚙${getIron} 🛢${getOil} 🪵${getWood} 🍞${getFood})`, {
+          font:'10px monospace',
+          fill: canAfford ? '#ffeeaa' : '#776655',
+          backgroundColor: canAfford ? '#2a220f' : '#15120c',
+          padding:{x:8,y:5}
+        }).setOrigin(0,0).setScrollFactor(0).setDepth(D+2);
+        if (canAfford) {
+          b.setInteractive({ useHandCursor:true });
+          b.on('pointerdown', () => {
+            this._contextMenuClicked = true;
+            gs.tradeOffers.push({
+              id: Date.now() + Math.floor(Math.random()*1000),
+              from: p, to: other,
+              give: { gold: giveGold },
+              get: { iron: getIron, oil: getOil, wood: getWood, food: getFood },
+              status: 'pending', createdTurn: gs.turn,
+            });
+            this._pushLog(`P${p} offered trade to P${other}`);
+            rebuild();
+          });
+        }
+        objs.push(b);
+        y += 28;
+      };
+
+      mkOfferBtn('Offer A', 50, 5, 0, 0, 0);
+      mkOfferBtn('Offer B', 50, 0, 4, 0, 0);
+      mkOfferBtn('Offer C', 40, 0, 0, 6, 0);
+      mkOfferBtn('Offer D', 40, 0, 0, 0, 8);
+
+      const custom = this.add.text(px - panW/2 + 16, y + 6, '[CUSTOM OFFER…]', {
+        font:'bold 10px monospace', fill:'#aaddff', backgroundColor:'#112233', padding:{x:8,y:5}
+      }).setOrigin(0,0).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor:true });
+      custom.on('pointerdown', () => {
+        this._contextMenuClicked = true;
+        const g = Number(window.prompt('Gold you give?', '50') || '0');
+        const i = Number(window.prompt('Iron you want?', '0') || '0');
+        const o = Number(window.prompt('Oil you want?', '0') || '0');
+        const wv = Number(window.prompt('Wood you want?', '0') || '0');
+        const f = Number(window.prompt('Food you want?', '0') || '0');
+        if (!(g > 0)) return;
+        if ((my.gold||0) < g) return;
+        gs.tradeOffers.push({
+          id: Date.now() + Math.floor(Math.random()*1000),
+          from: p, to: other,
+          give: { gold: Math.max(0, Math.floor(g)) },
+          get: { iron: Math.max(0, Math.floor(i)), oil: Math.max(0, Math.floor(o)), wood: Math.max(0, Math.floor(wv)), food: Math.max(0, Math.floor(f)) },
+          status: 'pending', createdTurn: gs.turn,
+        });
+        this._pushLog(`P${p} offered custom trade to P${other}`);
+        rebuild();
+      });
+      objs.push(custom);
+
+      // Keep only recent contract history to avoid unbounded growth
+      gs.tradeOffers = gs.tradeOffers.slice(-40);
+
+      this._addToUI(objs);
+      this._tradeObjs = objs;
+    };
+
+    rebuild();
+  }
+
   // ── Research Panel ─────────────────────────────────────────────────────────
   _toggleResearch() {
     if (this._researchOpen) { this._closeResearch(); }
@@ -3446,6 +3633,7 @@ export class GameScene extends Phaser.Scene {
     this._closeResearch();
     this._closeSettings();
     this._closeDesigner?.();
+    this._closeTrade?.();
     this._researchOpen = true;
     const gs  = this.gameState;
     const p   = gs.currentPlayer;
