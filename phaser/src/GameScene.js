@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.2.5';
+const GAME_VERSION = 'v1.2.6';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2898,6 +2898,12 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointerup', (ptr) => {
+      // When the standalone designer is open, block world-click handling entirely.
+      if (this._designerOpen) {
+        this._contextMenuClicked = false;
+        this._isDragging = false;
+        return;
+      }
       if (ptr.button === 0 && !this._isDragging && !this._panelOpenAtMouseDown && !this._contextMenuClicked) {
         const world = cam.getWorldPoint(ptr.x, ptr.y);
         const hex   = worldToHex(world.x, world.y);
