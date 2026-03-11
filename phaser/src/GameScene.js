@@ -2960,13 +2960,27 @@ export class GameScene extends Phaser.Scene {
     const _TECH_TREE = TECH_TREE;
 
     const makePanel = (branch) => {
-      // Clear existing content (but keep bg/header/tabs)
+      // Clear existing content including tabs (redrawn on every switch)
       if (this._researchContentObjs) {
         for (const o of this._researchContentObjs) { try { o.destroy(); } catch(e){} }
       }
       this._researchContentObjs = [];
       this._researchSelBranch = branch;
       const addC = (obj) => { this._researchContentObjs.push(obj); this._addToUI([obj]); };
+
+      // ── Redraw tabs with updated selected state ─────────────────────────
+      branches.forEach(([key, branchDef], i) => {
+        const tx = px - panW/2 + 10 + i * (tabW + 2) + tabW/2;
+        const isSel = key === branch;
+        const tabBg = this.add.rectangle(tx, tabY, tabW, 22, isSel ? 0x442266 : 0x1a1a2a, 1)
+          .setStrokeStyle(1, isSel ? 0xcc88ff : 0x334455).setScrollFactor(0).setDepth(D+2).setOrigin(0.5, 0.5);
+        const tabTxt = this.add.text(tx, tabY, `${branchDef.icon} ${branchDef.label}`, {
+          font: `${isSel ? 'bold ' : ''}10px monospace`, fill: isSel ? '#cc88ff' : '#778899'
+        }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+3);
+        tabBg.setInteractive({ useHandCursor: true });
+        tabBg.on('pointerdown', () => { this._contextMenuClicked = true; makePanel(key); });
+        addC(tabBg); addC(tabTxt);
+      });
 
       const techs = Object.values(_TECH_TREE).filter(t => t.branch === branch);
       const cellW = Math.floor((panW - 30) / 2);
@@ -3047,19 +3061,7 @@ export class GameScene extends Phaser.Scene {
       });
     };
 
-    // Draw tabs
-    branches.forEach(([key, branchDef], i) => {
-      const tx = px - panW/2 + 10 + i * (tabW + 2) + tabW/2;
-      const isSel = key === selBranch;
-      const tabBg = this.add.rectangle(tx, tabY, tabW, 22, isSel ? 0x442266 : 0x1a1a2a, 1)
-        .setStrokeStyle(1, isSel ? 0xcc88ff : 0x334455).setScrollFactor(0).setDepth(D+2).setOrigin(0.5, 0.5);
-      const tabTxt = this.add.text(tx, tabY, `${branchDef.icon} ${branchDef.label}`, {
-        font: `${isSel ? 'bold ' : ''}10px monospace`, fill: isSel ? '#cc88ff' : '#778899'
-      }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+3);
-      tabBg.setInteractive({ useHandCursor: true });
-      tabBg.on('pointerdown', () => { this._contextMenuClicked = true; makePanel(key); });
-      objs.push(tabBg, tabTxt);
-    });
+    // (Tabs are now drawn inside makePanel so they update on selection change)
 
     // Close button
     const closeBtn = this.add.text(px + panW/2 - 8, py - panH/2 + 8, '✕', {
