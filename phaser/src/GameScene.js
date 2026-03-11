@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.2.6';
+const GAME_VERSION = 'v1.2.7';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -795,12 +795,18 @@ export class GameScene extends Phaser.Scene {
     const gs = this.gameState;
     const HEX_NEIGHBORS_LOCAL = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
 
-    // Build a map of road hex -> tier (0=dirt, 1=concrete, 2=rail)
+    // Build a map of visible road hex -> tier (0=dirt, 1=concrete, 2=rail)
+    // Own roads are always visible; enemy roads require discovery memory.
     const roadMap = new Map(); // key -> { tier, building }
+    const curP = Number(gs.currentPlayer) || 1;
+    const discovered = this._discovered?.[curP] || new Set();
     for (const b of gs.buildings) {
       if (b.type === 'ROAD' || b.type === 'CONCRETE_ROAD' || b.type === 'RAILWAY') {
+        const key = `${b.q},${b.r}`;
+        const isOwn = Number(b.owner) === curP;
+        if (!isOwn && !discovered.has(key)) continue;
         const tier = b.type === 'RAILWAY' ? 2 : b.type === 'CONCRETE_ROAD' ? 1 : 0;
-        roadMap.set(`${b.q},${b.r}`, { tier, b });
+        roadMap.set(key, { tier, b });
       }
     }
 
@@ -892,6 +898,10 @@ export class GameScene extends Phaser.Scene {
     // We-go integrity is maintained by _origQ/_origR on enemy units — enemy display positions
     // are locked to turn-start regardless of fog recomputation.
     this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
+    // Track discovered hex memory per player (used for fogged-road visibility)
+    this._discovered = this._discovered || { 1: new Set(), 2: new Set() };
+    const cp = Number(this.gameState.currentPlayer) || 1;
+    for (const k of this._currentFog || []) this._discovered[cp].add(k);
     this._redrawHighlights();
     this._redrawRoads();
     this._redrawBuildings();
@@ -1917,6 +1927,9 @@ export class GameScene extends Phaser.Scene {
   _freezeFog() {
     this.gameState.currentPlayer = Number(this.gameState.currentPlayer) || 1;
     this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
+    this._discovered = this._discovered || { 1: new Set(), 2: new Set() };
+    const cp = Number(this.gameState.currentPlayer) || 1;
+    for (const k of this._currentFog || []) this._discovered[cp].add(k);
   }
 
   _redrawFog() {
@@ -3145,7 +3158,7 @@ export class GameScene extends Phaser.Scene {
     const anchor = this._menuAnchor || { x: sw / 2, y: sh / 2 };
 
     const PAGE_SIZE = 8;
-    const btnH = 30, btnW = 180, gap = 3;
+    const btnH = 32, btnW = 220, gap = 4;
     const DEPTH = 150;
     const objs  = [];
 
@@ -3272,13 +3285,20 @@ export class GameScene extends Phaser.Scene {
     if (py < 50) py = 50;
     if (py + menuH > sh - 130) py = sh - 130 - menuH;
 
+    // Menu backdrop panel (cleaner visual grouping)
+    const panelBg = this.add.rectangle(px + btnW/2, py + menuH/2, btnW + 10, menuH + 8, 0x0a0f0a, 0.94)
+      .setStrokeStyle(1, 0x334433).setScrollFactor(0).setDepth(DEPTH - 1).setOrigin(0.5)
+      .setInteractive();
+    panelBg.on('pointerdown', () => { this._contextMenuClicked = true; });
+    objs.push(panelBg);
+
     // ── Title row ────────────────────────────────────────────────────────────
     let rowY = py;
     if (title) {
       const hdr = this.add.text(px, rowY, title, {
-        font: 'bold 10px monospace', fill: '#aaffaa',
-        backgroundColor: '#112211', padding: { x: 8, y: 5 },
-        fixedWidth: btnW, align: 'left'
+        font: 'bold 11px monospace', fill: '#bfffd2',
+        backgroundColor: '#16321f', padding: { x: 10, y: 6 },
+        fixedWidth: btnW, align: 'center'
       }).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH);
       objs.push(hdr);
       rowY += btnH + gap;
@@ -3288,8 +3308,8 @@ export class GameScene extends Phaser.Scene {
     items.forEach(item => {
       const col = `#${item.color.toString(16).padStart(6,'0')}`;
       const btn = this.add.text(px, rowY, item.label, {
-        font: `bold 11px monospace`, fill: item.enabled ? '#ffffff' : '#555555',
-        backgroundColor: col, padding: { x: 8, y: 5 },
+        font: `bold 11px monospace`, fill: item.enabled ? '#ffffff' : '#666666',
+        backgroundColor: col, padding: { x: 10, y: 6 },
         fixedWidth: btnW, align: 'left'
       }).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH)
         .setInteractive({ useHandCursor: item.enabled });
