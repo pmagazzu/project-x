@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.1.13';
+const GAME_VERSION = 'v1.1.14';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -908,15 +908,39 @@ export class GameScene extends Phaser.Scene {
     const ms = this.mapSize;
     const supplied = computeSupply(gs, p, ms);
     const { L, R, T, B } = this._vpBounds(HEX_SIZE * 2);
+    const NBR = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+
+    // 1) Base area fill (stronger than before)
     for (const key of supplied) {
       const [q, r] = key.split(',').map(Number);
       const { x, y } = hexToWorld(q, r);
       if (x < L || x > R || y < T || y > B) continue;
       const verts = hexVertices(x, y);
-      this.supplyGfx.fillStyle(0x44ff88, 0.13);
+      this.supplyGfx.fillStyle(0x44ff88, 0.18);
       this.supplyGfx.fillPoints(verts, true);
-      this.supplyGfx.lineStyle(0.5, 0x44ff88, 0.18);
+      this.supplyGfx.lineStyle(1, 0x44ff88, 0.22);
       this.supplyGfx.strokePoints(verts, true);
+    }
+
+    // 2) Outer boundary ring (only where supply meets non-supply)
+    this.supplyGfx.lineStyle(2.2, 0x99ffcc, 0.85);
+    for (const key of supplied) {
+      const [q, r] = key.split(',').map(Number);
+      const { x, y } = hexToWorld(q, r);
+      if (x < L || x > R || y < T || y > B) continue;
+      const verts = hexVertices(x, y);
+      for (let i = 0; i < 6; i++) {
+        const [dq, dr] = NBR[i];
+        const nq = q + dq, nr = r + dr;
+        const nKey = `${nq},${nr}`;
+        if (supplied.has(nKey)) continue; // internal edge, skip
+        const a = verts[i];
+        const b = verts[(i + 1) % 6];
+        this.supplyGfx.beginPath();
+        this.supplyGfx.moveTo(a.x, a.y);
+        this.supplyGfx.lineTo(b.x, b.y);
+        this.supplyGfx.strokePath();
+      }
     }
   }
 
