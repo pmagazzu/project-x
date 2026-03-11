@@ -1546,12 +1546,12 @@ export function resolveEndOfTurn(state, terrain) {
   }
 
   // Tick recruit timers for current player
-  for (const recruit of state.pendingRecruits.filter(r => r.owner === player)) {
+  for (const recruit of state.pendingRecruits.filter(r => Number(r.owner) === Number(player))) {
     recruit.turnsLeft = Math.max(0, (recruit.turnsLeft ?? 1) - 1);
   }
-  for (const recruit of state.pendingRecruits.filter(r => r.owner === player && r.turnsLeft <= 0)) {
+  for (const recruit of state.pendingRecruits.filter(r => Number(r.owner) === Number(player) && r.turnsLeft <= 0)) {
     const b = state.buildings.find(b => b.id === recruit.buildingId);
-    if (!b || b.owner !== recruit.owner) continue;
+    if (!b || Number(b.owner) !== Number(recruit.owner)) continue;
     const spawnChassis = recruit.designId !== undefined
       ? (state.designs[recruit.owner].find(d => d.id === recruit.designId)?.chassis ?? null)
       : (recruit.type ?? null);
@@ -1855,7 +1855,11 @@ export function resolveEndOfTurn(state, terrain) {
 function findFreeAdjacentHex(state, q, r, unitType = null, terrain = null) {
   for (const [dq, dr] of HEX_NEIGHBORS) {
     const nq = q + dq, nr = r + dr;
-    if (unitAt(state, nq, nr) || buildingAt(state, nq, nr)) continue;
+    const occ = unitAt(state, nq, nr);
+    const bld = buildingAt(state, nq, nr);
+    // Roads should not block spawns; they are movement infrastructure.
+    const blockedByBuilding = bld && !ROAD_TYPES.has(bld.type);
+    if (occ || blockedByBuilding) continue;
     // If unitType and terrain provided, check that the unit can actually stand here
     if (unitType && terrain) {
       const ttype = terrain[`${nq},${nr}`] ?? 0;

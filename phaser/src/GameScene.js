@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.5';
+const GAME_VERSION = 'v1.3.6';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2244,11 +2244,11 @@ export class GameScene extends Phaser.Scene {
         ? (gs.designs[p].find(d => d.id === next.designId)?.name || 'Custom Unit')
         : UNIT_TYPES[next.type]?.name || '?';
       const turnsStr = next.turnsLeft > 0 ? `${next.turnsLeft}t left` : 'ready next turn';
-      const orderTxt = this.add.text(w/2, py + 48, `⏳ Queue ${buildingQueue.length}  |  Next: ${orderName} (${turnsStr})`, {
+      const orderTxt = this.add.text(w/2, py + 56, `⏳ Queue ${buildingQueue.length}  |  Next: ${orderName} (${turnsStr})`, {
         font: 'bold 12px monospace', fill: '#ffdd44', backgroundColor: '#333300', padding: { x: 10, y: 5 }
       }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
       objs.push(orderTxt);
-      const cancelBtn = this.add.text(w/2 + 170, py + 48, '✕ cancel next', {
+      const cancelBtn = this.add.text(w/2 + 170, py + 56, '✕ cancel next', {
         font: '11px monospace', fill: '#ff8888', backgroundColor: '#330000', padding: { x: 8, y: 5 }
       }).setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true });
       cancelBtn.on('pointerdown', () => {
