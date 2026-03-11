@@ -864,9 +864,10 @@ export function computeFog(state, player, mapSize, terrain) {
   const visible = new Set();
 
   // Sight sources: friendly units + observation posts
+  const pNum = Number(player);
   const sources = [
-    ...state.units.filter(u => u.owner === player).map(u => ({ q: u.q, r: u.r, sight: UNIT_TYPES[u.type].sight })),
-    ...state.buildings.filter(b => b.owner === player && BUILDING_TYPES[b.type].sight > 0)
+    ...state.units.filter(u => Number(u.owner) === pNum).map(u => ({ q: u.q, r: u.r, sight: UNIT_TYPES[u.type].sight })),
+    ...state.buildings.filter(b => Number(b.owner) === pNum && BUILDING_TYPES[b.type].sight > 0)
                       .map(b => ({ q: b.q, r: b.r, sight: BUILDING_TYPES[b.type].sight })),
   ];
 
