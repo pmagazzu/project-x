@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.1.1';
+const GAME_VERSION = 'v1.1.2';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2579,9 +2579,11 @@ export class GameScene extends Phaser.Scene {
     const col2X = px + panW * 0.55; // right column x (stat comparison + designs)
     const col2W = panW * 0.42;
 
-    // Background
+    // Background — interactive to absorb all clicks and prevent bleed-through
     const bg = this.add.rectangle(w/2, py + panH/2, panW, panH, 0x080c10, 0.97)
-      .setStrokeStyle(2, 0x3a6a3a).setScrollFactor(0).setDepth(D);
+      .setStrokeStyle(2, 0x3a6a3a).setScrollFactor(0).setDepth(D)
+      .setInteractive();
+    bg.on('pointerdown', () => { this._contextMenuClicked = true; });
     objs.push(bg);
 
     // Header strip
@@ -2604,7 +2606,7 @@ export class GameScene extends Phaser.Scene {
     const closeBtn = this.add.text(closeX, py + 22, '✕', {
       font: 'bold 16px monospace', fill: '#888888'
     }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor: true });
-    closeBtn.on('pointerdown', onClose);
+    closeBtn.on('pointerdown', () => { this._contextMenuClicked = true; onClose(); });
     closeBtn.on('pointerover', () => closeBtn.setStyle({ fill: '#ffffff' }));
     closeBtn.on('pointerout',  () => closeBtn.setStyle({ fill: '#888888' }));
     objs.push(closeBtn);
@@ -2627,7 +2629,7 @@ export class GameScene extends Phaser.Scene {
         sel ? 0x1e4e2e : 0x111a14, 1)
         .setStrokeStyle(1, sel ? 0x44cc66 : 0x223322)
         .setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
-      tabBg.on('pointerdown', () => onChassis(ch));
+      tabBg.on('pointerdown', () => { this._contextMenuClicked = true; onChassis(ch); });
       tabBg.on('pointerover', () => { if (!sel) tabBg.setFillStyle(0x1a3a22); });
       tabBg.on('pointerout',  () => { if (!sel) tabBg.setFillStyle(0x111a14); });
       objs.push(tabBg);
@@ -2665,7 +2667,7 @@ export class GameScene extends Phaser.Scene {
           sel ? 0x1a3a1a : 0x0e140e, 1)
           .setStrokeStyle(1, sel ? 0x44cc44 : 0x1e2e1e)
           .setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
-        rowBg.on('pointerdown', () => onMod(key));
+        rowBg.on('pointerdown', () => { this._contextMenuClicked = true; onMod(key); });
         rowBg.on('pointerover', () => rowBg.setFillStyle(sel ? 0x1a4a1a : 0x141e14));
         rowBg.on('pointerout',  () => rowBg.setFillStyle(sel ? 0x1a3a1a : 0x0e140e));
         objs.push(rowBg);
@@ -2777,7 +2779,7 @@ export class GameScene extends Phaser.Scene {
       objs.push(regBtnLbl);
       if (canAfford && !slotFull) {
         regBtnBg.setInteractive({ useHandCursor: true });
-        regBtnBg.on('pointerdown', onRegister);
+        regBtnBg.on('pointerdown', () => { this._contextMenuClicked = true; onRegister(); });
         regBtnBg.on('pointerover', () => regBtnBg.setFillStyle(0x2a8844));
         regBtnBg.on('pointerout',  () => regBtnBg.setFillStyle(btnColor));
       }
