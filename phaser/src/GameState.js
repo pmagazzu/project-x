@@ -58,6 +58,11 @@ export const UNIT_TYPES = {
   BIPLANE_FIGHTER: { name:'Biplane Fighter', move:8,  attack:3, health:3, range:2, cost:{iron:4,oil:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:4, hard_attack:2, pierce:2, armor:1, defense:0, evasion:10, accuracy:5,  buildTime:2, air:true, antiAir:true,  fuelMax:6  },
   LIGHT_BOMBER:    { name:'Light Bomber',    move:6,  attack:4, health:3, range:1, cost:{iron:5,oil:3}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:7, hard_attack:5, pierce:3, armor:1, defense:0, evasion:5,  accuracy:3,  buildTime:3, air:true, antiAir:false, fuelMax:4  },
   OBS_PLANE:       { name:'Obs. Plane',      move:10, attack:0, health:2, range:0, cost:{iron:3,oil:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:8, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:8,  accuracy:0,  buildTime:1, air:true, antiAir:false, fuelMax:8  },
+
+  // ── Supply truck ────────────────────────────────────────────────────────
+  // Soft unarmed vehicle that projects a supply bubble around itself.
+  // Built at Vehicle Depot. Primary role: extend supply lines for offensive ops.
+  SUPPLY_TRUCK:    { name:'Supply Truck',    move:3,  attack:0, health:2, range:0, cost:{iron:2,oil:1}, shape:'truck',    canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:1, supplyRadius:3 },
 };
 
 // ── Module system ─────────────────────────────────────────────────────────
@@ -186,7 +191,7 @@ export const BUILDING_TYPES = {
   MINE:          { name: 'Iron Mine',      ironPerTurn: 2, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, oil: 0 },         color: 0xaaaaaa, sight: 2 },
   OIL_PUMP:      { name: 'Oil Pump',       ironPerTurn: 0, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, oil: 0 },         color: 0x222244, sight: 2 },
   BARRACKS:      { name: 'Barracks',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: ['INFANTRY','ANTI_TANK','MORTAR','MEDIC'], buildCost: { iron: 4, oil: 0, wood: 4 }, color: 0xaa6644, sight: 2 },
-  VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['TANK','ARTILLERY'],                      buildCost: { iron: 8, oil: 2 }, color: 0x557799, sight: 2 },
+  VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['TANK','ARTILLERY','SUPPLY_TRUCK'],        buildCost: { iron: 8, oil: 2 }, color: 0x557799, sight: 2 },
   BUNKER:        { name: 'Bunker',         ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 2 }, color: 0x888866, sight: 2 },
   OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 0 }, color: 0x88aacc, sight: 4 },
   ROAD:          { name: 'Road',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 0, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xccbbaa, sight: 0 },
@@ -255,6 +260,7 @@ export const UNIT_UPKEEP = {
   TRANSPORT_MD:    { food: 0.0, iron: 0.2, oil: 0.3 },
   TRANSPORT_LG:    { food: 0.0, iron: 0.3, oil: 0.4 },
   COASTAL_BATTERY: { food: 0.0, iron: 0.1, oil: 0.0 },
+  SUPPLY_TRUCK:    { food: 0.0, iron: 0.1, oil: 0.2 },
   BIPLANE_FIGHTER: { food: 0.0, iron: 0.2, oil: 0.4 },
   LIGHT_BOMBER:    { food: 0.0, iron: 0.3, oil: 0.5 },
   OBS_PLANE:       { food: 0.0, iron: 0.1, oil: 0.3 },
@@ -1355,6 +1361,12 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   if (navalVsNaval) baseAttack = aDef.hard_attack;
   if (navalVsLand)  baseAttack = Math.floor((aDef.naval_attack || 1) * 0.6);
 
+  // Out-of-supply reduces effective attack
+  if (attacker.outOfSupply > 0) {
+    const pen = supplyPenalty(attacker.outOfSupply);
+    baseAttack = Math.max(1, baseAttack - pen.attackPenalty);
+  }
+
   let pierceRatio = 1;
   if (aDef.pierce < tDef.armor) pierceRatio = aDef.pierce / tDef.armor;
 
@@ -1705,6 +1717,25 @@ export function resolveEndOfTurn(state, terrain) {
     if (unit.constructing) { unit.moved = true; unit.movesLeft = 0; }
     delete unit._origQ; delete unit._origR;
   }
+
+  // ── Supply check ──────────────────────────────────────────────────────────
+  const suppliedHexes = computeSupply(state, player, state._mapSize || 25);
+  for (const unit of state.units.filter(u => u.owner === player && !u.embarked)) {
+    const key = `${unit.q},${unit.r}`;
+    if (suppliedHexes.has(key)) {
+      // In supply — clear penalty
+      if (unit.outOfSupply > 0) events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) resupplied`);
+      unit.outOfSupply = 0;
+    } else {
+      unit.outOfSupply = (unit.outOfSupply || 0) + 1;
+      if (unit.outOfSupply === 1) events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) is OUT OF SUPPLY (-1 move, -1 attack)`);
+      else if (unit.outOfSupply === 2) events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) unsupplied 2 turns (-2 move, -2 attack)`);
+      else events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) critically unsupplied`);
+      // Apply move penalty for this coming turn
+      const pen = supplyPenalty(unit.outOfSupply);
+      unit.movesLeft = Math.max(1, unit.movesLeft - pen.movePenalty);
+    }
+  }
   state.pendingMoves = {}; state.pendingAttacks = {};
 
   // Switch player
@@ -1741,3 +1772,80 @@ export function checkWinner(state) {
 }
 
 const HEX_NEIGHBORS = [[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];
+
+// ── Supply system ─────────────────────────────────────────────────────────
+// Base supply radius per building type (hexes). Roads are free traversal.
+export const BUILDING_SUPPLY_RADIUS = {
+  HQ:           8,
+  BARRACKS:     4,
+  VEHICLE_DEPOT:4,
+  AIRFIELD:     3,
+  SCIENCE_LAB:  3,
+  MINE:         2,
+  OIL_PUMP:     2,
+  FARM:         2,
+  MARKET:       2,
+  HARBOR:       3,
+  NAVAL_YARD:   3,
+  DRY_DOCK:     2,
+  NAVAL_BASE:   3,
+};
+
+// Returns a Set of "q,r" keys that are in supply for the given player.
+// Roads are traversed for free (don't reduce remaining supply range),
+// so road networks extend the reach of nearby buildings naturally.
+export function computeSupply(state, player, mapSize) {
+  const supplied = new Set();
+  const ms = mapSize || state._mapSize || 25;
+
+  const isRoadHex = (q, r) => state.buildings.some(b => b.type === 'ROAD' && b.q === q && b.r === r);
+
+  const _isValid = (q, r) => q >= 0 && r >= 0 && q < ms && r < ms;
+
+  const floodFill = (sq, sr, radius) => {
+    // BFS — roads cost 0, other hexes cost 1
+    const queue = [{ q: sq, r: sr, rem: radius }];
+    const visited = new Map(); // key -> best rem seen
+    visited.set(`${sq},${sr}`, radius);
+    while (queue.length > 0) {
+      const { q, r, rem } = queue.shift();
+      supplied.add(`${q},${r}`);
+      if (rem <= 0) continue;
+      for (const [dq, dr] of HEX_NEIGHBORS) {
+        const nq = q + dq, nr = r + dr;
+        if (!_isValid(nq, nr)) continue;
+        const key = `${nq},${nr}`;
+        const onRoad = isRoadHex(nq, nr);
+        const nextRem = onRoad ? rem : rem - 1; // roads are free
+        const prevBest = visited.get(key) ?? -1;
+        if (nextRem > prevBest) {
+          visited.set(key, nextRem);
+          queue.push({ q: nq, r: nr, rem: nextRem });
+        }
+      }
+    }
+  };
+
+  // Flood from owned non-under-construction buildings
+  for (const b of state.buildings) {
+    if (b.owner !== player || b.underConstruction) continue;
+    const radius = BUILDING_SUPPLY_RADIUS[b.type] || 0;
+    if (radius > 0) floodFill(b.q, b.r, radius);
+  }
+
+  // Flood from Supply Trucks (mobile supply nodes)
+  for (const u of state.units) {
+    if (u.owner !== player || u.type !== 'SUPPLY_TRUCK' || u.embarked) continue;
+    floodFill(u.q, u.r, UNIT_TYPES['SUPPLY_TRUCK'].supplyRadius || 3);
+  }
+
+  return supplied;
+}
+
+// Out-of-supply stat penalty: { movePenalty, attackPenalty } based on unsupplied turns
+export function supplyPenalty(outOfSupplyTurns) {
+  if (outOfSupplyTurns <= 0) return { movePenalty: 0, attackPenalty: 0 };
+  if (outOfSupplyTurns === 1) return { movePenalty: 1, attackPenalty: 1 };
+  if (outOfSupplyTurns === 2) return { movePenalty: 2, attackPenalty: 2 };
+  return { movePenalty: 3, attackPenalty: 3 }; // caps at 3 for both
+}

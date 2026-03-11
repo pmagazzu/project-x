@@ -9,7 +9,7 @@ import {
   createGameState, createUnit, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
   findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
-  calcUpkeep, calcRPFromLabs,
+  calcUpkeep, calcRPFromLabs, computeSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, computeDesignStats,
@@ -34,7 +34,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.0.4';
+const GAME_VERSION = 'v1.0.5';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -183,6 +183,8 @@ export class GameScene extends Phaser.Scene {
 
     // World graphics layers (depth order)
     this.roadGfx      = this.add.graphics().setDepth(5);
+    this.supplyGfx    = this.add.graphics().setDepth(7);  // supply overlay — above roads, below highlights
+    this._supplyOverlayOn = false; // toggled by S key or button
     this.highlightGfx = this.add.graphics().setDepth(10);
     this.buildingGfx  = this.add.graphics().setDepth(15);
     this.unitGfx      = this.add.graphics().setDepth(20);
@@ -204,7 +206,7 @@ export class GameScene extends Phaser.Scene {
     // (catches top bar, bottom panel, buttons, etc. without touching each line)
     const worldObjs = new Set([
       this.terrainGfx, this.terrainArtLayer, this.mountainPeakLayer, this.terrainArtRT, this.terrainRT,
-      this.roadGfx,
+      this.roadGfx, this.supplyGfx,
       this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT, this._uiLayer
     ]);
     for (const obj of [...this.children.list]) {
@@ -230,7 +232,7 @@ export class GameScene extends Phaser.Scene {
     this.uiCamera.transparent = true; // transparent background — must not cover world
     this.uiCamera.ignore([
       this.terrainGfx, this.terrainArtLayer, this.mountainPeakLayer, this.terrainArtRT, this.terrainRT,
-      this.roadGfx,
+      this.roadGfx, this.supplyGfx,
       this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT,
     ]);
     this.scale.on('resize', (gs) => this.uiCamera.setSize(gs.width, gs.height));
@@ -814,10 +816,42 @@ export class GameScene extends Phaser.Scene {
     this._redrawBuildings();
     this._redrawUnits();
     this._redrawFog();
+    this._drawSupplyOverlay();
     this._updateTopBar();
     this._updateBottomPanel();
     this.btnSubmit?.setVisible(true);
-    // Context menu is right-click only; no auto-refresh needed
+  }
+
+  // ── Supply overlay ────────────────────────────────────────────────────────
+  _drawSupplyOverlay() {
+    this.supplyGfx.clear();
+    if (!this._supplyOverlayOn) return;
+    const gs = this.gameState;
+    const p  = gs.currentPlayer;
+    const ms = this.mapSize;
+    const supplied = computeSupply(gs, p, ms);
+    const { L, R, T, B } = this._vpBounds(HEX_SIZE * 2);
+    for (const key of supplied) {
+      const [q, r] = key.split(',').map(Number);
+      const { x, y } = hexToWorld(q, r);
+      if (x < L || x > R || y < T || y > B) continue;
+      const verts = hexVertices(x, y);
+      this.supplyGfx.fillStyle(0x44ff88, 0.13);
+      this.supplyGfx.fillPoints(verts, true);
+      this.supplyGfx.lineStyle(0.5, 0x44ff88, 0.18);
+      this.supplyGfx.strokePoints(verts, true);
+    }
+  }
+
+  _toggleSupplyOverlay() {
+    this._supplyOverlayOn = !this._supplyOverlayOn;
+    if (this.btnSupply) {
+      this.btnSupply.setStyle({
+        fill:            this._supplyOverlayOn ? '#44ff88' : '#445544',
+        backgroundColor: this._supplyOverlayOn ? '#0a2a18' : '#111a11',
+      });
+    }
+    this._drawSupplyOverlay();
   }
 
   // ── Highlights ────────────────────────────────────────────────────────────
@@ -1736,6 +1770,19 @@ export class GameScene extends Phaser.Scene {
         }
       }
 
+      // Out-of-supply indicator: red pip in top-left corner
+      if (unit.outOfSupply > 0) {
+        const oos = unit.outOfSupply;
+        const pipR = 4;
+        const pipX = cx2 + pipR + 1;
+        const pipY = cy2 + pipR + 1;
+        const pipCol = oos >= 3 ? 0xff2222 : oos >= 2 ? 0xff7700 : 0xffaa00;
+        this.unitGfx.fillStyle(pipCol, alpha);
+        this.unitGfx.fillCircle(pipX, pipY, pipR);
+        this.unitGfx.lineStyle(1, 0x000000, alpha * 0.5);
+        this.unitGfx.strokeCircle(pipX, pipY, pipR);
+      }
+
       // Engineer busy indicator: small amber dot + wrench-arm lines in top-right corner of counter
       if (unit.type === 'ENGINEER' && (unit.roadOrder || unit.constructing)) {
         const dotR = 4;
@@ -1830,7 +1877,8 @@ export class GameScene extends Phaser.Scene {
     // Turn / mode indicator (centered)
     this.turnLbl = this._makeLabel(w/2, 11, 'Turn 1 | Player 1 | PLANNING', D, true);
 
-    // Research button + Settings + End Turn
+    // Supply / Research / Settings / End Turn
+    this.btnSupply   = this._makeBtn(w - 390, 11, '⬡ SUPPLY',   0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
     this.btnResearch = this._makeBtn(w - 272, 11, '⚗ RESEARCH', 0x442266, () => this._toggleResearch(), D, 'right');
     this.btnSettings = this._makeBtn(w - 158, 11, '⚙ Settings', 0x222244, () => this._toggleSettings(), D, 'right');
     this.btnSubmit   = this._makeBtn(w - 8,   11, 'END TURN',   0x1a5c1a, () => this._confirmEndTurn(), D, 'right');
@@ -1981,7 +2029,8 @@ export class GameScene extends Phaser.Scene {
       } else {
         status += u.suppressed ? '⚡ SUPPRESSED  ' : u.moved ? '✓ Moved  ' : '○ Can move  ';
         status += pa ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : '○ Can attack  ';
-        if (u.dugIn) status += '🪖 Dug in';
+        if (u.dugIn) status += '🪖 Dug in  ';
+        if (u.outOfSupply > 0) status += `⚠ OUT OF SUPPLY (${u.outOfSupply}t)`;
       }
       this.unitStatusTxt.setText(status);
     } else if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
@@ -2447,6 +2496,7 @@ export class GameScene extends Phaser.Scene {
     this._shiftKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
     this.input.keyboard.on('keydown-ESC',   () => { if (!this._endTurnPending) this._toggleSettings(); });
     this.input.keyboard.on('keydown-X',     () => { this._confirmEndTurn(); });
+    this.input.keyboard.on('keydown-S',     () => { this._toggleSupplyOverlay(); });
     this.input.keyboard.on('keydown-SPACE', () => {
       if (this._splashDismiss) { this._splashDismiss(); this._splashDismiss = null; return; }
       if (this._endTurnPending) { this._onSubmit(); this._hideEndTurnConfirm(); return; }
