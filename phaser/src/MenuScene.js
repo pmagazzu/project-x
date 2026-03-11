@@ -231,7 +231,11 @@ export class MenuScene extends Phaser.Scene {
         tsub.setStyle({ fill: '#445544' });
       });
       tbg.on('pointerdown', () => {
-        this.scene.start('GameScene', { scenario: scenarioKey, customSize: tier.size, aiP2: this._aiP2 });
+        // Step 2: proc generation options (land profile + quick start)
+        created.forEach(o => o.destroy());
+        closeBtn.destroy();
+        topLine.destroy();
+        this._showProcOptions(scenarioKey, tier.size);
       });
 
       created.push(tbg, tlabel, tsub);
@@ -245,5 +249,113 @@ export class MenuScene extends Phaser.Scene {
     closeBtn.on('pointerdown', () => { created.forEach(o => o.destroy()); closeBtn.destroy(); topLine.destroy(); });
 
     overlay.on('pointerdown', () => { created.forEach(o => o.destroy()); closeBtn.destroy(); topLine.destroy(); });
+  }
+
+  _showProcOptions(scenarioKey, customSize) {
+    const w = this.scale.width, h = this.scale.height;
+    const overlay = this.add.rectangle(w/2, h/2, w, h, 0x000000, 0.84)
+      .setDepth(120).setInteractive();
+
+    const panelW = 560, panelH = 360;
+    const panelY = h/2 - panelH/2;
+    const panel = this.add.rectangle(w/2, h/2, panelW, panelH, 0x0c110c, 1)
+      .setStrokeStyle(2, 0x3a5530).setDepth(121);
+    const topLine = this.add.rectangle(w/2, panelY + 2, panelW, 3, 0x3a5530, 1).setDepth(122);
+    const title = this.add.text(w/2, panelY + 24, 'PROCEDURAL GENERATION OPTIONS', {
+      font: 'bold 16px monospace', fill: '#b8922a'
+    }).setOrigin(0.5).setDepth(123);
+
+    const LAND_PROFILES = [
+      { key: 'islands',          label: 'Islands' },
+      { key: 'large_islands',    label: 'Large Islands' },
+      { key: 'continent',        label: 'Continent' },
+      { key: 'two_continents',   label: 'Two Continents' },
+      { key: 'archipelago',      label: 'Archipelago' },
+      { key: 'naval_supremacy',  label: 'Naval Supremacy' },
+    ];
+
+    let profile = 'islands';
+    let quickStart = true;
+    const created = [overlay, panel, topLine, title];
+
+    const rebuild = () => {
+      created.forEach(o => { if (o._dynamic) o.destroy(); });
+
+      const y0 = panelY + 76;
+      const landLbl = this.add.text(w/2 - 230, y0, 'Land setting', {
+        font: '12px monospace', fill: '#c8c0a0'
+      }).setOrigin(0, 0.5).setDepth(123);
+      landLbl._dynamic = true; created.push(landLbl);
+
+      const left = this.add.text(w/2 - 20, y0, '[ < ]', {
+        font: 'bold 12px monospace', fill: '#dddddd', backgroundColor: '#222222', padding: {x:8,y:5}
+      }).setOrigin(0.5).setDepth(123).setInteractive({ useHandCursor: true });
+      left._dynamic = true; created.push(left);
+
+      const profileName = LAND_PROFILES.find(p => p.key === profile)?.label || profile;
+      const mid = this.add.text(w/2 + 120, y0, profileName, {
+        font: 'bold 12px monospace', fill: '#88ccff', backgroundColor: '#102030', padding: {x:10,y:5}
+      }).setOrigin(0.5).setDepth(123);
+      mid._dynamic = true; created.push(mid);
+
+      const right = this.add.text(w/2 + 260, y0, '[ > ]', {
+        font: 'bold 12px monospace', fill: '#dddddd', backgroundColor: '#222222', padding: {x:8,y:5}
+      }).setOrigin(0.5).setDepth(123).setInteractive({ useHandCursor: true });
+      right._dynamic = true; created.push(right);
+
+      const idx = LAND_PROFILES.findIndex(p => p.key === profile);
+      left.on('pointerdown', () => { profile = LAND_PROFILES[(idx - 1 + LAND_PROFILES.length) % LAND_PROFILES.length].key; rebuild(); });
+      right.on('pointerdown', () => { profile = LAND_PROFILES[(idx + 1) % LAND_PROFILES.length].key; rebuild(); });
+
+      const qsY = y0 + 60;
+      const qsLbl = this.add.text(w/2 - 230, qsY, 'Quick Start', {
+        font: '12px monospace', fill: '#c8c0a0'
+      }).setOrigin(0,0.5).setDepth(123);
+      qsLbl._dynamic = true; created.push(qsLbl);
+
+      const qsBtn = this.add.text(w/2 + 120, qsY, quickStart ? '[ YES ]' : '[ NO ]', {
+        font: 'bold 12px monospace',
+        fill: quickStart ? '#88ff88' : '#ff8888',
+        backgroundColor: quickStart ? '#1b3b1b' : '#3b1b1b',
+        padding: {x:10,y:5}
+      }).setOrigin(0.5).setDepth(123).setInteractive({ useHandCursor: true });
+      qsBtn.on('pointerdown', () => { quickStart = !quickStart; rebuild(); });
+      qsBtn._dynamic = true; created.push(qsBtn);
+
+      const note = this.add.text(w/2, qsY + 50,
+        'Quick Start: prebuilt Mine + Oil Pump + Farm + Lumber Camp near each HQ', {
+        font: '10px monospace', fill: '#667766'
+      }).setOrigin(0.5).setDepth(123);
+      note._dynamic = true; created.push(note);
+
+      const startBtn = this.add.text(w/2, panelY + panelH - 52, '[ START GAME ]', {
+        font: 'bold 14px monospace', fill: '#ffffff', backgroundColor: '#2a5533', padding: {x:18,y:8}
+      }).setOrigin(0.5).setDepth(123).setInteractive({ useHandCursor: true });
+      startBtn.on('pointerdown', () => {
+        this.scene.start('GameScene', {
+          scenario: scenarioKey,
+          customSize,
+          aiP2: this._aiP2,
+          procLandProfile: profile,
+          procQuickStart: quickStart,
+        });
+      });
+      startBtn._dynamic = true; created.push(startBtn);
+
+      const backBtn = this.add.text(w/2 - 180, panelY + panelH - 52, '[ BACK ]', {
+        font: 'bold 12px monospace', fill: '#dddddd', backgroundColor: '#333333', padding: {x:12,y:7}
+      }).setOrigin(0.5).setDepth(123).setInteractive({ useHandCursor: true });
+      backBtn.on('pointerdown', () => { created.forEach(o => o.destroy()); this._showSizePicker(scenarioKey); });
+      backBtn._dynamic = true; created.push(backBtn);
+
+      const closeBtn = this.add.text(w/2 + panelW/2 - 10, panelY + 10, '✕', {
+        font: 'bold 14px monospace', fill: '#556655', backgroundColor: '#0a100a', padding: { x: 6, y: 3 }
+      }).setOrigin(1, 0).setDepth(124).setInteractive({ useHandCursor: true });
+      closeBtn.on('pointerdown', () => { created.forEach(o => o.destroy()); });
+      closeBtn._dynamic = true; created.push(closeBtn);
+    };
+
+    rebuild();
+    overlay.on('pointerdown', () => { created.forEach(o => o.destroy()); });
   }
 }

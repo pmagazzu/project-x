@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.1.16';
+const GAME_VERSION = 'v1.2.0';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -131,6 +131,8 @@ export class GameScene extends Phaser.Scene {
     // Read scenario config passed from MenuScene (or default)
     const data = this.scene.settings.data || {};
     this.scenario = data.scenario || 'default';
+    this.procLandProfile = data.procLandProfile || 'islands';
+    this.procQuickStart  = (data.procQuickStart !== undefined) ? !!data.procQuickStart : true;
     // Map sizes per scenario
     const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, random: 40, air_test: 20, custom: data.customSize || 40, default: 25 };
     this.mapSize   = MAP_SIZES[this.scenario] || MAP_SIZE;
@@ -5365,7 +5367,7 @@ export class GameScene extends Phaser.Scene {
     } else if (this.scenario === 'naval') {
       this._genNavalTerrain(map, ms);
     } else if (this.scenario === 'random' || this.scenario === 'custom') {
-      this._genProcTerrain(map, ms, this.mapSeed);
+      this._genProcTerrain(map, ms, this.mapSeed, this.procLandProfile || 'islands');
     } else {
       // Standard procedural terrain (scout / grand / default)
       const seed = this.scenario === 'grand' ? 99999 : 12345;
@@ -5444,10 +5446,25 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ── Procedural map generation ─────────────────────────────────────────────
-  _genProcTerrain(map, ms, seed) {
-    const SCALE     = 0.075; // noise frequency — lower = larger landmasses
-    const SEA_LV    = 0.44;  // below → ocean
-    const COAST_LV  = 0.48;  // below sea level + this buffer → shallow
+  _genProcTerrain(map, ms, seed, landProfile = 'islands') {
+    // Special preset: mostly ocean with player medium islands + small central islands
+    if (landProfile === 'naval_supremacy') {
+      this._genNavalTerrain(map, ms);
+      return;
+    }
+
+    // Profile-tuned procedural knobs
+    const PROFILE = {
+      islands:        { scale: 0.075, sea: 0.44, edgeFalloff: 1.2, edgeStart: 0.55 },
+      large_islands:  { scale: 0.060, sea: 0.41, edgeFalloff: 1.1, edgeStart: 0.58 },
+      continent:      { scale: 0.045, sea: 0.36, edgeFalloff: 0.8, edgeStart: 0.70 },
+      two_continents: { scale: 0.055, sea: 0.39, edgeFalloff: 1.0, edgeStart: 0.63 },
+      archipelago:    { scale: 0.115, sea: 0.51, edgeFalloff: 1.35, edgeStart: 0.50 },
+    }[landProfile] || { scale: 0.075, sea: 0.44, edgeFalloff: 1.2, edgeStart: 0.55 };
+
+    const SCALE     = PROFILE.scale; // noise frequency — lower = larger landmasses
+    const SEA_LV    = PROFILE.sea;   // below → ocean
+    const COAST_LV  = SEA_LV + 0.04;
     const HILL_LV   = 0.63;
     const MTN_LV    = 0.76;
 
@@ -5459,7 +5476,14 @@ export class GameScene extends Phaser.Scene {
         // Soft elliptical falloff at map edges so there's ocean border
         const ex = ((q / ms) - 0.5) * 2, er = ((r / ms) - 0.5) * 2;
         const edgeDist = Math.max(Math.abs(ex), Math.abs(er));
-        v -= Math.max(0, edgeDist - 0.55) * 1.2;
+        v -= Math.max(0, edgeDist - PROFILE.edgeStart) * PROFILE.edgeFalloff;
+
+        // Two-continent profile: carve central ocean channel
+        if (landProfile === 'two_continents') {
+          const center = ms * 0.5;
+          const band = Math.abs(q - center) / ms;
+          if (band < 0.09) v -= (0.22 - band);
+        }
         h[`${q},${r}`] = v;
       }
     }
@@ -5618,54 +5642,50 @@ export class GameScene extends Phaser.Scene {
       return null;
     };
 
+    const quickStart = !!this.procQuickStart;
     const placeSpawns = (player, hq) => {
       // HQ
       gs.buildings.push(createBuilding('HQ', player, hq.q, hq.r));
 
-      // Iron Mine: prefer hill/mountain nearby, else any land hex — force iron resource on it
+      // Resource sites near HQ (always placed as resource hexes; buildings depend on quick-start)
       const ironHex = findNearby(hq.q, hq.r, new Set([2,3]), 5) || findFreeNear(hq.q, hq.r, 4);
       if (ironHex) {
         if (map[`${ironHex.q},${ironHex.r}`] === 5 || map[`${ironHex.q},${ironHex.r}`] === 4)
           map[`${ironHex.q},${ironHex.r}`] = 3; // ensure it's land
         gs.resourceHexes[`${ironHex.q},${ironHex.r}`] = { type: 'IRON' };
-        gs.buildings.push(createBuilding('MINE', player, ironHex.q, ironHex.r));
+        if (quickStart) gs.buildings.push(createBuilding('MINE', player, ironHex.q, ironHex.r));
       }
 
-      // Oil Pump: flat land or sand nearby (different hex from iron)
       const oilHex = findNearby(hq.q, hq.r, new Set([0,6,7]), 5) || findFreeNear(hq.q, hq.r, 5);
       if (oilHex && !(ironHex && oilHex.q === ironHex.q && oilHex.r === ironHex.r)) {
         gs.resourceHexes[`${oilHex.q},${oilHex.r}`] = { type: 'OIL' };
-        gs.buildings.push(createBuilding('OIL_PUMP', player, oilHex.q, oilHex.r));
+        if (quickStart) gs.buildings.push(createBuilding('OIL_PUMP', player, oilHex.q, oilHex.r));
       }
 
-      // Barracks: free walkable hex near HQ
+      // Barracks + Naval Yard still start prebuilt for baseline playability
       const barrHex = findFreeNear(hq.q, hq.r, 3);
       if (barrHex) gs.buildings.push(createBuilding('BARRACKS', player, barrHex.q, barrHex.r));
-
-      // Naval Yard: nearest coastal land hex (if exists within range)
       const coastHex = findCoastalNear(hq.q, hq.r, 10);
       if (coastHex) gs.buildings.push(createBuilding('NAVAL_YARD', player, coastHex.q, coastHex.r));
 
-      // Farm: plains hex near HQ (gives starting food production)
+      // Farm site near HQ
       const farmHex = findNearby(hq.q, hq.r, new Set([0, 7]), 4) || findFreeNear(hq.q, hq.r, 3);
       if (farmHex) {
         map[`${farmHex.q},${farmHex.r}`] = 0; // ensure plains
-        gs.buildings.push(createBuilding('FARM', player, farmHex.q, farmHex.r));
+        if (quickStart) gs.buildings.push(createBuilding('FARM', player, farmHex.q, farmHex.r));
       }
 
-      // Guaranteed wood access: starting Lumber Camp near HQ
-      // Prefer existing forest/light-woods, otherwise force-convert a nearby free land tile to light woods.
+      // Guaranteed wood access site near HQ; Lumber Camp prebuilt only in quick start.
       let woodHex = findNearby(hq.q, hq.r, new Set([1, 7]), 5) || findFreeNear(hq.q, hq.r, 5);
       if (woodHex) {
         const tk = `${woodHex.q},${woodHex.r}`;
         const t = map[tk];
         if (t === 4 || t === 5) {
-          // If fallback landed on water, find another land hex and use it
           const alt = findNearby(hq.q, hq.r, new Set([0,1,2,3,6,7]), 7) || findFreeNear(hq.q, hq.r, 7);
           if (alt) woodHex = alt;
         }
-        map[`${woodHex.q},${woodHex.r}`] = (map[`${woodHex.q},${woodHex.r}`] === 1 ? 1 : 7); // keep forest else set light woods
-        if (!gs.buildings.find(b => b.q === woodHex.q && b.r === woodHex.r)) {
+        map[`${woodHex.q},${woodHex.r}`] = (map[`${woodHex.q},${woodHex.r}`] === 1 ? 1 : 7);
+        if (quickStart && !gs.buildings.find(b => b.q === woodHex.q && b.r === woodHex.r)) {
           gs.buildings.push(createBuilding('LUMBER_CAMP', player, woodHex.q, woodHex.r));
         }
       }
