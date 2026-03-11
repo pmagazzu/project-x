@@ -66,6 +66,15 @@ export const UNIT_TYPES = {
   SPG:              { name:'Self-Prop. Gun',   move:2,  attack:5, health:5, range:6, cost:{iron:7,oil:3}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:7, hard_attack:4, pierce:4, armor:4, defense:1, evasion:1,  accuracy:8,  buildTime:4, unlockedBy:'self_propelled_gun' },
   ARMORED_CAR:      { name:'Armored Car',      move:5,  attack:2, health:3, range:2, cost:{iron:4,oil:2}, shape:'star',     canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:3, hard_attack:1, pierce:2, armor:2, defense:0, evasion:8,  accuracy:5,  buildTime:2, unlockedBy:'armored_car' },
   ASSAULT_INFANTRY: { name:'Assault Infantry', move:2,  attack:3, health:3, range:1, cost:{iron:3,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:5, hard_attack:2, pierce:2, armor:2, defense:2, evasion:0,  accuracy:0,  buildTime:2, unlockedBy:'assault_infantry' },
+  SMG_SQUAD:        { name:'SMG Squad',        move:3,  attack:3, health:3, range:1, cost:{iron:2,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:6, hard_attack:1, pierce:1, armor:1, defense:1, evasion:2,  accuracy:0,  buildTime:2, unlockedBy:'smg_doctrine' },
+  LMG_TEAM:         { name:'LMG Team',         move:2,  attack:3, health:3, range:3, cost:{iron:2,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:3, soft_attack:5, hard_attack:0, pierce:0, armor:0, defense:1, evasion:0,  accuracy:3,  buildTime:2, unlockedBy:'lmg_suppression' },
+  HMG_TEAM:         { name:'HMG Team',         move:1,  attack:3, health:3, range:3, cost:{iron:3,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:3, soft_attack:7, hard_attack:1, pierce:1, armor:0, defense:2, evasion:0,  accuracy:5,  buildTime:2, unlockedBy:'hmg_team' },
+  SNIPER:           { name:'Sniper Team',       move:2,  attack:2, health:2, range:5, cost:{iron:2,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:5, soft_attack:5, hard_attack:0, pierce:0, armor:0, defense:0, evasion:6,  accuracy:12, buildTime:2, unlockedBy:'sniper_team' },
+  MOTORCYCLE:       { name:'Motorcycle Scout',  move:6,  attack:1, health:2, range:2, cost:{iron:2,oil:1}, shape:'diamond',  canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:2, hard_attack:0, pierce:0, armor:0, defense:0, evasion:8,  accuracy:3,  buildTime:1, unlockedBy:'motorcycle_recon' },
+  HALFTRACK:        { name:'Light Halftrack',   move:4,  attack:2, health:4, range:2, cost:{iron:3,oil:1}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:3, hard_attack:1, pierce:1, armor:2, defense:1, evasion:2,  accuracy:2,  buildTime:2, transport:1, unlockedBy:'light_halftrack' },
+  TORPEDO_BOAT:     { name:'Torpedo Boat',      move:10, attack:3, health:3, range:2, cost:{iron:3,oil:2}, shape:'diamond',  canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:0, hard_attack:6, pierce:6, armor:0, defense:0, evasion:10, accuracy:4,  buildTime:2, naval:true, unlockedBy:'torpedo_boat' },
+  MOTOR_GUNBOAT:    { name:'Motor Gunboat',     move:8,  attack:3, health:4, range:3, cost:{iron:3,oil:2}, shape:'diamond',  canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:4, hard_attack:1, pierce:1, armor:1, defense:1, evasion:5,  accuracy:4,  buildTime:2, naval:true, unlockedBy:'motor_gunboat' },
+  DESTROYER_MK1:    { name:'Destroyer Mk.I',   move:8,  attack:5, health:8, range:4, cost:{iron:8,oil:4}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:3, hard_attack:6, pierce:6, armor:4, defense:2, evasion:3,  accuracy:5,  buildTime:4, naval:true, unlockedBy:'destroyer_mk1' },
 
   // ── Supply truck ────────────────────────────────────────────────────────
   // Soft unarmed vehicle that projects a supply bubble around itself.
@@ -122,17 +131,29 @@ export const CHASSIS_BUILDINGS = {
   MEDIUM_TANK:      'VEHICLE_DEPOT',
   SPG:              'VEHICLE_DEPOT',
   ARMORED_CAR:      'VEHICLE_DEPOT',
+  HALFTRACK:        'VEHICLE_DEPOT',
+  MOTORCYCLE:       'HQ',
   ASSAULT_INFANTRY: 'BARRACKS',
+  SMG_SQUAD:        'BARRACKS',
+  LMG_TEAM:         'BARRACKS',
+  HMG_TEAM:         'BARRACKS',
+  SNIPER:           'BARRACKS',
+  // Naval — unlockable
+  TORPEDO_BOAT:     'NAVAL_YARD',
+  MOTOR_GUNBOAT:    'NAVAL_YARD',
+  DESTROYER_MK1:    'DRY_DOCK',
 };
 
 // Which chassis require research to unlock (keyed by unit type)
 export const LOCKED_CHASSIS = new Set([
   'MONOPLANE_FIGHTER','DIVE_BOMBER','HEAVY_BOMBER',
-  'MEDIUM_TANK','SPG','ARMORED_CAR','ASSAULT_INFANTRY',
+  'MEDIUM_TANK','SPG','ARMORED_CAR','HALFTRACK','MOTORCYCLE',
+  'ASSAULT_INFANTRY','SMG_SQUAD','LMG_TEAM','HMG_TEAM','SNIPER',
+  'TORPEDO_BOAT','MOTOR_GUNBOAT','DESTROYER_MK1',
 ]);
 
 // Naval unit types set (for movement/terrain checks)
-export const NAVAL_UNITS = new Set(['PATROL_BOAT','MTB','SUBMARINE','DESTROYER','CRUISER_LT','CRUISER_HV','BATTLESHIP','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG']);
+export const NAVAL_UNITS = new Set(['PATROL_BOAT','MTB','SUBMARINE','DESTROYER','CRUISER_LT','CRUISER_HV','BATTLESHIP','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG','TORPEDO_BOAT','MOTOR_GUNBOAT','DESTROYER_MK1']);
 // Air unit types set (base + unlockable)
 export const AIR_UNITS = new Set(['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE','MONOPLANE_FIGHTER','DIVE_BOMBER','HEAVY_BOMBER']);
 // Units that can enter shallow water (type 4)
@@ -213,8 +234,8 @@ export const BUILDING_TYPES = {
   HQ:            { name: 'HQ',             ironPerTurn: 3, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 0, canRecruit: ['ENGINEER','RECON'],                   buildCost: null,               color: 0xffdd00, sight: 3 },
   MINE:          { name: 'Iron Mine',      ironPerTurn: 2, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, oil: 0 },         color: 0xaaaaaa, sight: 2 },
   OIL_PUMP:      { name: 'Oil Pump',       ironPerTurn: 0, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, oil: 0 },         color: 0x222244, sight: 2 },
-  BARRACKS:      { name: 'Barracks',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: ['INFANTRY','ANTI_TANK','MORTAR','MEDIC'], buildCost: { iron: 4, oil: 0, wood: 4 }, color: 0xaa6644, sight: 2 },
-  VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['TANK','ARTILLERY','SUPPLY_TRUCK'],        buildCost: { iron: 8, oil: 2 }, color: 0x557799, sight: 2 },
+  BARRACKS:      { name: 'Barracks',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: ['INFANTRY','ANTI_TANK','MORTAR','MEDIC','SMG_SQUAD','LMG_TEAM','HMG_TEAM','SNIPER','ASSAULT_INFANTRY'], buildCost: { iron: 4, oil: 0, wood: 4 }, color: 0xaa6644, sight: 2 },
+  VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['TANK','ARTILLERY','SUPPLY_TRUCK','MEDIUM_TANK','SPG','ARMORED_CAR','HALFTRACK'],        buildCost: { iron: 8, oil: 2 }, color: 0x557799, sight: 2 },
   BUNKER:        { name: 'Bunker',         ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 2 }, color: 0x888866, sight: 2 },
   OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 0 }, color: 0x88aacc, sight: 4 },
   ROAD:          { name: 'Dirt Road',      ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xccbbaa, sight: 0, roadTier: 0, moveCost: 0.5 },
@@ -222,7 +243,11 @@ export const BUILDING_TYPES = {
   RAILWAY:       { name: 'Railway',        ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: [], buildCost: { iron: 4, oil: 1, wood: 2 }, color: 0x555566, sight: 0, roadTier: 2, moveCost: 0.1,  requiresTech: 'RAILWAYS', tier: 3 },
   LUMBER_CAMP:   { name: 'Lumber Camp',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 2, buildTurns: 1, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 0 }, color: 0x7a5020, sight: 2 },
   // Naval buildings
-  NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['PATROL_BOAT','MTB','DESTROYER','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 2 },
+  NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['PATROL_BOAT','MTB','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG','TORPEDO_BOAT','MOTOR_GUNBOAT'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 2 },
+  // Obstacle / fortification buildings (engineer-built, no recruitment)
+  BARBED_WIRE:   { name: 'Barbed Wire',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0x888866, sight: 0, obstacle: true, infantryMoveCost: 1 },
+  SANDBAG:       { name: 'Sandbag Post',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xc8aa66, sight: 0, defenseBonus: 2 },
+  SUPPLY_DEPOT:  { name: 'Supply Depot',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 1, wood: 1 }, color: 0xddaa44, sight: 2, supplyRadius: 3, moveBonus: 1 },
   HARBOR:        { name: 'Harbor',         ironPerTurn: 1, oilPerTurn: 1, woodPerTurn: 0, buildTurns: 3, canRecruit: [],                         buildCost: { iron: 5, oil: 1 }, color: 0x4488cc, sight: 2, repairsNaval: true },
   DRY_DOCK:      { name: 'Dry Dock',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: ['DESTROYER','CRUISER_LT','CRUISER_HV'],  buildCost: { iron:12, oil: 4 }, color: 0x225588, sight: 2 },
   NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 4, canRecruit: ['BATTLESHIP'],             buildCost: { iron:16, oil: 6 }, color: 0x113366, sight: 3 },
@@ -286,9 +311,26 @@ export const UNIT_UPKEEP = {
   TRANSPORT_LG:    { food: 0.0, iron: 0.3, oil: 0.4 },
   COASTAL_BATTERY: { food: 0.0, iron: 0.1, oil: 0.0 },
   SUPPLY_TRUCK:    { food: 0.0, iron: 0.1, oil: 0.2 },
-  BIPLANE_FIGHTER: { food: 0.0, iron: 0.2, oil: 0.4 },
-  LIGHT_BOMBER:    { food: 0.0, iron: 0.3, oil: 0.5 },
-  OBS_PLANE:       { food: 0.0, iron: 0.1, oil: 0.3 },
+  BIPLANE_FIGHTER:  { food: 0.0, iron: 0.2, oil: 0.4 },
+  LIGHT_BOMBER:     { food: 0.0, iron: 0.3, oil: 0.5 },
+  OBS_PLANE:        { food: 0.0, iron: 0.1, oil: 0.3 },
+  // Unlockable chassis upkeep
+  MONOPLANE_FIGHTER:{ food: 0.0, iron: 0.3, oil: 0.5 },
+  DIVE_BOMBER:      { food: 0.0, iron: 0.3, oil: 0.5 },
+  HEAVY_BOMBER:     { food: 0.0, iron: 0.5, oil: 0.8 },
+  MEDIUM_TANK:      { food: 0.0, iron: 0.3, oil: 0.5 },
+  SPG:              { food: 0.0, iron: 0.2, oil: 0.4 },
+  ARMORED_CAR:      { food: 0.0, iron: 0.1, oil: 0.3 },
+  HALFTRACK:        { food: 0.0, iron: 0.1, oil: 0.3 },
+  MOTORCYCLE:       { food: 0.0, iron: 0.0, oil: 0.2 },
+  ASSAULT_INFANTRY: { food: 0.2, iron: 0.1, oil: 0.0 },
+  SMG_SQUAD:        { food: 0.2, iron: 0.0, oil: 0.0 },
+  LMG_TEAM:         { food: 0.1, iron: 0.1, oil: 0.0 },
+  HMG_TEAM:         { food: 0.1, iron: 0.1, oil: 0.0 },
+  SNIPER:           { food: 0.1, iron: 0.0, oil: 0.0 },
+  TORPEDO_BOAT:     { food: 0.0, iron: 0.1, oil: 0.3 },
+  MOTOR_GUNBOAT:    { food: 0.0, iron: 0.1, oil: 0.2 },
+  DESTROYER_MK1:    { food: 0.0, iron: 0.3, oil: 0.5 },
 };
 
 // Compute total upkeep for all of a player's units
