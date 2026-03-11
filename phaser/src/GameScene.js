@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.1.10';
+const GAME_VERSION = 'v1.1.11';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1168,11 +1168,12 @@ export class GameScene extends Phaser.Scene {
     const { L: _bvpL, R: _bvpR, T: _bvpT, B: _bvpB } = this._vpBounds();
     const fog = this._currentFog || null;
 
+    const curP = Number(this.gameState.currentPlayer);
     for (const b of this.gameState.buildings) {
       try {
         if (ROAD_TYPES.has(b.type)) continue;
         // Fog-of-war: hide enemy buildings on unseen hexes, but always show own buildings
-        if (fog && b.owner !== this.gameState.currentPlayer && !fog.has(`${b.q},${b.r}`)) continue;
+        if (fog && Number(b.owner) !== curP && !fog.has(`${b.q},${b.r}`)) continue;
         const { x, y } = hexToWorld(b.q, b.r);
         if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
         const color = PLAYER_COLORS[b.owner] || 0x888888;
@@ -1540,7 +1541,7 @@ export class GameScene extends Phaser.Scene {
     this._constructionLabels = [];
     for (const b of this.gameState.buildings) {
       if (!b.underConstruction) continue;
-      if (this._currentFog && b.owner !== this.gameState.currentPlayer && !this._currentFog.has(`${b.q},${b.r}`)) continue;
+      if (this._currentFog && Number(b.owner) !== Number(this.gameState.currentPlayer) && !this._currentFog.has(`${b.q},${b.r}`)) continue;
       const { x, y } = hexToWorld(b.q, b.r);
       if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
       const prog = b.buildProgress || 0, total = b.buildTurnsRequired || 1;
@@ -1567,9 +1568,10 @@ export class GameScene extends Phaser.Scene {
     // Viewport culling (large-map perf) — uses scroll+zoom, not worldView (avoids stale rect)
     const { L: _uvpL, R: _uvpR, T: _uvpT, B: _uvpB } = this._vpBounds();
 
+    const curP = Number(gs.currentPlayer);
     for (const unit of gs.units) {
       // IGOUGO: all positions are real/immediate — no we-go display offset needed
-      const isEnemy = unit.owner !== gs.currentPlayer;
+      const isEnemy = Number(unit.owner) !== curP;
       const dispQ = unit.q;
       const dispR = unit.r;
 
@@ -1603,7 +1605,7 @@ export class GameScene extends Phaser.Scene {
       if (x < _uvpL || x > _uvpR || y < _uvpT || y > _uvpB) continue;
 
       const color = PLAYER_COLORS[unit.owner];
-      const dim   = (unit.owner !== gs.currentPlayer);
+      const dim   = (Number(unit.owner) !== Number(gs.currentPlayer));
       const alpha = dim ? 0.6 : 1.0;
       const def   = UNIT_TYPES[unit.type];
       const r     = HEX_SIZE * 0.36;
@@ -3819,9 +3821,10 @@ export class GameScene extends Phaser.Scene {
     // Fog safety: do not allow interaction with unseen enemy units/buildings
     const fog = this._currentFog;
     const isVisibleHex = !fog || fog.has(`${q},${r}`);
+    const curPClick = Number(gs.currentPlayer);
     if (!isVisibleHex) {
-      if (clickedUnit && clickedUnit.owner !== gs.currentPlayer) clickedUnit = null;
-      if (clickedBuilding && clickedBuilding.owner !== gs.currentPlayer) clickedBuilding = null;
+      if (clickedUnit && Number(clickedUnit.owner) !== curPClick) clickedUnit = null;
+      if (clickedBuilding && Number(clickedBuilding.owner) !== curPClick) clickedBuilding = null;
     }
 
     // ── Transport load mode ──────────────────────────────────────────────
@@ -4056,13 +4059,13 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Own unit on hex? Always select unit first (even if building is also there)
-    if (clickedUnit && clickedUnit.owner === gs.currentPlayer) {
+    if (clickedUnit && Number(clickedUnit.owner) === Number(gs.currentPlayer)) {
       this._selectUnit(clickedUnit);
       return;
     }
 
     // Recruitment: click own building (no unit present)
-    if (clickedBuilding && clickedBuilding.owner === gs.currentPlayer &&
+    if (clickedBuilding && Number(clickedBuilding.owner) === Number(gs.currentPlayer) &&
         clickedBuilding.type !== 'ROAD' && BUILDING_TYPES[clickedBuilding.type].canRecruit.length > 0) {
       this._showRecruitPanel(clickedBuilding);
       return;
