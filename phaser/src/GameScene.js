@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.1.15';
+const GAME_VERSION = 'v1.1.16';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2216,7 +2216,9 @@ export class GameScene extends Phaser.Scene {
 
     // Panel background
     const bg = this.add.rectangle(w/2, h/2, panelW, panelH, 0x0b0e0b, 0.98)
-      .setStrokeStyle(2, 0x334433).setScrollFactor(0).setDepth(200);
+      .setStrokeStyle(2, 0x334433).setScrollFactor(0).setDepth(200)
+      .setInteractive();
+    bg.on('pointerdown', () => { this._contextMenuClicked = true; });
     objs.push(bg);
 
     // Top header strip
@@ -2244,6 +2246,7 @@ export class GameScene extends Phaser.Scene {
         font: '11px monospace', fill: '#ff8888', backgroundColor: '#330000', padding: { x: 8, y: 5 }
       }).setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true });
       cancelBtn.on('pointerdown', () => {
+        this._contextMenuClicked = true;
         // Refund cost
         const refundType = existingOrder.type;
         const refundDesign = existingOrder.designId !== undefined ? gs.designs[p].find(d => d.id === existingOrder.designId) : null;
@@ -2300,6 +2303,7 @@ export class GameScene extends Phaser.Scene {
 
       if (canAfford) {
         rowBg.on('pointerdown', () => {
+          this._contextMenuClicked = true;
           queueRecruit(gs, p, unitType, building.id);
           this._pushLog(`P${p} queued ${def.name}`);
           this._hideRecruitPanel();
@@ -2327,6 +2331,7 @@ export class GameScene extends Phaser.Scene {
         .setInteractive({ useHandCursor: canAfford });
       if (canAfford) {
         btn.on('pointerdown', () => {
+          this._contextMenuClicked = true;
           queueRecruit(gs, p, design.id, building.id);
           this._pushLog(`P${p} queued ${design.name}`);
           this._hideRecruitPanel();
@@ -2347,7 +2352,7 @@ export class GameScene extends Phaser.Scene {
       backgroundColor: '#1a1a1a', padding: { x: 10, y: 6 }
     }).setOrigin(0.5).setScrollFactor(0).setDepth(201)
       .setInteractive({ useHandCursor: true });
-    closeBtn.on('pointerdown', () => this._hideRecruitPanel());
+    closeBtn.on('pointerdown', () => { this._contextMenuClicked = true; this._hideRecruitPanel(); });
     closeBtn.on('pointerover', () => closeBtn.setAlpha(0.8));
     closeBtn.on('pointerout',  () => closeBtn.setAlpha(1.0));
     objs.push(closeBtn);
