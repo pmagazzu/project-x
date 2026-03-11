@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.1.9';
+const GAME_VERSION = 'v1.1.10';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1171,8 +1171,8 @@ export class GameScene extends Phaser.Scene {
     for (const b of this.gameState.buildings) {
       try {
         if (ROAD_TYPES.has(b.type)) continue;
-        // Fog-of-war: never render buildings on unseen hexes
-        if (fog && !fog.has(`${b.q},${b.r}`)) continue;
+        // Fog-of-war: hide enemy buildings on unseen hexes, but always show own buildings
+        if (fog && b.owner !== this.gameState.currentPlayer && !fog.has(`${b.q},${b.r}`)) continue;
         const { x, y } = hexToWorld(b.q, b.r);
         if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
         const color = PLAYER_COLORS[b.owner] || 0x888888;
@@ -1540,7 +1540,7 @@ export class GameScene extends Phaser.Scene {
     this._constructionLabels = [];
     for (const b of this.gameState.buildings) {
       if (!b.underConstruction) continue;
-      if (this._currentFog && !this._currentFog.has(`${b.q},${b.r}`)) continue;
+      if (this._currentFog && b.owner !== this.gameState.currentPlayer && !this._currentFog.has(`${b.q},${b.r}`)) continue;
       const { x, y } = hexToWorld(b.q, b.r);
       if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
       const prog = b.buildProgress || 0, total = b.buildTurnsRequired || 1;
