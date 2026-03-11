@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.1.7';
+const GAME_VERSION = 'v1.1.8';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3813,8 +3813,16 @@ export class GameScene extends Phaser.Scene {
   // ── Click handling ────────────────────────────────────────────────────────
   _onHexClick(q, r) {
     const gs = this.gameState;
-    const clickedUnit     = unitAt(gs, q, r);
-    const clickedBuilding = buildingAt(gs, q, r);
+    let clickedUnit     = unitAt(gs, q, r);
+    let clickedBuilding = buildingAt(gs, q, r);
+
+    // Fog safety: do not allow interaction with unseen enemy units/buildings
+    const fog = this._currentFog;
+    const isVisibleHex = !fog || fog.has(`${q},${r}`);
+    if (!isVisibleHex) {
+      if (clickedUnit && clickedUnit.owner !== gs.currentPlayer) clickedUnit = null;
+      if (clickedBuilding && clickedBuilding.owner !== gs.currentPlayer) clickedBuilding = null;
+    }
 
     // ── Transport load mode ──────────────────────────────────────────────
     if (this.mode === 'transport_load') {
@@ -5608,6 +5616,23 @@ export class GameScene extends Phaser.Scene {
       if (farmHex) {
         map[`${farmHex.q},${farmHex.r}`] = 0; // ensure plains
         gs.buildings.push(createBuilding('FARM', player, farmHex.q, farmHex.r));
+      }
+
+      // Guaranteed wood access: starting Lumber Camp near HQ
+      // Prefer existing forest/light-woods, otherwise force-convert a nearby free land tile to light woods.
+      let woodHex = findNearby(hq.q, hq.r, new Set([1, 7]), 5) || findFreeNear(hq.q, hq.r, 5);
+      if (woodHex) {
+        const tk = `${woodHex.q},${woodHex.r}`;
+        const t = map[tk];
+        if (t === 4 || t === 5) {
+          // If fallback landed on water, find another land hex and use it
+          const alt = findNearby(hq.q, hq.r, new Set([0,1,2,3,6,7]), 7) || findFreeNear(hq.q, hq.r, 7);
+          if (alt) woodHex = alt;
+        }
+        map[`${woodHex.q},${woodHex.r}`] = (map[`${woodHex.q},${woodHex.r}`] === 1 ? 1 : 7); // keep forest else set light woods
+        if (!gs.buildings.find(b => b.q === woodHex.q && b.r === woodHex.r)) {
+          gs.buildings.push(createBuilding('LUMBER_CAMP', player, woodHex.q, woodHex.r));
+        }
       }
 
       // 2 engineers near HQ
