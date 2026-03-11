@@ -55,9 +55,17 @@ export const UNIT_TYPES = {
   // antiAir:true     = can intercept/attack other air units with priority
   // Air units are based at an Airfield; move across any terrain at cost 1 per hex.
   // Sight is high — they can see further from altitude.
-  BIPLANE_FIGHTER: { name:'Biplane Fighter', move:8,  attack:3, health:3, range:2, cost:{iron:4,oil:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:4, hard_attack:2, pierce:2, armor:1, defense:0, evasion:10, accuracy:5,  buildTime:2, air:true, antiAir:true,  fuelMax:6  },
-  LIGHT_BOMBER:    { name:'Light Bomber',    move:6,  attack:4, health:3, range:1, cost:{iron:5,oil:3}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:7, hard_attack:5, pierce:3, armor:1, defense:0, evasion:5,  accuracy:3,  buildTime:3, air:true, antiAir:false, fuelMax:4  },
-  OBS_PLANE:       { name:'Obs. Plane',      move:10, attack:0, health:2, range:0, cost:{iron:3,oil:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:8, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:8,  accuracy:0,  buildTime:1, air:true, antiAir:false, fuelMax:8  },
+  BIPLANE_FIGHTER:  { name:'Biplane Fighter',  move:8,  attack:3, health:3, range:2, cost:{iron:4,oil:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:4, hard_attack:2, pierce:2, armor:1, defense:0, evasion:10, accuracy:5,  buildTime:2, air:true, antiAir:true,  fuelMax:6  },
+  LIGHT_BOMBER:     { name:'Light Bomber',     move:6,  attack:4, health:3, range:1, cost:{iron:5,oil:3}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:7, hard_attack:5, pierce:3, armor:1, defense:0, evasion:5,  accuracy:3,  buildTime:3, air:true, antiAir:false, fuelMax:4  },
+  OBS_PLANE:        { name:'Obs. Plane',       move:10, attack:0, health:2, range:0, cost:{iron:3,oil:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:8, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:8,  accuracy:0,  buildTime:1, air:true, antiAir:false, fuelMax:8  },
+  // ── Unlockable via research ───────────────────────────────────────────────
+  MONOPLANE_FIGHTER:{ name:'Monoplane Fighter',move:10, attack:4, health:4, range:2, cost:{iron:5,oil:3}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:6, soft_attack:5, hard_attack:3, pierce:3, armor:2, defense:0, evasion:14, accuracy:8,  buildTime:2, air:true, antiAir:true,  fuelMax:8,  unlockedBy:'monoplane_fighter' },
+  DIVE_BOMBER:      { name:'Dive Bomber',      move:7,  attack:5, health:3, range:1, cost:{iron:6,oil:3}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:8, hard_attack:7, pierce:5, armor:1, defense:0, evasion:4,  accuracy:12, buildTime:3, air:true, antiAir:false, fuelMax:5,  unlockedBy:'dive_bomber' },
+  HEAVY_BOMBER:     { name:'Heavy Bomber',     move:5,  attack:6, health:5, range:1, cost:{iron:9,oil:5}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:12,hard_attack:8, pierce:4, armor:2, defense:0, evasion:2,  accuracy:5,  buildTime:5, air:true, antiAir:false, fuelMax:4,  unlockedBy:'heavy_bomber' },
+  MEDIUM_TANK:      { name:'Medium Tank',      move:3,  attack:4, health:8, range:3, cost:{iron:7,oil:3}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:3, hard_attack:6, pierce:7, armor:8, defense:2, evasion:3,  accuracy:5,  buildTime:4, unlockedBy:'medium_tank' },
+  SPG:              { name:'Self-Prop. Gun',   move:2,  attack:5, health:5, range:6, cost:{iron:7,oil:3}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:7, hard_attack:4, pierce:4, armor:4, defense:1, evasion:1,  accuracy:8,  buildTime:4, unlockedBy:'self_propelled_gun' },
+  ARMORED_CAR:      { name:'Armored Car',      move:5,  attack:2, health:3, range:2, cost:{iron:4,oil:2}, shape:'star',     canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:3, hard_attack:1, pierce:2, armor:2, defense:0, evasion:8,  accuracy:5,  buildTime:2, unlockedBy:'armored_car' },
+  ASSAULT_INFANTRY: { name:'Assault Infantry', move:2,  attack:3, health:3, range:1, cost:{iron:3,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:5, hard_attack:2, pierce:2, armor:2, defense:2, evasion:0,  accuracy:0,  buildTime:2, unlockedBy:'assault_infantry' },
 
   // ── Supply truck ────────────────────────────────────────────────────────
   // Soft unarmed vehicle that projects a supply bubble around itself.
@@ -102,16 +110,31 @@ export const CHASSIS_BUILDINGS = {
   CRUISER_LT:      'DRY_DOCK',
   CRUISER_HV:      'DRY_DOCK',
   BATTLESHIP:      'NAVAL_BASE',
-  // Air
-  BIPLANE_FIGHTER: 'AIRFIELD',
-  LIGHT_BOMBER:    'AIRFIELD',
-  OBS_PLANE:       'AIRFIELD',
+  // Air — base chassis (always available)
+  BIPLANE_FIGHTER:  'AIRFIELD',
+  LIGHT_BOMBER:     'AIRFIELD',
+  OBS_PLANE:        'AIRFIELD',
+  // Air — unlockable chassis
+  MONOPLANE_FIGHTER:'AIRFIELD',
+  DIVE_BOMBER:      'AIRFIELD',
+  HEAVY_BOMBER:     'AIRFIELD',
+  // Ground — unlockable chassis
+  MEDIUM_TANK:      'VEHICLE_DEPOT',
+  SPG:              'VEHICLE_DEPOT',
+  ARMORED_CAR:      'VEHICLE_DEPOT',
+  ASSAULT_INFANTRY: 'BARRACKS',
 };
+
+// Which chassis require research to unlock (keyed by unit type)
+export const LOCKED_CHASSIS = new Set([
+  'MONOPLANE_FIGHTER','DIVE_BOMBER','HEAVY_BOMBER',
+  'MEDIUM_TANK','SPG','ARMORED_CAR','ASSAULT_INFANTRY',
+]);
 
 // Naval unit types set (for movement/terrain checks)
 export const NAVAL_UNITS = new Set(['PATROL_BOAT','MTB','SUBMARINE','DESTROYER','CRUISER_LT','CRUISER_HV','BATTLESHIP','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG']);
-// Air unit types set
-export const AIR_UNITS = new Set(['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE']);
+// Air unit types set (base + unlockable)
+export const AIR_UNITS = new Set(['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE','MONOPLANE_FIGHTER','DIVE_BOMBER','HEAVY_BOMBER']);
 // Units that can enter shallow water (type 4)
 export const SHALLOW_UNITS = new Set(['PATROL_BOAT','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG']);
 // Units that can land on sand/beach (type 6) — amphibious disembark
@@ -1695,6 +1718,24 @@ export function resolveEndOfTurn(state, terrain) {
         resState.queue.splice(qi, 1); qi--;
         events.push(`P${player} researched: ${tech.name}!`);
         if (tech.effect.extraResearchSlots) resState.slots = (resState.slots || 1) + tech.effect.extraResearchSlots;
+        // Chassis unlock: auto-create Mk.0 base design for immediate use
+        if (tech.effect.unlockChassis) {
+          const chassis = tech.effect.unlockChassis;
+          const mkName  = `${UNIT_TYPES[chassis]?.name || chassis} Mk.0`;
+          if (!state.designs[player]) state.designs[player] = [];
+          const alreadyHas = state.designs[player].some(d => d.chassis === chassis && d.name === mkName);
+          if (!alreadyHas && state.designs[player].length < MAX_DESIGNS_PER_PLAYER) {
+            const baseStats = Object.assign({}, UNIT_TYPES[chassis] || {});
+            state.designs[player].push({
+              id: Date.now() + player * 1000 + Math.floor(Math.random() * 999),
+              name: mkName, chassis, modules: [],
+              stats: baseStats,
+              trainCost: { iron: baseStats.cost?.iron ?? 0, oil: baseStats.cost?.oil ?? 0 },
+              isBaseMk0: true,
+            });
+            events.push(`P${player} unlocked new chassis: ${mkName} — available in Unit Designer.`);
+          }
+        }
       }
     }
   }

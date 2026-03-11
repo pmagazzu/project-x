@@ -1,18 +1,14 @@
 """
-gen_hill_tiles.py  -- 10 hill tile variants for terrain type 3.
+gen_hill_tiles.py  v3 -- Same technique as gen_mountain_tiles.py.
 
-Style:
-  - Rolling contours, brownish-green palette
-  - Subtle elevation bumps with soft shadowing (no sharp mountain peaks)
-  - Organic rounded ridgelines, grainy texture
-  - Transparent RGBA background (art layer over terrainGfx base fill)
-  - 256x256 px, 4px cell grid
-
-Cell size: 4px (64x64 grid).
+Scan-line approach, 4px cells, transparent RGBA overlay.
+Low wide humps (height:width ~1:3) vs tall narrow mountain peaks.
+Warm olive-brown palette reads as grassy earthen hills.
+Same light source (upper-left), sun/shadow faces, base footprint, dithered scatter.
 """
 
-import random, os, math
-from PIL import Image, ImageDraw, ImageFilter
+import random, os
+from PIL import Image, ImageDraw
 
 W, H    = 256, 256
 CELL    = 4
@@ -20,128 +16,108 @@ COLS    = W // CELL   # 64
 ROWS    = H // CELL   # 64
 OUT_DIR = "phaser/public/user_art"
 
-def rgb(r, g, b, a=255): return (r, g, b, a)
+def rgb(r, g, b): return (r, g, b, 255)
 
-# Brownish-green hill palette — warmer, lighter, more earthen
-P_BASE    = [rgb(112,118,74), rgb(106,112,68), rgb(118,124,78), rgb(102,108,66), rgb(114,120,72)]
-P_MID     = [rgb(132,130,86), rgb(124,122,80), rgb(138,136,90), rgb(128,126,83), rgb(134,132,88)]
-P_LIGHT   = [rgb(158,150,102),rgb(150,143,96), rgb(164,156,108),rgb(154,147,100),rgb(160,153,104)]
-P_SHADOW  = [rgb(80,86,52),   rgb(74,80,48),   rgb(86,92,56),   rgb(78,84,50),   rgb(82,88,54)]
-P_CREST   = [rgb(178,168,116),rgb(170,161,110),rgb(184,174,122),rgb(174,165,113),rgb(180,171,118)]
-P_DARK    = [rgb(68,74,44),   rgb(62,68,40),   rgb(74,80,48),   rgb(66,72,42),   rgb(70,76,46)]
+# Warm olive-brown palette — grassy earthen hills, NOT forest green, NOT rocky grey
+P_BASE   = [rgb(106,114,60), rgb(114,122,66), rgb(100,108,56), rgb(110,118,62), rgb(118,126,70)]
+P_SHADOW = [rgb(72, 80, 38),  rgb(68, 76, 34),  rgb(76, 84, 42),  rgb(80, 88, 44),  rgb(66, 74, 32)]
+P_MID    = [rgb(130,128,72),  rgb(136,134,78),  rgb(124,122,68),  rgb(142,140,84),  rgb(128,126,70)]
+P_SUN    = [rgb(160,152,90),  rgb(168,160,98),  rgb(152,144,84),  rgb(172,164,102), rgb(156,148,88)]
+P_CREST  = [rgb(188,178,110), rgb(196,186,118), rgb(180,170,104), rgb(200,190,122), rgb(184,174,108)]
+P_DARK   = [rgb(58, 64, 32),  rgb(54, 60, 28),  rgb(62, 68, 36),  rgb(56, 62, 30)]
 
 def fill_cell(draw, cx, cy, color):
     x0, y0 = cx * CELL, cy * CELL
-    draw.rectangle([x0, y0, x0 + CELL - 1, y0 + CELL - 1], fill=color)
+    draw.rectangle([x0, y0, x0+CELL-1, y0+CELL-1], fill=color)
 
 def pick(rng, palette):
     return rng.choice(palette)
 
-def draw_hill_tile(variant: int) -> Image.Image:
-    rng = random.Random(variant * 3571 + 123456789)
+def draw_tile(variant: int) -> Image.Image:
+    rng = random.Random(variant * 5381 + 271828182)
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    # Each variant has 1-3 rolling hill humps
-    # Format: (center_cx, center_cy, radius_x, radius_y, has_crest)
+    # Hump configs: (apex_cx, apex_cy, base_lx, base_rx, base_cy)
+    # Low and wide -- height 12-18 cells, width 28-48 cells (~1:3 ratio like real hills)
+    # base_cy kept in lower 2/3 of tile so humps sit on the ground
     configs = [
-        # v0: single central hump
-        [(32, 28, 22, 14, True)],
-        # v1: two side humps
-        [(18, 30, 16, 10, True), (46, 28, 17, 11, True)],
-        # v2: one tall central with shadow sweep
-        [(32, 24, 26, 16, True)],
-        # v3: ridge running left-right
-        [(16, 30, 13, 9, True), (32, 26, 18, 13, True), (48, 30, 13, 9, True)],
-        # v4: off-center large hump
-        [(38, 26, 24, 15, True)],
-        # v5: two overlapping humps
-        [(24, 28, 20, 12, True), (40, 30, 18, 11, False)],
-        # v6: wide shallow hill
-        [(32, 32, 28, 10, True)],
-        # v7: three small bumps
-        [(14, 32, 12, 8, False), (32, 26, 16, 12, True), (50, 32, 12, 8, False)],
-        # v8: right-leaning hump
-        [(40, 25, 22, 14, True)],
-        # v9: double ridge
-        [(20, 24, 18, 12, True), (44, 26, 20, 13, True)],
+        [(32, 20, 10, 54, 36)],                                          # 0: single central
+        [(18, 24,  3, 34, 38), (46, 22, 30, 60, 37)],                  # 1: two side humps
+        [(32, 17,  6, 58, 36)],                                          # 2: wide single
+        [(16, 26,  2, 28, 38), (32, 20, 18, 46, 36), (50, 26, 36, 62, 38)],  # 3: ridge
+        [(24, 21,  4, 46, 36)],                                          # 4: left-lean
+        [(40, 22, 18, 60, 37)],                                          # 5: right-lean
+        [(26, 21,  6, 44, 36), (44, 23, 32, 58, 37)],                  # 6: close pair
+        [(32, 16, 12, 52, 36)],                                          # 7: tall central
+        [(32, 23,  8, 56, 37)],                                          # 8: shallow wide
+        [(20, 20,  3, 38, 36), (46, 22, 32, 62, 37)],                  # 9: wide double
     ]
+    peaks = configs[variant % len(configs)]
 
-    humps = configs[variant % len(configs)]
+    # ── Base footprint beneath each hump (drawn first, behind) ─────────────
+    for (ax, ay, blx, brx, by) in peaks:
+        for cy in range(by - 1, min(by + 4, ROWS)):
+            t_base = (cy - (by - 1)) / 4.0
+            lx = blx + int(t_base * 4)
+            rx = brx - int(t_base * 4)
+            for cx in range(max(0, lx), min(COLS, rx + 1)):
+                fill_cell(draw, cx, cy, pick(rng, P_BASE))
 
-    for (cx, cy, rx, ry, has_crest) in humps:
-        crest_thresh = 0.35   # top fraction = bright crest
-        shadow_side  = 0.55   # cx fraction where shadow starts
+    # ── Draw humps back-to-front (highest apex_cy drawn last = front) ──────
+    for (ax, ay, blx, brx, by) in sorted(peaks, key=lambda p: p[1], reverse=True):
+        height = by - ay
+        if height <= 0:
+            continue
 
-        for row in range(ROWS):
-            for col in range(COLS):
-                # Ellipse distance (0=center, 1=edge)
-                dx = (col - cx) / rx
-                dy = (row - cy) / ry
-                dist = math.sqrt(dx*dx + dy*dy)
+        for cy in range(ay, by + 1):
+            t = (cy - ay) / height       # 0=apex, 1=base
+            lx = ax + t * (blx - ax)
+            rx = ax + t * (brx - ax)
 
-                if dist > 1.0:
-                    continue
+            # Organic edge noise — smaller than mountains (hills are smoother)
+            edge_noise = 1.2 * (1 - t * 0.4)
+            lxi = max(0, int(lx + rng.uniform(-edge_noise, edge_noise * 0.2)))
+            rxi = min(COLS - 1, int(rx + rng.uniform(-edge_noise * 0.2, edge_noise)))
 
-                # Vertical height ratio: 0=bottom of ellipse,1=top
-                # cy-ry is top, cy+ry is bottom
-                vert_t = (cy - row) / ry if ry > 0 else 0  # positive = upper half
-
-                # Skip lower rim (dist > 0.9 and not top) — makes it look like a hill not a full ellipse
-                if dist > 0.88 and vert_t < 0.1:
-                    if rng.random() > 0.3:
-                        continue
-
-                # Determine color region
-                if has_crest and vert_t > crest_thresh and dist < 0.55:
-                    # Crest (brightest)
+            for cx in range(lxi, rxi + 1):
+                # Crest: top ~30% and near apex center
+                in_crest = (cy - ay) < int(height * 0.30) and (lxi + rxi) // 2 - 3 < cx < (lxi + rxi) // 2 + 3
+                if in_crest:
                     c = pick(rng, P_CREST)
-                elif vert_t > 0.1 and dist < 0.65:
-                    if col > cx + shadow_side * rx * 0.4:
-                        # Sun-facing right side — lighter
-                        c = pick(rng, P_LIGHT if vert_t > 0.3 else P_MID)
-                    else:
-                        c = pick(rng, P_MID)
-                elif dist < 0.85:
-                    # Lower slopes
-                    if col < cx - rx * 0.3:
-                        c = pick(rng, P_SHADOW)
-                    elif col > cx + rx * 0.1:
-                        c = pick(rng, P_BASE)
-                    else:
-                        c = pick(rng, P_MID if rng.random() < 0.5 else P_BASE)
+                elif cy - ay < 4:
+                    # Near apex
+                    c = pick(rng, P_SUN if cx >= ax else P_MID)
+                elif cx < ax - 1:
+                    # Sun-facing side (upper-left light source) — right of apex is shadow
+                    fade = t
+                    c = pick(rng, P_SUN if fade < 0.5 else P_MID)
+                elif cx > ax + 1:
+                    # Shadow side
+                    c = pick(rng, P_SHADOW if t > 0.4 else P_MID)
                 else:
-                    # Rim / edge scatter
-                    c = pick(rng, P_DARK if rng.random() < 0.4 else P_BASE)
+                    c = pick(rng, P_MID)
 
-                # Grain noise: occasionally flip shade
-                if rng.random() < 0.12:
-                    c = pick(rng, P_SHADOW if rng.random() < 0.5 else P_MID)
+                fill_cell(draw, cx, cy, c)
 
-                fill_cell(draw, col, row, c)
+        # ── Dithered edge scatter (within hump horizontal bounds) ───────────
+        for cy in range(ay + 3, by):
+            t = (cy - ay) / height
+            lx = ax + t * (blx - ax)
+            rx = ax + t * (brx - ax)
+            for _ in range(2):
+                scatter_cx = int(lx) - rng.randint(1, 2)
+                if blx - 2 <= scatter_cx < COLS:
+                    fill_cell(draw, scatter_cx, cy, pick(rng, P_MID if t < 0.5 else P_BASE))
+                scatter_cx = int(rx) + rng.randint(1, 2)
+                if 0 <= scatter_cx <= brx + 2:
+                    fill_cell(draw, scatter_cx, cy, pick(rng, P_SHADOW if t > 0.4 else P_BASE))
 
-        # Shadow cast to bottom-right of hump
-        shadow_rows = int(ry * 0.35)
-        for row in range(cy, cy + ry + shadow_rows):
-            for col in range(cx, cx + rx + 4):
-                sdx = (col - cx - 2) / (rx * 0.85)
-                sdy = (row - cy - 2) / (ry * 0.85)
-                if math.sqrt(sdx*sdx + sdy*sdy) > 1.0:
-                    continue
-                # Only where the base tile is transparent (don't draw on top of existing hump)
-                px_val = img.getpixel((col * CELL, row * CELL))
-                if px_val[3] == 0 and row > cy + ry * 0.5:
-                    if rng.random() < 0.45:
-                        fill_cell(draw, col, row, (*P_DARK[0][:3], 140))  # semi-transparent shadow
-
-    # Dithered texture scatter across the whole tile (gives grassy grain)
-    for _ in range(rng.randint(80, 140)):
-        col = rng.randint(4, COLS - 5)
-        row = rng.randint(4, ROWS - 5)
-        px_val = img.getpixel((col * CELL, row * CELL))
-        if px_val[3] > 0:
-            c = pick(rng, P_BASE if rng.random() < 0.5 else P_SHADOW)
-            fill_cell(draw, col, row, c)
+        # ── Grass texture flecks across the hump ───────────────────────────
+        for _ in range(rng.randint(6, 12)):
+            cx = rng.randint(blx, brx)
+            cy = rng.randint(ay + 3, by - 1)
+            fill_cell(draw, cx, cy, pick(rng, P_MID if rng.random() < 0.6 else P_SUN))
 
     return img
 
@@ -149,11 +125,11 @@ def draw_hill_tile(variant: int) -> Image.Image:
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     for i in range(1, 11):
-        tile = draw_hill_tile(i - 1)
+        tile = draw_tile(i - 1)
         path = os.path.join(OUT_DIR, f"hill_tile_{i:02d}.png")
         tile.save(path)
-        print(f"  Saved {path}")
-    print("Done — 10 hill tiles generated.")
+        print(f"  {path}")
+    print("Done.")
 
 if __name__ == "__main__":
     main()

@@ -14,7 +14,7 @@ import {
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, computeDesignStats,
   NAVAL_UNITS, SHALLOW_UNITS, AIR_UNITS, canEnterTerrain, isStealthDetected,
-  ROAD_TYPES
+  ROAD_TYPES, LOCKED_CHASSIS
 } from './GameState.js';
 import { TECH_TREE, RESEARCH_BRANCHES, prereqsMet, computeTechBonuses } from './ResearchData.js';
 
@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.0.9';
+const GAME_VERSION = 'v1.1.0';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2520,13 +2520,11 @@ export class GameScene extends Phaser.Scene {
     this._designerOpen  = true;
     if (this.btnDesigner) this.btnDesigner.setStyle({ backgroundColor: '#2a6644' });
 
-    // All chassis types and whether they're unlocked for this player
-    // Chassis unlocked by default or via research tech bonuses
+    // Chassis available = always-available (not locked) + research-unlocked
     const bonuses = computeTechBonuses(gs.players[p].research?.unlocked || []);
-    const ALWAYS_UNLOCKED = new Set(Object.keys(CHASSIS_BUILDINGS));
-    // Future: filter by bonuses.unlockedChassis — for now all are available
-
-    const ALL_CHASSIS = Object.keys(CHASSIS_BUILDINGS);
+    const ALL_CHASSIS = Object.keys(CHASSIS_BUILDINGS).filter(ch =>
+      !LOCKED_CHASSIS.has(ch) || bonuses.unlockedChassis.has(ch)
+    );
 
     let selChassis = ALL_CHASSIS[0] || null;
     let selMods    = new Set();
@@ -3413,152 +3411,181 @@ export class GameScene extends Phaser.Scene {
     this._closeSettings();
     this._closeDesigner?.();
     this._researchOpen = true;
-    const gs = this.gameState;
-    const p  = gs.currentPlayer;
-    const pl = gs.players[p];
-    const res = pl.research || { queue: [], unlocked: [], slots: 1 };
+    const gs  = this.gameState;
+    const p   = gs.currentPlayer;
+    const pl  = gs.players[p];
+    if (!pl.research) pl.research = { queue: [], unlocked: [], slots: 1 };
+    const res = pl.research;
     const unlockedSet = new Set(res.unlocked || []);
     const w = this.scale.width, h = this.scale.height;
-    const panW = Math.min(720, w - 40), panH = Math.min(520, h - 80);
+    const panW = Math.min(860, w - 30), panH = h - 60;
     const px = w / 2, py = h / 2;
     const D = 195;
     const objs = [];
 
     // Panel background
-    const bg = this.add.rectangle(px, py, panW, panH, 0x0d0d1a, 0.97)
-      .setStrokeStyle(2, 0x664499).setScrollFactor(0).setDepth(D);
+    const bg = this.add.rectangle(px, py, panW, panH, 0x080c14, 0.97)
+      .setStrokeStyle(2, 0x553388).setScrollFactor(0).setDepth(D);
     objs.push(bg);
-    objs.push(this.add.text(px, py - panH/2 + 14, '── RESEARCH ──', {
+    const hdrStrip = this.add.rectangle(px, py - panH/2 + 20, panW, 40, 0x0e0820, 1)
+      .setScrollFactor(0).setDepth(D);
+    objs.push(hdrStrip);
+    objs.push(this.add.text(px, py - panH/2 + 14, '\u2500\u2500 RESEARCH \u2500\u2500', {
       font: 'bold 14px monospace', fill: '#cc88ff'
-    }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+1));
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1));
 
-    // Labs info
     const labs = gs.buildings.filter(b => b.type === 'SCIENCE_LAB' && b.owner === p && !b.underConstruction).length;
-    const inc = calcIncome(gs, p);
-    const bonuses = computeTechBonuses(unlockedSet);
-    const rpBonus = bonuses.rpBonusPerLab;
-    objs.push(this.add.text(px, py - panH/2 + 32, `Science Labs: ${labs}  |  RP/turn: +${inc.rp}  |  Slots: ${res.slots || 1}`, {
-      font: '11px monospace', fill: '#9966cc'
-    }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+1));
+    const inc  = calcIncome(gs, p);
+    objs.push(this.add.text(px, py - panH/2 + 33, `Labs: ${labs}  |  +${inc.rp} RP/turn  |  Slots: ${res.slots || 1}  |  Queue: ${res.queue.length}`, {
+      font: '10px monospace', fill: '#8866aa'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1));
 
-    // Branch tabs
-    const branches = Object.entries(RESEARCH_BRANCHES);
-    const tabW = Math.floor((panW - 20) / branches.length);
-    const tabY = py - panH/2 + 52;
-    let selBranch = this._researchSelBranch || branches[0][0];
-    const _TECH_TREE = TECH_TREE;
+    const closeBtn = this.add.text(px + panW/2 - 10, py - panH/2 + 20, '\u2715', {
+      font: 'bold 16px monospace', fill: '#888888'
+    }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerdown', () => this._closeResearch());
+    closeBtn.on('pointerover', () => closeBtn.setStyle({ fill: '#ffffff' }));
+    closeBtn.on('pointerout',  () => closeBtn.setStyle({ fill: '#888888' }));
+    objs.push(closeBtn);
+
+    const branches  = Object.entries(RESEARCH_BRANCHES);
+    const tabW      = Math.floor((panW - 20) / branches.length);
+    const tabY      = py - panH/2 + 52;
+    let selBranch   = this._researchSelBranch || branches[0][0];
+
+    const KIND_COLOR = { chassis:0xddaa00, building:0x44bb44, economy:0x44aacc, stat:0x6688cc, research:0xcc66cc };
+    const KIND_LABEL = { chassis:'\ud83d\udd13 NEW CHASSIS', building:'\ud83c\udfd7 BUILDING', economy:'\ud83d\udcc8 ECONOMY', stat:'\ud83d\udcca STAT', research:'\u26d7 RESEARCH' };
 
     const makePanel = (branch) => {
-      // Clear existing content including tabs (redrawn on every switch)
       if (this._researchContentObjs) {
         for (const o of this._researchContentObjs) { try { o.destroy(); } catch(e){} }
       }
       this._researchContentObjs = [];
       this._researchSelBranch = branch;
       const addC = (obj) => { this._researchContentObjs.push(obj); this._addToUI([obj]); };
+      const gfx = this.add.graphics().setScrollFactor(0).setDepth(D+1);
+      addC(gfx);
 
-      // ── Redraw tabs with updated selected state ─────────────────────────
-      branches.forEach(([key, branchDef], i) => {
-        const tx = px - panW/2 + 10 + i * (tabW + 2) + tabW/2;
+      // Branch tabs
+      branches.forEach(([key, def], i) => {
+        const tx = px - panW/2 + 10 + i * (tabW + 2) + tabW / 2;
         const isSel = key === branch;
-        const tabBg = this.add.rectangle(tx, tabY, tabW, 22, isSel ? 0x442266 : 0x1a1a2a, 1)
-          .setStrokeStyle(1, isSel ? 0xcc88ff : 0x334455).setScrollFactor(0).setDepth(D+2).setOrigin(0.5, 0.5);
-        const tabTxt = this.add.text(tx, tabY, `${branchDef.icon} ${branchDef.label}`, {
-          font: `${isSel ? 'bold ' : ''}10px monospace`, fill: isSel ? '#cc88ff' : '#778899'
-        }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(D+3);
-        tabBg.setInteractive({ useHandCursor: true });
-        tabBg.on('pointerdown', () => { this._contextMenuClicked = true; makePanel(key); });
-        addC(tabBg); addC(tabTxt);
+        const tb = this.add.rectangle(tx, tabY, tabW, 22, isSel ? 0x331a55 : 0x111122, 1)
+          .setStrokeStyle(1, isSel ? 0xcc88ff : 0x333355).setScrollFactor(0).setDepth(D+2).setOrigin(0.5);
+        tb.setInteractive({ useHandCursor: true });
+        tb.on('pointerdown', () => { this._contextMenuClicked = true; makePanel(key); });
+        addC(tb);
+        addC(this.add.text(tx, tabY, `${def.icon} ${def.label}`, {
+          font: `${isSel ? 'bold ' : ''}10px monospace`, fill: isSel ? '#cc88ff' : '#667788'
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(D+3));
       });
 
-      const techs = Object.values(_TECH_TREE).filter(t => t.branch === branch);
-      const cellW = Math.floor((panW - 30) / 2);
-      const cellH = 72;
-      const startX = px - panW/2 + 15;
-      const startY = tabY + 28;
+      // Tree layout
+      const branchTechs = Object.values(TECH_TREE).filter(t => t.branch === branch);
+      const byTier = {};
+      for (const t of branchTechs) { (byTier[t.tier] = byTier[t.tier] || []).push(t); }
+      const tiers   = Object.keys(byTier).map(Number).sort((a,b) => a-b);
+      const nodeW   = 196, nodeH = 76, tierGapY = 52, nodeGapX = 12;
+      const treeTop = tabY + 28;
+      const nodePos = {};
 
-      techs.forEach((tech, idx) => {
-        const col = idx % 2, row = Math.floor(idx / 2);
-        const cx = startX + col * (cellW + 10);
-        const cy = startY + row * (cellH + 6);
+      tiers.forEach((tier, ti) => {
+        const row    = byTier[tier];
+        const totalW = row.length * (nodeW + nodeGapX) - nodeGapX;
+        const rowX0  = px - totalW / 2 + nodeW / 2;
+        const rowY   = treeTop + ti * (nodeH + tierGapY) + nodeH / 2;
+        row.forEach((tech, ri) => { nodePos[tech.id] = { x: rowX0 + ri*(nodeW+nodeGapX), y: rowY }; });
+      });
+
+      // Prereq lines
+      gfx.lineStyle(2, 0x553388, 0.55);
+      for (const tech of branchTechs) {
+        const to = nodePos[tech.id];
+        if (!to) continue;
+        for (const preId of (tech.prereqs || [])) {
+          const from = nodePos[preId];
+          if (!from) continue;
+          const fx=from.x, fy=from.y+nodeH/2, tx2=to.x, ty2=to.y-nodeH/2;
+          gfx.beginPath();
+          gfx.moveTo(fx,fy); gfx.lineTo(fx, fy+(ty2-fy)*0.4);
+          gfx.lineTo(tx2, fy+(ty2-fy)*0.6); gfx.lineTo(tx2,ty2);
+          gfx.strokePath();
+          gfx.fillStyle(0x553388,0.55);
+          gfx.fillTriangle(tx2,ty2,tx2-4,ty2-7,tx2+4,ty2-7);
+        }
+      }
+
+      // Nodes
+      for (const tech of branchTechs) {
+        const pos = nodePos[tech.id];
+        if (!pos) continue;
+        const { x:nx, y:ny } = pos;
+        const nx0=nx-nodeW/2, ny0=ny-nodeH/2;
         const isUnlocked = unlockedSet.has(tech.id);
-        const inQueue = res.queue.some(q => q.techId === tech.id);
-        const active = res.queue[0]?.techId === tech.id;
-        const prereqOk = prereqsMet(tech.id, unlockedSet);
-        const canQueue = !isUnlocked && !inQueue && prereqOk;
+        const inQueue    = res.queue.some(q => q.techId === tech.id);
+        const isActive   = res.queue[0]?.techId === tech.id;
+        const prereqOk   = prereqsMet(tech.id, unlockedSet);
+        const isChassis  = tech.kind === 'chassis';
+        const kindColor  = KIND_COLOR[tech.kind] || 0x6688cc;
+        const fillC      = isUnlocked ? 0x142614 : inQueue ? 0x141426 : prereqOk ? 0x12121e : 0x0c0c12;
+        const borderC    = isUnlocked ? 0x44cc44 : isActive ? 0xcc88ff : isChassis ? 0xddaa00 : kindColor;
 
-        let bgColor = isUnlocked ? 0x1a3a1a : (inQueue ? 0x1a1a3a : (prereqOk ? 0x1a1a2a : 0x111118));
-        const cellBg = this.add.rectangle(cx + cellW/2, cy + cellH/2, cellW, cellH, bgColor, 0.95)
-          .setStrokeStyle(active ? 2 : 1, active ? 0xcc88ff : (isUnlocked ? 0x44aa44 : 0x334455))
-          .setScrollFactor(0).setDepth(D+2).setOrigin(0.5, 0.5);
-        addC(cellBg);
+        const nodeBg = this.add.rectangle(nx, ny, nodeW, nodeH, fillC, 0.96)
+          .setStrokeStyle(isChassis||isActive ? 2 : 1, borderC).setScrollFactor(0).setDepth(D+2).setOrigin(0.5);
+        addC(nodeBg);
 
-        const statusTag = isUnlocked ? '✓' : (active ? '▶' : (inQueue ? '◌' : (prereqOk ? '' : '🔒')));
-        addC(this.add.text(cx + 4, cy + 4, `${statusTag} ${tech.name}`, {
-          font: `bold 11px monospace`, fill: isUnlocked ? '#66cc66' : (prereqOk ? '#ddccff' : '#556677'),
-          wordWrap: { width: cellW - 8 }
+        // Kind badge top-right
+        const badgeTxt = KIND_LABEL[tech.kind] || '';
+        if (badgeTxt) {
+          addC(this.add.text(nx+nodeW/2-3, ny0+3, badgeTxt, {
+            font:'8px monospace', fill:'#' + kindColor.toString(16).padStart(6,'0')
+          }).setOrigin(1,0).setScrollFactor(0).setDepth(D+3));
+        }
+
+        const icon    = isUnlocked ? '\u2713' : isActive ? '\u25b6' : inQueue ? '\u25cc' : prereqOk ? '' : '\ud83d\udd12';
+        const nameClr = isUnlocked ? '#66dd66' : isChassis ? '#ffdd88' : prereqOk ? '#ccddff' : '#445566';
+        addC(this.add.text(nx0+5, ny0+4, `${icon} ${tech.name}`, {
+          font:'bold 10px monospace', fill:nameClr, wordWrap:{width:nodeW-40}
         }).setScrollFactor(0).setDepth(D+3));
-        addC(this.add.text(cx + 4, cy + 22, tech.desc, {
-          font: '10px monospace', fill: '#8888aa',
-          wordWrap: { width: cellW - 8 }
+
+        addC(this.add.text(nx0+5, ny0+19, tech.desc, {
+          font:'9px monospace', fill:'#7788aa', wordWrap:{width:nodeW-10}
         }).setScrollFactor(0).setDepth(D+3));
 
-        // Progress bar if in queue
+        addC(this.add.text(nx0+5, ny+nodeH/2-13, `Cost: ${tech.cost} RP`, {
+          font:'9px monospace', fill:'#8866aa'
+        }).setScrollFactor(0).setDepth(D+3));
+
         if (inQueue) {
           const item = res.queue.find(q => q.techId === tech.id);
-          const pct  = Math.min(1, (item.rpSpent || 0) / tech.cost);
-          addC(this.add.rectangle(cx + 4, cy + cellH - 10, (cellW - 8) * pct, 6, 0x8844ff, 1).setScrollFactor(0).setDepth(D+3).setOrigin(0,0.5));
-          addC(this.add.rectangle(cx + 4, cy + cellH - 10, cellW - 8, 6, 0x334455, 0.4).setScrollFactor(0).setDepth(D+2).setOrigin(0,0.5));
-          addC(this.add.text(cx + cellW - 4, cy + cellH - 10, `${Math.round(pct*100)}%`, {
-            font: '9px monospace', fill: '#9966cc'
-          }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D+3));
+          const pct  = Math.min(1, (item?.rpSpent||0)/tech.cost);
+          addC(this.add.rectangle(nx0+5, ny+nodeH/2-5, (nodeW-10)*pct, 5, 0x9944ff, 1).setScrollFactor(0).setDepth(D+3).setOrigin(0,0.5));
+          addC(this.add.rectangle(nx0+5, ny+nodeH/2-5, nodeW-10, 5, 0x222233, 0.4).setScrollFactor(0).setDepth(D+2).setOrigin(0,0.5));
+          addC(this.add.text(nx+nodeW/2-3, ny+nodeH/2-5, `${Math.round(pct*100)}%`, {
+            font:'8px monospace', fill:'#aa88cc'
+          }).setOrigin(1,0.5).setScrollFactor(0).setDepth(D+3));
         }
 
-        // Cost / Queue button
-        if (canQueue) {
-          const qBtn = this.add.text(cx + cellW - 4, cy + 4, `▶ Queue (${tech.cost} RP)`, {
-            font: '10px monospace', fill: '#ffcc44',
-            backgroundColor: '#2a1a44', padding: { x: 4, y: 2 }
-          }).setOrigin(1, 0).setScrollFactor(0).setDepth(D+4).setInteractive({ useHandCursor: true });
-          qBtn.on('pointerdown', () => {
-            this._contextMenuClicked = true;
-            if (!pl.research) pl.research = { queue: [], unlocked: [], slots: 1 };
-            pl.research.queue.push({ techId: tech.id, rpSpent: 0 });
-            this._closeResearch();
-            this._openResearch();
-          });
-          qBtn.on('pointerover', () => qBtn.setAlpha(0.8));
-          qBtn.on('pointerout',  () => qBtn.setAlpha(1.0));
-          addC(qBtn);
+        if (!isUnlocked && !inQueue && prereqOk) {
+          const qb = this.add.text(nx+nodeW/2-3, ny0+3, '\u25b6 Queue', {
+            font:'bold 9px monospace', fill:'#ffcc44', backgroundColor:'#221a00', padding:{x:3,y:2}
+          }).setOrigin(1,0).setScrollFactor(0).setDepth(D+4).setInteractive({useHandCursor:true});
+          qb.on('pointerdown', () => { this._contextMenuClicked=true; res.queue.push({techId:tech.id,rpSpent:0}); makePanel(branch); });
+          qb.on('pointerover', () => qb.setAlpha(0.8));
+          qb.on('pointerout',  () => qb.setAlpha(1.0));
+          addC(qb);
         }
-        // Cancel button for queued
         if (inQueue && !isUnlocked) {
-          const cBtn = this.add.text(cx + 4, cy + cellH - 22, '✕ Cancel', {
-            font: '10px monospace', fill: '#ff6644',
-            backgroundColor: '#2a1111', padding: { x: 3, y: 2 }
-          }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+4).setInteractive({ useHandCursor: true });
-          cBtn.on('pointerdown', () => {
-            this._contextMenuClicked = true;
-            pl.research.queue = pl.research.queue.filter(q => q.techId !== tech.id);
-            this._closeResearch();
-            this._openResearch();
-          });
-          cBtn.on('pointerover', () => cBtn.setAlpha(0.8));
-          cBtn.on('pointerout',  () => cBtn.setAlpha(1.0));
-          addC(cBtn);
+          const cb = this.add.text(nx+nodeW/2-3, ny+nodeH/2-15, '\u2715 Cancel', {
+            font:'9px monospace', fill:'#ff6644', backgroundColor:'#220000', padding:{x:3,y:2}
+          }).setOrigin(1,1).setScrollFactor(0).setDepth(D+4).setInteractive({useHandCursor:true});
+          cb.on('pointerdown', () => { this._contextMenuClicked=true; res.queue=res.queue.filter(q=>q.techId!==tech.id); makePanel(branch); });
+          cb.on('pointerover', () => cb.setAlpha(0.8));
+          cb.on('pointerout',  () => cb.setAlpha(1.0));
+          addC(cb);
         }
-      });
+      }
     };
-
-    // (Tabs are now drawn inside makePanel so they update on selection change)
-
-    // Close button
-    const closeBtn = this.add.text(px + panW/2 - 8, py - panH/2 + 8, '✕', {
-      font: 'bold 16px monospace', fill: '#cc4444',
-      backgroundColor: '#220000', padding: { x: 6, y: 3 }
-    }).setOrigin(1, 0).setScrollFactor(0).setDepth(D+4).setInteractive({ useHandCursor: true });
-    closeBtn.on('pointerdown', () => this._closeResearch());
-    objs.push(closeBtn);
 
     this._addToUI(objs);
     this._researchObjs = objs;
