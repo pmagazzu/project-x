@@ -1355,39 +1355,56 @@ export function resolveTurn(state, terrain) {
     }
   }
 
-  // Phase 4: Tick recruit timers — spawn when turnsLeft reaches 0
+  // Phase 4: Tick recruit timers — only queue head per building advances each turn.
+  // This enforces true production line behavior (no parallel pop from same building).
+  const ticked = new Set();
   for (const recruit of state.pendingRecruits) {
+    const key = `${recruit.owner}:${recruit.buildingId}`;
+    if (ticked.has(key)) continue;
+    ticked.add(key);
     recruit.turnsLeft = Math.max(0, (recruit.turnsLeft ?? 1) - 1);
   }
-  const toSpawn = state.pendingRecruits.filter(r => r.turnsLeft <= 0);
-  state.pendingRecruits = state.pendingRecruits.filter(r => r.turnsLeft > 0);
+
+  const toSpawn = [];
+  const heads = new Set();
+  for (const recruit of state.pendingRecruits) {
+    const key = `${recruit.owner}:${recruit.buildingId}`;
+    if (heads.has(key)) continue;
+    heads.add(key);
+    if (recruit.turnsLeft <= 0) toSpawn.push(recruit);
+  }
+
   for (const recruit of toSpawn) {
     const b = state.buildings.find(b => b.id === recruit.buildingId);
-    if (!b || b.owner !== recruit.owner) continue;
-    // Determine the chassis type for terrain-aware spawn placement
+    if (!b || Number(b.owner) !== Number(recruit.owner)) continue;
     const spawnChassis = recruit.designId !== undefined
       ? (state.designs[recruit.owner].find(d => d.id === recruit.designId)?.chassis ?? null)
       : (recruit.type ?? null);
     const spawnHex = findFreeAdjacentHex(state, b.q, b.r, spawnChassis, state._terrain);
-    if (spawnHex) {
-      if (recruit.designId !== undefined) {
-        // Custom design spawn
-        const design = state.designs[recruit.owner].find(d => d.id === recruit.designId);
-        if (design) {
-          const unit = createUnit(design.chassis, recruit.owner, spawnHex.q, spawnHex.r);
-          // Apply custom stats
-          Object.assign(unit, { ...design.stats, q: spawnHex.q, r: spawnHex.r, owner: recruit.owner, id: unit.id, type: design.chassis, health: design.stats.health, maxHealth: design.stats.health, moved: false, attacked: false, dugIn: false, building: false, suppressed: false, designId: design.id, designName: design.name });
-          state.units.push(unit);
-          events.push(`P${recruit.owner} recruits ${design.name}`);
-        }
-      } else {
-        state.units.push(createUnit(recruit.type, recruit.owner, spawnHex.q, spawnHex.r));
-        events.push(`P${recruit.owner} recruits ${UNIT_TYPES[recruit.type].name}`);
+    if (!spawnHex) {
+      recruit.turnsLeft = 0; // stay ready; retry next turn
+      events.push(`P${recruit.owner} recruit delayed — no space near ${BUILDING_TYPES[b.type]?.name || 'building'}`);
+      continue;
+    }
+
+    if (recruit.designId !== undefined) {
+      const design = state.designs[recruit.owner].find(d => d.id === recruit.designId);
+      if (design) {
+        const unit = createUnit(design.chassis, recruit.owner, spawnHex.q, spawnHex.r);
+        Object.assign(unit, { ...design.stats, q: spawnHex.q, r: spawnHex.r, owner: recruit.owner, id: unit.id, type: design.chassis, health: design.stats.health, maxHealth: design.stats.health, moved: false, attacked: false, dugIn: false, building: false, suppressed: false, designId: design.id, designName: design.name });
+        state.units.push(unit);
+        events.push(`P${recruit.owner} recruits ${design.name}`);
+        recruit._spawned = true;
       }
     } else {
-      events.push(`P${recruit.owner} recruit failed — no space`);
+      state.units.push(createUnit(recruit.type, recruit.owner, spawnHex.q, spawnHex.r));
+      events.push(`P${recruit.owner} recruits ${UNIT_TYPES[recruit.type].name}`);
+      recruit._spawned = true;
     }
   }
+
+  // Remove only successfully spawned queue-head recruits
+  state.pendingRecruits = state.pendingRecruits.filter(r => !r._spawned);
 
   // Phase 4b: Air unit fuel (both players)
   for (const player of [1, 2]) {
@@ -1559,11 +1576,27 @@ export function resolveEndOfTurn(state, terrain) {
     }
   }
 
-  // Tick recruit timers for current player
-  for (const recruit of state.pendingRecruits.filter(r => Number(r.owner) === Number(player))) {
+  // Tick recruit timers for current player: only queue head per building progresses.
+  const tickedPlayer = new Set();
+  for (const recruit of state.pendingRecruits) {
+    if (Number(recruit.owner) !== Number(player)) continue;
+    const key = `${recruit.owner}:${recruit.buildingId}`;
+    if (tickedPlayer.has(key)) continue;
+    tickedPlayer.add(key);
     recruit.turnsLeft = Math.max(0, (recruit.turnsLeft ?? 1) - 1);
   }
-  for (const recruit of state.pendingRecruits.filter(r => Number(r.owner) === Number(player) && r.turnsLeft <= 0)) {
+
+  const spawnHeads = [];
+  const seenHeads = new Set();
+  for (const recruit of state.pendingRecruits) {
+    if (Number(recruit.owner) !== Number(player)) continue;
+    const key = `${recruit.owner}:${recruit.buildingId}`;
+    if (seenHeads.has(key)) continue;
+    seenHeads.add(key);
+    if (recruit.turnsLeft <= 0) spawnHeads.push(recruit);
+  }
+
+  for (const recruit of spawnHeads) {
     const b = state.buildings.find(b => b.id === recruit.buildingId);
     if (!b || Number(b.owner) !== Number(recruit.owner)) continue;
     const spawnChassis = recruit.designId !== undefined
@@ -1571,7 +1604,6 @@ export function resolveEndOfTurn(state, terrain) {
       : (recruit.type ?? null);
     const spawnHex = findFreeAdjacentHex(state, b.q, b.r, spawnChassis, state._terrain);
     if (!spawnHex) {
-      // Keep queued unit ready; retry next turn instead of dropping it.
       recruit.turnsLeft = 0;
       events.push(`P${recruit.owner} recruit delayed at ${BUILDING_TYPES[b.type]?.name || 'building'} (spawn blocked)`);
       continue;
