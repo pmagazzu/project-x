@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.20';
+const GAME_VERSION = 'v1.3.21';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2180,7 +2180,17 @@ export class GameScene extends Phaser.Scene {
       const hu   = unitAt(gs, this.hoveredHex.q, this.hoveredHex.r);
       this.unitNameTxt.setText(`(${this.hoveredHex.q}, ${this.hoveredHex.r})  ${t}${res ? `  [${RESOURCE_TYPES[res.type].name}]` : ''}`);
       this.unitStatsTxt.setText(bu ? `Building: ${BUILDING_TYPES[bu.type].name}  (P${bu.owner})` : '');
-      this.unitStatusTxt.setText(hu ? `Unit: P${hu.owner} ${UNIT_TYPES[hu.type].name}  HP: ${hu.health}/${hu.maxHealth}` : '');
+      if (hu) {
+        const huDef = UNIT_TYPES[hu.type];
+        const hoverOwn = Number(hu.owner) === Number(gs.currentPlayer);
+        const hoverName = hoverOwn && hu.designId !== undefined
+          ? (gs.designs[hu.owner]?.find(d => d.id === hu.designId)?.name || huDef.name)
+          : huDef.name;
+        const hoverPrefix = hoverOwn && hu.designId !== undefined ? '★ ' : '';
+        this.unitStatusTxt.setText(`Unit: P${hu.owner} ${hoverPrefix}${hoverName}  HP: ${hu.health}/${hu.maxHealth}`);
+      } else {
+        this.unitStatusTxt.setText('');
+      }
     } else {
       this.unitNameTxt.setText('No unit selected');
       this.unitStatsTxt.setText('');
