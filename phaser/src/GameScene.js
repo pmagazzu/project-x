@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.9';
+const GAME_VERSION = 'v1.3.10';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2688,7 +2688,9 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor: true });
     objs.push(confirm, cancel);
 
+    this._nameModalOpen = true;
     const cleanup = () => {
+      this._nameModalOpen = false;
       if (this._nameModalKeyCb) this.input.keyboard.off('keydown', this._nameModalKeyCb);
       this._nameModalKeyCb = null;
       for (const o of objs) { try { o.destroy(); } catch(e){} }
@@ -3044,10 +3046,11 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard.enableGlobalCapture();
     this.wasd = this.input.keyboard.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT');
     this._shiftKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
-    this.input.keyboard.on('keydown-ESC',   () => { if (!this._endTurnPending) this._toggleSettings(); });
-    this.input.keyboard.on('keydown-X',     () => { this._confirmEndTurn(); });
-    this.input.keyboard.on('keydown-S',     () => { this._toggleSupplyOverlay(); });
+    this.input.keyboard.on('keydown-ESC',   () => { if (this._nameModalOpen) return; if (!this._endTurnPending) this._toggleSettings(); });
+    this.input.keyboard.on('keydown-X',     () => { if (this._nameModalOpen) return; this._confirmEndTurn(); });
+    this.input.keyboard.on('keydown-S',     () => { if (this._nameModalOpen) return; this._toggleSupplyOverlay(); });
     this.input.keyboard.on('keydown-SPACE', () => {
+      if (this._nameModalOpen) return;
       if (this._splashDismiss) { this._splashDismiss(); this._splashDismiss = null; return; }
       if (this._endTurnPending) { this._onSubmit(); this._hideEndTurnConfirm(); return; }
       this._confirmEndTurn();
@@ -4024,12 +4027,13 @@ export class GameScene extends Phaser.Scene {
     const shiftHeld = this._shiftKey?.isDown ?? false;
     const speed = (6 / cam.zoom) * (shiftHeld ? 2.5 : 1);
     const W = this.wasd;
-    if (W.W.isDown || W.UP.isDown)    cam.scrollY -= speed;
-    if (W.S.isDown || W.DOWN.isDown)  cam.scrollY += speed;
-    if (W.A.isDown || W.LEFT.isDown)  cam.scrollX -= speed;
-    if (W.D.isDown || W.RIGHT.isDown) cam.scrollX += speed;
-    const moving = W.W.isDown || W.S.isDown || W.A.isDown || W.D.isDown ||
-                   W.UP.isDown || W.DOWN.isDown || W.LEFT.isDown || W.RIGHT.isDown;
+    const keyboardBlocked = !!this._nameModalOpen;
+    if (!keyboardBlocked && (W.W.isDown || W.UP.isDown))    cam.scrollY -= speed;
+    if (!keyboardBlocked && (W.S.isDown || W.DOWN.isDown))  cam.scrollY += speed;
+    if (!keyboardBlocked && (W.A.isDown || W.LEFT.isDown))  cam.scrollX -= speed;
+    if (!keyboardBlocked && (W.D.isDown || W.RIGHT.isDown)) cam.scrollX += speed;
+    const moving = !keyboardBlocked && (W.W.isDown || W.S.isDown || W.A.isDown || W.D.isDown ||
+                   W.UP.isDown || W.DOWN.isDown || W.LEFT.isDown || W.RIGHT.isDown);
     if (moving && this._contextMenuObjs) this._hideContextMenu();
 
     // Drive slide animation: redraw units every frame while slide is in progress
