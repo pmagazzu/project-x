@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.15';
+const GAME_VERSION = 'v1.3.16';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5826,7 +5826,7 @@ export class GameScene extends Phaser.Scene {
 
     // Global map-ocean ring: all procedural maps except landlocked get an ocean border.
     if (landProfile !== 'landlocked') {
-      const ring = 2; // extra tiles of ocean around the play area
+      const ring = 6; // extra tiles of ocean around the play area
       for (let q = 0; q < ms; q++) {
         for (let r = 0; r < ms; r++) {
           if (q < ring || r < ring || q >= ms - ring || r >= ms - ring) {
