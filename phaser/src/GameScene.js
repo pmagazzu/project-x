@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.26';
+const GAME_VERSION = 'v1.3.27';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5792,11 +5792,13 @@ export class GameScene extends Phaser.Scene {
       landlocked:     { scale: 0.060, sea: -99, edgeFalloff: 0.0, edgeStart: 1.0, islandAmp: 0.0, islandRad: 0.0, centers: [] },
     }[landProfile] || { scale: 0.075, sea: 0.44, edgeFalloff: 1.2, edgeStart: 0.55, islandAmp: 0.0, islandRad: 0.0, centers: [] };
 
-    const SCALE     = PROFILE.scale; // noise frequency — lower = larger landmasses
+    // Scale noise by map size so small maps don't become overly noisy/distorted.
+    const sizeScale = Phaser.Math.Clamp(ms / 40, 0.65, 1.25);
+    const SCALE     = PROFILE.scale * sizeScale; // lower = larger, smoother features
     const SEA_LV    = PROFILE.sea;   // below → ocean
     const COAST_LV  = SEA_LV + 0.04;
-    const HILL_LV   = 0.63;
-    const MTN_LV    = 0.76;
+    const HILL_LV   = 0.64;
+    const MTN_LV    = 0.79;
 
     // Build height map
     const h = {};
@@ -5833,14 +5835,25 @@ export class GameScene extends Phaser.Scene {
         }
 
         // Soft edge falloff with coastline roughness (avoids perfect geometric blobs)
-        let ex = ((q / ms) - 0.5) * 2;
-        let er = ((r / ms) - 0.5) * 2;
-        // Domain warp for organic coastlines (stronger on continent profiles)
+        const cxOff = (this._fbm(seed * 0.001, 11.3, seed + 51, 1) - 0.5) * 0.22;
+        const cyOff = (this._fbm(seed * 0.001, 19.7, seed + 77, 1) - 0.5) * 0.18;
+        let ex = ((q / ms) - (0.5 + cxOff)) * 2;
+        let er = ((r / ms) - (0.5 + cyOff)) * 2;
+
         const coastWarpA = this._fbm(q * 0.11 + 310, r * 0.11 + 740, seed + 4242, 3) * 0.14;
         const coastWarpB = this._fbm(q * 0.09 + 120, r * 0.09 + 520, seed + 9898, 3) * 0.14;
         ex += coastWarpA;
         er += coastWarpB;
-        let edgeDist = Math.max(Math.abs(ex), Math.abs(er));
+
+        // Continent-like profiles use warped ellipse (more natural varied shapes).
+        let edgeDist;
+        if (landProfile === 'continent' || landProfile === 'two_continents') {
+          const ax = 0.95 + (this._fbm(seed * 0.001, 31.1, seed + 91, 1) - 0.5) * 0.28;
+          const ay = 0.95 + (this._fbm(seed * 0.001, 37.9, seed + 117, 1) - 0.5) * 0.28;
+          edgeDist = Math.sqrt((ex / ax) * (ex / ax) + (er / ay) * (er / ay));
+        } else {
+          edgeDist = Math.max(Math.abs(ex), Math.abs(er));
+        }
 
         // Extra raggedness around shoreline band
         const shoreNoise = this._fbm(q * 0.20 + 700, r * 0.20 + 300, seed + 1313, 2) * 0.10;
@@ -5858,19 +5871,57 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Classify terrain from height + secondary noise for forest/plains
+    // Classify terrain from height + ridge/veg noise for more natural relief.
     const NEIGHBORS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
     for (let q = 0; q < ms; q++) {
       for (let r = 0; r < ms; r++) {
         const v = h[`${q},${r}`];
-        if (v < SEA_LV)     { map[`${q},${r}`] = 5; continue; } // ocean
-        if (v > MTN_LV)     { map[`${q},${r}`] = 2; continue; } // mountain
-        if (v > HILL_LV)    { map[`${q},${r}`] = 3; continue; } // hill
+        if (v < SEA_LV) { map[`${q},${r}`] = 5; continue; } // ocean
+
+        const ridge = this._fbm(q * 0.085 + 420, r * 0.085 + 140, seed + 5555, 3);
+        const rough = this._fbm(q * 0.16 + 740, r * 0.16 + 260, seed + 6666, 2);
+
+        // Mountains: rarer and more range-like; not blanket coverage.
+        const isMountain = (v > MTN_LV && ridge > 0.60) || (v > MTN_LV + 0.03 && ridge > 0.54);
+        if (isMountain) { map[`${q},${r}`] = 2; continue; }
+
+        // Hills: near high terrain and ridge shoulders, with occasional strays.
+        const isHill = (v > HILL_LV && ridge > 0.48) || (v > HILL_LV + 0.04) || (ridge > 0.72 && rough > 0.56);
+        if (isHill) { map[`${q},${r}`] = 3; continue; }
+
         // Flat land — secondary noise for vegetation
         const n2 = this._fbm(q * 0.18 + 200, r * 0.18 + 100, seed + 3333, 3);
         if      (n2 > 0.67) map[`${q},${r}`] = 1; // dense forest
         else if (n2 > 0.54) map[`${q},${r}`] = 7; // light woods
         else                map[`${q},${r}`] = 0; // plains/grass
+      }
+    }
+
+    // Relief harmonization: reduce lone mountain spikes; add hill shoulders near mountains.
+    {
+      const snapRelief = { ...map };
+      for (let q = 0; q < ms; q++) {
+        for (let r = 0; r < ms; r++) {
+          const t = snapRelief[`${q},${r}`];
+          if (t === 2) {
+            let mAdj = 0;
+            for (const [dq, dr] of NEIGHBORS) if (snapRelief[`${q+dq},${r+dr}`] === 2) mAdj++;
+            if (mAdj <= 1) map[`${q},${r}`] = 3; // lonely mountain -> hill
+          }
+        }
+      }
+      const snap2Relief = { ...map };
+      for (let q = 0; q < ms; q++) {
+        for (let r = 0; r < ms; r++) {
+          if (snap2Relief[`${q},${r}`] !== 2) continue;
+          for (const [dq, dr] of NEIGHBORS) {
+            const k = `${q+dq},${r+dr}`;
+            if (snap2Relief[k] === 0 || snap2Relief[k] === 7) {
+              const roll = this._fbm((q+dq) * 0.31 + 90, (r+dr) * 0.31 + 210, seed + 777, 2);
+              if (roll > 0.35) map[k] = 3; // hill shoulder around mountain
+            }
+          }
+        }
       }
     }
 
@@ -5913,7 +5964,8 @@ export class GameScene extends Phaser.Scene {
 
     // Global map-ocean ring: all procedural maps except landlocked get an ocean border.
     if (landProfile !== 'landlocked') {
-      const ring = 6; // extra tiles of ocean around the play area
+      // Target 6-hex ocean frame, but clamp on small maps to preserve playable interior.
+      const ring = Math.min(6, Math.max(3, Math.floor(ms * 0.2))); // e.g., 25->5, 35->6
       for (let q = 0; q < ms; q++) {
         for (let r = 0; r < ms; r++) {
           if (q < ring || r < ring || q >= ms - ring || r >= ms - ring) {
