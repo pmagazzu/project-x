@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.18';
+const GAME_VERSION = 'v1.3.19';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5999,16 +5999,46 @@ export class GameScene extends Phaser.Scene {
 
     const quickStart = !!this.procQuickStart;
     const placeSpawns = (player, hq, enemyHq) => {
+      const ownSide = (q, r) => {
+        if (!enemyHq) return true;
+        const dOwn = Math.abs(q - hq.q) + Math.abs(r - hq.r);
+        const dEnemy = Math.abs(q - enemyHq.q) + Math.abs(r - enemyHq.r);
+        return dOwn <= dEnemy;
+      };
+
       // HQ
       gs.buildings.push(createBuilding('HQ', player, hq.q, hq.r));
 
       // Resource sites near HQ (always placed as resource hexes; buildings depend on quick-start)
-      const ironHex = findNearby(hq.q, hq.r, new Set([2,3]), 5) || findFreeNear(hq.q, hq.r, 4);
+      let ironHex = findNearby(hq.q, hq.r, new Set([2,3]), 6) || findNearby(hq.q, hq.r, new Set([0,7]), 7) || findFreeNear(hq.q, hq.r, 5);
+      if (ironHex && !ownSide(ironHex.q, ironHex.r)) {
+        ironHex = findNearby(hq.q, hq.r, new Set([2,3,0,7]), 8) || ironHex;
+      }
       if (ironHex) {
         if (map[`${ironHex.q},${ironHex.r}`] === 5 || map[`${ironHex.q},${ironHex.r}`] === 4)
           map[`${ironHex.q},${ironHex.r}`] = 3; // ensure it's land
         gs.resourceHexes[`${ironHex.q},${ironHex.r}`] = { type: 'IRON' };
         if (quickStart) gs.buildings.push(createBuilding('MINE', player, ironHex.q, ironHex.r));
+      }
+
+      // Bonus own-side iron to avoid low-iron/opening deadlocks on ocean-heavy maps.
+      let ironHex2 = null;
+      for (let d = 3; d <= 10 && !ironHex2; d++) {
+        for (let dq = -d; dq <= d && !ironHex2; dq++) {
+          for (let dr = -d; dr <= d && !ironHex2; dr++) {
+            const q2 = hq.q + dq, r2 = hq.r + dr;
+            if (!isValid(q2, r2, ms) || !ownSide(q2, r2)) continue;
+            if (ironHex && ironHex.q === q2 && ironHex.r === r2) continue;
+            const t = map[`${q2},${r2}`];
+            if (t === 4 || t === 5) continue;
+            const key = `${q2},${r2}`;
+            if (!gs.resourceHexes[key]) ironHex2 = { q: q2, r: r2 };
+          }
+        }
+      }
+      if (ironHex2) {
+        if (map[`${ironHex2.q},${ironHex2.r}`] === 0 || map[`${ironHex2.q},${ironHex2.r}`] === 7) map[`${ironHex2.q},${ironHex2.r}`] = 3;
+        gs.resourceHexes[`${ironHex2.q},${ironHex2.r}`] = { type: 'IRON' };
       }
 
       const oilHex = findNearby(hq.q, hq.r, new Set([0,6,7]), 5) || findFreeNear(hq.q, hq.r, 5);
@@ -6031,12 +6061,6 @@ export class GameScene extends Phaser.Scene {
       }
 
       // Guaranteed wood access on player's own side; Lumber Camp prebuilt only in quick start.
-      const ownSide = (q, r) => {
-        if (!enemyHq) return true;
-        const dOwn = Math.abs(q - hq.q) + Math.abs(r - hq.r);
-        const dEnemy = Math.abs(q - enemyHq.q) + Math.abs(r - enemyHq.r);
-        return dOwn <= dEnemy;
-      };
       let woodHex = null;
       for (let d = 2; d <= 8 && !woodHex; d++) {
         for (let dq = -d; dq <= d && !woodHex; dq++) {
@@ -6096,10 +6120,17 @@ export class GameScene extends Phaser.Scene {
     const IRON_OK     = new Set([0, 7]);    // plains, light woods (fallback)
     const OIL_TERRAIN = new Set([0, 6, 7]); // plains, sand, light woods
 
-    // Scale minimum deposits to map size
-    const scale    = (ms * ms) / (40 * 40); // normalized to 40x40 base
-    const MIN_IRON = Math.max(6, Math.round(10 * scale));
-    const MIN_OIL  = Math.max(4, Math.round(7  * scale));
+    // Scale minimum deposits to *land area* (more stable with large ocean borders)
+    let landTiles = 0;
+    for (let q = 0; q < ms; q++) {
+      for (let r = 0; r < ms; r++) {
+        const t = map[`${q},${r}`];
+        if (t !== 4 && t !== 5) landTiles++;
+      }
+    }
+    const landScale = Math.max(0.35, landTiles / (40 * 40 * 0.55)); // normalize to ~55% land baseline
+    const MIN_IRON = Math.max(10, Math.round(14 * landScale));
+    const MIN_OIL  = Math.max(6,  Math.round(8  * landScale));
 
     const free = (q, r) =>
       !gs.resourceHexes[`${q},${r}`] &&
