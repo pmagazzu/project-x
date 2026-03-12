@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.32';
+const GAME_VERSION = 'v1.3.33';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2093,13 +2093,13 @@ export class GameScene extends Phaser.Scene {
     this.btnMenu = this._makeBtn(10, 11, '← MENU', 0x222222, () => this.scene.start('MenuScene'), D);
 
     // Resource cells — iron/oil/wood/food/gold/components/rp
-    this.resIron = this._makeLabel(108, 11, '⚙ —', D);
-    this.resOil  = this._makeLabel(208, 11, '🛢 —', D);
-    this.resWood = this._makeLabel(308, 11, '🪵 —', D);
-    this.resFood = this._makeLabel(400, 11, '🍞 —', D);
-    this.resGold = this._makeLabel(490, 11, '💰 —', D);
-    this.resComp = this._makeLabel(580, 11, '🧩 —', D);
-    this.resRp   = this._makeLabel(670, 11, '⚗ —', D);
+    this.resIron = this._makeLabel(170, 11, '⚙ —', D);
+    this.resOil  = this._makeLabel(270, 11, '🛢 —', D);
+    this.resWood = this._makeLabel(370, 11, '🪵 —', D);
+    this.resFood = this._makeLabel(462, 11, '🍞 —', D);
+    this.resGold = this._makeLabel(552, 11, '💰 —', D);
+    this.resComp = this._makeLabel(642, 11, '🧩 —', D);
+    this.resRp   = this._makeLabel(732, 11, '⚗ —', D);
 
     // Version tag (subtle)
     this.add.text(760, 13, GAME_VERSION, {
@@ -2110,7 +2110,8 @@ export class GameScene extends Phaser.Scene {
     this.turnLbl = this._makeLabel(w/2, 11, 'Turn 1 | Player 1 | PLANNING', D, true);
 
     // Economy / Supply / Research / Designer / Trade / Settings / End Turn
-    this.btnEconomy  = this._makeBtn(w - 735, 11, '📊 ECON',     0x2a2a14, () => this._toggleEconomy(), D, 'right');
+    // ECON moved left of resources to reduce right-side crowding/overlap.
+    this.btnEconomy  = this._makeBtn(18, 11, '📊',               0x2a2a14, () => this._toggleEconomy(), D);
     this.btnSupply   = this._makeBtn(w - 620, 11, '⬡ SUPPLY',    0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
     this.btnResearch = this._makeBtn(w - 502, 11, '⚗ RESEARCH',  0x442266, () => this._toggleResearch(), D, 'right');
     this.btnDesigner = this._makeBtn(w - 382, 11, '🔧 DESIGNER',  0x1a3322, () => this._toggleDesigner(), D, 'right');
