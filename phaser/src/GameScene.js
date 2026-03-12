@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.41';
+const GAME_VERSION = 'v1.3.42';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2196,15 +2196,19 @@ export class GameScene extends Phaser.Scene {
 
     const fmtRes = (v) => typeof v === 'number' ? (v % 1 === 0 ? v : v.toFixed(1)) : '—';
 
-    const ironDelta = upkeep.iron > 0 ? `-${upkeep.iron.toFixed(1)}` : `+${inc.iron}`;
-    const oilDelta  = upkeep.oil  > 0 ? `-${upkeep.oil.toFixed(1)}`  : `+${inc.oil}`;
-    const foodDelta = upkeep.food > 0 ? `-${upkeep.food.toFixed(1)}` : inc.food > 0 ? `+${inc.food}` : '';
-    const goldDelta = inc.gold > 0 ? `+${inc.gold}` : '';
-    this.resIron.setText(`⚙ ${fmtRes(pl.iron)} ${ironDelta}`);
-    this.resOil.setText(`🛢 ${fmtRes(pl.oil)} ${oilDelta}`);
-    this.resWood.setText(`🪵 ${fmtRes(pl.wood || 0)}${inc.wood > 0 ? ` +${inc.wood}` : ''}`);
-    this.resFood.setText(`🍞 ${fmtRes(pl.food || 0)}${foodDelta ? ` ${foodDelta}` : ''}`);
-    this.resGold.setText(`💰 ${fmtRes(pl.gold || 0)}${goldDelta ? ` ${goldDelta}` : ''}`);
+    const netIron = +(inc.iron - upkeep.iron).toFixed(1);
+    const netOil  = +(inc.oil  - upkeep.oil).toFixed(1);
+    const netFood = +((inc.food || 0) - (upkeep.food || 0)).toFixed(1);
+    const netWood = +(inc.wood || 0).toFixed(1);
+    const netGold = +(inc.gold || 0).toFixed(1);
+
+    const sgn = (v) => v > 0 ? `+${v}` : `${v}`;
+
+    this.resIron.setText(`⚙ ${fmtRes(pl.iron)} ${sgn(netIron)}`);
+    this.resOil.setText(`🛢 ${fmtRes(pl.oil)} ${sgn(netOil)}`);
+    this.resWood.setText(`🪵 ${fmtRes(pl.wood || 0)} ${sgn(netWood)}`);
+    this.resFood.setText(`🍞 ${fmtRes(pl.food || 0)} ${sgn(netFood)}`);
+    this.resGold.setText(`💰 ${fmtRes(pl.gold || 0)} ${sgn(netGold)}`);
     this.resComp.setText(`🧩 ${fmtRes(pl.components || 0)}`);
     // Research: show active tech name + % or "no lab"
     const resState = pl.research;
