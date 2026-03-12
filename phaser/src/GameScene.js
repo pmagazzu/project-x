@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.22';
+const GAME_VERSION = 'v1.3.23';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1929,6 +1929,24 @@ export class GameScene extends Phaser.Scene {
         this.unitGfx.beginPath();
         this.unitGfx.moveTo(dotX - 2.5, dotY - 2.5); this.unitGfx.lineTo(dotX + 2.5, dotY + 2.5);
         this.unitGfx.moveTo(dotX + 2.5, dotY - 2.5); this.unitGfx.lineTo(dotX - 2.5, dotY + 2.5);
+        this.unitGfx.strokePath();
+      }
+
+      // Auto-move/order badge: shows unit is executing an order in future turn resolution.
+      if (unit.moveOrder || unit.roadOrder) {
+        const bR = 5;
+        const bX = cx2 + cW - bR - 1;
+        const bY = cy2 + cH - bR - 1;
+        this.unitGfx.fillStyle(0x44ccff, alpha);
+        this.unitGfx.fillCircle(bX, bY, bR);
+        this.unitGfx.lineStyle(1, 0x002233, alpha * 0.9);
+        this.unitGfx.strokeCircle(bX, bY, bR);
+        // Tiny arrow glyph
+        this.unitGfx.lineStyle(1.5, 0x002233, alpha * 0.95);
+        this.unitGfx.beginPath();
+        this.unitGfx.moveTo(bX - 2.2, bY); this.unitGfx.lineTo(bX + 1.8, bY);
+        this.unitGfx.moveTo(bX + 1.8, bY); this.unitGfx.lineTo(bX + 0.2, bY - 1.6);
+        this.unitGfx.moveTo(bX + 1.8, bY); this.unitGfx.lineTo(bX + 0.2, bY + 1.6);
         this.unitGfx.strokePath();
       }
     }
