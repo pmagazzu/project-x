@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.19';
+const GAME_VERSION = 'v1.3.20';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5430,19 +5430,18 @@ export class GameScene extends Phaser.Scene {
     if (!hq) return;
     const cam = this.cameras.main;
     const { x, y } = hexToWorld(hq.q, hq.r);
-    const targetX = x - (cam.width  * 0.5) / cam.zoom;
-    const targetY = y - (cam.height * 0.5) / cam.zoom;
+
+    // Use camera-native centering/pan to avoid manual scroll math drift.
     if (!smooth) {
-      cam.scrollX = targetX;
-      cam.scrollY = targetY;
+      cam.centerOn(x, y);
       return;
     }
-    this.tweens.add({
-      targets: cam,
-      scrollX: targetX,
-      scrollY: targetY,
-      duration: 320,
-      ease: 'Sine.easeOut',
+
+    cam.pan(x, y, 320, 'Sine.easeOut', true, (_cam, progress) => {
+      if (progress >= 1) {
+        // snap-finalize to exact center (eliminates residual offset)
+        cam.centerOn(x, y);
+      }
     });
   }
 
@@ -6187,6 +6186,63 @@ export class GameScene extends Phaser.Scene {
     const c = counts();
     forcePlace('IRON', [IRON_PREFER, IRON_OK], MIN_IRON - c.iron);
     forcePlace('OIL',  [OIL_TERRAIN],           MIN_OIL  - c.oil);
+
+    // Third pass: side-fairness guarantee for iron (prevents one-side starvation).
+    const hq1 = gs.buildings.find(b => b.type === 'HQ' && Number(b.owner) === 1);
+    const hq2 = gs.buildings.find(b => b.type === 'HQ' && Number(b.owner) === 2);
+    if (hq1 && hq2) {
+      const sideOf = (q, r) => {
+        const d1 = Math.abs(q - hq1.q) + Math.abs(r - hq1.r);
+        const d2 = Math.abs(q - hq2.q) + Math.abs(r - hq2.r);
+        return d1 <= d2 ? 1 : 2;
+      };
+
+      const sideIronCount = (side) => {
+        let n = 0;
+        for (const [key, v] of Object.entries(gs.resourceHexes)) {
+          if (v.type !== 'IRON') continue;
+          const [qs, rs] = key.split(',');
+          const q = Number(qs), r = Number(rs);
+          if (sideOf(q, r) === side) n++;
+        }
+        return n;
+      };
+
+      const minPerSideIron = Math.max(6, Math.round(MIN_IRON * 0.4));
+      for (const side of [1, 2]) {
+        let need = minPerSideIron - sideIronCount(side);
+        if (need <= 0) continue;
+
+        const preferred = [];
+        const fallback = [];
+        for (let q = 0; q < ms; q++) {
+          for (let r = 0; r < ms; r++) {
+            if (sideOf(q, r) !== side) continue;
+            if (!free(q, r)) continue;
+            const t = map[`${q},${r}`];
+            if (!isLandType(t)) continue;
+            if (IRON_PREFER.has(t)) preferred.push(`${q},${r}`);
+            else if (IRON_OK.has(t)) fallback.push(`${q},${r}`);
+          }
+        }
+
+        const pickFrom = [preferred, fallback];
+        for (const arr of pickFrom) {
+          for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(rng() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+          }
+          for (const key of arr) {
+            if (need <= 0) break;
+            if (!gs.resourceHexes[key]) {
+              gs.resourceHexes[key] = { type: 'IRON' };
+              need--;
+            }
+          }
+          if (need <= 0) break;
+        }
+      }
+    }
   }
 
   _genNavalTerrain(map, ms) {
