@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.47';
+const GAME_VERSION = 'v1.3.48';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5332,6 +5332,14 @@ export class GameScene extends Phaser.Scene {
     this._clearSelection();
     gs._mapSize = this.mapSize;
     const events = resolveEndOfTurn(gs, this.terrain);
+
+    // Research completion notifications (clear, explicit, impossible to miss)
+    const researchEvents = events.filter(e => /researched:/i.test(e));
+    if (researchEvents.length > 0) {
+      for (const e of researchEvents) this._pushLog(`🔬 ${e}`);
+      this._showResearchToast(researchEvents);
+    }
+
     const winner = checkWinner(gs);
     if (winner) {
       this._showResolution([], winner);
@@ -6025,6 +6033,32 @@ export class GameScene extends Phaser.Scene {
   _pushLog(msg) {
     this._log.push(msg);
     if (this._log.length > 5) this._log.shift();
+  }
+
+  _showResearchToast(researchEvents) {
+    const w = this.scale.width;
+    const D = 260;
+    const lines = researchEvents.map(e => e.replace(/^P\d+\s+researched:\s*/i, ''));
+    const text = lines.length === 1
+      ? `🔬 Research Complete: ${lines[0].replace(/!+$/,'')}`
+      : `🔬 Research Complete (${lines.length})\n${lines.map(s => `• ${s.replace(/!+$/,'')}`).join('\n')}`;
+
+    const box = this.add.rectangle(w/2, 96, Math.min(760, w - 30), lines.length > 1 ? 68 : 44, 0x1b2a1b, 0.96)
+      .setStrokeStyle(2, 0x77cc77, 0.95)
+      .setScrollFactor(0).setDepth(D);
+    const lbl = this.add.text(w/2, 96, text, {
+      font: lines.length > 1 ? 'bold 11px monospace' : 'bold 12px monospace',
+      fill: '#ddffdd', align: 'center'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1);
+    this._addToUI([box, lbl]);
+
+    this.tweens.add({
+      targets: [box, lbl],
+      alpha: 0,
+      delay: 2200,
+      duration: 360,
+      onComplete: () => { try { box.destroy(); } catch(e){} try { lbl.destroy(); } catch(e){} }
+    });
   }
 
   // ── Terrain generation ────────────────────────────────────────────────────
