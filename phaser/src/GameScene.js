@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.35';
+const GAME_VERSION = 'v1.3.36';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2093,41 +2093,37 @@ export class GameScene extends Phaser.Scene {
     const w = this.scale.width;
     const D = 100;
 
-    // Background — slightly darker, cleaner
-    this.topBarBg = this.add.rectangle(w/2, 22, w, 44, 0x0a0a0a, 0.96)
+    // Two-row top bar to prevent overlaps as features grow.
+    this.topBarBg = this.add.rectangle(w/2, 37, w, 74, 0x0a0a0a, 0.96)
       .setScrollFactor(0).setDepth(D);
-    // Bottom accent line on top bar
-    this.add.rectangle(w/2, 44, w, 1, 0x2a4a2a, 1).setScrollFactor(0).setDepth(D + 1);
+    this.add.rectangle(w/2, 37, w, 1, 0x1f2f1f, 1).setScrollFactor(0).setDepth(D + 1); // row divider
+    this.add.rectangle(w/2, 74, w, 1, 0x2a4a2a, 1).setScrollFactor(0).setDepth(D + 1); // bottom accent
 
-    // Back to menu button (leftmost)
-    this.btnMenu = this._makeBtn(10, 11, '← MENU', 0x222222, () => this.scene.start('MenuScene'), D);
+    // Row 1: nav + state
+    this.btnMenu = this._makeBtn(10, 8, '← MENU', 0x222222, () => this.scene.start('MenuScene'), D);
+    this.btnEconomy = this._makeBtn(112, 8, '📊 ECON', 0x2a2a14, () => this._toggleEconomy(), D);
+    this.turnLbl = this._makeLabel(w/2, 8, 'Turn 1 | Player 1 | PLANNING', D, true);
 
-    // Resource cells — iron/oil/wood/food/gold/components/rp
-    this.resIron = this._makeLabel(170, 11, '⚙ —', D);
-    this.resOil  = this._makeLabel(270, 11, '🛢 —', D);
-    this.resWood = this._makeLabel(370, 11, '🪵 —', D);
-    this.resFood = this._makeLabel(462, 11, '🍞 —', D);
-    this.resGold = this._makeLabel(552, 11, '💰 —', D);
-    this.resComp = this._makeLabel(642, 11, '🧩 —', D);
-    this.resRp   = this._makeLabel(732, 11, '⚗ —', D);
-
-    // Version tag (subtle)
-    this.add.text(760, 13, GAME_VERSION, {
+    // Version tag
+    this.add.text(w - 92, 10, GAME_VERSION, {
       font: '10px monospace', fill: '#334455'
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(D);
 
-    // Turn / mode indicator (centered)
-    this.turnLbl = this._makeLabel(w/2, 11, 'Turn 1 | Player 1 | PLANNING', D, true);
+    // Row 2: resources (left) + actions (right)
+    this.resIron = this._makeLabel(10, 42, '⚙ —', D);
+    this.resOil  = this._makeLabel(104, 42, '🛢 —', D);
+    this.resWood = this._makeLabel(198, 42, '🪵 —', D);
+    this.resFood = this._makeLabel(290, 42, '🍞 —', D);
+    this.resGold = this._makeLabel(382, 42, '💰 —', D);
+    this.resComp = this._makeLabel(474, 42, '🧩 —', D);
+    this.resRp   = this._makeLabel(566, 42, '⚗ —', D);
 
-    // Economy / Supply / Research / Designer / Trade / Settings / End Turn
-    // ECON moved left of resources to reduce right-side crowding/overlap.
-    this.btnEconomy  = this._makeBtn(18, 11, '📊',               0x2a2a14, () => this._toggleEconomy(), D);
-    this.btnSupply   = this._makeBtn(w - 620, 11, '⬡ SUPPLY',    0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
-    this.btnResearch = this._makeBtn(w - 502, 11, '⚗ RESEARCH',  0x442266, () => this._toggleResearch(), D, 'right');
-    this.btnDesigner = this._makeBtn(w - 382, 11, '🔧 DESIGNER',  0x1a3322, () => this._toggleDesigner(), D, 'right');
-    this.btnTrade    = this._makeBtn(w - 262, 11, '💱 TRADE',     0x3a2a11, () => this._toggleTrade(), D, 'right');
-    this.btnSettings = this._makeBtn(w - 148, 11, '⚙ Settings',  0x222244, () => this._toggleSettings(), D, 'right');
-    this.btnSubmit   = this._makeBtn(w - 8,   11, 'END TURN',    0x1a5c1a, () => this._confirmEndTurn(), D, 'right');
+    this.btnSupply   = this._makeBtn(w - 500, 42, '⬡ SUP',   0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
+    this.btnResearch = this._makeBtn(w - 414, 42, '⚗ RES',   0x442266, () => this._toggleResearch(), D, 'right');
+    this.btnDesigner = this._makeBtn(w - 328, 42, '🔧 DES',   0x1a3322, () => this._toggleDesigner(), D, 'right');
+    this.btnTrade    = this._makeBtn(w - 242, 42, '💱 TRADE', 0x3a2a11, () => this._toggleTrade(), D, 'right');
+    this.btnSettings = this._makeBtn(w - 140, 42, '⚙ SET',   0x222244, () => this._toggleSettings(), D, 'right');
+    this.btnSubmit   = this._makeBtn(w - 8,   42, 'END TURN',0x1a5c1a, () => this._confirmEndTurn(), D, 'right');
   }
 
   _makeLabel(x, y, text, depth, center = false) {
@@ -2191,7 +2187,7 @@ export class GameScene extends Phaser.Scene {
     this.resRp.setText(`⚗ ${rpLabel}`);
     this.resFood.setStyle({ fill: unsupplied ? '#ff6644' : '#ccddcc' });
 
-    this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  ${modeStr}${queueStr}`);
+    this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  ${modeStr}`);
   }
 
   // ── Bottom panel ──────────────────────────────────────────────────────────
