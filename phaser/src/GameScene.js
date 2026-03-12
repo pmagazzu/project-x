@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.40';
+const GAME_VERSION = 'v1.3.41';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3747,18 +3747,19 @@ export class GameScene extends Phaser.Scene {
     const pl = gs.players[p];
     const w = this.scale.width, h = this.scale.height;
     const D = 222;
-    const panW = Math.min(900, w - 24), panH = Math.min(560, h - 24);
+    const panW = Math.min(820, w - 24), panH = Math.min(500, h - 24);
     const px = w / 2, py = h / 2;
     const objs = [];
 
-    const bg = this.add.rectangle(px, py, panW, panH, 0x0f1114, 0.98)
+    const bg = this.add.rectangle(px, py, panW, panH, 0x0f1114, 0.985)
       .setStrokeStyle(2, 0x667788).setScrollFactor(0).setDepth(D).setInteractive();
     bg.on('pointerdown', () => { this._contextMenuClicked = true; });
     objs.push(bg);
 
-    objs.push(this.add.text(px, py - panH/2 + 16, '📊 ECONOMY & LOGISTICS', {
+    const hdr = this.add.text(px, py - panH/2 + 16, '📊 ECONOMY (AT A GLANCE)', {
       font:'bold 14px monospace', fill:'#cde4ff'
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1));
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1);
+    objs.push(hdr);
 
     const closeBtn = this.add.text(px + panW/2 - 12, py - panH/2 + 16, '✕', {
       font:'bold 16px monospace', fill:'#aaaaaa'
@@ -3768,81 +3769,77 @@ export class GameScene extends Phaser.Scene {
 
     const inc = calcIncome(gs, p);
     const upkeep = calcUpkeep(gs, p);
-    const netIron = +(inc.iron - upkeep.iron).toFixed(1);
-    const netOil  = +(inc.oil  - upkeep.oil).toFixed(1);
-    const netFood = +((inc.food || 0) - (upkeep.food || 0)).toFixed(1);
+    const net = {
+      iron: +(inc.iron - upkeep.iron).toFixed(1),
+      oil: +(inc.oil - upkeep.oil).toFixed(1),
+      food: +((inc.food || 0) - (upkeep.food || 0)).toFixed(1),
+      gold: +(inc.gold || 0).toFixed(1),
+      rp: +(inc.rp || 0).toFixed(1),
+    };
 
+    const left = px - panW/2 + 16;
+    const right = px + 8;
     let y = py - panH/2 + 42;
-    const leftX = px - panW/2 + 16;
-    const rightX = px + 16;
 
-    objs.push(this.add.text(leftX, y,
-      `Stockpile: ⚙${pl.iron}  🛢${pl.oil}  🪵${pl.wood||0}  🍞${(pl.food||0).toFixed(1)}  💰${(pl.gold||0).toFixed(1)}  🧩${pl.components||0}`,
-      { font:'11px monospace', fill:'#ddeeff' }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
-    y += 18;
-    objs.push(this.add.text(leftX, y,
-      `Per turn: +⚙${inc.iron} (+net ${netIron})  +🛢${inc.oil} (+net ${netOil})  +🪵${inc.wood||0}  +🍞${inc.food||0} (+net ${netFood})  +💰${inc.gold||0}  +⚗${inc.rp}`,
-      { font:'10px monospace', fill:'#a9c6e6' }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
-    y += 20;
+    // KPI cards
+    const cardW = Math.floor((panW - 40) / 2);
+    const cardH = 52;
+    const card = (cx, cy, title, body, tone = 0x1a2028) => {
+      const r = this.add.rectangle(cx, cy, cardW, cardH, tone, 0.95)
+        .setStrokeStyle(1, 0x3a4d62).setScrollFactor(0).setDepth(D+1);
+      const t1 = this.add.text(cx - cardW/2 + 10, cy - 15, title, { font:'bold 10px monospace', fill:'#9fb6cc' })
+        .setOrigin(0,0).setScrollFactor(0).setDepth(D+2);
+      const t2 = this.add.text(cx - cardW/2 + 10, cy + 2, body, { font:'12px monospace', fill:'#e4eef9' })
+        .setOrigin(0,0).setScrollFactor(0).setDepth(D+2);
+      objs.push(r, t1, t2);
+    };
 
-    // Building economy breakdown
+    card(px - cardW/2 - 6, y + cardH/2, 'STOCKPILE', `⚙${pl.iron}  🛢${pl.oil}  🪵${pl.wood||0}  🍞${(pl.food||0).toFixed(1)}  💰${(pl.gold||0).toFixed(1)}  🧩${pl.components||0}`);
+    card(px + cardW/2 + 6, y + cardH/2, 'NET / TURN', `⚙${net.iron>=0?'+':''}${net.iron}  🛢${net.oil>=0?'+':''}${net.oil}  🍞${net.food>=0?'+':''}${net.food}  💰+${net.gold}  ⚗+${net.rp}`,
+      (net.iron < 0 || net.oil < 0 || net.food < 0) ? 0x2a1717 : 0x17241a);
+    y += cardH + 16;
+
+    // Left: buildings summary (concise)
     const myBuildings = gs.buildings.filter(b => Number(b.owner) === Number(p) && !ROAD_TYPES.has(b.type));
-    const bCount = {};
-    const prod = { iron:0, oil:0, wood:0, food:0, gold:0 };
-    for (const b of myBuildings) {
-      bCount[b.type] = (bCount[b.type] || 0) + 1;
-      const def = BUILDING_TYPES[b.type] || {};
-      prod.iron += def.ironPerTurn || 0;
-      prod.oil  += def.oilPerTurn || 0;
-      prod.wood += def.woodPerTurn || 0;
-      prod.food += def.foodPerTurn || 0;
-      prod.gold += def.goldPerTurn || 0;
-    }
+    const countByType = {};
+    for (const b of myBuildings) countByType[b.type] = (countByType[b.type] || 0) + 1;
+    const bTop = Object.entries(countByType)
+      .sort((a,b)=> (b[1]-a[1]) || a[0].localeCompare(b[0]))
+      .slice(0, 8)
+      .map(([t,c]) => `${String(c).padStart(2,' ')}x ${BUILDING_TYPES[t]?.name || t}`)
+      .join('\n');
 
-    objs.push(this.add.text(leftX, y, 'Buildings & Production:', {
+    objs.push(this.add.text(left, y, 'BUILDINGS', {
       font:'bold 11px monospace', fill:'#ffddaa'
     }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
-    y += 16;
-    objs.push(this.add.text(leftX, y,
-      `Base output: ⚙${prod.iron}  🛢${prod.oil}  🪵${prod.wood}  🍞${prod.food}  💰${prod.gold}`,
-      { font:'10px monospace', fill:'#ddccaa' }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
-    y += 16;
-
-    const bLines = Object.entries(bCount)
-      .sort((a,b)=>a[0].localeCompare(b[0]))
-      .slice(0, 16)
-      .map(([t,c]) => `${String(c).padStart(2,' ')}x ${BUILDING_TYPES[t]?.name || t}`);
-    objs.push(this.add.text(leftX, y, bLines.length ? bLines.join('   |   ') : '(no buildings)', {
-      font:'10px monospace', fill:'#aab8c6', wordWrap:{ width: panW - 36 }
+    objs.push(this.add.text(left, y + 16, bTop || '(none)', {
+      font:'10px monospace', fill:'#c5d2de', lineSpacing: 2
     }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
 
-    // Units + upkeep breakdown (right column)
-    let ry = py - panH/2 + 82;
-    objs.push(this.add.text(rightX, ry - 18, 'Units / Upkeep / Build Cost:', {
-      font:'bold 11px monospace', fill:'#ffddaa'
-    }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
-
+    // Right: units summary (concise)
     const myUnits = gs.units.filter(u => Number(u.owner) === Number(p));
     const uCount = {};
     for (const u of myUnits) uCount[u.type] = (uCount[u.type] || 0) + 1;
-    const uLines = Object.entries(uCount)
+    const uTop = Object.entries(uCount)
       .sort((a,b)=> (b[1]-a[1]) || a[0].localeCompare(b[0]))
-      .slice(0, 14)
-      .map(([t,c]) => {
-        const cst = UNIT_TYPES[t]?.cost || {};
-        const costTxt = `⚙${cst.iron||0} 🛢${cst.oil||0}${(cst.wood||0)?` 🪵${cst.wood}`:''}${(cst.components||0)?` 🧩${cst.components}`:''}`;
-        return `${String(c).padStart(2,' ')}x ${UNIT_TYPES[t]?.name || t}  [build ${costTxt}]`;
-      });
-    objs.push(this.add.text(rightX, ry, uLines.length ? uLines.join('\n') : '(no units)', {
-      font:'10px monospace', fill:'#c0cfdb', lineSpacing: 2
+      .slice(0, 8)
+      .map(([t,c]) => `${String(c).padStart(2,' ')}x ${UNIT_TYPES[t]?.name || t}`)
+      .join('\n');
+
+    objs.push(this.add.text(right, y, 'UNITS', {
+      font:'bold 11px monospace', fill:'#ffddaa'
+    }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
+    objs.push(this.add.text(right, y + 16, uTop || '(none)', {
+      font:'10px monospace', fill:'#c5d2de', lineSpacing: 2
     }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
 
-    // Factory shortcuts / adjustments
+    // Factory controls (clear + simple)
     const myFactories = gs.buildings.filter(b => Number(b.owner) === Number(p) && b.type === 'FACTORY' && !b.underConstruction);
     const activeFactories = myFactories.filter(f => f.active !== false).length;
     const fy = py + panH/2 - 70;
-    objs.push(this.add.text(leftX, fy - 18,
-      `Factories: ${activeFactories}/${myFactories.length} online  |  each ON converts 1⚙ +1🛢 +1🪵 -> 1🧩`,
+
+    objs.push(this.add.text(left, fy - 18,
+      `FACTORIES: ${activeFactories}/${myFactories.length} ONLINE  (1⚙ +1🛢 +1🪵 -> 1🧩 each)`,
       { font:'10px monospace', fill:'#99ddaa' }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
 
     const mkBtn = (x, label, bgc, cb) => {
@@ -3851,16 +3848,15 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0,0).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor:true });
       b.on('pointerdown', () => { this._contextMenuClicked = true; cb(); });
       objs.push(b);
-      return b;
     };
 
-    mkBtn(leftX, '[TURN ALL FACTORIES ON]', '#225522', () => {
+    mkBtn(left, '[ALL ON]', '#225522', () => {
       for (const f of myFactories) f.active = true;
       this._pushLog(`P${p}: all factories ON`);
       this._refresh();
       this._openEconomy();
     });
-    mkBtn(leftX + 210, '[TURN ALL FACTORIES OFF]', '#552222', () => {
+    mkBtn(left + 90, '[ALL OFF]', '#552222', () => {
       for (const f of myFactories) f.active = false;
       this._pushLog(`P${p}: all factories OFF`);
       this._refresh();
