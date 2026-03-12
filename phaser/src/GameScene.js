@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.13';
+const GAME_VERSION = 'v1.3.14';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5713,6 +5713,7 @@ export class GameScene extends Phaser.Scene {
       continent:      { scale: 0.045, sea: 0.36, edgeFalloff: 0.8, edgeStart: 0.70, islandAmp: 0.00, islandRad: 0.0, centers: [] },
       two_continents: { scale: 0.055, sea: 0.39, edgeFalloff: 1.0, edgeStart: 0.63, islandAmp: 0.00, islandRad: 0.0, centers: [] },
       archipelago:    { scale: 0.115, sea: 0.52, edgeFalloff: 1.35, edgeStart: 0.50, islandAmp: 0.24, islandRad: 0.13, centers: [[0.18,0.22],[0.36,0.20],[0.54,0.26],[0.72,0.24],[0.82,0.36],[0.72,0.52],[0.54,0.58],[0.34,0.62],[0.18,0.56]] },
+      landlocked:     { scale: 0.060, sea: -99, edgeFalloff: 0.0, edgeStart: 1.0, islandAmp: 0.0, islandRad: 0.0, centers: [] },
     }[landProfile] || { scale: 0.075, sea: 0.44, edgeFalloff: 1.2, edgeStart: 0.55, islandAmp: 0.0, islandRad: 0.0, centers: [] };
 
     const SCALE     = PROFILE.scale; // noise frequency — lower = larger landmasses
@@ -5819,6 +5820,26 @@ export class GameScene extends Phaser.Scene {
           // Flat land next to water → sand (beach)
           if (adjTypes.some(n => n === 5 || n === 4))
             map[`${q},${r}`] = 6;
+        }
+      }
+    }
+
+    // Global map-ocean ring: all procedural maps except landlocked get an ocean border.
+    if (landProfile !== 'landlocked') {
+      const ring = 2; // extra tiles of ocean around the play area
+      for (let q = 0; q < ms; q++) {
+        for (let r = 0; r < ms; r++) {
+          if (q < ring || r < ring || q >= ms - ring || r >= ms - ring) {
+            map[`${q},${r}`] = 5;
+          }
+        }
+      }
+      // inner ring as shallow to soften coast transition
+      for (let q = ring; q < ms - ring; q++) {
+        for (let r = ring; r < ms - ring; r++) {
+          if (q === ring || r === ring || q === ms - ring - 1 || r === ms - ring - 1) {
+            if (map[`${q},${r}`] !== 5) map[`${q},${r}`] = 4;
+          }
         }
       }
     }

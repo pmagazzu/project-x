@@ -272,6 +272,7 @@ export class MenuScene extends Phaser.Scene {
       { key: 'two_continents',   label: 'Two Continents' },
       { key: 'archipelago',      label: 'Archipelago' },
       { key: 'naval_supremacy',  label: 'Naval Supremacy' },
+      { key: 'landlocked',       label: 'Landlocked (No Naval)' },
     ];
 
     let profile = 'islands';
