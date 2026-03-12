@@ -43,7 +43,7 @@ export const UNIT_TYPES = {
   CRUISER_LT:    { name:'Light Cruiser',  move:3, attack:3, health:6, range:4, cost:{iron:6,oil:3}, shape:'cruiser',   canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:3, soft_attack:3, hard_attack:3, pierce:3, armor:3, defense:2, evasion:3,  accuracy:5,  buildTime:4 },
   CRUISER_HV:    { name:'Heavy Cruiser',  move:2, attack:4, health:8, range:5, cost:{iron:8,oil:4}, shape:'cruiser_hv',canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:5, soft_attack:4, hard_attack:4, pierce:4, armor:5, defense:2, evasion:1,  accuracy:5,  buildTime:5 },
   BATTLESHIP:    { name:'Battleship',     move:1, attack:5, health:12, range:7, cost:{iron:12,oil:6},shape:'battleship',canDigIn:false,canBuild:false, canHeal:false, sight:5,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:7, soft_attack:5, hard_attack:5, pierce:5, armor:8, defense:3, evasion:0,  accuracy:5,  buildTime:7 },
-  SUPPLY_SHIP:   { name:'Supply Ship',    move:3, attack:0, health:5, range:0, cost:{iron:7,oil:3}, shape:'transport', canDigIn:false,canBuild:false, canHeal:false, sight:4, naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:3, defense:2, evasion:1, accuracy:0, buildTime:4, supplyRadius:2, tier:2 },
+  SUPPLY_SHIP:   { name:'Supply Ship',    move:3, attack:0, health:5, range:0, cost:{iron:7,oil:3,components:2}, shape:'transport', canDigIn:false,canBuild:false, canHeal:false, sight:4, naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:3, defense:2, evasion:1, accuracy:0, buildTime:4, supplyRadius:2, tier:2 },
   LANDING_CRAFT: { name:'Landing Craft',  move:2, attack:0, health:2, range:0, cost:{iron:2,oil:1}, shape:'landing',   canDigIn:false,canBuild:false, canHeal:false, sight:2,  naval:true, canEnterShallow:true,  canEnterSand:true,  stealthy:0, detection:0, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:2, capacity:{infantry:1,vehicle:0} },
   TRANSPORT_SM:  { name:'Transport (S)',  move:2, attack:0, health:3, range:0, cost:{iron:3,oil:1}, shape:'transport', canDigIn:false,canBuild:false, canHeal:false, sight:2,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:0, detection:0, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:2, capacity:{infantry:2,vehicle:1} },
   TRANSPORT_MD:  { name:'Transport (M)',  move:2, attack:0, health:4, range:0, cost:{iron:5,oil:2}, shape:'transport', canDigIn:false,canBuild:false, canHeal:false, sight:2,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:0, detection:0, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:2, defense:0, evasion:0,  accuracy:0,  buildTime:3, capacity:{infantry:4,vehicle:2} },
@@ -63,7 +63,7 @@ export const UNIT_TYPES = {
   MONOPLANE_FIGHTER:{ name:'Monoplane Fighter',move:10, attack:4, health:4, range:2, cost:{iron:5,oil:3}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:6, soft_attack:5, hard_attack:3, pierce:3, armor:2, defense:0, evasion:14, accuracy:8,  buildTime:2, air:true, antiAir:true,  fuelMax:8,  unlockedBy:'monoplane_fighter' },
   DIVE_BOMBER:      { name:'Dive Bomber',      move:7,  attack:5, health:3, range:1, cost:{iron:6,oil:3}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:8, hard_attack:7, pierce:5, armor:1, defense:0, evasion:4,  accuracy:12, buildTime:3, air:true, antiAir:false, fuelMax:5,  unlockedBy:'dive_bomber' },
   HEAVY_BOMBER:     { name:'Heavy Bomber',     move:5,  attack:6, health:5, range:1, cost:{iron:9,oil:5}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:12,hard_attack:8, pierce:4, armor:2, defense:0, evasion:2,  accuracy:5,  buildTime:5, air:true, antiAir:false, fuelMax:4,  unlockedBy:'heavy_bomber' },
-  MEDIUM_TANK:      { name:'Medium Tank',      move:3,  attack:4, health:8, range:3, cost:{iron:7,oil:3}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:3, hard_attack:6, pierce:7, armor:8, defense:2, evasion:3,  accuracy:5,  buildTime:4, unlockedBy:'medium_tank' },
+  MEDIUM_TANK:      { name:'Medium Tank',      move:3,  attack:4, health:8, range:3, cost:{iron:7,oil:3,components:1}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:3, hard_attack:6, pierce:7, armor:8, defense:2, evasion:3,  accuracy:5,  buildTime:4, unlockedBy:'medium_tank' },
   SPG:              { name:'Self-Prop. Gun',   move:2,  attack:5, health:5, range:6, cost:{iron:7,oil:3}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:7, hard_attack:4, pierce:4, armor:4, defense:1, evasion:1,  accuracy:8,  buildTime:4, unlockedBy:'self_propelled_gun' },
   ARMORED_CAR:      { name:'Armored Car',      move:5,  attack:2, health:3, range:2, cost:{iron:4,oil:2}, shape:'star',     canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:3, hard_attack:1, pierce:2, armor:2, defense:0, evasion:8,  accuracy:5,  buildTime:2, unlockedBy:'armored_car' },
   ASSAULT_INFANTRY: { name:'Assault Infantry', move:2,  attack:3, health:3, range:1, cost:{iron:3,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:5, hard_attack:2, pierce:2, armor:2, defense:2, evasion:0,  accuracy:0,  buildTime:2, unlockedBy:'assault_infantry' },
@@ -266,9 +266,15 @@ export const BUILDING_TYPES = {
   FARM:          { name: 'Farm',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 3, goldPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 3 }, color: 0x66aa44, sight: 2, placementTerrain: new Set([0, 6, 7]) }, // plains/sand/light woods only
   MARKET:        { name: 'Market',         ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 2, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 4 }, color: 0xddaa22, sight: 2 },
   SCIENCE_LAB:   { name: 'Science Lab',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, rpPerTurn: 3,  buildTurns: 4, canRecruit: [], buildCost: { iron: 6, oil: 0, wood: 4 }, color: 0x8844cc, sight: 2 },
+  FACTORY:       { name: 'Factory',        ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, componentsPerTurn: 1, buildTurns: 4, canRecruit: [], buildCost: { iron: 10, oil: 3, wood: 8 }, color: 0x666666, sight: 2, fragile: true },
   TRENCH:        { name: 'Trench',         ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 2 }, color: 0x887755, sight: 1, defenseBonus: 4 },
   AT_DITCH:      { name: 'AT Ditch',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 0 }, color: 0x886644, sight: 1, blocksVehicles: true },
   PONTOON_BRIDGE:{ name: 'Pontoon Bridge', ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 2 }, color: 0xccbb88, sight: 1, isBridge: true },
+  // Tier 2 production buildings
+  ADV_BARRACKS:   { name: 'Advanced Barracks', ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, foodPerTurn:0, goldPerTurn:0, buildTurns:4, canRecruit:['ASSAULT_INFANTRY'], buildCost:{ iron:10, oil:2, wood:6 }, color:0x996644, sight:2, tier:2, componentsCost:3 },
+  ARMOR_WORKS:    { name: 'Armor Works',       ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, foodPerTurn:0, goldPerTurn:0, buildTurns:5, canRecruit:['MEDIUM_TANK','SPG'], buildCost:{ iron:14, oil:4, wood:4 }, color:0x556677, sight:2, tier:2, componentsCost:4 },
+  NAVAL_DOCKYARD: { name: 'Naval Dockyard',    ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, foodPerTurn:0, goldPerTurn:0, buildTurns:5, canRecruit:['SUPPLY_SHIP','DESTROYER_MK1'], buildCost:{ iron:16, oil:5, wood:4 }, color:0x224477, sight:2, tier:2, componentsCost:4 },
+  ADV_AIRFIELD:   { name: 'Advanced Airfield', ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, foodPerTurn:0, goldPerTurn:0, buildTurns:4, canRecruit:['MONOPLANE_FIGHTER','DIVE_BOMBER','HEAVY_BOMBER'], buildCost:{ iron:12, oil:5, wood:4 }, color:0x777744, sight:3, tier:2, componentsCost:3 },
 };
 
 export const RESOURCE_TYPES = {
@@ -378,6 +384,7 @@ export function createGameState(scenario = 'default') {
   const makePlayer = (iron, oil, wood) => ({
     iron, oil, wood: wood || 0,
     food: STARTING_FOOD, gold: STARTING_GOLD,
+    components: 0, // Tier 2 manufactured resource
     // Research state
     rp: 0,
     research: {
@@ -918,7 +925,7 @@ export function computeFog(state, player, mapSize, terrain) {
 
 // ── Income ─────────────────────────────────────────────────────────────────
 export function calcIncome(state, player, techBonuses = null) {
-  let iron = BASE_IRON_PER_TURN, oil = BASE_OIL_PER_TURN, wood = 0, food = 0, gold = 0;
+  let iron = BASE_IRON_PER_TURN, oil = BASE_OIL_PER_TURN, wood = 0, food = 0, gold = 0, components = 0;
   const labs = state.buildings.filter(b => b.type === 'SCIENCE_LAB' && b.owner === player && !b.underConstruction).length;
   const baseRpBonus = techBonuses?.rpBonusPerLab || 0;
   const rp = calcRPFromLabs(labs) + labs * baseRpBonus;
@@ -933,8 +940,9 @@ export function calcIncome(state, player, techBonuses = null) {
     wood += (def.woodPerTurn || 0) + (bonus.woodPerTurn || 0);
     food += (def.foodPerTurn || 0) + (bonus.foodPerTurn || 0);
     gold += (def.goldPerTurn || 0) + (bonus.goldPerTurn || 0);
+    components += (def.componentsPerTurn || 0) + (bonus.componentsPerTurn || 0);
   }
-  return { iron, oil, wood, food, gold, rp };
+  return { iron, oil, wood, food, gold, components, rp };
 }
 
 // ── Recruitment ────────────────────────────────────────────────────────────
@@ -950,15 +958,17 @@ export function canRecruit(state, player, unitType, buildingId) {
     if (!design) return { ok: false, reason: 'Design not found' };
     const expectedBuilding = CHASSIS_BUILDINGS[design.chassis];
     if (b.type !== expectedBuilding) return { ok: false, reason: 'Wrong building for this design' };
-    if (state.players[player].iron < design.trainCost.iron) return { ok: false, reason: `Need ${design.trainCost.iron} iron` };
-    if (state.players[player].oil  < design.trainCost.oil)  return { ok: false, reason: `Need ${design.trainCost.oil} oil` };
+    if (state.players[player].iron < (design.trainCost.iron||0)) return { ok: false, reason: `Need ${design.trainCost.iron||0} iron` };
+    if (state.players[player].oil  < (design.trainCost.oil||0))  return { ok: false, reason: `Need ${design.trainCost.oil||0} oil` };
+    if ((state.players[player].components||0) < (design.trainCost.components||0)) return { ok: false, reason: `Need ${design.trainCost.components||0} components` };
     return { ok: true };
   }
 
   if (!BUILDING_TYPES[b.type].canRecruit.includes(unitType)) return { ok: false, reason: 'Wrong building' };
   const def = UNIT_TYPES[unitType];
-  if (state.players[player].iron < def.cost.iron) return { ok: false, reason: 'Not enough iron' };
-  if (state.players[player].oil  < def.cost.oil)  return { ok: false, reason: 'Not enough oil' };
+  if (state.players[player].iron < (def.cost.iron||0)) return { ok: false, reason: 'Not enough iron' };
+  if (state.players[player].oil  < (def.cost.oil||0))  return { ok: false, reason: 'Not enough oil' };
+  if ((state.players[player].components||0) < (def.cost.components||0)) return { ok: false, reason: 'Not enough components' };
   return { ok: true };
 }
 
@@ -968,16 +978,18 @@ export function queueRecruit(state, player, unitType, buildingId) {
 
   if (typeof unitType === 'number') {
     const design = state.designs[player].find(d => d.id === unitType);
-    state.players[player].iron -= design.trainCost.iron;
-    state.players[player].oil  -= design.trainCost.oil;
+    state.players[player].iron -= (design.trainCost.iron||0);
+    state.players[player].oil  -= (design.trainCost.oil||0);
+    state.players[player].components = (state.players[player].components||0) - (design.trainCost.components||0);
     const buildTime = UNIT_TYPES[design.chassis]?.buildTime ?? 1;
     state.pendingRecruits.push({ owner: player, designId: unitType, buildingId, turnsLeft: buildTime });
     return { ok: true };
   }
 
   const def = UNIT_TYPES[unitType];
-  state.players[player].iron -= def.cost.iron;
-  state.players[player].oil  -= def.cost.oil;
+  state.players[player].iron -= (def.cost.iron||0);
+  state.players[player].oil  -= (def.cost.oil||0);
+  state.players[player].components = (state.players[player].components||0) - (def.cost.components||0);
   state.pendingRecruits.push({ owner: player, type: unitType, buildingId, turnsLeft: def.buildTime ?? 1 });
   return { ok: true };
 }
@@ -1807,10 +1819,26 @@ export function resolveEndOfTurn(state, terrain) {
   state.players[player].wood  = (state.players[player].wood || 0) + inc.wood;
   state.players[player].food  = +((state.players[player].food  || 0) + inc.food).toFixed(2);
   state.players[player].gold  = +((state.players[player].gold  || 0) + inc.gold).toFixed(2);
+
+  // Tier 2 conversion: factories consume raw resources -> components.
+  let madeComponents = 0;
+  for (const b of state.buildings) {
+    if (b.owner !== player || b.type !== 'FACTORY' || b.underConstruction) continue;
+    if (b.active === false) continue; // player toggled off
+    if (state.players[player].iron >= 1 && state.players[player].oil >= 1 && (state.players[player].wood || 0) >= 1) {
+      state.players[player].iron -= 1;
+      state.players[player].oil  -= 1;
+      state.players[player].wood = (state.players[player].wood || 0) - 1;
+      state.players[player].components = (state.players[player].components || 0) + 1;
+      madeComponents += 1;
+    }
+  }
+
   let incStr = `P${player} +${inc.iron} iron, +${inc.oil} oil`;
   if (inc.wood  > 0) incStr += `, +${inc.wood} wood`;
   if (inc.food  > 0) incStr += `, +${inc.food} food`;
   if (inc.gold  > 0) incStr += `, +${inc.gold} gold`;
+  if (madeComponents > 0) incStr += `, +${madeComponents} components`;
   if (inc.rp    > 0) incStr += `, +${inc.rp} RP`;
   events.push(incStr);
 

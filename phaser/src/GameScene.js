@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.6';
+const GAME_VERSION = 'v1.3.7';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1279,7 +1279,7 @@ export class GameScene extends Phaser.Scene {
         g.fillTriangle(x - s*0.25, y + s*0.05, x + s*0.25, y + s*0.05, x, y - bh/2 + s*0.05);
         g.fillCircle(x, y + s*0.05, s*0.25);
 
-      } else if (b.type === 'VEHICLE_DEPOT') {
+      } else if (b.type === 'VEHICLE_DEPOT' || b.type === 'ARMOR_WORKS') {
         // Vehicle Depot: wide factory — team-colored walls, dark roof, smokestacks
         const bw = s * 2.2, bh = s * 1.1;
         _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
@@ -1335,7 +1335,7 @@ export class GameScene extends Phaser.Scene {
         // Telescope dot
         g.fillStyle(color); g.fillCircle(x + s*0.3, y - s*1.5, s*0.13);
 
-      } else if (b.type === 'BARRACKS') {
+      } else if (b.type === 'BARRACKS' || b.type === 'ADV_BARRACKS') {
         // Barracks: team-colored walls + pitched roof + crenellations
         const bw = s * 1.9, bh = s * 1.1;
         _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
@@ -1367,7 +1367,7 @@ export class GameScene extends Phaser.Scene {
         g.fillStyle(0xffffff, 0.75);
         g.fillTriangle(x + s*0.2, y - s*0.55, x + s*0.55, y - s*0.25, x + s*0.55, y - s*0.6);
 
-      } else if (b.type === 'NAVAL_YARD') {
+      } else if (b.type === 'NAVAL_YARD' || b.type === 'NAVAL_DOCKYARD') {
         // Naval Yard: team-colored walls, big crane arm
         const bw = s * 2.1, bh = s * 1.0;
         _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
@@ -1428,7 +1428,7 @@ export class GameScene extends Phaser.Scene {
         g.beginPath(); g.moveTo(x + bw*0.35, y); g.lineTo(x + s*0.15, y - s*0.35);
         g.lineTo(x + s*0.15, y + s*0.35); g.closePath(); g.strokePath();
 
-      } else if (b.type === 'AIRFIELD') {
+      } else if (b.type === 'AIRFIELD' || b.type === 'ADV_AIRFIELD') {
         // Airfield: team-colored perimeter, concrete runway cross, windsock
         const bw = s * 2.4, bh = s * 1.5;
         _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
@@ -1505,6 +1505,21 @@ export class GameScene extends Phaser.Scene {
         g.strokePath();
         // Flask liquid fill
         g.fillStyle(0x8844cc, 0.55); g.fillRect(x - s*0.3, y + s*0.1, s*0.6, s*0.18);
+
+      } else if (b.type === 'FACTORY') {
+        // Factory: steel block + smokestacks
+        const bw = s * 1.9, bh = s * 1.2;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x666666);
+        g.fillStyle(0x000000, 0.2); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
+        // Smokestacks
+        g.fillStyle(0x555555, 1.0);
+        g.fillRect(x - s*0.55, y - bh/2 - s*0.45, s*0.22, s*0.45);
+        g.fillRect(x - s*0.10, y - bh/2 - s*0.55, s*0.22, s*0.55);
+        g.fillRect(x + s*0.35, y - bh/2 - s*0.38, s*0.22, s*0.38);
+        // Status light (green when active, red when toggled off)
+        const active = (b.active !== false);
+        g.fillStyle(active ? 0x44cc66 : 0xcc4444, 0.95);
+        g.fillCircle(x + s*0.62, y + s*0.28, s*0.12);
 
       } else if (b.type === 'TRENCH') {
         // Trench: earthy zigzag
@@ -1981,16 +1996,17 @@ export class GameScene extends Phaser.Scene {
     // Back to menu button (leftmost)
     this.btnMenu = this._makeBtn(10, 11, '← MENU', 0x222222, () => this.scene.start('MenuScene'), D);
 
-    // Resource cells — iron/oil/wood/food/gold/rp
+    // Resource cells — iron/oil/wood/food/gold/components/rp
     this.resIron = this._makeLabel(108, 11, '⚙ —', D);
     this.resOil  = this._makeLabel(208, 11, '🛢 —', D);
     this.resWood = this._makeLabel(308, 11, '🪵 —', D);
     this.resFood = this._makeLabel(400, 11, '🍞 —', D);
     this.resGold = this._makeLabel(490, 11, '💰 —', D);
-    this.resRp   = this._makeLabel(570, 11, '⚗ —', D);
+    this.resComp = this._makeLabel(580, 11, '🧩 —', D);
+    this.resRp   = this._makeLabel(670, 11, '⚗ —', D);
 
     // Version tag (subtle)
-    this.add.text(658, 13, GAME_VERSION, {
+    this.add.text(760, 13, GAME_VERSION, {
       font: '10px monospace', fill: '#334455'
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(D);
 
@@ -2057,6 +2073,7 @@ export class GameScene extends Phaser.Scene {
     this.resWood.setText(`🪵 ${fmtRes(pl.wood || 0)}${inc.wood > 0 ? ` +${inc.wood}` : ''}`);
     this.resFood.setText(`🍞 ${fmtRes(pl.food || 0)}${foodDelta ? ` ${foodDelta}` : ''}`);
     this.resGold.setText(`💰 ${fmtRes(pl.gold || 0)}${goldDelta ? ` ${goldDelta}` : ''}`);
+    this.resComp.setText(`🧩 ${fmtRes(pl.components || 0)}`);
     // Research: show active tech name + % or "no lab"
     const resState = pl.research;
     const activeRes = resState?.queue?.[0];
@@ -2616,20 +2633,20 @@ export class GameScene extends Phaser.Scene {
           // Register
           const chassis = selChassis;
           const def = `${UNIT_TYPES[chassis]?.name || chassis} Mk.${(gs.designs[p]?.length || 0) + 1}`;
-          const entered = window.prompt(`Name this design:\n(Enemy sees only chassis type)`, designName || def);
-          if (entered === null) return;
-          designName = entered.trim() || def;
           const mods  = [...selMods];
           const cost  = designRegistrationCost(mods);
           if (gs.players[p].iron < cost.iron || gs.players[p].oil < cost.oil) return;
           if ((gs.designs[p]?.length || 0) >= MAX_DESIGNS_PER_PLAYER) return;
-          const res = registerDesign(gs, p, chassis, mods, designName);
-          if (res.ok) {
-            this._pushLog(`P${p} designed: "${designName}"`);
-            selMods = new Set(); designName = '';
-            this._refresh();
-            rebuild();
-          }
+          this._openNameModal('Name Unit Design', designName || def, (enteredName) => {
+            designName = enteredName || def;
+            const res = registerDesign(gs, p, chassis, mods, designName);
+            if (res.ok) {
+              this._pushLog(`P${p} designed: "${designName}"`);
+              selMods = new Set(); designName = '';
+              this._refresh();
+              this._closeDesigner();
+            }
+          }, () => {});
         },
         () => this._closeDesigner()
       );
@@ -2638,6 +2655,58 @@ export class GameScene extends Phaser.Scene {
       this._addToUI(objs);
     };
     rebuild();
+  }
+
+  _openNameModal(title, defaultText, onSubmit, onCancel) {
+    const w = this.scale.width, h = this.scale.height;
+    const D = 260;
+    const objs = [];
+    const overlay = this.add.rectangle(w/2, h/2, w, h, 0x000000, 0.72).setScrollFactor(0).setDepth(D).setInteractive();
+    overlay.on('pointerdown', () => { this._contextMenuClicked = true; });
+    objs.push(overlay);
+    const card = this.add.rectangle(w/2, h/2, 520, 180, 0x101820, 0.98).setStrokeStyle(2, 0x446688).setScrollFactor(0).setDepth(D+1);
+    objs.push(card);
+    objs.push(this.add.text(w/2, h/2 - 58, title, { font:'bold 14px monospace', fill:'#ccddff' }).setOrigin(0.5).setScrollFactor(0).setDepth(D+2));
+
+    let value = (defaultText || '').slice(0, 28);
+    const inputLbl = this.add.text(w/2, h/2 - 18, value || ' ', {
+      font:'bold 16px monospace', fill:'#ffffff', backgroundColor:'#1a2430', padding:{x:12,y:8}, fixedWidth: 430, align: 'left'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+2);
+    objs.push(inputLbl);
+
+    const hint = this.add.text(w/2, h/2 + 16, 'Type name, Enter=confirm, Esc=cancel', {
+      font:'10px monospace', fill:'#778899'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+2);
+    objs.push(hint);
+
+    const confirm = this.add.text(w/2 - 70, h/2 + 52, '[ CREATE ]', {
+      font:'bold 12px monospace', fill:'#aaffaa', backgroundColor:'#173217', padding:{x:10,y:6}
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor: true });
+    const cancel = this.add.text(w/2 + 70, h/2 + 52, '[ CANCEL ]', {
+      font:'bold 12px monospace', fill:'#ffaaaa', backgroundColor:'#321717', padding:{x:10,y:6}
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor: true });
+    objs.push(confirm, cancel);
+
+    const cleanup = () => {
+      if (this._nameModalKeyCb) this.input.keyboard.off('keydown', this._nameModalKeyCb);
+      this._nameModalKeyCb = null;
+      for (const o of objs) { try { o.destroy(); } catch(e){} }
+    };
+    const submit = () => { const out = (value.trim() || defaultText || 'New Design').slice(0, 28); cleanup(); onSubmit?.(out); };
+    const abort = () => { cleanup(); onCancel?.(); };
+
+    confirm.on('pointerdown', () => { this._contextMenuClicked = true; submit(); });
+    cancel.on('pointerdown', () => { this._contextMenuClicked = true; abort(); });
+
+    this._nameModalKeyCb = (ev) => {
+      if (ev.key === 'Enter') return submit();
+      if (ev.key === 'Escape') return abort();
+      if (ev.key === 'Backspace') value = value.slice(0, -1);
+      else if (ev.key && ev.key.length === 1 && value.length < 28) value += ev.key;
+      inputLbl.setText(value || ' ');
+    };
+    this.input.keyboard.on('keydown', this._nameModalKeyCb);
+    this._addToUI(objs);
   }
 
   _renderDesignerPanel(gs, p, w, h, D, objs, allChassis, selChassis, selMods, designName, onChassis, onMod, onRegister, onClose) {
@@ -3243,11 +3312,16 @@ export class GameScene extends Phaser.Scene {
       addHeader('LAND MILITARY');
       if (noBuilding) allOpts.push({ label: `Barracks    4⚙ 4🪵`,    cost:{iron:4,oil:0,wood:4},  enabled: iron>=4&&wood>=4,        cb: () => this._onBuildStructure('BARRACKS',4,0,4) });
       if (noBuilding) allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢`, cost:{iron:8,oil:2},          enabled: iron>=8&&oil>=2,         cb: () => this._onBuildStructure('VEHICLE_DEPOT',8,2) });
+      if (noBuilding) allOpts.push({ label: `Adv Barracks T2 10⚙ 2🛢 6🪵`, cost:{iron:10,oil:2,wood:6}, enabled: iron>=10&&oil>=2&&wood>=6, cb: () => this._onBuildStructure('ADV_BARRACKS',10,2,6) });
+      if (noBuilding) allOpts.push({ label: `Armor Works T2 14⚙ 4🛢 4🪵`,  cost:{iron:14,oil:4,wood:4}, enabled: iron>=14&&oil>=4&&wood>=4, cb: () => this._onBuildStructure('ARMOR_WORKS',14,4,4) });
+      if (noBuilding) allOpts.push({ label: `Airfield     6⚙ 2🛢 2🪵`,      cost:{iron:6,oil:2,wood:2}, enabled: iron>=6&&oil>=2&&wood>=2, cb: () => this._onBuildStructure('AIRFIELD',6,2,2) });
+      if (noBuilding) allOpts.push({ label: `Adv Airfield T2 12⚙ 5🛢 4🪵`, cost:{iron:12,oil:5,wood:4}, enabled: iron>=12&&oil>=5&&wood>=4, cb: () => this._onBuildStructure('ADV_AIRFIELD',12,5,4) });
       addHeader('NAVAL');
       if (noBuilding) allOpts.push({ label: `Naval Yard  8⚙ 2🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:8,oil:2},  enabled: coastal && iron>=8&&oil>=2,  cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
       if (noBuilding) allOpts.push({ label: `Harbor      5⚙ 1🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:5,oil:1},  enabled: coastal && iron>=5&&oil>=1,  cb: () => this._onBuildStructure('HARBOR',5,1) });
       if (noBuilding) allOpts.push({ label: `Dry Dock   12⚙ 4🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:12,oil:4}, enabled: coastal && iron>=12&&oil>=4, cb: () => this._onBuildStructure('DRY_DOCK',12,4) });
       if (noBuilding) allOpts.push({ label: `Naval Base 16⚙ 6🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:16,oil:6}, enabled: coastal && iron>=16&&oil>=6, cb: () => this._onBuildStructure('NAVAL_BASE',16,6) });
+      if (noBuilding) allOpts.push({ label: `Naval Dockyard T2 16⚙ 5🛢 4🪵 ${coastal?'':'[COAST]'}`, cost:{iron:16,oil:5,wood:4}, enabled: coastal && iron>=16&&oil>=5&&wood>=4, cb: () => this._onBuildStructure('NAVAL_DOCKYARD',16,5,4) });
       addHeader('DEFENSE & OBSTACLES');
       if (noBuilding) allOpts.push({ label: `Bunker      3⚙ 2🪵`,   cost:{iron:3,oil:0,wood:2},  enabled: iron>=3&&wood>=2, cb: () => this._onBuildStructure('BUNKER',3,0,2) });
       if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙`,       cost:{iron:3,oil:0},         enabled: iron>=3,          cb: () => this._onBuildStructure('OBS_POST',3) });
@@ -3265,6 +3339,7 @@ export class GameScene extends Phaser.Scene {
       if (noBuilding && onPlains) allOpts.push({ label: `Farm 🍞     2⚙ 3🪵`,   cost:{iron:2,oil:0,wood:3}, enabled: iron>=2&&wood>=3, cb: () => this._onBuildStructure('FARM',2,0,3) });
       if (noBuilding) allOpts.push({ label: `Market 💰   3⚙ 4🪵`,             cost:{iron:3,oil:0,wood:4}, enabled: iron>=3&&wood>=4, cb: () => this._onBuildStructure('MARKET',3,0,4) });
       if (noBuilding) allOpts.push({ label: `Science Lab ⚗  6⚙ 4🪵`,         cost:{iron:6,oil:0,wood:4}, enabled: iron>=6&&wood>=4, cb: () => this._onBuildStructure('SCIENCE_LAB',6,0,4) });
+      if (noBuilding) allOpts.push({ label: `Factory 🧩    10⚙ 3🛢 8🪵`,      cost:{iron:10,oil:3,wood:8}, enabled: iron>=10&&oil>=3&&wood>=8, cb: () => this._onBuildStructure('FACTORY',10,3,8) });
       // Coastal Battery — spawns as immobile unit (no building on hex required)
       allOpts.push({ label: `Coast. Battery 6⚙ 1🛢`, cost:{iron:6,oil:1}, enabled: iron>=6&&oil>=1, cb: () => this._onBuildCoastalBattery() });
       // Future entries just go here — pagination handles overflow automatically
@@ -4197,6 +4272,14 @@ export class GameScene extends Phaser.Scene {
     // Own unit on hex? Always select unit first (even if building is also there)
     if (clickedUnit && Number(clickedUnit.owner) === Number(gs.currentPlayer)) {
       this._selectUnit(clickedUnit);
+      return;
+    }
+
+    // Factory control: click own factory to toggle production ON/OFF
+    if (clickedBuilding && Number(clickedBuilding.owner) === Number(gs.currentPlayer) && clickedBuilding.type === 'FACTORY') {
+      clickedBuilding.active = (clickedBuilding.active === false) ? true : false;
+      this._pushLog(`Factory ${clickedBuilding.active ? 'ON' : 'OFF'}`);
+      this._refresh();
       return;
     }
 
