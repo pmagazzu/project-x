@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.25';
+const GAME_VERSION = 'v1.3.26';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1272,38 +1272,40 @@ export class GameScene extends Phaser.Scene {
         _flagpole(x + s*0.62, y - bh/2, s * 1.25);
 
       } else if (b.type === 'MINE') {
-        // Iron Mine: dark rocky base with team-colored headframe (A-frame)
-        const bw = s * 1.8, bh = s * 0.85;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x555555);
-        // Headframe A-frame in team color
-        g.lineStyle(2.5, color, 1.0);
-        g.beginPath();
-        g.moveTo(x - s*0.7, y - bh/2 + s*0.1); g.lineTo(x, y - bh/2 - s*0.9);
-        g.lineTo(x + s*0.7, y - bh/2 + s*0.1); g.strokePath();
-        g.beginPath(); g.moveTo(x - s*0.4, y - bh/2 - s*0.3); g.lineTo(x + s*0.4, y - bh/2 - s*0.3); g.strokePath();
-        // Ore cart dot
-        g.fillStyle(0xccaa55); g.fillRect(x - s*0.2, y - bh/2 + s*0.05, s*0.4, s*0.3);
+        // Mine: pit mouth + timber frame + ore carts
+        const bw = s * 1.85, bh = s * 0.9;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x57534b);
+        // Shaft mouth
+        g.fillStyle(0x1a1a1a, 0.9); g.fillRect(x - s*0.34, y - s*0.02, s*0.68, s*0.28);
+        // Timber supports
+        g.fillStyle(0x7a6248, 0.95);
+        g.fillRect(x - s*0.4, y - s*0.12, s*0.08, s*0.42);
+        g.fillRect(x + s*0.32, y - s*0.12, s*0.08, s*0.42);
+        g.fillRect(x - s*0.4, y - s*0.12, s*0.8, s*0.08);
+        // Ore carts
+        g.fillStyle(0x8b8f94, 0.9);
+        g.fillRect(x - s*0.72, y + s*0.1, s*0.24, s*0.14);
+        g.fillRect(x + s*0.48, y + s*0.1, s*0.24, s*0.14);
+        g.fillStyle(teamAccent, 0.8); g.fillRect(x - s*0.72, y + s*0.08, s*0.24, s*0.03);
+        g.fillStyle(teamAccent, 0.8); g.fillRect(x + s*0.48, y + s*0.08, s*0.24, s*0.03);
 
       } else if (b.type === 'OIL_PUMP') {
-        // Oil Pump: dark base + team-colored nodding-donkey pump silhouette
-        const bw = s * 1.6, bh = s * 0.7;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x1a1a2a);
-        // Pump beam (nodding donkey)
-        g.lineStyle(2.5, color, 1.0);
+        // Oil pump: base pad + derrick + pumpjack arm
+        const bw = s * 1.68, bh = s * 0.76;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x2e2e36);
+        // Derrick frame
+        g.lineStyle(1.4, 0xa4a8ad, 0.9);
         g.beginPath();
-        g.moveTo(x - s*0.7, y - bh/2 - s*0.1); g.lineTo(x + s*0.7, y - bh/2 - s*0.1); // base bar
-        g.strokePath();
-        g.beginPath();
-        g.moveTo(x - s*0.1, y - bh/2 - s*0.1); g.lineTo(x - s*0.1, y - bh/2 - s*0.9); // upright
-        g.strokePath();
-        g.beginPath();
-        g.moveTo(x - s*0.6, y - bh/2 - s*0.9); g.lineTo(x + s*0.5, y - bh/2 - s*0.5); // beam arm
-        g.strokePath();
-        g.fillStyle(color); g.fillCircle(x + s*0.5, y - bh/2 - s*0.5, s*0.14); // pivot
-        // Oil drop symbol
-        g.fillStyle(0x4488ff, 0.7);
-        g.fillTriangle(x - s*0.25, y + s*0.05, x + s*0.25, y + s*0.05, x, y - bh/2 + s*0.05);
-        g.fillCircle(x, y + s*0.05, s*0.25);
+        g.moveTo(x - s*0.5, y + s*0.18); g.lineTo(x - s*0.28, y - s*0.78);
+        g.lineTo(x - s*0.06, y + s*0.18); g.strokePath();
+        g.beginPath(); g.moveTo(x - s*0.44, y - s*0.46); g.lineTo(x - s*0.12, y - s*0.46); g.strokePath();
+        // Pumpjack arm
+        g.lineStyle(1.8, teamAccent, 0.95);
+        g.beginPath(); g.moveTo(x - s*0.05, y - s*0.55); g.lineTo(x + s*0.55, y - s*0.35); g.strokePath();
+        g.fillStyle(teamAccent, 0.95); g.fillCircle(x + s*0.55, y - s*0.35, s*0.1);
+        // Well head + spill channel
+        g.fillStyle(0x11161a, 0.9); g.fillRect(x + s*0.2, y - s*0.05, s*0.16, s*0.2);
+        g.fillStyle(0x2f3d4f, 0.85); g.fillRect(x + s*0.38, y + s*0.08, s*0.26, s*0.08);
 
       } else if (b.type === 'VEHICLE_DEPOT' || b.type === 'ARMOR_WORKS') {
         // Vehicle Depot: wide factory — team-colored walls, dark roof, smokestacks
@@ -1434,20 +1436,22 @@ export class GameScene extends Phaser.Scene {
         }
 
       } else if (b.type === 'NAVAL_BASE') {
-        // Naval Base: largest — team-colored compound with flagpole + division line
-        const bw = s * 2.5, bh = s * 1.4;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
-        // Darker inner section
-        g.fillStyle(0x000000, 0.2); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
-        // Division line
-        g.lineStyle(1.5, 0xffffff, 0.4); g.beginPath();
-        g.moveTo(x, y - bh/2 + 2); g.lineTo(x, y + bh/2 - 2); g.strokePath();
-        // Flagpole
-        _flagpole(x - bw*0.3, y - bh/2, s * 1.1);
-        // Ship prow hint
-        g.lineStyle(1.5, 0x88ccff, 0.6);
-        g.beginPath(); g.moveTo(x + bw*0.35, y); g.lineTo(x + s*0.15, y - s*0.35);
-        g.lineTo(x + s*0.15, y + s*0.35); g.closePath(); g.strokePath();
+        // Naval base: fortified command quay + dry basin + tower
+        const bw = s * 2.56, bh = s * 1.44;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x4f5d68);
+        // Inner basin
+        g.fillStyle(0x1e3448, 0.86); g.fillRect(x - bw*0.26, y - bh/2 + s*0.18, bw*0.52, bh*0.74);
+        // Quay blocks
+        g.fillStyle(0x6f7f8b, 0.85);
+        g.fillRect(x - bw*0.42, y + s*0.02, s*0.26, s*0.18);
+        g.fillRect(x + bw*0.16, y + s*0.02, s*0.26, s*0.18);
+        // Command tower
+        _bldgRect(x - bw*0.43, y - bh/2 - s*0.58, s*0.56, s*0.58, 0x707a82);
+        g.fillStyle(0xb8c9d8, 0.45); g.fillRect(x - bw*0.39, y - bh/2 - s*0.42, s*0.38, s*0.12);
+        // Prow silhouette
+        g.fillStyle(0x98adbf, 0.8);
+        g.fillTriangle(x + s*0.1, y + s*0.02, x + s*0.56, y - s*0.16, x + s*0.56, y + s*0.2);
+        _flagpole(x - bw*0.16, y - bh/2, s * 1.0);
 
       } else if (b.type === 'AIRFIELD' || b.type === 'ADV_AIRFIELD') {
         // Airfield: tarmac pad + runway markings + hangar slab
@@ -1470,53 +1474,56 @@ export class GameScene extends Phaser.Scene {
           x + bw*0.3 + s*0.52, y - bh/2 - s*0.4);
 
       } else if (b.type === 'FARM') {
-        // Farm: green field rows + small barn
-        const bw = s * 1.8, bh = s * 1.2;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
-        // Crop rows (green lines)
-        g.lineStyle(1.5, 0x44bb44, 0.75);
-        for (let i = 0; i < 4; i++) {
-          const ry = y - bh/2 + 4 + i * (bh - 8) / 3;
-          g.beginPath(); g.moveTo(x - bw/2 + 4, ry); g.lineTo(x + bw/2 - 4, ry); g.strokePath();
+        // Farm: furrow patch + barn + silo
+        const bw = s * 1.9, bh = s * 1.22;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x5f6b49);
+        // Furrows
+        g.lineStyle(1.2, 0x3f5a31, 0.78);
+        for (let i = 0; i < 5; i++) {
+          const ry = y - bh/2 + 4 + i * (bh - 8) / 4;
+          g.beginPath(); g.moveTo(x - bw/2 + 3, ry); g.lineTo(x + bw/2 - 3, ry); g.strokePath();
         }
-        // Barn silhouette
-        g.fillStyle(0xaa4422, 0.9); g.fillRect(x + bw/2 - s*0.55, y - s*0.35, s*0.45, s*0.4);
-        g.fillStyle(0x882200, 0.9);
-        g.fillTriangle(x + bw/2 - s*0.58, y - s*0.35, x + bw/2 + s*0.01, y - s*0.35, x + bw/2 - s*0.28, y - s*0.65);
+        // Barn
+        g.fillStyle(0x8c3f2a, 0.95); g.fillRect(x + s*0.2, y - s*0.28, s*0.46, s*0.38);
+        g.fillStyle(0x5c2619, 0.95); g.fillTriangle(x + s*0.16, y - s*0.28, x + s*0.70, y - s*0.28, x + s*0.43, y - s*0.56);
+        // Silo
+        g.fillStyle(0x9b9fa4, 0.9); g.fillRect(x - s*0.72, y - s*0.34, s*0.2, s*0.46);
+        g.fillStyle(0xc9ced3, 0.9); g.fillCircle(x - s*0.62, y - s*0.34, s*0.1);
 
       } else if (b.type === 'MARKET') {
-        // Market: team-colored stall + awning stripes
-        const bw = s * 1.8, bh = s * 0.9;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
-        // Awning stripes
-        const stripeW = bw / 5;
-        for (let i = 0; i < 5; i++) {
-          g.fillStyle(i%2===0 ? 0xffffff : color, 0.4);
-          g.fillRect(x - bw/2 + i*stripeW, y - bh/2 - s*0.4, stripeW, s*0.4);
+        // Market: stalls + canopies + coin sign
+        const bw = s * 1.85, bh = s * 0.96;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x6a5d49);
+        // Canopies
+        const stripeW = bw / 6;
+        for (let i = 0; i < 6; i++) {
+          g.fillStyle(i%2===0 ? 0xd8d2c3 : teamAccent, 0.55);
+          g.fillRect(x - bw/2 + i*stripeW, y - bh/2 - s*0.34, stripeW, s*0.34);
         }
-        // Gold coin symbol
-        g.fillStyle(0xffcc00, 0.95); g.fillCircle(x, y + s*0.05, s*0.25);
-        g.lineStyle(1.5, 0x000000, 0.3); g.strokeCircle(x, y + s*0.05, s*0.25);
-        g.lineStyle(1, 0x000000, 0.5);
-        g.beginPath(); g.moveTo(x, y - s*0.12); g.lineTo(x, y + s*0.22); g.strokePath();
+        // Stall fronts
+        g.fillStyle(0x463a2b, 0.85);
+        g.fillRect(x - s*0.78, y - s*0.02, s*0.42, s*0.24);
+        g.fillRect(x - s*0.24, y - s*0.02, s*0.42, s*0.24);
+        g.fillRect(x + s*0.30, y - s*0.02, s*0.42, s*0.24);
+        // Coin sign
+        g.fillStyle(0xffcc55, 0.95); g.fillCircle(x, y + s*0.08, s*0.22);
+        g.lineStyle(1.2, 0x000000, 0.35); g.strokeCircle(x, y + s*0.08, s*0.22);
 
       } else if (b.type === 'SCIENCE_LAB') {
-        // Science Lab: dark building + flask symbol + antenna
-        const bw = s * 1.7, bh = s * 1.1;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
-        g.fillStyle(0x000000, 0.25); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
-        // Antenna
-        g.fillStyle(0xffffff, 0.9); g.fillRect(x - s*0.05, y - bh/2 - s*0.8, s*0.1, s*0.8);
-        g.fillStyle(0xcc88ff, 0.9); g.fillCircle(x, y - bh/2 - s*0.85, s*0.12);
-        // Flask icon (purple outline)
-        g.lineStyle(2, 0xcc88ff, 0.95);
-        g.beginPath();
-        g.moveTo(x - s*0.18, y - s*0.3); g.lineTo(x - s*0.18, y - s*0.05);
-        g.lineTo(x - s*0.35, y + s*0.3); g.lineTo(x + s*0.35, y + s*0.3);
-        g.lineTo(x + s*0.18, y - s*0.05); g.lineTo(x + s*0.18, y - s*0.3);
-        g.strokePath();
-        // Flask liquid fill
-        g.fillStyle(0x8844cc, 0.55); g.fillRect(x - s*0.3, y + s*0.1, s*0.6, s*0.18);
+        // Science lab: modular lab block + dish + glass tanks
+        const bw = s * 1.78, bh = s * 1.14;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x556171);
+        g.fillStyle(0x2f3e4d, 0.88); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
+        // Satellite dish
+        g.lineStyle(1.6, 0xd5dde5, 0.9);
+        g.strokeEllipse(x - s*0.42, y - bh/2 - s*0.42, s*0.5, s*0.24);
+        g.beginPath(); g.moveTo(x - s*0.42, y - bh/2 - s*0.3); g.lineTo(x - s*0.26, y - bh/2 - s*0.08); g.strokePath();
+        // Lab glass columns
+        g.fillStyle(0x95c6ff, 0.45);
+        g.fillRect(x - s*0.06, y - s*0.2, s*0.14, s*0.42);
+        g.fillRect(x + s*0.2, y - s*0.2, s*0.14, s*0.42);
+        // Accent probe light
+        g.fillStyle(teamAccent, 0.85); g.fillCircle(x + s*0.52, y - bh/2 - s*0.2, s*0.1);
 
       } else if (b.type === 'FACTORY') {
         // Factory: industrial block with sawtooth roof, vents, and status lamp
