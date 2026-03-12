@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.23';
+const GAME_VERSION = 'v1.3.24';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1215,20 +1215,41 @@ export class GameScene extends Phaser.Scene {
         const color = PLAYER_COLORS[b.owner] || 0x888888;
         const s = HEX_SIZE * 0.3;
 
-      // ── Helper: draw a team-colored building base rect with shadow + border ──
+      // ── Helper: pixel-building style with subtle team accents (less color dominance) ──
       const g = this.buildingGfx;
+      const _mix = (a, b, t) => {
+        const ca = Phaser.Display.Color.IntegerToColor(a);
+        const cb = Phaser.Display.Color.IntegerToColor(b);
+        return Phaser.Display.Color.GetColor(
+          Math.floor(ca.red * (1 - t) + cb.red * t),
+          Math.floor(ca.green * (1 - t) + cb.green * t),
+          Math.floor(ca.blue * (1 - t) + cb.blue * t)
+        );
+      };
+      const teamAccent = _mix(color, 0xffffff, 0.18);
       const _bldgRect = (bx, by, bw, bh, bodyColor) => {
-        g.fillStyle(0x000000, 0.55); g.fillRect(bx + 2, by + 2, bw, bh); // shadow
-        g.fillStyle(bodyColor);      g.fillRect(bx, by, bw, bh);
-        g.lineStyle(2, color, 1.0);  g.strokeRect(bx, by, bw, bh);       // team-color border
+        const px = Math.floor(bx), py = Math.floor(by), pw = Math.max(8, Math.floor(bw)), ph = Math.max(6, Math.floor(bh));
+        const mutedBody = _mix(bodyColor, 0x777777, 0.35);
+        g.fillStyle(0x000000, 0.55); g.fillRect(px + 2, py + 2, pw, ph); // shadow
+        g.fillStyle(mutedBody);      g.fillRect(px, py, pw, ph);
+        // subtle checker/noise to feel pixel-art tile-like
+        g.fillStyle(_mix(mutedBody, 0x222222, 0.18), 0.35);
+        for (let ix = 1; ix < pw - 1; ix += 4) {
+          for (let iy = 1; iy < ph - 1; iy += 4) {
+            if (((ix + iy) / 4) % 2 === 0) g.fillRect(px + ix, py + iy, 2, 2);
+          }
+        }
+        // thin team accent strip instead of fully team-colored building
+        g.fillStyle(teamAccent, 0.85); g.fillRect(px + 1, py + 1, pw - 2, 3);
+        g.lineStyle(1.2, teamAccent, 0.95); g.strokeRect(px, py, pw, ph);
         // inner highlight
-        g.lineStyle(1, 0xffffff, 0.3); g.beginPath();
-        g.moveTo(bx, by + bh - 1); g.lineTo(bx, by); g.lineTo(bx + bw - 1, by);
+        g.lineStyle(1, 0xffffff, 0.22); g.beginPath();
+        g.moveTo(px, py + ph - 1); g.lineTo(px, py); g.lineTo(px + pw - 1, py);
         g.strokePath();
       };
       const _flagpole = (px, py, fh) => {
         g.fillStyle(0xdddddd); g.fillRect(px - s*0.06, py - fh, s*0.12, fh);
-        g.fillStyle(color);
+        g.fillStyle(teamAccent);
         g.fillTriangle(px + s*0.06, py - fh + s*0.05, px + s*0.06, py - fh + s*0.4, px + s*0.45, py - fh + s*0.22);
       };
 
@@ -1652,6 +1673,17 @@ export class GameScene extends Phaser.Scene {
       const alpha = dim ? 0.6 : 1.0;
       const def   = UNIT_TYPES[unit.type];
       const r     = HEX_SIZE * 0.36;
+      const _mixU = (a, b, t) => {
+        const ca = Phaser.Display.Color.IntegerToColor(a);
+        const cb = Phaser.Display.Color.IntegerToColor(b);
+        return Phaser.Display.Color.GetColor(
+          Math.floor(ca.red * (1 - t) + cb.red * t),
+          Math.floor(ca.green * (1 - t) + cb.green * t),
+          Math.floor(ca.blue * (1 - t) + cb.blue * t)
+        );
+      };
+      const unitBodyColor = _mixU(color, 0x6e6e6e, 0.68); // less dominant team fill
+      const unitAccent = _mixU(color, 0xffffff, 0.22);
 
       // Dug-in ring
       if (unit.dugIn) {
@@ -1699,7 +1731,7 @@ export class GameScene extends Phaser.Scene {
         const offX = 4, offY = -4;
         this.unitGfx.fillStyle(0x000000, alpha * 0.25);
         this.unitGfx.fillRect(cx2 + offX + 2, cy2 + offY + 2, cW, cH);
-        this.unitGfx.fillStyle(color, fillAlpha * 0.55);
+        this.unitGfx.fillStyle(unitBodyColor, fillAlpha * 0.55);
         this.unitGfx.fillRect(cx2 + offX, cy2 + offY, cW, cH);
         this.unitGfx.lineStyle(1, 0x000000, alpha * 0.5);
         this.unitGfx.strokeRect(cx2 + offX, cy2 + offY, cW, cH);
@@ -1710,8 +1742,18 @@ export class GameScene extends Phaser.Scene {
       this.unitGfx.fillRect(cx2 + 2, cy2 + 2, cW, cH);
 
       // Counter body
-      this.unitGfx.fillStyle(color, fillAlpha);
+      this.unitGfx.fillStyle(unitBodyColor, fillAlpha);
       this.unitGfx.fillRect(cx2, cy2, cW, cH);
+      // subtle pixel texture for upgraded look
+      this.unitGfx.fillStyle(0x000000, alpha * 0.10);
+      for (let px = 2; px < cW - 2; px += 4) {
+        for (let py = 2; py < cH - 2; py += 4) {
+          if (((px + py) / 2) % 3 === 0) this.unitGfx.fillRect(cx2 + px, cy2 + py, 1.8, 1.8);
+        }
+      }
+      // top accent stripe carries team color without dominating body
+      this.unitGfx.fillStyle(unitAccent, alpha * 0.9);
+      this.unitGfx.fillRect(cx2 + 1, cy2 + 1, cW - 2, 3);
 
       // Inner highlight (top + left edge)
       this.unitGfx.lineStyle(1, 0xffffff, fillAlpha * 0.35);
@@ -1728,7 +1770,7 @@ export class GameScene extends Phaser.Scene {
 
       // Outer border (double for selected unit)
       const borderW = (this.selectedUnit === unit) ? 2.5 : 1.5;
-      const borderC = (this.selectedUnit === unit) ? 0xffff00 : 0x000000;
+      const borderC = (this.selectedUnit === unit) ? 0xffff00 : unitAccent;
       this.unitGfx.lineStyle(borderW, borderC, alpha);
       this.unitGfx.strokeRect(cx2, cy2, cW, cH);
 
