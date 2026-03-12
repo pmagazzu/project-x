@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.29';
+const GAME_VERSION = 'v1.3.30';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5292,6 +5292,55 @@ export class GameScene extends Phaser.Scene {
         this._refresh();
       }
       next();
+
+    } else if (action.type === 'build') {
+      const unit = gs.units.find(u => u.id === action.unitId);
+      const p = gs.currentPlayer;
+      if (!unit || unit.owner !== p || !UNIT_TYPES[unit.type]?.canBuild) { next(); return; }
+
+      const bType = action.buildingType;
+      const cost = BUILDING_TYPES[bType]?.buildCost || {};
+      const pl = gs.players[p];
+
+      // Placement validity similar to player build flow.
+      const onRoad = !!roadAt(gs, unit.q, unit.r);
+      const hasNonRoadBuilding = !!(buildingAt(gs, unit.q, unit.r) && !onRoad);
+      if (bType === 'ROAD') {
+        if (onRoad) { next(); return; }
+      } else if (hasNonRoadBuilding) {
+        next(); return;
+      }
+
+      if ((pl.iron || 0) < (cost.iron || 0) || (pl.oil || 0) < (cost.oil || 0) ||
+          (pl.wood || 0) < (cost.wood || 0) || (pl.components || 0) < (cost.components || 0)) {
+        next(); return;
+      }
+
+      pl.iron = (pl.iron || 0) - (cost.iron || 0);
+      pl.oil = (pl.oil || 0) - (cost.oil || 0);
+      pl.wood = (pl.wood || 0) - (cost.wood || 0);
+      pl.components = (pl.components || 0) - (cost.components || 0);
+
+      if (bType === 'ROAD') {
+        gs.buildings.push(createBuilding('ROAD', p, unit.q, unit.r));
+        this._redrawRoads();
+      } else {
+        const def = BUILDING_TYPES[bType] || {};
+        const b = createBuilding(bType, p, unit.q, unit.r);
+        const turns = def.buildTurns || 0;
+        if (turns > 0) {
+          b.underConstruction = true;
+          b.buildProgress = 0;
+          b.buildTurnsRequired = turns;
+          unit.constructing = b.id;
+        }
+        gs.buildings.push(b);
+      }
+
+      unit.moved = true;
+      unit.building = true;
+      this._refresh();
+      this.time.delayedCall(120, next);
 
     } else {
       next();

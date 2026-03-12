@@ -14,7 +14,7 @@
 
 import {
   UNIT_TYPES, BUILDING_TYPES, AIR_UNITS, NAVAL_UNITS,
-  getReachableHexes, getAttackableHexes, hexDistance,
+  getReachableHexes, getAttackableHexes, hexDistance, buildingAt, roadAt,
 } from './GameState.js';
 
 // ── Strategy definitions ───────────────────────────────────────────────────
@@ -126,6 +126,25 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const getEnemies = () => gs.units.filter(u => u.owner !== player && !u.embarked);
   const getMyHQs   = () => gs.buildings.filter(b => b.owner === player && b.type === 'HQ');
 
+  // Simulated AI economy spend during planning so we don't overcommit.
+  const resSim = {
+    iron: gs.players[player].iron || 0,
+    oil: gs.players[player].oil || 0,
+    wood: gs.players[player].wood || 0,
+    components: gs.players[player].components || 0,
+  };
+  const canAfford = (cost = {}) =>
+    resSim.iron >= (cost.iron || 0) &&
+    resSim.oil >= (cost.oil || 0) &&
+    resSim.wood >= (cost.wood || 0) &&
+    resSim.components >= (cost.components || 0);
+  const spend = (cost = {}) => {
+    resSim.iron -= (cost.iron || 0);
+    resSim.oil -= (cost.oil || 0);
+    resSim.wood -= (cost.wood || 0);
+    resSim.components -= (cost.components || 0);
+  };
+
   // Clone unit list so we can track "virtual" positions for multi-step planning
   // (Simple approach: plan each unit independently with live state)
   const unitIds = gs.units
@@ -226,6 +245,51 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           actions.push({ type: 'digin', unitId: unit.id });
         }
       }
+
+      // E) Engineer infra/economy behavior (new AI pass)
+      if (unit.type === 'ENGINEER' && !unit.constructing) {
+        const key = `${unit.q},${unit.r}`;
+        const hasRoad = !!roadAt(gs, unit.q, unit.r);
+        const hasNonRoadBuilding = !!(buildingAt(gs, unit.q, unit.r) && !hasRoad);
+        const resHex = gs.resourceHexes?.[key];
+        const ttype = terrain?.[key] ?? 0;
+
+        const maybeBuild = (buildingType) => {
+          const cost = BUILDING_TYPES[buildingType]?.buildCost || {};
+          if (!canAfford(cost)) return false;
+          actions.push({ type: 'build', unitId: unit.id, buildingType });
+          spend(cost);
+          return true;
+        };
+
+        if (!hasNonRoadBuilding) {
+          // Priority: exploit local resources first
+          if (resHex?.type === 'OIL') {
+            maybeBuild('OIL_PUMP');
+          } else if (resHex?.type === 'IRON') {
+            maybeBuild('MINE');
+          } else if ((ttype === 1 || ttype === 7) && !resHex) {
+            // forest economy
+            maybeBuild('LUMBER_CAMP');
+          } else {
+            // broader economy development if rich enough
+            const myLabs = gs.buildings.filter(b => b.owner === player && b.type === 'SCIENCE_LAB' && !b.underConstruction).length;
+            const myFactories = gs.buildings.filter(b => b.owner === player && b.type === 'FACTORY' && !b.underConstruction).length;
+            const myFarms = gs.buildings.filter(b => b.owner === player && b.type === 'FARM' && !b.underConstruction).length;
+
+            if ((ttype === 0 || ttype === 7) && (gs.players[player].food || 0) < 6 && myFarms < 3) {
+              maybeBuild('FARM');
+            } else if (myLabs < 2 && gs.turn >= 2) {
+              maybeBuild('SCIENCE_LAB');
+            } else if (myFactories < 2 && gs.turn >= 4) {
+              maybeBuild('FACTORY');
+            } else if (!hasRoad) {
+              // infra fallback: road up active lanes
+              maybeBuild('ROAD');
+            }
+          }
+        }
+      }
     }
 
       // Clean up planning markers
@@ -248,8 +312,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     b => b.owner === player && !b.underConstruction && b.type !== 'ROAD'
   );
 
-  // Temporarily track resource spend so we don't over-recruit
-  const resSim = { iron: gs.players[player].iron, oil: gs.players[player].oil, wood: gs.players[player].wood || 0 };
+  // Reuse simulated resource spend from movement/infra planning so recruit decisions are coherent.
 
   for (const b of myBuildings) {
     const bType = BUILDING_TYPES[b.type];
@@ -271,11 +334,13 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const cost = UNIT_TYPES[unitType]?.cost || {};
       if (resSim.iron >= (cost.iron || 0) &&
           resSim.oil  >= (cost.oil  || 0) &&
-          resSim.wood >= (cost.wood || 0)) {
+          resSim.wood >= (cost.wood || 0) &&
+          resSim.components >= (cost.components || 0)) {
         actions.push({ type: 'recruit', buildingId: b.id, unitType });
         resSim.iron -= (cost.iron || 0);
         resSim.oil  -= (cost.oil  || 0);
         resSim.wood -= (cost.wood || 0);
+        resSim.components -= (cost.components || 0);
         break;
       }
     }
