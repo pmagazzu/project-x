@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.34';
+const GAME_VERSION = 'v1.3.35';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1718,6 +1718,7 @@ export class GameScene extends Phaser.Scene {
       const alpha = dim ? 0.6 : 1.0;
       const def   = UNIT_TYPES[unit.type];
       const r     = HEX_SIZE * 0.36;
+      const spent = unit.moved && unit.attacked;
       const _mixU = (a, b, t) => {
         const ca = Phaser.Display.Color.IntegerToColor(a);
         const cb = Phaser.Display.Color.IntegerToColor(b);
@@ -1727,8 +1728,9 @@ export class GameScene extends Phaser.Scene {
           Math.floor(ca.blue * (1 - t) + cb.blue * t)
         );
       };
-      const unitBodyColor = _mixU(color, 0x6e6e6e, 0.68); // less dominant team fill
-      const unitAccent = _mixU(color, 0xffffff, 0.22);
+      const teamBase = _mixU(color, 0x6e6e6e, 0.68); // less dominant team fill
+      const unitBodyColor = spent ? _mixU(teamBase, 0x7f7f7f, 0.55) : teamBase; // AP-spent: partially grayscale
+      const unitAccent = spent ? _mixU(_mixU(color, 0xffffff, 0.22), 0x888888, 0.45) : _mixU(color, 0xffffff, 0.22);
 
       // Dug-in ring
       if (unit.dugIn) {
@@ -1767,7 +1769,6 @@ export class GameScene extends Phaser.Scene {
       const cW = r * 2.1;
       const cH = r * 1.7;
       const cx2 = x - cW/2, cy2 = y - cH/2;
-      const spent = unit.moved && unit.attacked;
       const fillAlpha = spent ? alpha * 0.5 : alpha;
 
       // Stack indicator: draw a second offset counter shadow behind main unit when 2+ units share hex
