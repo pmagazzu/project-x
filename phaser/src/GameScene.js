@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.42';
+const GAME_VERSION = 'v1.3.43';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1940,6 +1940,15 @@ export class GameScene extends Phaser.Scene {
           sg.moveTo(x + ss * 1.1, y); sg.lineTo(x - ss * 0.8, y - ss * 0.5);
           sg.lineTo(x - ss * 0.8, y + ss * 0.5); sg.closePath(); sg.strokePath();
         }
+      } else if (def.shape === 'aa_gun') {
+        // AA Emplacement: circle base + angled gun barrel pointing up-right
+        sg.strokeCircle(x, y, ss * 0.7);
+        sg.lineStyle(2.5, symCol, fillAlpha * 0.92);
+        sg.beginPath(); sg.moveTo(x, y); sg.lineTo(x + ss * 0.5, y - ss * 1.0); sg.strokePath();
+        sg.fillCircle(x + ss * 0.5, y - ss * 1.0, ss * 0.15);
+        // Crosshair ticks
+        sg.beginPath(); sg.moveTo(x - ss * 0.3, y); sg.lineTo(x + ss * 0.3, y); sg.strokePath();
+        sg.beginPath(); sg.moveTo(x, y - ss * 0.3); sg.lineTo(x, y + ss * 0.3); sg.strokePath();
       } else if (def.shape === 'aircraft') {
         // ── Aircraft (biplane/bomber/obs) ────────────────────────────────────
         // Fuselage: horizontal bar
@@ -3512,6 +3521,8 @@ export class GameScene extends Phaser.Scene {
       if (noBuilding) allOpts.push({ label: `Factory 🧩    10⚙ 3🛢 8🪵`,      cost:{iron:10,oil:3,wood:8}, enabled: iron>=10&&oil>=3&&wood>=8, cb: () => this._onBuildStructure('FACTORY',10,3,8) });
       // Coastal Battery — spawns as immobile unit (no building on hex required)
       allOpts.push({ label: `Coast. Battery 6⚙ 1🛢`, cost:{iron:6,oil:1}, enabled: iron>=6&&oil>=1, cb: () => this._onBuildCoastalBattery() });
+      // AA Emplacement — spawns as immobile anti-air unit
+      allOpts.push({ label: `AA Emplacement 4⚙ 1🛢`, cost:{iron:4,oil:1}, enabled: iron>=4&&oil>=1, cb: () => this._onBuildAAEmplacement() });
       // Future entries just go here — pagination handles overflow automatically
 
       const totalPages = Math.max(1, Math.ceil(allOpts.length / PAGE_SIZE));
@@ -4986,6 +4997,27 @@ export class GameScene extends Phaser.Scene {
     this._refresh();
   }
 
+  _onBuildAAEmplacement() {
+    const gs = this.gameState, u = this.selectedUnit;
+    if (!u || !UNIT_TYPES[u.type].canBuild) return;
+    const p = gs.currentPlayer;
+    if (gs.players[p].iron < 4 || gs.players[p].oil < 1) return;
+    gs.players[p].iron -= 4; gs.players[p].oil -= 1;
+    const def = UNIT_TYPES['AA_EMPLACEMENT'];
+    if (!gs._nextUnitId) gs._nextUnitId = Math.max(...gs.units.map(u2 => u2.id), ...gs.buildings.map(b => b.id), 0) + 1;
+    const aa = {
+      id: gs._nextUnitId++,
+      type: 'AA_EMPLACEMENT', owner: p,
+      q: u.q, r: u.r,
+      health: def.health, maxHealth: def.health,
+      moved: true, attacked: false, dugIn: false, building: false, immobile: true,
+    };
+    gs.units.push(aa);
+    u.moved = true; u.building = true;
+    this._hideContextMenu();
+    this._refresh();
+  }
+
   _onBuildMine(resType) {
     const gs  = this.gameState;
     const u   = this.selectedUnit;
@@ -5026,9 +5058,10 @@ export class GameScene extends Phaser.Scene {
     const onBunker   = gs.buildings?.find(b=>b.type==='BUNKER'&&b.q===target.q&&b.r===target.r&&b.owner===target.owner);
     const bunkerMod  = onBunker?15:0;
     const blindMod   = blindFire?20:0;
+    const aaBonus    = (aDef.antiAir && AIR_UNITS.has(target.type)) ? 10 : 0;
     const baseScore  = 50;
     const preRollScore = Math.max(0, Math.min(100,
-      baseScore + (aDef.accuracy||0) - Math.max(0, (tDef.evasion||0) - (defSupPen*2))
+      baseScore + (aDef.accuracy||0) + aaBonus - Math.max(0, (tDef.evasion||0) - (defSupPen*2))
       - terrainMod - dugInMod - bunkerMod - blindMod + pierceMod
       - (atkSupPen * 3) + (defSupPen * 3)));
     const ROLL = 15; // ±15 random
@@ -5066,7 +5099,7 @@ export class GameScene extends Phaser.Scene {
     // ── UI ────────────────────────────────────────────────────────────────────
     const TIER_COL={'Catastrophic Failure':'#ff4444','Repelled':'#ff8844','Neutral':'#cccccc','Effective':'#88ee44','Overwhelming':'#44ffcc'};
     const TIER_BG ={'Catastrophic Failure':0x4a0000,'Repelled':0x3a1800,'Neutral':0x1a1a1a,'Effective':0x0e2800,'Overwhelming':0x002a1a};
-    const GLYPH={INFANTRY:'●',ENGINEER:'◆',RECON:'✶',TANK:'■',ARTILLERY:'▲',ANTI_TANK:'➤',MORTAR:'△',MEDIC:'✚',PATROL_BOAT:'◖',SUBMARINE:'▭',DESTROYER:'◉',CRUISER_LT:'⬒',CRUISER_HV:'⬓',BATTLESHIP:'⬔',LANDING_CRAFT:'⟂',TRANSPORT_SM:'◫',TRANSPORT_MD:'◫',TRANSPORT_LG:'◫',COASTAL_BATTERY:'▣'};
+    const GLYPH={INFANTRY:'●',ENGINEER:'◆',RECON:'✶',TANK:'■',ARTILLERY:'▲',ANTI_TANK:'➤',MORTAR:'△',MEDIC:'✚',PATROL_BOAT:'◖',SUBMARINE:'▭',DESTROYER:'◉',CRUISER_LT:'⬒',CRUISER_HV:'⬓',BATTLESHIP:'⬔',LANDING_CRAFT:'⟂',TRANSPORT_SM:'◫',TRANSPORT_MD:'◫',TRANSPORT_LG:'◫',COASTAL_BATTERY:'▣',AA_EMPLACEMENT:'⊕'};
     const PC=[null,0x3366cc,0xcc3333];
     const sw=this.scale.width,sh=this.scale.height,cx=sw*0.5,cy=sh*0.5,D=210;
     const objs=[];
@@ -5446,6 +5479,11 @@ export class GameScene extends Phaser.Scene {
       this._refresh();
       this.time.delayedCall(120, next);
 
+    } else if (action.type === 'design') {
+      const result = registerDesign(gs, gs.currentPlayer, action.chassis, action.modules, action.name);
+      if (result.ok) this._updateTopBar();
+      next();
+
     } else {
       next();
     }
@@ -5626,7 +5664,7 @@ export class GameScene extends Phaser.Scene {
       ANTI_TANK:'➤', MORTAR:'△', MEDIC:'✚', PATROL_BOAT:'◖', SUBMARINE:'▭',
       DESTROYER:'◉', CRUISER_LT:'⬒', CRUISER_HV:'⬓', BATTLESHIP:'⬔',
       LANDING_CRAFT:'⟂', TRANSPORT_SM:'◫', TRANSPORT_MD:'◫', TRANSPORT_LG:'◫',
-      COASTAL_BATTERY:'▣' };
+      COASTAL_BATTERY:'▣', AA_EMPLACEMENT:'⊕' };
     const g = t => GLYPH[t] || '◌';
 
     const TIER_COL = {

@@ -50,6 +50,8 @@ export const UNIT_TYPES = {
   TRANSPORT_LG:  { name:'Transport (L)',  move:2, attack:0, health:5, range:0, cost:{iron:7,oil:3}, shape:'transport', canDigIn:false,canBuild:false, canHeal:false, sight:2,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:0, detection:0, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:2, defense:0, evasion:0,  accuracy:0,  buildTime:4, capacity:{infantry:6,vehicle:4} },
   // Coastal Battery — built by engineer, immobile, fires at water and land targets
   COASTAL_BATTERY:{ name:'Coastal Battery', move:0, attack:4, health:4, range:6, cost:{iron:6,oil:1}, shape:'battery', canDigIn:false,canBuild:false, canHeal:false, sight:5, naval:false, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:0, naval_attack:4, soft_attack:4, hard_attack:3, pierce:4, armor:3, defense:2, evasion:0, accuracy:5, buildTime:0, immobile:true },
+  // AA Emplacement — built by engineer, immobile, anti-air deterrent vs tier-0 planes
+  AA_EMPLACEMENT: { name:'AA Emplacement',  move:0, attack:3, health:3, range:3, cost:{iron:4,oil:1}, shape:'aa_gun', canDigIn:false,canBuild:false, canHeal:false, sight:4, naval:false, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:0, naval_attack:0, soft_attack:2, hard_attack:1, pierce:2, armor:2, defense:1, evasion:0, accuracy:8, buildTime:0, immobile:true, antiAir:true },
 
   // ── Air units ─────────────────────────────────────────────────────────────
   // air:true         = flies over any terrain, can share hex with friendly ground units
@@ -1493,8 +1495,13 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   let pierceRatio = 1;
   if (aDef.pierce < tDef.armor) pierceRatio = aDef.pierce / tDef.armor;
 
+  // Anti-air bonus: AA units get accuracy bonus vs air targets
+  const targetIsAir = AIR_UNITS.has(target.type);
+  const aaBonus = (aDef.antiAir && targetIsAir) ? 10 : 0;
+
   let score = 50;
   score += aDef.accuracy;
+  score += aaBonus;
   const blindFirePenalty = blindFire ? 20 : 0;
   score -= blindFirePenalty;
   if (atkSupplyPen.attackPenalty > 0) score -= atkSupplyPen.attackPenalty * 3;

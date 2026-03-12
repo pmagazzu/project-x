@@ -148,6 +148,10 @@ function drawUnitByShape(g, shape, s, color) {
   } else if (shape === 'battery') {
     g.fillStyle(light, 0.95); g.fillRect(cx - 7, cy - 6, 14, 11);
     g.fillStyle(dark, 1); g.fillRect(cx - 1, cy - 8, 9, 2);
+  } else if (shape === 'aa_gun') {
+    g.fillStyle(light, 0.95); g.fillCircle(cx, cy, 6);
+    g.fillStyle(dark, 1); g.fillRect(cx, cy - 10, 2, 7);
+    g.fillRect(cx - 3, cy - 1, 6, 2);
   } else {
     g.fillStyle(light, 0.95); g.fillCircle(cx, cy - 2, 6);
   }

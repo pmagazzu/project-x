@@ -14,6 +14,8 @@
 
 import {
   UNIT_TYPES, BUILDING_TYPES, AIR_UNITS, NAVAL_UNITS,
+  MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
+  designRegistrationCost, computeDesignStats,
   getReachableHexes, getAttackableHexes, hexDistance, buildingAt, roadAt,
 } from './GameState.js';
 
@@ -246,7 +248,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         }
       }
 
-      // E) Engineer infra/economy behavior (new AI pass)
+      // E) Engineer infra/economy behavior (balanced resource development)
       if (unit.type === 'ENGINEER' && !unit.constructing) {
         const key = `${unit.q},${unit.r}`;
         const hasRoad = !!roadAt(gs, unit.q, unit.r);
@@ -263,30 +265,53 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         };
 
         if (!hasNonRoadBuilding) {
-          // Priority: exploit local resources first
+          // Count existing economy buildings for balance checks
+          const myMines  = gs.buildings.filter(b => b.owner === player && b.type === 'MINE').length;
+          const myPumps  = gs.buildings.filter(b => b.owner === player && b.type === 'OIL_PUMP').length;
+          const myLumber = gs.buildings.filter(b => b.owner === player && b.type === 'LUMBER_CAMP').length;
+          const myFarms  = gs.buildings.filter(b => b.owner === player && b.type === 'FARM' && !b.underConstruction).length;
+          const myLabs   = gs.buildings.filter(b => b.owner === player && b.type === 'SCIENCE_LAB' && !b.underConstruction).length;
+          const myFactories = gs.buildings.filter(b => b.owner === player && b.type === 'FACTORY' && !b.underConstruction).length;
+          const myRoads  = gs.buildings.filter(b => b.owner === player && b.type === 'ROAD').length;
+
+          // Priority 1: exploit local resources (always do this first)
           if (resHex?.type === 'OIL') {
             maybeBuild('OIL_PUMP');
           } else if (resHex?.type === 'IRON') {
             maybeBuild('MINE');
-          } else if ((ttype === 1 || ttype === 7) && !resHex) {
-            // forest economy
+          } else if ((ttype === 1 || ttype === 7) && !resHex && myLumber < 2) {
             maybeBuild('LUMBER_CAMP');
           } else {
-            // broader economy development if rich enough
-            const myLabs = gs.buildings.filter(b => b.owner === player && b.type === 'SCIENCE_LAB' && !b.underConstruction).length;
-            const myFactories = gs.buildings.filter(b => b.owner === player && b.type === 'FACTORY' && !b.underConstruction).length;
-            const myFarms = gs.buildings.filter(b => b.owner === player && b.type === 'FARM' && !b.underConstruction).length;
+            // Priority 2: balanced economy development
+            // Determine what the economy is most lacking
+            const iron = resSim.iron;
+            const oil  = resSim.oil;
+            const wood = gs.players[player].wood || 0;
+            const food = gs.players[player].food || 0;
+            const onPlains = (ttype === 0 || ttype === 6 || ttype === 7);
+            const onForest = (ttype === 1 || ttype === 7);
 
-            if ((ttype === 0 || ttype === 7) && (gs.players[player].food || 0) < 6 && myFarms < 3) {
-              maybeBuild('FARM');
-            } else if (myLabs < 2 && gs.turn >= 2) {
-              maybeBuild('SCIENCE_LAB');
-            } else if (myFactories < 2 && gs.turn >= 4) {
-              maybeBuild('FACTORY');
-            } else if (!hasRoad) {
-              // infra fallback: road up active lanes
-              maybeBuild('ROAD');
+            // Build priority scoring — favor the weakest link in economy
+            const needs = [];
+            // Farms: need food for upkeep, cap at 4
+            if (onPlains && myFarms < 4 && food < 10) needs.push({ type: 'FARM', score: (myFarms < 1 ? 20 : 12) - myFarms * 3 - food * 0.5 });
+            // Lumber: need wood for buildings, cap at 3
+            if (onForest && !resHex && myLumber < 3 && wood < 8) needs.push({ type: 'LUMBER_CAMP', score: (myLumber < 1 ? 15 : 10) - myLumber * 3 - wood * 0.3 });
+            // Road: infrastructure, moderate priority after turn 3
+            if (!hasRoad && gs.turn >= 3 && myRoads < 6) needs.push({ type: 'ROAD', score: 5 - myRoads * 0.5 });
+            // Science Lab: research, cap at 2
+            if (myLabs < 2 && gs.turn >= 2) needs.push({ type: 'SCIENCE_LAB', score: 8 - myLabs * 4 });
+            // Factory: components, cap at 2
+            if (myFactories < 2 && gs.turn >= 5) needs.push({ type: 'FACTORY', score: 6 - myFactories * 3 });
+
+            // Sort by score descending and try each
+            needs.sort((a, b) => b.score - a.score);
+            let built = false;
+            for (const n of needs) {
+              if (maybeBuild(n.type)) { built = true; break; }
             }
+            // Fallback: road if nothing else applies
+            if (!built && !hasRoad) maybeBuild('ROAD');
           }
         }
       }
@@ -305,6 +330,32 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     unit.moved     = false;
     unit.movesLeft = UNIT_TYPES[unit.type]?.move ?? (unit.movesLeft || 1);
     delete unit._aiOrigQ; delete unit._aiOrigR;
+  }
+
+  // --- Phase 1b: Register simple custom designs (occasionally) ---
+  const existingDesigns = gs.designs?.[player] || [];
+  if (existingDesigns.length < MAX_DESIGNS_PER_PLAYER && gs.turn >= 3 && Math.random() < 0.3) {
+    // Pick a simple design: chassis + one affordable module
+    const AI_DESIGN_RECIPES = [
+      { chassis: 'INFANTRY',  modules: ['FIELD_RADIO'],  name: 'Radioman' },
+      { chassis: 'INFANTRY',  modules: ['AT_RIFLE'],     name: 'AT Infantry' },
+      { chassis: 'TANK',      modules: ['BETTER_ENGINE'], name: 'Fast Tank' },
+      { chassis: 'TANK',      modules: ['EXTRA_ARMOR'],  name: 'Heavy Tank' },
+      { chassis: 'ARTILLERY', modules: ['LONG_RANGE'],   name: 'Long-Range Art.' },
+      { chassis: 'ENGINEER',  modules: ['FIELD_RADIO'],  name: 'Signal Engr.' },
+    ];
+    // Filter to designs we haven't already registered
+    const unregistered = AI_DESIGN_RECIPES.filter(r =>
+      !existingDesigns.some(d => d.chassis === r.chassis && d.modules.join(',') === r.modules.join(','))
+    );
+    if (unregistered.length > 0) {
+      const pick = unregistered[Math.floor(Math.random() * unregistered.length)];
+      const regCost = designRegistrationCost(pick.modules);
+      if (canAfford(regCost)) {
+        actions.push({ type: 'design', chassis: pick.chassis, modules: pick.modules, name: pick.name });
+        spend(regCost);
+      }
+    }
   }
 
   // --- Phase 2: Recruit at buildings (non-executing; resolved in GameScene) ---
