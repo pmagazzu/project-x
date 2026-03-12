@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.11';
+const GAME_VERSION = 'v1.3.12';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5708,12 +5708,12 @@ export class GameScene extends Phaser.Scene {
 
     // Profile-tuned procedural knobs
     const PROFILE = {
-      islands:        { scale: 0.075, sea: 0.44, edgeFalloff: 1.2, edgeStart: 0.55 },
-      large_islands:  { scale: 0.060, sea: 0.41, edgeFalloff: 1.1, edgeStart: 0.58 },
-      continent:      { scale: 0.045, sea: 0.36, edgeFalloff: 0.8, edgeStart: 0.70 },
-      two_continents: { scale: 0.055, sea: 0.39, edgeFalloff: 1.0, edgeStart: 0.63 },
-      archipelago:    { scale: 0.115, sea: 0.51, edgeFalloff: 1.35, edgeStart: 0.50 },
-    }[landProfile] || { scale: 0.075, sea: 0.44, edgeFalloff: 1.2, edgeStart: 0.55 };
+      islands:        { scale: 0.082, sea: 0.49, edgeFalloff: 1.2, edgeStart: 0.55, islandAmp: 0.30, islandRad: 0.18, centers: [[0.22,0.30],[0.45,0.22],[0.70,0.34],[0.30,0.68],[0.66,0.70]] },
+      large_islands:  { scale: 0.068, sea: 0.47, edgeFalloff: 1.1, edgeStart: 0.58, islandAmp: 0.34, islandRad: 0.23, centers: [[0.22,0.30],[0.68,0.30],[0.30,0.70],[0.70,0.68]] },
+      continent:      { scale: 0.045, sea: 0.36, edgeFalloff: 0.8, edgeStart: 0.70, islandAmp: 0.00, islandRad: 0.0, centers: [] },
+      two_continents: { scale: 0.055, sea: 0.39, edgeFalloff: 1.0, edgeStart: 0.63, islandAmp: 0.00, islandRad: 0.0, centers: [] },
+      archipelago:    { scale: 0.115, sea: 0.52, edgeFalloff: 1.35, edgeStart: 0.50, islandAmp: 0.24, islandRad: 0.13, centers: [[0.18,0.22],[0.36,0.20],[0.54,0.26],[0.72,0.24],[0.82,0.36],[0.72,0.52],[0.54,0.58],[0.34,0.62],[0.18,0.56]] },
+    }[landProfile] || { scale: 0.075, sea: 0.44, edgeFalloff: 1.2, edgeStart: 0.55, islandAmp: 0.0, islandRad: 0.0, centers: [] };
 
     const SCALE     = PROFILE.scale; // noise frequency — lower = larger landmasses
     const SEA_LV    = PROFILE.sea;   // below → ocean
@@ -5726,6 +5726,20 @@ export class GameScene extends Phaser.Scene {
     for (let q = 0; q < ms; q++) {
       for (let r = 0; r < ms; r++) {
         let v = this._fbm(q * SCALE, r * SCALE, seed);
+
+        // Island profile shaping bumps (promotes multiple medium islands)
+        if (PROFILE.islandAmp > 0 && PROFILE.centers.length > 0) {
+          for (const [cxn, cyn] of PROFILE.centers) {
+            const cx = cxn * ms, cy = cyn * ms;
+            const dx = (q - cx) / ms, dy = (r - cy) / ms;
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d < PROFILE.islandRad) {
+              const t = 1 - (d / PROFILE.islandRad);
+              v += t * PROFILE.islandAmp;
+            }
+          }
+        }
+
         // Soft elliptical falloff at map edges so there's ocean border
         const ex = ((q / ms) - 0.5) * 2, er = ((r / ms) - 0.5) * 2;
         const edgeDist = Math.max(Math.abs(ex), Math.abs(er));
@@ -5842,6 +5856,47 @@ export class GameScene extends Phaser.Scene {
       if (!p2) { map[`${fb2.q},${fb2.r}`] = 0; Object.assign(p2 = fb2, {}); }
     }
 
+    // Island profiles: prefer opposite landmasses for P1/P2 when possible.
+    const islandLike = new Set(['islands','large_islands','archipelago','naval_supremacy']);
+    if (p1 && p2 && islandLike.has(this.procLandProfile || 'islands')) {
+      const isLandTile = (q, r) => {
+        const t = map[`${q},${r}`];
+        return t !== undefined && t !== 4 && t !== 5;
+      };
+      const compFrom = (start) => {
+        const seen = new Set();
+        const qv = [start];
+        while (qv.length) {
+          const cur = qv.pop();
+          const k = `${cur.q},${cur.r}`;
+          if (seen.has(k)) continue;
+          seen.add(k);
+          for (const [dq, dr] of NEIGHBORS) {
+            const nq = cur.q + dq, nr = cur.r + dr;
+            if (!isValid(nq, nr, ms) || !isLandTile(nq, nr)) continue;
+            const nk = `${nq},${nr}`;
+            if (!seen.has(nk)) qv.push({ q: nq, r: nr });
+          }
+        }
+        return seen;
+      };
+      const c1 = compFrom(p1);
+      if (c1.has(`${p2.q},${p2.r}`)) {
+        // Find best alternate spawn on a different component, biased to right side.
+        let alt = null, best = -1;
+        for (let q = Math.floor(ms * 0.55); q < Math.floor(ms * 0.95); q++) {
+          for (let r = 1; r < ms - 1; r++) {
+            if (!isLandTile(q, r)) continue;
+            const k = `${q},${r}`;
+            if (c1.has(k)) continue;
+            const score = (q / ms) * 100 + Math.abs((ms * 0.5) - r) * -0.2;
+            if (score > best) { best = score; alt = { q, r }; }
+          }
+        }
+        if (alt) p2 = alt;
+      }
+    }
+
     // Force HQ hexes and nearby hexes to walkable plains
     const clearForSpawn = (q, r) => {
       map[`${q},${r}`] = 0;
@@ -5896,7 +5951,7 @@ export class GameScene extends Phaser.Scene {
     };
 
     const quickStart = !!this.procQuickStart;
-    const placeSpawns = (player, hq) => {
+    const placeSpawns = (player, hq, enemyHq) => {
       // HQ
       gs.buildings.push(createBuilding('HQ', player, hq.q, hq.r));
 
@@ -5928,15 +5983,41 @@ export class GameScene extends Phaser.Scene {
         if (quickStart) gs.buildings.push(createBuilding('FARM', player, farmHex.q, farmHex.r));
       }
 
-      // Guaranteed wood access site near HQ; Lumber Camp prebuilt only in quick start.
-      let woodHex = findNearby(hq.q, hq.r, new Set([1, 7]), 5) || findFreeNear(hq.q, hq.r, 5);
-      if (woodHex) {
-        const tk = `${woodHex.q},${woodHex.r}`;
-        const t = map[tk];
-        if (t === 4 || t === 5) {
-          const alt = findNearby(hq.q, hq.r, new Set([0,1,2,3,6,7]), 7) || findFreeNear(hq.q, hq.r, 7);
-          if (alt) woodHex = alt;
+      // Guaranteed wood access on player's own side; Lumber Camp prebuilt only in quick start.
+      const ownSide = (q, r) => {
+        if (!enemyHq) return true;
+        const dOwn = Math.abs(q - hq.q) + Math.abs(r - hq.r);
+        const dEnemy = Math.abs(q - enemyHq.q) + Math.abs(r - enemyHq.r);
+        return dOwn <= dEnemy;
+      };
+      let woodHex = null;
+      for (let d = 2; d <= 8 && !woodHex; d++) {
+        for (let dq = -d; dq <= d && !woodHex; dq++) {
+          for (let dr = -d; dr <= d && !woodHex; dr++) {
+            const q2 = hq.q + dq, r2 = hq.r + dr;
+            if (!isValid(q2, r2, ms)) continue;
+            if (!ownSide(q2, r2)) continue;
+            const t = map[`${q2},${r2}`];
+            if (t === 1 || t === 7) woodHex = { q: q2, r: r2 };
+          }
         }
+      }
+      if (!woodHex) {
+        // force a reachable own-side light-woods tile
+        for (let d = 2; d <= 8 && !woodHex; d++) {
+          for (let dq = -d; dq <= d && !woodHex; dq++) {
+            for (let dr = -d; dr <= d && !woodHex; dr++) {
+              const q2 = hq.q + dq, r2 = hq.r + dr;
+              if (!isValid(q2, r2, ms)) continue;
+              if (!ownSide(q2, r2)) continue;
+              const t = map[`${q2},${r2}`];
+              if (t === 4 || t === 5) continue;
+              woodHex = { q: q2, r: r2 };
+            }
+          }
+        }
+      }
+      if (woodHex) {
         map[`${woodHex.q},${woodHex.r}`] = (map[`${woodHex.q},${woodHex.r}`] === 1 ? 1 : 7);
         if (quickStart && !gs.buildings.find(b => b.q === woodHex.q && b.r === woodHex.r)) {
           gs.buildings.push(createBuilding('LUMBER_CAMP', player, woodHex.q, woodHex.r));
@@ -5950,8 +6031,8 @@ export class GameScene extends Phaser.Scene {
       if (eng2) gs.units.push(createUnit('ENGINEER', player, eng2.q, eng2.r));
     };
 
-    placeSpawns(1, p1);
-    placeSpawns(2, p2);
+    placeSpawns(1, p1, p2);
+    placeSpawns(2, p2, p1);
 
     // Scatter extra iron/oil resources across the map
     this._placeResources(seed);
