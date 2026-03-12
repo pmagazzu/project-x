@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.36';
+const GAME_VERSION = 'v1.3.37';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1246,10 +1246,39 @@ export class GameScene extends Phaser.Scene {
           const hMask = maskG.createGeometryMask();
           spr.setMask(hMask);
 
-          // tiny owner badge dot to denote player color
-          const badge = this.add.circle(x + HEX_SIZE * 0.33, y - HEX_SIZE * 0.28, 3.5, color, 0.95)
-            .setStrokeStyle(1, 0x111111, 0.9).setDepth(1);
-          this.farmTileLayer?.add([maskG, spr, badge]);
+          // Visibility boosts: subtle warm tint + furrow strokes + clearer ownership badge.
+          const farmFx = this.add.graphics().setDepth(0);
+          // light warm tint overlay
+          farmFx.fillStyle(0x8a6a2f, 0.14);
+          farmFx.beginPath();
+          farmFx.moveTo(verts[0].x, verts[0].y);
+          for (let i = 1; i < verts.length; i++) farmFx.lineTo(verts[i].x, verts[i].y);
+          farmFx.closePath();
+          farmFx.fillPath();
+          // furrow lines for legibility at normal zoom
+          farmFx.lineStyle(1.6, 0x6b4f27, 0.45);
+          for (let fy = y - targetH * 0.28; fy <= y + targetH * 0.28; fy += 6) {
+            farmFx.beginPath();
+            farmFx.moveTo(x - targetW * 0.32, fy);
+            farmFx.lineTo(x + targetW * 0.32, fy);
+            farmFx.strokePath();
+          }
+          // hex outline cue
+          farmFx.lineStyle(1.2, 0xc89b52, 0.55);
+          farmFx.beginPath();
+          farmFx.moveTo(verts[0].x, verts[0].y);
+          for (let i = 1; i < verts.length; i++) farmFx.lineTo(verts[i].x, verts[i].y);
+          farmFx.closePath();
+          farmFx.strokePath();
+          farmFx.setMask(hMask);
+
+          // clearer owner badge (small banner pill + color dot)
+          const badgeBg = this.add.rectangle(x + HEX_SIZE * 0.30, y - HEX_SIZE * 0.30, 14, 8, 0x111111, 0.72)
+            .setStrokeStyle(1, 0xd8c38b, 0.6).setDepth(1);
+          const badge = this.add.circle(x + HEX_SIZE * 0.30, y - HEX_SIZE * 0.30, 3.6, color, 1.0)
+            .setStrokeStyle(1, 0x111111, 0.95).setDepth(2);
+
+          this.farmTileLayer?.add([maskG, spr, farmFx, badgeBg, badge]);
           continue;
         }
 
