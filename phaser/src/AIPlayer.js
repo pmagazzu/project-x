@@ -284,19 +284,24 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           const myRoads  = gs.buildings.filter(b => b.owner === player && b.type === 'ROAD').length;
 
           // Priority 1: exploit local resources (always do this first)
+          const wood = gs.players[player].wood || 0;
+          const food = gs.players[player].food || 0;
+          const nonWoodEcon = myMines + myPumps + myFarms + myFactories;
+          const maxLumber = Math.max(1, Math.min(2, Math.floor((nonWoodEcon + 1) / 3))); // usually 1-2 total camps
+          const woodPressure = wood < 5;
+
           if (resHex?.type === 'OIL') {
             maybeBuild('OIL_PUMP');
           } else if (resHex?.type === 'IRON') {
             maybeBuild('MINE');
-          } else if ((ttype === 1 || ttype === 7) && !resHex && myLumber < 2) {
+          } else if ((ttype === 1 || ttype === 7) && !resHex && myLumber < maxLumber && woodPressure) {
+            // only add lumber when wood is actually tight
             maybeBuild('LUMBER_CAMP');
           } else {
             // Priority 2: balanced economy development
             // Determine what the economy is most lacking
             const iron = resSim.iron;
             const oil  = resSim.oil;
-            const wood = gs.players[player].wood || 0;
-            const food = gs.players[player].food || 0;
             const onPlains = (ttype === 0 || ttype === 6 || ttype === 7);
             const onForest = (ttype === 1 || ttype === 7);
 
@@ -304,8 +309,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             const needs = [];
             // Farms: need food for upkeep, cap at 4
             if (onPlains && myFarms < 4 && food < 10) needs.push({ type: 'FARM', score: (myFarms < 1 ? 20 : 12) - myFarms * 3 - food * 0.5 });
-            // Lumber: need wood for buildings, cap at 3
-            if (onForest && !resHex && myLumber < 3 && wood < 8) needs.push({ type: 'LUMBER_CAMP', score: (myLumber < 1 ? 15 : 10) - myLumber * 3 - wood * 0.3 });
+            // Lumber: only when wood-starved, hard cap by broader economy size
+            if (onForest && !resHex && myLumber < maxLumber && wood < 6) {
+              needs.push({ type: 'LUMBER_CAMP', score: (myLumber < 1 ? 11 : 6) - myLumber * 4 - wood * 0.8 });
+            }
             // Road: infrastructure, moderate priority after turn 3
             if (!hasRoad && gs.turn >= 3 && myRoads < 6) needs.push({ type: 'ROAD', score: 5 - myRoads * 0.5 });
             // Science Lab: research, cap at 2
