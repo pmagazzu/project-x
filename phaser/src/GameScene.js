@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.38';
+const GAME_VERSION = 'v1.3.39';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1227,74 +1227,57 @@ export class GameScene extends Phaser.Scene {
 
         // FARM is rendered as a terrain tile swap/overlay (not a building icon).
         if (b.type === 'FARM') {
-          // Temporarily lock to option 3 per art direction review.
-          const texKey = this.textures.exists('terrain_farm_3') ? 'terrain_farm_3' : 'terrain_grass_3';
-          const spr = this.add.image(x, y, texKey).setDepth(0);
-          const src = this.textures.get(texKey)?.getSourceImage?.();
+          // Hard-visible farm tile: explicit cultivated field rendering (no subtle blend).
+          const verts = hexVertices(x, y);
           const targetW = HEX_SIZE * 2;
           const targetH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH);
-          if (src?.width && src?.height) spr.setDisplaySize(targetW, targetH);
 
-          // Hard clip to hex to prevent visual bleed into neighboring tiles.
-          const maskG = this.add.graphics().setDepth(0);
-          const verts = hexVertices(x, y);
-          maskG.beginPath();
-          maskG.moveTo(verts[0].x, verts[0].y);
-          for (let i = 1; i < verts.length; i++) maskG.lineTo(verts[i].x, verts[i].y);
-          maskG.closePath();
-          maskG.fillPath();
-          const hMask = maskG.createGeometryMask();
-          spr.setMask(hMask);
-
-          // Visibility boosts: stronger high-contrast farmland signature.
           const farmFx = this.add.graphics().setDepth(0);
-          // stronger warm tint overlay
-          farmFx.fillStyle(0x9a6f2f, 0.24);
+          // Base farm fill
+          farmFx.fillStyle(0x7f5a2a, 0.95);
           farmFx.beginPath();
           farmFx.moveTo(verts[0].x, verts[0].y);
           for (let i = 1; i < verts.length; i++) farmFx.lineTo(verts[i].x, verts[i].y);
           farmFx.closePath();
           farmFx.fillPath();
 
-          // thick alternating furrow bands (very readable)
-          for (let fy = y - targetH * 0.30, row = 0; fy <= y + targetH * 0.30; fy += 5, row++) {
-            const col = row % 2 === 0 ? 0x6a4b22 : 0xb0843f;
-            const a = row % 2 === 0 ? 0.52 : 0.36;
-            farmFx.lineStyle(2.2, col, a);
+          // Strong furrow stripes (primary visibility cue)
+          for (let fy = y - targetH * 0.30, row = 0; fy <= y + targetH * 0.30; fy += 4, row++) {
+            const col = row % 2 === 0 ? 0x4f3517 : 0xa8793a;
+            const a = row % 2 === 0 ? 0.82 : 0.55;
+            farmFx.lineStyle(2.0, col, a);
             farmFx.beginPath();
             farmFx.moveTo(x - targetW * 0.34, fy);
             farmFx.lineTo(x + targetW * 0.34, fy);
             farmFx.strokePath();
           }
 
-          // diagonal plow hash for extra distinction from grass
-          farmFx.lineStyle(1.2, 0x4b3518, 0.35);
-          for (let dx = -targetW * 0.34; dx <= targetW * 0.34; dx += 11) {
-            farmFx.beginPath();
-            farmFx.moveTo(x + dx, y - targetH * 0.30);
-            farmFx.lineTo(x + dx + 8, y + targetH * 0.30);
-            farmFx.strokePath();
+          // Crop speckles for texture identity
+          farmFx.fillStyle(0x9fc05e, 0.55);
+          for (let i = 0; i < 42; i++) {
+            const rx = x - targetW * 0.30 + ((i * 13) % Math.floor(targetW * 0.60));
+            const ry = y - targetH * 0.26 + ((i * 17) % Math.floor(targetH * 0.52));
+            farmFx.fillRect(rx, ry, 2, 2);
           }
 
-          // bold hex outline cue
-          farmFx.lineStyle(2.0, 0xe0b564, 0.88);
+          // Bold bright outline so farm is unmistakable.
+          farmFx.lineStyle(2.4, 0xf0c36b, 0.98);
           farmFx.beginPath();
           farmFx.moveTo(verts[0].x, verts[0].y);
           for (let i = 1; i < verts.length; i++) farmFx.lineTo(verts[i].x, verts[i].y);
           farmFx.closePath();
           farmFx.strokePath();
-          farmFx.setMask(hMask);
 
-          // clearer owner marker + farm glyph in corner
-          const badgeBg = this.add.rectangle(x + HEX_SIZE * 0.29, y - HEX_SIZE * 0.29, 18, 10, 0x111111, 0.84)
-            .setStrokeStyle(1.2, 0xe6d09a, 0.9).setDepth(1);
-          const badge = this.add.circle(x + HEX_SIZE * 0.23, y - HEX_SIZE * 0.29, 3.8, color, 1.0)
+          // Owner marker (larger and obvious)
+          const badgeBg = this.add.rectangle(x + HEX_SIZE * 0.29, y - HEX_SIZE * 0.29, 20, 11, 0x111111, 0.9)
+            .setStrokeStyle(1.4, 0xf0d8a0, 0.95).setDepth(1);
+          const badge = this.add.circle(x + HEX_SIZE * 0.21, y - HEX_SIZE * 0.29, 4.0, color, 1.0)
             .setStrokeStyle(1, 0x111111, 0.95).setDepth(2);
-          const glyph = this.add.text(x + HEX_SIZE * 0.30, y - HEX_SIZE * 0.29, '⚑', {
-            font: 'bold 8px monospace', fill: '#f4e2b6'
+          const glyph = this.add.text(x + HEX_SIZE * 0.33, y - HEX_SIZE * 0.29, 'F', {
+            font: 'bold 9px monospace', fill: '#f6e3b6'
           }).setOrigin(0.5).setDepth(2);
 
-          this.farmTileLayer?.add([maskG, spr, farmFx, badgeBg, badge, glyph]);
+          this.farmTileLayer?.add([farmFx, badgeBg, badge, glyph]);
           continue;
         }
 
