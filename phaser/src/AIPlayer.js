@@ -16,7 +16,7 @@ import {
   UNIT_TYPES, BUILDING_TYPES, AIR_UNITS, NAVAL_UNITS,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, computeDesignStats,
-  getReachableHexes, getAttackableHexes, hexDistance, buildingAt, roadAt,
+  getReachableHexes, getAttackableHexes, hexDistance, buildingAt, roadAt, computeSupply,
 } from './GameState.js';
 
 // ── Strategy definitions ───────────────────────────────────────────────────
@@ -24,8 +24,8 @@ import {
 export const AI_STRATEGIES = {
   aggressive: {
     label:         'Aggressive',
-    recruitPrio:   ['TANK','INFANTRY','MORTAR','ARTILLERY','ANTI_TANK'],
-    navalPrio:     ['DESTROYER','MTB','CRUISER_LT','PATROL_BOAT'],
+    recruitPrio:   ['TANK','INFANTRY','MORTAR','ARTILLERY','ANTI_TANK','SUPPLY_TRUCK','HALFTRACK'],
+    navalPrio:     ['DESTROYER','MTB','CRUISER_LT','PATROL_BOAT','SUPPLY_SHIP'],
     airPrio:       ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE'],
     attackBonus:   20,   // extra score for attack-after-move
     captureBonus:  20,   // bonus for moving toward HQ or flag position
@@ -34,8 +34,8 @@ export const AI_STRATEGIES = {
   },
   defensive: {
     label:         'Defensive',
-    recruitPrio:   ['ANTI_TANK','ARTILLERY','INFANTRY','MORTAR','MEDIC'],
-    navalPrio:     ['COASTAL_BATTERY','DESTROYER','PATROL_BOAT'],
+    recruitPrio:   ['ANTI_TANK','ARTILLERY','INFANTRY','MORTAR','MEDIC','SUPPLY_TRUCK'],
+    navalPrio:     ['COASTAL_BATTERY','DESTROYER','PATROL_BOAT','SUPPLY_SHIP'],
     airPrio:       ['BIPLANE_FIGHTER','OBS_PLANE','LIGHT_BOMBER'],
     attackBonus:   0,
     captureBonus:  40,
@@ -44,8 +44,8 @@ export const AI_STRATEGIES = {
   },
   balanced: {
     label:         'Balanced',
-    recruitPrio:   ['INFANTRY','ANTI_TANK','TANK','ARTILLERY','MORTAR'],
-    navalPrio:     ['DESTROYER','PATROL_BOAT','MTB','TRANSPORT_SM'],
+    recruitPrio:   ['INFANTRY','ANTI_TANK','TANK','ARTILLERY','MORTAR','SUPPLY_TRUCK','HALFTRACK'],
+    navalPrio:     ['DESTROYER','PATROL_BOAT','MTB','SUPPLY_SHIP','TRANSPORT_SM'],
     airPrio:       ['BIPLANE_FIGHTER','OBS_PLANE','LIGHT_BOMBER'],
     attackBonus:   10,
     captureBonus:  30,
@@ -78,7 +78,7 @@ function chooseBestTarget(gs, unit, attackTargets) {
   return best;
 }
 
-function scoreMove(gs, unit, q, r, strat, enemies, myHQs) {
+function scoreMove(gs, unit, q, r, strat, enemies, myHQs, mySupply) {
   const cfg = AI_STRATEGIES[strat] ?? AI_STRATEGIES.balanced;
   let score = 0;
 
@@ -113,6 +113,14 @@ function scoreMove(gs, unit, q, r, strat, enemies, myHQs) {
     if (nearestHQ < curHQDist) score += cfg.captureBonus;
   }
 
+  // Supply awareness: avoid ending out of supply unless near-contact (sneaky/emergency pushes).
+  const inSupply = mySupply?.has?.(`${q},${r}`);
+  if (!inSupply) {
+    const nearestEnemy = enemies.length > 0 ? Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r))) : 99;
+    const emergencyPush = nearestEnemy <= 2;
+    score -= emergencyPush ? 3 : 18;
+  }
+
   // Small random tiebreaker
   score += Math.random() * 2;
   return score;
@@ -127,6 +135,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   const getEnemies = () => gs.units.filter(u => u.owner !== player && !u.embarked);
   const getMyHQs   = () => gs.buildings.filter(b => b.owner === player && b.type === 'HQ');
+  const mySupply   = computeSupply(gs, player, terrain, mapSize);
 
   // Simulated AI economy spend during planning so we don't overcommit.
   const resSim = {
@@ -196,7 +205,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
         let bestDest = null, bestScore = -Infinity;
         for (const hex of reachable) {
-          const s = scoreMove(gs, unit, hex.q, hex.r, strategy, enemies, myHQs);
+          const s = scoreMove(gs, unit, hex.q, hex.r, strategy, enemies, myHQs, mySupply);
           if (s > bestScore) { bestScore = s; bestDest = hex; }
         }
 
