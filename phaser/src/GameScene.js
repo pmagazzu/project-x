@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.14';
+const GAME_VERSION = 'v1.3.15';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -131,7 +131,7 @@ export class GameScene extends Phaser.Scene {
     // Read scenario config passed from MenuScene (or default)
     const data = this.scene.settings.data || {};
     this.scenario = data.scenario || 'default';
-    this.procLandProfile = data.procLandProfile || 'islands';
+    this.procLandProfile = data.procLandProfile || 'continent';
     this.procQuickStart  = (data.procQuickStart !== undefined) ? !!data.procQuickStart : true;
     // Map sizes per scenario
     const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, random: 40, air_test: 20, custom: data.customSize || 40, default: 25 };

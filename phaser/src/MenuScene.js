@@ -275,7 +275,7 @@ export class MenuScene extends Phaser.Scene {
       { key: 'landlocked',       label: 'Landlocked (No Naval)' },
     ];
 
-    let profile = 'islands';
+    let profile = 'continent';
     let quickStart = true;
     const created = [overlay, panel, topLine, title];
 
