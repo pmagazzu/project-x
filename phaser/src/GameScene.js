@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.39';
+const GAME_VERSION = 'v1.3.40';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -6337,16 +6337,52 @@ export class GameScene extends Phaser.Scene {
     });
     const adjLand    = (q, r) => NEIGHBORS.some(([dq,dr]) => isLand(q+dq, r+dr));
 
-    // Find best HQ spawn: walkable, surrounded by mostly walkable neighbors, near center-row
+    // Connected walkable land component size cache for spawn fairness.
+    const _compSizeCache = new Map();
+    const _walkCompSize = (sq, sr) => {
+      const seedK = `${sq},${sr}`;
+      if (_compSizeCache.has(seedK)) return _compSizeCache.get(seedK);
+      if (!isWalkable(sq, sr)) return 0;
+      const qv = [{ q: sq, r: sr }];
+      const seen = new Set();
+      while (qv.length) {
+        const cur = qv.pop();
+        const k = `${cur.q},${cur.r}`;
+        if (seen.has(k)) continue;
+        if (!isWalkable(cur.q, cur.r)) continue;
+        seen.add(k);
+        for (const [dq, dr] of NEIGHBORS) {
+          const nq = cur.q + dq, nr = cur.r + dr;
+          if (!isValid(nq, nr, ms)) continue;
+          const nk = `${nq},${nr}`;
+          if (!seen.has(nk) && isWalkable(nq, nr)) qv.push({ q: nq, r: nr });
+        }
+      }
+      const size = seen.size;
+      for (const k of seen) _compSizeCache.set(k, size);
+      _compSizeCache.set(seedK, size);
+      return size;
+    };
+
+    const landProfile = this.procLandProfile || 'continent';
+    const minSpawnComp = (() => {
+      if (landProfile === 'continent' || landProfile === 'two_continents') return Math.max(40, Math.floor(ms * ms * 0.08));
+      if (landProfile === 'landlocked') return Math.max(36, Math.floor(ms * ms * 0.07));
+      return Math.max(16, Math.floor(ms * ms * 0.03));
+    })();
+
+    // Find best HQ spawn: walkable, on sufficiently large landmass, near center-row
     const findSpawn = (qMin, qMax) => {
       const centerR = Math.floor(ms / 2);
       let best = null, bestScore = -Infinity;
       for (let q = qMin; q <= qMax; q++) {
         for (let r = 1; r < ms - 1; r++) {
           if (!isWalkable(q, r)) continue;
+          const compSize = _walkCompSize(q, r);
+          if (compSize < minSpawnComp) continue; // reject tiny islands/peninsulas
           const walkNeighbors = NEIGHBORS.filter(([dq,dr]) => isWalkable(q+dq, r+dr)).length;
           if (walkNeighbors < 4) continue; // needs room for buildings
-          const score = walkNeighbors * 10 - Math.abs(r - centerR);
+          const score = walkNeighbors * 10 - Math.abs(r - centerR) + Math.min(30, compSize * 0.08);
           if (score > bestScore) { bestScore = score; best = { q, r }; }
         }
       }
@@ -6357,7 +6393,25 @@ export class GameScene extends Phaser.Scene {
     let p2 = findSpawn(Math.floor(ms * 0.72), Math.floor(ms * 0.92));
 
     if (!p1 || !p2) {
-      // Fallback: force spawn positions if terrain is too barren
+      // Fallback pass: pick best walkable hex on largest available component by side.
+      const pickBestBySide = (qMin, qMax) => {
+        let best = null, bestScore = -Infinity;
+        const centerR = Math.floor(ms / 2);
+        for (let q = qMin; q <= qMax; q++) {
+          for (let r = 1; r < ms - 1; r++) {
+            if (!isWalkable(q, r)) continue;
+            const compSize = _walkCompSize(q, r);
+            const walkNeighbors = NEIGHBORS.filter(([dq,dr]) => isWalkable(q+dq, r+dr)).length;
+            const score = compSize * 2 + walkNeighbors * 6 - Math.abs(r - centerR);
+            if (score > bestScore) { bestScore = score; best = { q, r }; }
+          }
+        }
+        return best;
+      };
+      if (!p1) p1 = pickBestBySide(Math.floor(ms * 0.05), Math.floor(ms * 0.40));
+      if (!p2) p2 = pickBestBySide(Math.floor(ms * 0.60), Math.floor(ms * 0.95));
+
+      // Last-resort hard fallback: force spawn positions if terrain is too barren
       const fb1 = { q: Math.floor(ms * 0.15), r: Math.floor(ms * 0.5) };
       const fb2 = { q: Math.floor(ms * 0.85), r: Math.floor(ms * 0.5) };
       [fb1, fb2].forEach(pos => { map[`${pos.q},${pos.r}`] = 0; });
