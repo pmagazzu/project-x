@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.12';
+const GAME_VERSION = 'v1.3.13';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5708,8 +5708,8 @@ export class GameScene extends Phaser.Scene {
 
     // Profile-tuned procedural knobs
     const PROFILE = {
-      islands:        { scale: 0.082, sea: 0.49, edgeFalloff: 1.2, edgeStart: 0.55, islandAmp: 0.30, islandRad: 0.18, centers: [[0.22,0.30],[0.45,0.22],[0.70,0.34],[0.30,0.68],[0.66,0.70]] },
-      large_islands:  { scale: 0.068, sea: 0.47, edgeFalloff: 1.1, edgeStart: 0.58, islandAmp: 0.34, islandRad: 0.23, centers: [[0.22,0.30],[0.68,0.30],[0.30,0.70],[0.70,0.68]] },
+      islands:        { scale: 0.090, sea: 0.56, edgeFalloff: 1.25, edgeStart: 0.55, islandAmp: 0.30, islandRad: 0.18, centers: [[0.18,0.24],[0.36,0.20],[0.55,0.26],[0.74,0.22],[0.80,0.40],[0.68,0.56],[0.48,0.66],[0.30,0.62],[0.16,0.52]] },
+      large_islands:  { scale: 0.076, sea: 0.53, edgeFalloff: 1.15, edgeStart: 0.58, islandAmp: 0.36, islandRad: 0.24, centers: [[0.20,0.28],[0.50,0.24],[0.76,0.32],[0.30,0.66],[0.64,0.70]] },
       continent:      { scale: 0.045, sea: 0.36, edgeFalloff: 0.8, edgeStart: 0.70, islandAmp: 0.00, islandRad: 0.0, centers: [] },
       two_continents: { scale: 0.055, sea: 0.39, edgeFalloff: 1.0, edgeStart: 0.63, islandAmp: 0.00, islandRad: 0.0, centers: [] },
       archipelago:    { scale: 0.115, sea: 0.52, edgeFalloff: 1.35, edgeStart: 0.50, islandAmp: 0.24, islandRad: 0.13, centers: [[0.18,0.22],[0.36,0.20],[0.54,0.26],[0.72,0.24],[0.82,0.36],[0.72,0.52],[0.54,0.58],[0.34,0.62],[0.18,0.56]] },
@@ -5727,16 +5727,31 @@ export class GameScene extends Phaser.Scene {
       for (let r = 0; r < ms; r++) {
         let v = this._fbm(q * SCALE, r * SCALE, seed);
 
-        // Island profile shaping bumps (promotes multiple medium islands)
+        // Island profile shaping (hard mode): build discrete island blobs, not one continent
         if (PROFILE.islandAmp > 0 && PROFILE.centers.length > 0) {
+          let bump = 0;
           for (const [cxn, cyn] of PROFILE.centers) {
             const cx = cxn * ms, cy = cyn * ms;
             const dx = (q - cx) / ms, dy = (r - cy) / ms;
             const d = Math.sqrt(dx * dx + dy * dy);
             if (d < PROFILE.islandRad) {
               const t = 1 - (d / PROFILE.islandRad);
-              v += t * PROFILE.islandAmp;
+              bump = Math.max(bump, t); // nearest-island blob field
             }
+          }
+
+          // Make islands discrete by relying on blob field + high-frequency breakup,
+          // and strongly downweight the broad fbm continent tendency.
+          const breakup = this._fbm(q * 0.17 + 500, r * 0.17 + 900, seed + 7777, 3);
+          const micro   = this._fbm(q * 0.29 + 130, r * 0.29 + 260, seed + 9999, 2);
+
+          if (landProfile === 'islands') {
+            v = (v * 0.20) + (bump * 0.95) + (breakup * 0.22) + (micro * 0.10) - 0.34;
+          } else if (landProfile === 'large_islands') {
+            v = (v * 0.25) + (bump * 1.00) + (breakup * 0.18) + (micro * 0.08) - 0.28;
+          } else {
+            // archipelago keeps lighter shaping
+            v += bump * PROFILE.islandAmp + breakup * 0.08;
           }
         }
 
