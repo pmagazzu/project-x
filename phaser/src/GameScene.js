@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.30';
+const GAME_VERSION = 'v1.3.31';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3420,9 +3420,9 @@ export class GameScene extends Phaser.Scene {
       if (noBuilding) allOpts.push({ label: `Adv Airfield T2 12⚙ 5🛢 4🪵 3🧩`, cost:{iron:12,oil:5,wood:4,components:3}, enabled: iron>=12&&oil>=5&&wood>=4&&(gs.players[p].components||0)>=3, cb: () => this._onBuildStructure('ADV_AIRFIELD',12,5,4,3) });
       addHeader('NAVAL');
       if (noBuilding && coastal) allOpts.push({ label: `Naval Yard  8⚙ 2🛢`,   cost:{iron:8,oil:2},  enabled: iron>=8&&oil>=2,  cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
-      if (noBuilding && coastal) allOpts.push({ label: `Harbor      5⚙ 1🛢`,   cost:{iron:5,oil:1},  enabled: iron>=5&&oil>=1,  cb: () => this._onBuildStructure('HARBOR',5,1) });
-      if (noBuilding && coastal) allOpts.push({ label: `Dry Dock   12⚙ 4🛢`,   cost:{iron:12,oil:4}, enabled: iron>=12&&oil>=4, cb: () => this._onBuildStructure('DRY_DOCK',12,4) });
-      if (noBuilding && coastal) allOpts.push({ label: `Naval Base 16⚙ 6🛢`,   cost:{iron:16,oil:6}, enabled: iron>=16&&oil>=6, cb: () => this._onBuildStructure('NAVAL_BASE',16,6) });
+      if (noBuilding && coastal) allOpts.push({ label: `Harbor      5⚙ 1🛢 1🧩`,   cost:{iron:5,oil:1,components:1},  enabled: iron>=5&&oil>=1&&(gs.players[p].components||0)>=1,  cb: () => this._onBuildStructure('HARBOR',5,1,0,1) });
+      if (noBuilding && coastal) allOpts.push({ label: `Dry Dock   12⚙ 4🛢 2🧩`,   cost:{iron:12,oil:4,components:2}, enabled: iron>=12&&oil>=4&&(gs.players[p].components||0)>=2, cb: () => this._onBuildStructure('DRY_DOCK',12,4,0,2) });
+      if (noBuilding && coastal) allOpts.push({ label: `Naval Base 16⚙ 6🛢 3🧩`,   cost:{iron:16,oil:6,components:3}, enabled: iron>=16&&oil>=6&&(gs.players[p].components||0)>=3, cb: () => this._onBuildStructure('NAVAL_BASE',16,6,0,3) });
       if (noBuilding && coastal) allOpts.push({ label: `Naval Dockyard T2 16⚙ 5🛢 4🪵 3🧩`, cost:{iron:16,oil:5,wood:4,components:3}, enabled: iron>=16&&oil>=5&&wood>=4&&(gs.players[p].components||0)>=3, cb: () => this._onBuildStructure('NAVAL_DOCKYARD',16,5,4,3) });
       addHeader('DEFENSE & OBSTACLES');
       if (noBuilding) allOpts.push({ label: `Bunker      3⚙ 2🪵`,   cost:{iron:3,oil:0,wood:2},  enabled: iron>=3&&wood>=2, cb: () => this._onBuildStructure('BUNKER',3,0,2) });
@@ -4316,6 +4316,39 @@ export class GameScene extends Phaser.Scene {
       if (clickedBuilding && Number(clickedBuilding.owner) !== curPClick) clickedBuilding = null;
     }
 
+    // Left-click cycle support on crowded hexes (units/building).
+    // Repeated clicks on same tile rotate selection target.
+    if (this.mode === 'select') {
+      const unitsHere = gs.units.filter(u => !u.dead && u.q === q && u.r === r)
+        .filter(u => isVisibleHex || Number(u.owner) === curPClick);
+      const bHere = gs.buildings.filter(b => b.q === q && b.r === r && !ROAD_TYPES.has(b.type))
+        .filter(b => isVisibleHex || Number(b.owner) === curPClick);
+      const cycleTargets = [
+        ...unitsHere.map(u => ({ kind: 'unit', id: u.id })),
+        ...bHere.map(b => ({ kind: 'building', id: b.id })),
+      ];
+      if (cycleTargets.length > 1) {
+        const sameHex = this._cycleHex && this._cycleHex.q === q && this._cycleHex.r === r;
+        const nextIdx = sameHex ? ((this._cycleIdx || 0) + 1) % cycleTargets.length : 0;
+        this._cycleHex = { q, r };
+        this._cycleIdx = nextIdx;
+        const pick = cycleTargets[nextIdx];
+        if (pick.kind === 'unit') {
+          clickedUnit = gs.units.find(u => u.id === pick.id) || clickedUnit;
+          clickedBuilding = null;
+          // Bring selected stack item to top draw order for clarity.
+          const idx = gs.units.findIndex(u => u.id === pick.id);
+          if (idx >= 0) gs.units.push(gs.units.splice(idx, 1)[0]);
+        } else {
+          clickedBuilding = gs.buildings.find(b => b.id === pick.id) || clickedBuilding;
+          clickedUnit = null;
+        }
+      } else {
+        this._cycleHex = { q, r };
+        this._cycleIdx = 0;
+      }
+    }
+
     // ── Transport load mode ──────────────────────────────────────────────
     if (this.mode === 'transport_load') {
       const transport = this._transportUnit;
@@ -4917,6 +4950,9 @@ export class GameScene extends Phaser.Scene {
     const isArmored = tDef.armor > 2;
     let baseAtk = navalVsNaval ? aDef.hard_attack : (isArmored ? aDef.hard_attack : aDef.soft_attack);
     if (navalVsLand) baseAtk = Math.floor((aDef.naval_attack||1)*0.6);
+    const atkSupPen = attacker.outOfSupply > 0 ? supplyPenalty(attacker.outOfSupply).attackPenalty : 0;
+    const defSupPen = target.outOfSupply > 0 ? supplyPenalty(target.outOfSupply).attackPenalty : 0;
+    if (atkSupPen > 0) baseAtk = Math.max(1, baseAtk - atkSupPen);
     const pierceRatio = aDef.pierce < tDef.armor ? aDef.pierce/tDef.armor : 1;
     const pierceMod = Math.round((pierceRatio-0.5)*20);
 
@@ -4928,8 +4964,9 @@ export class GameScene extends Phaser.Scene {
     const blindMod   = blindFire?20:0;
     const baseScore  = 50;
     const preRollScore = Math.max(0, Math.min(100,
-      baseScore + (aDef.accuracy||0) - (tDef.evasion||0)
-      - terrainMod - dugInMod - bunkerMod - blindMod + pierceMod));
+      baseScore + (aDef.accuracy||0) - Math.max(0, (tDef.evasion||0) - (defSupPen*2))
+      - terrainMod - dugInMod - bunkerMod - blindMod + pierceMod
+      - (atkSupPen * 3) + (defSupPen * 3)));
     const ROLL = 15; // ±15 random
     const scoreMin = Math.max(0, preRollScore - ROLL);
     const scoreMax = Math.min(100, preRollScore + ROLL);
@@ -4944,8 +4981,9 @@ export class GameScene extends Phaser.Scene {
     const tier   = tierAt(preRollScore);
     const tierLo = tierAt(scoreMin);
     const tierHi = tierAt(scoreMax);
-    const expDmg = dmgAt(preRollScore, baseAtk, pierceRatio, tDef.defense||0);
-    const maxDmg = dmgAt(scoreMax,     baseAtk, pierceRatio, tDef.defense||0);
+    const effDef = Math.max(0, (tDef.defense||0) - defSupPen);
+    const expDmg = dmgAt(preRollScore, baseAtk, pierceRatio, effDef);
+    const maxDmg = dmgAt(scoreMax,     baseAtk, pierceRatio, effDef);
 
     // Retaliation
     const dist = hexDistance(attacker.q,attacker.r,target.q,target.r);
@@ -4985,7 +5023,7 @@ export class GameScene extends Phaser.Scene {
       if(proj>0){const lw=bW*(f-af);bx(x-bW/2+bW*af+lw/2,y,lw,10,0x882222,0.7);}
     };
 
-    const cW=Math.min(740,sw-24), cH=380;
+    const cW=Math.min(820,sw-24), cH=430;
     bx(cx,cy,sw,sh,0x000000,0.72);
     bx(cx,cy,cW,cH,0x0a0d12,0.98,0x2e3d50);
 
@@ -5031,6 +5069,8 @@ export class GameScene extends Phaser.Scene {
     if (dugInMod)        rows.push([`Dug-in fortification`,          `−${dugInMod}`,      '#aa7744']);
     if (bunkerMod)       rows.push([`Bunker protection`,             `−${bunkerMod}`,     '#aa7744']);
     if (blindMod)        rows.push([`Blind fire penalty`,            `−${blindMod}`,      '#cc4444']);
+    if (atkSupPen>0)     rows.push([`Attacker out-of-supply`,        `−${atkSupPen*3} score / −${atkSupPen} ATK`, '#ff9966']);
+    if (defSupPen>0)     rows.push([`Defender out-of-supply`,        `+${defSupPen*3} score / DEF−${defSupPen}`, '#ff9966']);
     if (pierceMod !== 0) rows.push([`Pierce ${aDef.pierce} vs Armor ${tDef.armor}`, `${pierceMod>=0?'+':''}${pierceMod}`, pierceMod>=0?'#88cc88':'#cc8844']);
     rows.push([`Random roll`,                                        `±${ROLL}`,          '#7799aa']);
 
@@ -5668,6 +5708,8 @@ export class GameScene extends Phaser.Scene {
     if (entry.terrainMod)      mods.push(`Terrain −${entry.terrainMod}`);
     if (entry.dugInMod)        mods.push(`Dug-in −${entry.dugInMod}`);
     if (entry.bunkerMod)       mods.push(`Bunker −${entry.bunkerMod}`);
+    if (entry.attackerSupplyPenalty) mods.push(`Atk OOS −${entry.attackerSupplyPenalty * 3}`);
+    if (entry.defenderSupplyPenalty) mods.push(`Def OOS +${entry.defenderSupplyPenalty * 3}`);
     if (entry.flankMod)        mods.push(`Flank +${entry.flankMod}`);
     if (entry.blindFirePenalty) mods.push(`Blind −${entry.blindFirePenalty}`);
     if (entry.suppressed)      mods.push('SUPPRESSED');
@@ -5835,6 +5877,8 @@ export class GameScene extends Phaser.Scene {
         if (entry.terrainMod !== 0) mods.push(`terrain-${entry.terrainMod}`);
         if (entry.dugInMod !== 0)  mods.push(`dugin-${entry.dugInMod}`);
         if (entry.bunkerMod !== 0) mods.push(`bunker-${entry.bunkerMod}`);
+        if ((entry.attackerSupplyPenalty||0) !== 0) mods.push(`atkOOS-${(entry.attackerSupplyPenalty||0)*3}`);
+        if ((entry.defenderSupplyPenalty||0) !== 0) mods.push(`defOOS+${(entry.defenderSupplyPenalty||0)*3}`);
         if (entry.flankMod !== 0)  mods.push(`flank+${entry.flankMod}`);
         mods.push(`roll${entry.roll >= 0 ? '+' : ''}${entry.roll}`);
         addLine(`  Score: 50 + ${mods.join(' ')} = ${entry.score}`, '#ddddaa');

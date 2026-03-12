@@ -258,9 +258,9 @@ export const BUILDING_TYPES = {
   BARBED_WIRE:   { name: 'Barbed Wire',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0x888866, sight: 0, obstacle: true, infantryMoveCost: 1 },
   SANDBAG:       { name: 'Sandbag Post',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xc8aa66, sight: 0, defenseBonus: 2 },
   SUPPLY_DEPOT:  { name: 'Supply Depot',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 1, wood: 1 }, color: 0xddaa44, sight: 2, supplyRadius: 3, moveBonus: 1 },
-  HARBOR:        { name: 'Harbor',         ironPerTurn: 1, oilPerTurn: 1, woodPerTurn: 0, buildTurns: 3, canRecruit: [],                         buildCost: { iron: 5, oil: 1 }, color: 0x4488cc, sight: 2, repairsNaval: true },
-  DRY_DOCK:      { name: 'Dry Dock',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: ['DESTROYER','CRUISER_LT','CRUISER_HV'],  buildCost: { iron:12, oil: 4 }, color: 0x225588, sight: 2 },
-  NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 4, canRecruit: ['BATTLESHIP','SUPPLY_SHIP'],             buildCost: { iron:16, oil: 6 }, color: 0x113366, sight: 3 },
+  HARBOR:        { name: 'Harbor',         ironPerTurn: 1, oilPerTurn: 1, woodPerTurn: 0, buildTurns: 3, canRecruit: [],                         buildCost: { iron: 5, oil: 1, components: 1 }, color: 0x4488cc, sight: 2, repairsNaval: true },
+  DRY_DOCK:      { name: 'Dry Dock',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: ['DESTROYER','CRUISER_LT','CRUISER_HV'],  buildCost: { iron:12, oil: 4, components: 2 }, color: 0x225588, sight: 2 },
+  NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 4, canRecruit: ['BATTLESHIP','SUPPLY_SHIP'],             buildCost: { iron:16, oil: 6, components: 3 }, color: 0x113366, sight: 3 },
   // Air buildings
   AIRFIELD:      { name: 'Airfield',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE'], buildCost: { iron: 6, oil: 2, wood: 2 }, color: 0x888844, sight: 3 },
 
@@ -1142,6 +1142,13 @@ export function resolveTurn(state, terrain) {
     let baseAttack = isArmored ? aDef.hard_attack : aDef.soft_attack;
     if (navalVsLand) baseAttack = Math.floor((aDef.naval_attack || 1) * 0.6); // naval bombardment: 60% naval_attack
 
+    // Supply debuffs: unsupplied units attack worse and defend worse.
+    const atkSupplyPen = attacker.outOfSupply > 0 ? supplyPenalty(attacker.outOfSupply) : { movePenalty: 0, attackPenalty: 0 };
+    const defSupplyPen = target.outOfSupply > 0 ? supplyPenalty(target.outOfSupply) : { movePenalty: 0, attackPenalty: 0 };
+    if (atkSupplyPen.attackPenalty > 0) {
+      baseAttack = Math.max(1, baseAttack - atkSupplyPen.attackPenalty);
+    }
+
     // Pierce vs armor ratio
     let pierceRatio = 1;
     if (aDef.pierce < tDef.armor) pierceRatio = aDef.pierce / tDef.armor;
@@ -1153,6 +1160,8 @@ export function resolveTurn(state, terrain) {
     const blindFirePenalty = blindFire ? 20 : 0;
     score -= blindFirePenalty;
     score += target.evasion_penalty || 0; // suppressed units lose evasion
+    if (atkSupplyPen.attackPenalty > 0) score -= atkSupplyPen.attackPenalty * 3; // harder to execute attacks
+    if (defSupplyPen.attackPenalty > 0) score += defSupplyPen.attackPenalty * 3; // easier to hit unsupplied defenders
 
     // Terrain modifier for defender
     const ttype = (state._terrain && state._terrain[`${target.q},${target.r}`]) ?? 0;
@@ -1180,7 +1189,7 @@ export function resolveTurn(state, terrain) {
     if (onBunker) { bunkerMod = 15; score -= bunkerMod; }
 
     // Evasion (defender)
-    score -= tDef.evasion;
+    score -= Math.max(0, (tDef.evasion || 0) - (defSupplyPen.attackPenalty * 2));
 
     // Flanking bonus (multiple attackers on same target)
     const flankers = Math.max(0, (attackerCount[targetId] || 1) - 1);
@@ -1216,8 +1225,9 @@ export function resolveTurn(state, terrain) {
       suppressed = true;
     }
 
-    // Defense flat reduction
-    dmg = Math.max(0, dmg - tDef.defense);
+    // Defense flat reduction (unsupplied defender loses some defensive efficiency)
+    const effectiveTargetDefense = Math.max(0, (tDef.defense || 0) - defSupplyPen.attackPenalty);
+    dmg = Math.max(0, dmg - effectiveTargetDefense);
 
     // Accumulate damage
     if (dmg > 0)        damage[targetId]  = (damage[targetId]  || 0) + dmg;
@@ -1233,6 +1243,8 @@ export function resolveTurn(state, terrain) {
       isArmored, baseAttack, pierce: aDef.pierce, armor: tDef.armor, pierceRatio,
       accuracy: aDef.accuracy, evasion: tDef.evasion,
       terrainMod, dugInMod, bunkerMod, flankMod, roll, blindFirePenalty,
+      attackerSupplyPenalty: atkSupplyPen.attackPenalty || 0,
+      defenderSupplyPenalty: defSupplyPen.attackPenalty || 0,
       score, tier, dmg, attackerDmg, suppressed, blindFire,
     };
     combatLog.push(entry);
@@ -1471,10 +1483,11 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   if (navalVsNaval) baseAttack = aDef.hard_attack;
   if (navalVsLand)  baseAttack = Math.floor((aDef.naval_attack || 1) * 0.6);
 
-  // Out-of-supply reduces effective attack
-  if (attacker.outOfSupply > 0) {
-    const pen = supplyPenalty(attacker.outOfSupply);
-    baseAttack = Math.max(1, baseAttack - pen.attackPenalty);
+  // Out-of-supply reduces effective attack/defense effectiveness
+  const atkSupplyPen = attacker.outOfSupply > 0 ? supplyPenalty(attacker.outOfSupply) : { movePenalty: 0, attackPenalty: 0 };
+  const defSupplyPen = target.outOfSupply > 0 ? supplyPenalty(target.outOfSupply) : { movePenalty: 0, attackPenalty: 0 };
+  if (atkSupplyPen.attackPenalty > 0) {
+    baseAttack = Math.max(1, baseAttack - atkSupplyPen.attackPenalty);
   }
 
   let pierceRatio = 1;
@@ -1484,6 +1497,8 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   score += aDef.accuracy;
   const blindFirePenalty = blindFire ? 20 : 0;
   score -= blindFirePenalty;
+  if (atkSupplyPen.attackPenalty > 0) score -= atkSupplyPen.attackPenalty * 3;
+  if (defSupplyPen.attackPenalty > 0) score += defSupplyPen.attackPenalty * 3;
   const ttype = targetTerrain;
   let terrainMod = 0;
   if (ttype === 7) terrainMod = 5;
@@ -1497,7 +1512,7 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   let bunkerMod = 0;
   const onBunker = state.buildings.find(b => b.type === 'BUNKER' && b.q === target.q && b.r === target.r && b.owner === target.owner);
   if (onBunker) { bunkerMod = 15; score -= bunkerMod; }
-  score -= tDef.evasion;
+  score -= Math.max(0, (tDef.evasion || 0) - (defSupplyPen.attackPenalty * 2));
   score += Math.round((pierceRatio - 0.5) * 20);
   const roll = Math.floor(Math.random() * 31) - 15;
   score += roll;
@@ -1510,7 +1525,8 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   else if (score < 80)  { tier = 'Effective';            dmg = Math.max(1, Math.round(baseAttack * pierceRatio)); }
   else                  { tier = 'Overwhelming';         dmg = Math.max(1, Math.round(baseAttack * pierceRatio)); suppressed = true; }
 
-  dmg = Math.max(0, dmg - tDef.defense);
+  const effectiveTargetDefense = Math.max(0, (tDef.defense || 0) - defSupplyPen.attackPenalty);
+  dmg = Math.max(0, dmg - effectiveTargetDefense);
 
   // Retaliation: defender fires back if alive after attacker's hit and in range
   const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
@@ -1552,6 +1568,8 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
     isArmored, baseAttack, pierce: aDef.pierce, armor: tDef.armor, pierceRatio,
     accuracy: aDef.accuracy, evasion: tDef.evasion,
     terrainMod, dugInMod, bunkerMod, flankMod: 0, roll, blindFirePenalty,
+    attackerSupplyPenalty: atkSupplyPen.attackPenalty || 0,
+    defenderSupplyPenalty: defSupplyPen.attackPenalty || 0,
     score, tier, dmg, attackerDmg, suppressed, blindFire,
     defenderCanRetaliate: canRetaliate, retaliationDmg: retDmg, retaliationScore: retScore, retaliationTier: retTier,
   };
