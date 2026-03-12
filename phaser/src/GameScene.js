@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.24';
+const GAME_VERSION = 'v1.3.25';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1254,17 +1254,22 @@ export class GameScene extends Phaser.Scene {
       };
 
       if (b.type === 'HQ') {
-        // HQ: team-colored building body + prominent flagpole
-        const bw = s * 2.0, bh = s * 1.3;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
-        // Roof peak (lighter shade)
-        g.fillStyle(0xffffff, 0.15);
-        g.fillTriangle(x - bw/2 - 2, y - bh/2, x + bw/2 + 2, y - bh/2, x, y - bh/2 - s*1.1);
-        g.lineStyle(1.5, color, 0.9);
-        g.beginPath();
-        g.moveTo(x - bw/2 - 2, y - bh/2); g.lineTo(x, y - bh/2 - s*1.1);
-        g.lineTo(x + bw/2 + 2, y - bh/2); g.strokePath();
-        _flagpole(x, y - bh/2, s * 1.4);
+        // HQ: command block + center keep + watch windows
+        const bw = s * 2.05, bh = s * 1.35;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x6f6b62);
+        // Keep/tower core
+        _bldgRect(x - s*0.46, y - bh/2 - s*0.62, s*0.92, s*0.62, 0x7b766a);
+        // Roof peak
+        g.fillStyle(0x1f1f1f, 0.85);
+        g.fillTriangle(x - s*0.58, y - bh/2 - s*0.62, x + s*0.58, y - bh/2 - s*0.62, x, y - bh/2 - s*1.08);
+        // Windows/slits
+        g.fillStyle(0xbfd8ff, 0.55);
+        g.fillRect(x - s*0.62, y - s*0.05, s*0.14, s*0.16);
+        g.fillRect(x - s*0.08, y - s*0.05, s*0.14, s*0.16);
+        g.fillRect(x + s*0.46, y - s*0.05, s*0.14, s*0.16);
+        // Door
+        g.fillStyle(0x2a2119, 0.85); g.fillRect(x - s*0.18, y + s*0.16, s*0.36, s*0.34);
+        _flagpole(x + s*0.62, y - bh/2, s * 1.25);
 
       } else if (b.type === 'MINE') {
         // Iron Mine: dark rocky base with team-colored headframe (A-frame)
@@ -1357,24 +1362,21 @@ export class GameScene extends Phaser.Scene {
         g.fillStyle(color); g.fillCircle(x + s*0.3, y - s*1.5, s*0.13);
 
       } else if (b.type === 'BARRACKS' || b.type === 'ADV_BARRACKS') {
-        // Barracks: team-colored walls + pitched roof + crenellations
-        const bw = s * 1.9, bh = s * 1.1;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
-        // Pitched roof
-        g.fillStyle(0x000000, 0.3);
-        g.fillTriangle(x - bw/2 - 2, y - bh/2, x + bw/2 + 2, y - bh/2, x, y - bh/2 - s*0.8);
-        g.lineStyle(1.5, 0xffffff, 0.5);
-        g.beginPath();
-        g.moveTo(x - bw/2 - 2, y - bh/2); g.lineTo(x, y - bh/2 - s*0.8);
-        g.lineTo(x + bw/2 + 2, y - bh/2); g.strokePath();
-        // Crenellations (3 teeth on wall top)
-        g.fillStyle(0xffffff, 0.5);
-        const tw = bw / 5;
-        for (let i = 0; i < 3; i++) {
-          g.fillRect(x - bw/2 + tw*(i*2), y - bh/2 - s*0.07, tw, s*0.2);
-        }
-        // Door
-        g.fillStyle(0x000000, 0.5); g.fillRect(x - s*0.2, y + s*0.05, s*0.4, s*0.5);
+        // Barracks: long hall + roof + window row (pixel military block)
+        const bw = s * 2.0, bh = s * 1.12;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x6a6f63);
+        // Roof slab
+        g.fillStyle(0x2f3330, 0.9); g.fillRect(x - bw/2 - 1, y - bh/2 - s*0.24, bw + 2, s*0.24);
+        // Roof vents
+        g.fillStyle(0x888, 0.9);
+        g.fillRect(x - s*0.52, y - bh/2 - s*0.22, s*0.18, s*0.1);
+        g.fillRect(x + s*0.34, y - bh/2 - s*0.22, s*0.18, s*0.1);
+        // Window row
+        g.fillStyle(0xb9d0f0, 0.45);
+        for (let i = -2; i <= 2; i++) g.fillRect(x + i*s*0.24 - s*0.06, y - s*0.04, s*0.12, s*0.14);
+        // Door + steps
+        g.fillStyle(0x2b241d, 0.9); g.fillRect(x - s*0.16, y + s*0.12, s*0.32, s*0.36);
+        g.fillStyle(0x555, 0.8); g.fillRect(x - s*0.22, y + s*0.48, s*0.44, s*0.08);
 
       } else if (b.type === 'LUMBER_CAMP') {
         // Lumber Camp: team-colored small hut + log cross-sections
@@ -1389,21 +1391,19 @@ export class GameScene extends Phaser.Scene {
         g.fillTriangle(x + s*0.2, y - s*0.55, x + s*0.55, y - s*0.25, x + s*0.55, y - s*0.6);
 
       } else if (b.type === 'NAVAL_YARD' || b.type === 'NAVAL_DOCKYARD') {
-        // Naval Yard: team-colored walls, big crane arm
-        const bw = s * 2.1, bh = s * 1.0;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
-        // Dark interior
-        g.fillStyle(0x000000, 0.25); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
-        // Crane vertical mast
-        g.fillStyle(0xffffff, 0.85); g.fillRect(x - s*0.08, y - bh/2 - s*1.3, s*0.16, s*1.35);
-        // Crane horizontal arm
-        g.fillStyle(0xffffff, 0.85); g.fillRect(x - s*0.08 - s*0.75, y - bh/2 - s*1.2, s*0.8, s*0.14);
-        // Hanging cable
-        g.lineStyle(1, 0xffffff, 0.65);
-        g.beginPath(); g.moveTo(x - s*0.08 - s*0.5, y - bh/2 - s*1.06); g.lineTo(x - s*0.08 - s*0.5, y - bh/2 - s*0.3); g.strokePath();
-        // Hull outline in dock
-        g.lineStyle(1.5, 0x88ccff, 0.6);
-        g.strokeEllipse(x + s*0.3, y + s*0.08, s*1.0, s*0.45);
+        // Naval Yard: dock hall + gantry crane + slipway
+        const bw = s * 2.15, bh = s * 1.02;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x4e5a62);
+        // Slipway basin
+        g.fillStyle(0x233a50, 0.85); g.fillRect(x - bw*0.28, y - bh/2 + s*0.14, bw*0.56, bh*0.66);
+        // Hull chunk
+        g.fillStyle(0x7f909d, 0.85); g.fillRect(x - s*0.32, y + s*0.02, s*0.64, s*0.14);
+        g.fillTriangle(x + s*0.32, y + s*0.02, x + s*0.52, y + s*0.09, x + s*0.32, y + s*0.16);
+        // Crane mast + boom
+        g.fillStyle(0xcfd6dc, 0.95); g.fillRect(x - s*0.7, y - bh/2 - s*0.98, s*0.15, s*1.0);
+        g.fillRect(x - s*0.7, y - bh/2 - s*0.98, s*0.72, s*0.12);
+        g.lineStyle(1, 0xcfd6dc, 0.8); g.beginPath();
+        g.moveTo(x - s*0.18, y - bh/2 - s*0.86); g.lineTo(x - s*0.18, y - bh/2 - s*0.22); g.strokePath();
 
       } else if (b.type === 'HARBOR') {
         // Harbor: team-colored pier with dock arms and water suggestion
@@ -1450,33 +1450,24 @@ export class GameScene extends Phaser.Scene {
         g.lineTo(x + s*0.15, y + s*0.35); g.closePath(); g.strokePath();
 
       } else if (b.type === 'AIRFIELD' || b.type === 'ADV_AIRFIELD') {
-        // Airfield: team-colored perimeter, concrete runway cross, windsock
-        const bw = s * 2.4, bh = s * 1.5;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
-        // Concrete interior
-        g.fillStyle(0xaaaaaa, 0.35); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
-        // Runway cross (two intersecting grey strips)
-        g.fillStyle(0x999999, 0.75);
-        g.fillRect(x - bw*0.42, y - s*0.1, bw*0.84, s*0.2); // horizontal
-        g.fillRect(x - s*0.1, y - bh*0.42, s*0.2, bh*0.84); // vertical
-        // Center circle
-        g.lineStyle(1.5, 0xffffff, 0.6); g.strokeCircle(x, y, s*0.22);
-        // Runway dashes (edge markers)
-        g.lineStyle(1.5, 0xffffff, 0.4);
-        for (let i = -1; i <= 1; i += 2) {
-          g.beginPath(); g.moveTo(x + i*bw*0.35, y - s*0.08); g.lineTo(x + i*bw*0.35, y + s*0.08); g.strokePath();
-        }
-        // Windsock pole
-        g.fillStyle(0xffffff, 0.8); g.fillRect(x + bw*0.3, y - bh/2 - s*0.6, s*0.1, s*0.65);
-        g.fillStyle(color); // windsock cone
-        g.fillTriangle(x + bw*0.3 + s*0.1, y - bh/2 - s*0.55,
-          x + bw*0.3 + s*0.1, y - bh/2 - s*0.25,
-          x + bw*0.3 + s*0.55, y - bh/2 - s*0.4);
-        // Aircraft silhouette on pad
-        g.lineStyle(1.5, 0xffffff, 0.4);
-        g.beginPath(); g.moveTo(x - s*0.55, y + s*0.15); g.lineTo(x + s*0.55, y + s*0.15); g.strokePath();
-        g.beginPath(); g.moveTo(x - s*0.1, y + s*0.15); g.lineTo(x - s*0.35, y - s*0.05); g.lineTo(x + s*0.25, y - s*0.05); g.lineTo(x + s*0.15, y + s*0.15); g.strokePath();
-        g.beginPath(); g.moveTo(x - s*0.1, y + s*0.15); g.lineTo(x - s*0.35, y + s*0.35); g.lineTo(x + s*0.25, y + s*0.35); g.lineTo(x + s*0.15, y + s*0.15); g.strokePath();
+        // Airfield: tarmac pad + runway markings + hangar slab
+        const bw = s * 2.42, bh = s * 1.52;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x737a80);
+        // Tarmac
+        g.fillStyle(0x565d64, 0.8); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
+        // Runway stripe and centerline
+        g.fillStyle(0x9aa3ac, 0.85); g.fillRect(x - bw*0.42, y - s*0.11, bw*0.84, s*0.22);
+        g.fillStyle(0xe5e8ea, 0.75);
+        for (let i = -2; i <= 2; i++) g.fillRect(x + i*s*0.22 - s*0.03, y - s*0.03, s*0.06, s*0.06);
+        // Hangar block
+        g.fillStyle(0x444a50, 0.95); g.fillRect(x - s*0.95, y - bh/2 + s*0.15, s*0.72, s*0.5);
+        g.fillStyle(0x2b2f33, 0.95); g.fillRect(x - s*0.88, y - bh/2 + s*0.23, s*0.58, s*0.34);
+        // Windsock
+        g.fillStyle(0xd8d8d8, 0.9); g.fillRect(x + bw*0.3, y - bh/2 - s*0.58, s*0.1, s*0.62);
+        g.fillStyle(teamAccent, 0.9);
+        g.fillTriangle(x + bw*0.3 + s*0.1, y - bh/2 - s*0.54,
+          x + bw*0.3 + s*0.1, y - bh/2 - s*0.26,
+          x + bw*0.3 + s*0.52, y - bh/2 - s*0.4);
 
       } else if (b.type === 'FARM') {
         // Farm: green field rows + small barn
@@ -1528,15 +1519,24 @@ export class GameScene extends Phaser.Scene {
         g.fillStyle(0x8844cc, 0.55); g.fillRect(x - s*0.3, y + s*0.1, s*0.6, s*0.18);
 
       } else if (b.type === 'FACTORY') {
-        // Factory: steel block + smokestacks
-        const bw = s * 1.9, bh = s * 1.2;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x666666);
-        g.fillStyle(0x000000, 0.2); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
+        // Factory: industrial block with sawtooth roof, vents, and status lamp
+        const bw = s * 1.96, bh = s * 1.24;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x656565);
+        g.fillStyle(0x3f3f3f, 0.9); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
+        // Sawtooth roof profile
+        g.fillStyle(0x2f2f2f, 0.95);
+        for (let i = -2; i <= 1; i++) {
+          const rx = x + i*s*0.36;
+          g.fillTriangle(rx - s*0.16, y - bh/2 + s*0.08, rx + s*0.16, y - bh/2 + s*0.08, rx + s*0.02, y - bh/2 - s*0.18);
+        }
         // Smokestacks
-        g.fillStyle(0x555555, 1.0);
-        g.fillRect(x - s*0.55, y - bh/2 - s*0.45, s*0.22, s*0.45);
-        g.fillRect(x - s*0.10, y - bh/2 - s*0.55, s*0.22, s*0.55);
-        g.fillRect(x + s*0.35, y - bh/2 - s*0.38, s*0.22, s*0.38);
+        g.fillStyle(0x5a5a5a, 1.0);
+        g.fillRect(x - s*0.58, y - bh/2 - s*0.48, s*0.2, s*0.48);
+        g.fillRect(x - s*0.12, y - bh/2 - s*0.58, s*0.2, s*0.58);
+        g.fillRect(x + s*0.34, y - bh/2 - s*0.4, s*0.2, s*0.4);
+        // Window strip
+        g.fillStyle(0xb8c7d8, 0.35);
+        for (let i = -2; i <= 2; i++) g.fillRect(x + i*s*0.22 - s*0.06, y + s*0.03, s*0.12, s*0.1);
         // Status light (green when active, red when toggled off)
         const active = (b.active !== false);
         g.fillStyle(active ? 0x44cc66 : 0xcc4444, 0.95);
