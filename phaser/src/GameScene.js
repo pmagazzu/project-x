@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.17';
+const GAME_VERSION = 'v1.3.18';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5756,9 +5756,20 @@ export class GameScene extends Phaser.Scene {
           }
         }
 
-        // Soft elliptical falloff at map edges so there's ocean border
-        const ex = ((q / ms) - 0.5) * 2, er = ((r / ms) - 0.5) * 2;
-        const edgeDist = Math.max(Math.abs(ex), Math.abs(er));
+        // Soft edge falloff with coastline roughness (avoids perfect geometric blobs)
+        let ex = ((q / ms) - 0.5) * 2;
+        let er = ((r / ms) - 0.5) * 2;
+        // Domain warp for organic coastlines (stronger on continent profiles)
+        const coastWarpA = this._fbm(q * 0.11 + 310, r * 0.11 + 740, seed + 4242, 3) * 0.14;
+        const coastWarpB = this._fbm(q * 0.09 + 120, r * 0.09 + 520, seed + 9898, 3) * 0.14;
+        ex += coastWarpA;
+        er += coastWarpB;
+        let edgeDist = Math.max(Math.abs(ex), Math.abs(er));
+
+        // Extra raggedness around shoreline band
+        const shoreNoise = this._fbm(q * 0.20 + 700, r * 0.20 + 300, seed + 1313, 2) * 0.10;
+        edgeDist += shoreNoise;
+
         v -= Math.max(0, edgeDist - PROFILE.edgeStart) * PROFILE.edgeFalloff;
 
         // Two-continent profile: carve central ocean channel
