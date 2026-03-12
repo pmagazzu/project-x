@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.21';
+const GAME_VERSION = 'v1.3.22';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3058,7 +3058,7 @@ export class GameScene extends Phaser.Scene {
     this._shiftKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
     this.input.keyboard.on('keydown-ESC',   () => { if (this._nameModalOpen) return; if (!this._endTurnPending) this._toggleSettings(); });
     this.input.keyboard.on('keydown-X',     () => { if (this._nameModalOpen) return; this._confirmEndTurn(); });
-    this.input.keyboard.on('keydown-S',     () => { if (this._nameModalOpen) return; this._toggleSupplyOverlay(); });
+    // Supply overlay hotkey intentionally disabled (was keydown-S). Use UI button only.
     this.input.keyboard.on('keydown-SPACE', () => {
       if (this._nameModalOpen) return;
       if (this._splashDismiss) { this._splashDismiss(); this._splashDismiss = null; return; }

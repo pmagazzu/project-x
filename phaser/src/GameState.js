@@ -1945,7 +1945,7 @@ export function checkWinner(state) {
 const HEX_NEIGHBORS = [[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];
 
 // ── Supply system ─────────────────────────────────────────────────────────
-// Base supply radius per building type (hexes). Roads are free traversal.
+// Base supply radius per building type (hexes). Roads use a 1-hex entry tax then free chaining.
 export const BUILDING_SUPPLY_RADIUS = {
   HQ:           8,
   BARRACKS:     4,
@@ -1963,8 +1963,8 @@ export const BUILDING_SUPPLY_RADIUS = {
 };
 
 // Returns a Set of "q,r" keys that are in supply for the given player.
-// Roads are traversed for free (don't reduce remaining supply range),
-// so road networks extend the reach of nearby buildings naturally.
+// Roads consume 1 range when first entered from non-road, then chain for free while on-road.
+// This trims road extension by ~1 hex while keeping roads meaningful for logistics.
 export function computeSupply(state, player, mapSize) {
   const supplied = new Set();
   const ms = mapSize || state._mapSize || 25;
@@ -1986,8 +1986,12 @@ export function computeSupply(state, player, mapSize) {
         const nq = q + dq, nr = r + dr;
         if (!_isValid(nq, nr)) continue;
         const key = `${nq},${nr}`;
-        const onRoad = isRoadHex(nq, nr);
-        const nextRem = onRoad ? rem : rem - 1; // roads are free
+        const fromRoad = isRoadHex(q, r);
+        const toRoad = isRoadHex(nq, nr);
+        // Roads still help, but with a 1-hex entry tax:
+        // entering a road from non-road consumes 1 range; continuing on roads is free.
+        const stepCost = toRoad ? (fromRoad ? 0 : 1) : 1;
+        const nextRem = rem - stepCost;
         const prevBest = visited.get(key) ?? -1;
         if (nextRem > prevBest) {
           visited.set(key, nextRem);
