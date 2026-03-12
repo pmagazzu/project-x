@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.33';
+const GAME_VERSION = 'v1.3.34';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1227,20 +1227,29 @@ export class GameScene extends Phaser.Scene {
 
         // FARM is rendered as a terrain tile swap/overlay (not a building icon).
         if (b.type === 'FARM') {
-          const varHash = ((b.q * 1619 + b.r * 31337) ^ (b.q * 6791)) & 0xFFFFFF;
-          const key = `terrain_farm_${(varHash % FARM_VARIANTS) + 1}`;
-          const texKey = this.textures.exists(key) ? key : `terrain_grass_${(varHash % GRASS_VARIANTS) + 1}`;
+          // Temporarily lock to option 3 per art direction review.
+          const texKey = this.textures.exists('terrain_farm_3') ? 'terrain_farm_3' : 'terrain_grass_3';
           const spr = this.add.image(x, y, texKey).setDepth(0);
           const src = this.textures.get(texKey)?.getSourceImage?.();
-          if (src?.width && src?.height) {
-            const targetW = HEX_SIZE * 2;
-            const targetH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH);
-            spr.setDisplaySize(targetW, targetH);
-          }
+          const targetW = HEX_SIZE * 2;
+          const targetH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH);
+          if (src?.width && src?.height) spr.setDisplaySize(targetW, targetH);
+
+          // Hard clip to hex to prevent visual bleed into neighboring tiles.
+          const maskG = this.add.graphics().setDepth(0);
+          const verts = hexVertices(x, y);
+          maskG.beginPath();
+          maskG.moveTo(verts[0].x, verts[0].y);
+          for (let i = 1; i < verts.length; i++) maskG.lineTo(verts[i].x, verts[i].y);
+          maskG.closePath();
+          maskG.fillPath();
+          const hMask = maskG.createGeometryMask();
+          spr.setMask(hMask);
+
           // tiny owner badge dot to denote player color
           const badge = this.add.circle(x + HEX_SIZE * 0.33, y - HEX_SIZE * 0.28, 3.5, color, 0.95)
             .setStrokeStyle(1, 0x111111, 0.9).setDepth(1);
-          this.farmTileLayer?.add([spr, badge]);
+          this.farmTileLayer?.add([maskG, spr, badge]);
           continue;
         }
 
