@@ -1964,12 +1964,14 @@ export const BUILDING_SUPPLY_RADIUS = {
 
 // Returns a Set of "q,r" keys that are in supply for the given player.
 // Roads consume 1 range when first entered from non-road, then chain for free while on-road.
-// This trims road extension by ~1 hex while keeping roads meaningful for logistics.
+// Only SAME-OWNER roads count, so extension must be connected to your own supply network.
 export function computeSupply(state, player, mapSize) {
   const supplied = new Set();
   const ms = mapSize || state._mapSize || 25;
 
-  const isRoadHex = (q, r) => state.buildings.some(b => ROAD_TYPES.has(b.type) && b.q === q && b.r === r);
+  // Roads extend supply only when they are OWNED by the same player.
+  // This prevents stray/enemy roads from acting as free logistics relays.
+  const isRoadHex = (q, r) => state.buildings.some(b => ROAD_TYPES.has(b.type) && b.q === q && b.r === r && Number(b.owner) === Number(player));
 
   const _isValid = (q, r) => q >= 0 && r >= 0 && q < ms && r < ms;
 
