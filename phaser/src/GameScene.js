@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.31';
+const GAME_VERSION = 'v1.3.32';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -84,6 +84,10 @@ const MOUNTAIN_VARIANT_FILES = Array.from({length:MOUNTAIN_VARIANTS},(_,i)=>({ke
 const HILL_VARIANTS = 10;
 const HILL_VARIANT_FILES = Array.from({length:HILL_VARIANTS},(_,i)=>({key:`terrain_hill_${i+1}`,file:`user_art/hill_tile_${String(i+1).padStart(2,'0')}.png`}));
 
+// Farm tile variants (overlay for FARM buildings; looks like terrain, not a structure icon)
+const FARM_VARIANTS = 6;
+const FARM_VARIANT_FILES = Array.from({length:FARM_VARIANTS},(_,i)=>({key:`terrain_farm_${i+1}`,file:`user_art/farm_tile_${String(i+1).padStart(2,'0')}.png`}));
+
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
 
@@ -115,6 +119,9 @@ export class GameScene extends Phaser.Scene {
       this.load.image(key, file);
     }
     for (const {key, file} of HILL_VARIANT_FILES) {
+      this.load.image(key, file);
+    }
+    for (const {key, file} of FARM_VARIANT_FILES) {
       this.load.image(key, file);
     }
     this.load.on('loaderror', () => {}); // suppress console errors for missing tiles
@@ -195,6 +202,7 @@ export class GameScene extends Phaser.Scene {
     this.supplyGfx    = this.add.graphics().setDepth(7);  // supply overlay — above roads, below highlights
     this._supplyOverlayOn = false; // toggled by S key or button
     this.highlightGfx = this.add.graphics().setDepth(10);
+    this.farmTileLayer = this.add.layer().setDepth(14); // farm terrain-overlays under building icons
     this.buildingGfx  = this.add.graphics().setDepth(15);
     this.unitGfx      = this.add.graphics().setDepth(20);
     // Fog: RenderTexture instead of Graphics — handles large maps (120×120+) without vertex overflow
@@ -216,7 +224,7 @@ export class GameScene extends Phaser.Scene {
     const worldObjs = new Set([
       this.terrainGfx, this.terrainArtLayer, this.mountainPeakLayer, this.terrainArtRT, this.terrainRT,
       this.roadGfx, this.supplyGfx,
-      this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT, this._uiLayer
+      this.highlightGfx, this.farmTileLayer, this.buildingGfx, this.unitGfx, this.fogRT, this._uiLayer
     ]);
     for (const obj of [...this.children.list]) {
       if (!worldObjs.has(obj) && obj.scrollFactorX === 0) {
@@ -242,7 +250,7 @@ export class GameScene extends Phaser.Scene {
     this.uiCamera.ignore([
       this.terrainGfx, this.terrainArtLayer, this.mountainPeakLayer, this.terrainArtRT, this.terrainRT,
       this.roadGfx, this.supplyGfx,
-      this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT,
+      this.highlightGfx, this.farmTileLayer, this.buildingGfx, this.unitGfx, this.fogRT,
     ]);
     this.scale.on('resize', (gs) => this.uiCamera.setSize(gs.width, gs.height));
 
@@ -260,6 +268,7 @@ export class GameScene extends Phaser.Scene {
     this.terrainGfx.clear();
     if (this.terrainArtLayer) this.terrainArtLayer.removeAll(true);
     if (this.mountainPeakLayer) this.mountainPeakLayer.removeAll(true);
+    if (this.farmTileLayer) this.farmTileLayer.removeAll(true);
 
     const artW = HEX_SIZE * 2;
     const artH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH);
@@ -1199,6 +1208,7 @@ export class GameScene extends Phaser.Scene {
 
   _redrawBuildings() {
     this.buildingGfx.clear();
+    if (this.farmTileLayer) this.farmTileLayer.removeAll(true);
     // Viewport culling (large-map perf)
     const { L: _bvpL, R: _bvpR, T: _bvpT, B: _bvpB } = this._vpBounds();
     const fog = this._currentFog || null;
@@ -1214,6 +1224,25 @@ export class GameScene extends Phaser.Scene {
         // if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
         const color = PLAYER_COLORS[b.owner] || 0x888888;
         const s = HEX_SIZE * 0.3;
+
+        // FARM is rendered as a terrain tile swap/overlay (not a building icon).
+        if (b.type === 'FARM') {
+          const varHash = ((b.q * 1619 + b.r * 31337) ^ (b.q * 6791)) & 0xFFFFFF;
+          const key = `terrain_farm_${(varHash % FARM_VARIANTS) + 1}`;
+          const texKey = this.textures.exists(key) ? key : `terrain_grass_${(varHash % GRASS_VARIANTS) + 1}`;
+          const spr = this.add.image(x, y, texKey).setDepth(0);
+          const src = this.textures.get(texKey)?.getSourceImage?.();
+          if (src?.width && src?.height) {
+            const targetW = HEX_SIZE * 2;
+            const targetH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH);
+            spr.setDisplaySize(targetW, targetH);
+          }
+          // tiny owner badge dot to denote player color
+          const badge = this.add.circle(x + HEX_SIZE * 0.33, y - HEX_SIZE * 0.28, 3.5, color, 0.95)
+            .setStrokeStyle(1, 0x111111, 0.9).setDepth(1);
+          this.farmTileLayer?.add([spr, badge]);
+          continue;
+        }
 
       // ── Helper: pixel-building style with subtle team accents (less color dominance) ──
       const g = this.buildingGfx;
