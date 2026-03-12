@@ -1144,6 +1144,15 @@ export function resolveTurn(state, terrain) {
     let baseAttack = isArmored ? aDef.hard_attack : aDef.soft_attack;
     if (navalVsLand) baseAttack = Math.floor((aDef.naval_attack || 1) * 0.6); // naval bombardment: 60% naval_attack
 
+    // Air-to-ground strafing balance:
+    // Fighters (antiAir=true) are primarily anti-air; they deal reduced damage to ground units.
+    const attackerIsAir = AIR_UNITS.has(attacker.type);
+    const targetIsAir = AIR_UNITS.has(target.type);
+    const fighterStrafePenalty = attackerIsAir && !targetIsAir && aDef.antiAir;
+    if (fighterStrafePenalty) {
+      baseAttack = Math.max(1, Math.floor(baseAttack * 0.5));
+    }
+
     // Supply debuffs: unsupplied units attack worse and defend worse.
     const atkSupplyPen = attacker.outOfSupply > 0 ? supplyPenalty(attacker.outOfSupply) : { movePenalty: 0, attackPenalty: 0 };
     const defSupplyPen = target.outOfSupply > 0 ? supplyPenalty(target.outOfSupply) : { movePenalty: 0, attackPenalty: 0 };
@@ -1484,6 +1493,13 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   // Naval vs naval: ships fight with hard_attack (hull vs hull)
   if (navalVsNaval) baseAttack = aDef.hard_attack;
   if (navalVsLand)  baseAttack = Math.floor((aDef.naval_attack || 1) * 0.6);
+
+  // Air-to-ground strafing balance: fighters are weaker vs ground units.
+  const attackerIsAir = AIR_UNITS.has(attacker.type);
+  const fighterStrafePenalty = attackerIsAir && !targetIsAir && aDef.antiAir;
+  if (fighterStrafePenalty) {
+    baseAttack = Math.max(1, Math.floor(baseAttack * 0.5));
+  }
 
   // Out-of-supply reduces effective attack/defense effectiveness
   const atkSupplyPen = attacker.outOfSupply > 0 ? supplyPenalty(attacker.outOfSupply) : { movePenalty: 0, attackPenalty: 0 };

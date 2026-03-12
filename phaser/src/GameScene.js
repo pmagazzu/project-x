@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.43';
+const GAME_VERSION = 'v1.3.44';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5046,6 +5046,8 @@ export class GameScene extends Phaser.Scene {
     const isArmored = tDef.armor > 2;
     let baseAtk = navalVsNaval ? aDef.hard_attack : (isArmored ? aDef.hard_attack : aDef.soft_attack);
     if (navalVsLand) baseAtk = Math.floor((aDef.naval_attack||1)*0.6);
+    const fighterStrafePenalty = AIR_UNITS.has(attacker.type) && !AIR_UNITS.has(target.type) && aDef.antiAir;
+    if (fighterStrafePenalty) baseAtk = Math.max(1, Math.floor(baseAtk * 0.5));
     const atkSupPen = attacker.outOfSupply > 0 ? supplyPenalty(attacker.outOfSupply).attackPenalty : 0;
     const defSupPen = target.outOfSupply > 0 ? supplyPenalty(target.outOfSupply).attackPenalty : 0;
     if (atkSupPen > 0) baseAtk = Math.max(1, baseAtk - atkSupPen);
@@ -5166,6 +5168,7 @@ export class GameScene extends Phaser.Scene {
     if (dugInMod)        rows.push([`Dug-in fortification`,          `−${dugInMod}`,      '#aa7744']);
     if (bunkerMod)       rows.push([`Bunker protection`,             `−${bunkerMod}`,     '#aa7744']);
     if (blindMod)        rows.push([`Blind fire penalty`,            `−${blindMod}`,      '#cc4444']);
+    if (fighterStrafePenalty) rows.push([`Fighter strafing penalty`, `ATK x0.5`, '#ffbb66']);
     if (atkSupPen>0)     rows.push([`Attacker out-of-supply`,        `−${atkSupPen*3} score / −${atkSupPen} ATK`, '#ff9966']);
     if (defSupPen>0)     rows.push([`Defender out-of-supply`,        `+${defSupPen*3} score / DEF−${defSupPen}`, '#ff9966']);
     if (pierceMod !== 0) rows.push([`Pierce ${aDef.pierce} vs Armor ${tDef.armor}`, `${pierceMod>=0?'+':''}${pierceMod}`, pierceMod>=0?'#88cc88':'#cc8844']);
