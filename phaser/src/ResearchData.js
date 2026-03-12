@@ -206,6 +206,13 @@ export const TECH_TREE = {
     cost:30, prereqs:['basic_recon_training'],
     effect:{ unlockModule:'INF_SNIPER_PACKAGE' },
   },
+  camo_webbing: {
+    id:'camo_webbing', branch:'infantry', tier:1, kind:'module',
+    name:'Camo Webbing',
+    desc:'🔩 MODULE — Infantry/recon camouflage rig: +evasion, +defense, -move.',
+    cost:18, prereqs:['steel_helmet'],
+    effect:{ unlockModule:'INF_CAMO_WEBBING' },
+  },
 
   // ═══════════════════════════════════════════════════════════════════════════
   // VEHICLES
@@ -217,6 +224,13 @@ export const TECH_TREE = {
     desc:'Tanks +1 health, +1 armor.',
     cost:30, prereqs:[],
     effect:{ unitStatBonus:{ TANK:{ health:1, armor:1 } } },
+  },
+  apcr_rounds: {
+    id:'apcr_rounds', branch:'vehicles', tier:1, kind:'module',
+    name:'APCR Rounds',
+    desc:'🔩 MODULE — Vehicle ammo package: +pierce and +hard attack.',
+    cost:22, prereqs:['light_tank_armor'],
+    effect:{ unlockModule:'VEH_APCR_ROUNDS' },
   },
   engine_upgrade: {
     id:'engine_upgrade', branch:'vehicles', tier:0, kind:'stat',
@@ -296,6 +310,13 @@ export const TECH_TREE = {
       LIGHT_BOMBER:   { fuelMax:2 },
       OBS_PLANE:      { fuelMax:2 },
     }},
+  },
+  drop_tanks: {
+    id:'drop_tanks', branch:'air', tier:1, kind:'module',
+    name:'Drop Tank Kit',
+    desc:'🔩 MODULE — Airframe add-on: +move/+fuel at slight durability cost.',
+    cost:18, prereqs:['fuel_tanks'],
+    effect:{ unlockModule:'AIR_DROP_TANKS' },
   },
   biplane_upgrade: {
     id:'biplane_upgrade', branch:'air', tier:0, kind:'stat',
@@ -412,6 +433,20 @@ export const TECH_TREE = {
     cost:25, prereqs:['dive_protocol'],
     effect:{ unitStatBonus:{ SUBMARINE:{ move:1, fuelMax:3 } } },
   },
+  coastal_rangefinder: {
+    id:'coastal_rangefinder', branch:'naval', tier:1, kind:'stat',
+    name:'Coastal Rangefinder Network',
+    desc:'Coastal Batteries get +1 range and +2 accuracy.',
+    cost:20, prereqs:['naval_gunnery'],
+    effect:{ unitStatBonus:{ COASTAL_BATTERY:{ range:1, accuracy:2 } } },
+  },
+  coastal_fire_control: {
+    id:'coastal_fire_control', branch:'naval', tier:2, kind:'stat',
+    name:'Coastal Fire Control',
+    desc:'Coastal Batteries get +1 hard attack and +1 naval attack.',
+    cost:28, prereqs:['coastal_rangefinder'],
+    effect:{ unitStatBonus:{ COASTAL_BATTERY:{ hard_attack:1, naval_attack:1 } } },
+  },
   carrier: {
     id:'carrier', branch:'naval', tier:2, kind:'chassis',
     name:'Aircraft Carrier',
@@ -479,6 +514,20 @@ export const TECH_TREE = {
     desc:'🏗 BUILDING — Field supply depot: units within 3 hexes resupply +1 move.',
     cost:30, prereqs:['field_fortifications'],
     effect:{ unlockBuilding:'SUPPLY_DEPOT' },
+  },
+  aa_targeting_drill: {
+    id:'aa_targeting_drill', branch:'engineering', tier:1, kind:'stat',
+    name:'AA Targeting Drill',
+    desc:'AA Emplacements gain +1 range and +2 accuracy.',
+    cost:18, prereqs:['sandbag_improved'],
+    effect:{ unitStatBonus:{ AA_EMPLACEMENT:{ range:1, accuracy:2 } } },
+  },
+  aa_he_burst: {
+    id:'aa_he_burst', branch:'engineering', tier:2, kind:'stat',
+    name:'AA HE-Burst Fuse',
+    desc:'AA Emplacements gain +1 hard attack and +1 soft attack vs low-altitude targets.',
+    cost:26, prereqs:['aa_targeting_drill'],
+    effect:{ unitStatBonus:{ AA_EMPLACEMENT:{ hard_attack:1, soft_attack:1 } } },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
