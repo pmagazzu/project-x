@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.27';
+const GAME_VERSION = 'v1.3.28';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2080,13 +2080,14 @@ export class GameScene extends Phaser.Scene {
     // Turn / mode indicator (centered)
     this.turnLbl = this._makeLabel(w/2, 11, 'Turn 1 | Player 1 | PLANNING', D, true);
 
-    // Supply / Research / Designer / Trade / Settings / End Turn
-    this.btnSupply   = this._makeBtn(w - 620, 11, '⬡ SUPPLY',   0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
-    this.btnResearch = this._makeBtn(w - 502, 11, '⚗ RESEARCH', 0x442266, () => this._toggleResearch(), D, 'right');
-    this.btnDesigner = this._makeBtn(w - 382, 11, '🔧 DESIGNER', 0x1a3322, () => this._toggleDesigner(), D, 'right');
-    this.btnTrade    = this._makeBtn(w - 262, 11, '💱 TRADE',    0x3a2a11, () => this._toggleTrade(), D, 'right');
-    this.btnSettings = this._makeBtn(w - 148, 11, '⚙ Settings', 0x222244, () => this._toggleSettings(), D, 'right');
-    this.btnSubmit   = this._makeBtn(w - 8,   11, 'END TURN',   0x1a5c1a, () => this._confirmEndTurn(), D, 'right');
+    // Economy / Supply / Research / Designer / Trade / Settings / End Turn
+    this.btnEconomy  = this._makeBtn(w - 735, 11, '📊 ECON',     0x2a2a14, () => this._toggleEconomy(), D, 'right');
+    this.btnSupply   = this._makeBtn(w - 620, 11, '⬡ SUPPLY',    0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
+    this.btnResearch = this._makeBtn(w - 502, 11, '⚗ RESEARCH',  0x442266, () => this._toggleResearch(), D, 'right');
+    this.btnDesigner = this._makeBtn(w - 382, 11, '🔧 DESIGNER',  0x1a3322, () => this._toggleDesigner(), D, 'right');
+    this.btnTrade    = this._makeBtn(w - 262, 11, '💱 TRADE',     0x3a2a11, () => this._toggleTrade(), D, 'right');
+    this.btnSettings = this._makeBtn(w - 148, 11, '⚙ Settings',  0x222244, () => this._toggleSettings(), D, 'right');
+    this.btnSubmit   = this._makeBtn(w - 8,   11, 'END TURN',    0x1a5c1a, () => this._confirmEndTurn(), D, 'right');
   }
 
   _makeLabel(x, y, text, depth, center = false) {
@@ -2679,6 +2680,7 @@ export class GameScene extends Phaser.Scene {
     this._closeDesigner();
     this._closeResearch?.();   // close research if open
     this._closeTrade?.();
+    this._closeEconomy?.();
     this._hideRecruitPanel?.();
     this._hideDesignPanel?.();
     this._hideContextMenu?.();
@@ -3311,6 +3313,25 @@ export class GameScene extends Phaser.Scene {
         cb: () => this._onUndoMove()
       });
     }
+
+    const hasCargo = Array.isArray(unit.cargo) && unit.cargo.length > 0;
+    actions.push({
+      label: hasCargo ? 'DISBAND [unload first]' : 'DISBAND UNIT',
+      key: 'disband',
+      enabled: !hasCargo,
+      color: 0x662222,
+      cb: () => {
+        if (hasCargo) return;
+        gs.units = gs.units.filter(u => u.id !== unit.id);
+        delete gs.pendingMoves?.[unit.id];
+        delete gs.pendingAttacks?.[unit.id];
+        this._pushLog(`P${gs.currentPlayer} disbanded ${unit.designName || UNIT_TYPES[unit.type]?.name || unit.type}`);
+        this._clearSelection();
+        this._hideContextMenu();
+        this._refresh();
+      }
+    });
+
     actions.push({ label: 'WAIT',   key: 'wait',   enabled: true,  color: 0x444444, cb: () => this._clearSelection() });
 
     return actions;
@@ -3528,6 +3549,7 @@ export class GameScene extends Phaser.Scene {
   _openSettings() {
     this._closeSettings();
     this._closeTrade?.();
+    this._closeEconomy?.();
     this._settingsOpen = true;
     const w = this.scale.width, h = this.scale.height;
     const panelW = 560, panelH = 420, D = 210;
@@ -3632,6 +3654,159 @@ export class GameScene extends Phaser.Scene {
     this._settingsOpen = false;
   }
 
+  // ── Economy Panel ─────────────────────────────────────────────────────────
+  _toggleEconomy() {
+    if (this._economyOpen) this._closeEconomy();
+    else this._openEconomy();
+  }
+
+  _closeEconomy() {
+    if (this._economyObjs) {
+      for (const o of this._economyObjs) { try { o.destroy(); } catch(e){} }
+      this._economyObjs = null;
+    }
+    this._economyOpen = false;
+    if (this.btnEconomy) this.btnEconomy.setStyle({ backgroundColor: '#2a2a14' });
+  }
+
+  _openEconomy() {
+    this._closeEconomy();
+    this._closeTrade?.();
+    this._closeResearch?.();
+    this._closeDesigner?.();
+    this._closeSettings?.();
+    this._economyOpen = true;
+    if (this.btnEconomy) this.btnEconomy.setStyle({ backgroundColor: '#5a5a1f' });
+
+    const gs = this.gameState;
+    const p = gs.currentPlayer;
+    const pl = gs.players[p];
+    const w = this.scale.width, h = this.scale.height;
+    const D = 222;
+    const panW = Math.min(900, w - 24), panH = Math.min(560, h - 24);
+    const px = w / 2, py = h / 2;
+    const objs = [];
+
+    const bg = this.add.rectangle(px, py, panW, panH, 0x0f1114, 0.98)
+      .setStrokeStyle(2, 0x667788).setScrollFactor(0).setDepth(D).setInteractive();
+    bg.on('pointerdown', () => { this._contextMenuClicked = true; });
+    objs.push(bg);
+
+    objs.push(this.add.text(px, py - panH/2 + 16, '📊 ECONOMY & LOGISTICS', {
+      font:'bold 14px monospace', fill:'#cde4ff'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1));
+
+    const closeBtn = this.add.text(px + panW/2 - 12, py - panH/2 + 16, '✕', {
+      font:'bold 16px monospace', fill:'#aaaaaa'
+    }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerdown', () => { this._contextMenuClicked = true; this._closeEconomy(); });
+    objs.push(closeBtn);
+
+    const inc = calcIncome(gs, p);
+    const upkeep = calcUpkeep(gs, p);
+    const netIron = +(inc.iron - upkeep.iron).toFixed(1);
+    const netOil  = +(inc.oil  - upkeep.oil).toFixed(1);
+    const netFood = +((inc.food || 0) - (upkeep.food || 0)).toFixed(1);
+
+    let y = py - panH/2 + 42;
+    const leftX = px - panW/2 + 16;
+    const rightX = px + 16;
+
+    objs.push(this.add.text(leftX, y,
+      `Stockpile: ⚙${pl.iron}  🛢${pl.oil}  🪵${pl.wood||0}  🍞${(pl.food||0).toFixed(1)}  💰${(pl.gold||0).toFixed(1)}  🧩${pl.components||0}`,
+      { font:'11px monospace', fill:'#ddeeff' }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
+    y += 18;
+    objs.push(this.add.text(leftX, y,
+      `Per turn: +⚙${inc.iron} (+net ${netIron})  +🛢${inc.oil} (+net ${netOil})  +🪵${inc.wood||0}  +🍞${inc.food||0} (+net ${netFood})  +💰${inc.gold||0}  +⚗${inc.rp}`,
+      { font:'10px monospace', fill:'#a9c6e6' }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
+    y += 20;
+
+    // Building economy breakdown
+    const myBuildings = gs.buildings.filter(b => Number(b.owner) === Number(p) && !ROAD_TYPES.has(b.type));
+    const bCount = {};
+    const prod = { iron:0, oil:0, wood:0, food:0, gold:0 };
+    for (const b of myBuildings) {
+      bCount[b.type] = (bCount[b.type] || 0) + 1;
+      const def = BUILDING_TYPES[b.type] || {};
+      prod.iron += def.ironPerTurn || 0;
+      prod.oil  += def.oilPerTurn || 0;
+      prod.wood += def.woodPerTurn || 0;
+      prod.food += def.foodPerTurn || 0;
+      prod.gold += def.goldPerTurn || 0;
+    }
+
+    objs.push(this.add.text(leftX, y, 'Buildings & Production:', {
+      font:'bold 11px monospace', fill:'#ffddaa'
+    }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
+    y += 16;
+    objs.push(this.add.text(leftX, y,
+      `Base output: ⚙${prod.iron}  🛢${prod.oil}  🪵${prod.wood}  🍞${prod.food}  💰${prod.gold}`,
+      { font:'10px monospace', fill:'#ddccaa' }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
+    y += 16;
+
+    const bLines = Object.entries(bCount)
+      .sort((a,b)=>a[0].localeCompare(b[0]))
+      .slice(0, 16)
+      .map(([t,c]) => `${String(c).padStart(2,' ')}x ${BUILDING_TYPES[t]?.name || t}`);
+    objs.push(this.add.text(leftX, y, bLines.length ? bLines.join('   |   ') : '(no buildings)', {
+      font:'10px monospace', fill:'#aab8c6', wordWrap:{ width: panW - 36 }
+    }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
+
+    // Units + upkeep breakdown (right column)
+    let ry = py - panH/2 + 82;
+    objs.push(this.add.text(rightX, ry - 18, 'Units / Upkeep / Build Cost:', {
+      font:'bold 11px monospace', fill:'#ffddaa'
+    }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
+
+    const myUnits = gs.units.filter(u => Number(u.owner) === Number(p));
+    const uCount = {};
+    for (const u of myUnits) uCount[u.type] = (uCount[u.type] || 0) + 1;
+    const uLines = Object.entries(uCount)
+      .sort((a,b)=> (b[1]-a[1]) || a[0].localeCompare(b[0]))
+      .slice(0, 14)
+      .map(([t,c]) => {
+        const cst = UNIT_TYPES[t]?.cost || {};
+        const costTxt = `⚙${cst.iron||0} 🛢${cst.oil||0}${(cst.wood||0)?` 🪵${cst.wood}`:''}${(cst.components||0)?` 🧩${cst.components}`:''}`;
+        return `${String(c).padStart(2,' ')}x ${UNIT_TYPES[t]?.name || t}  [build ${costTxt}]`;
+      });
+    objs.push(this.add.text(rightX, ry, uLines.length ? uLines.join('\n') : '(no units)', {
+      font:'10px monospace', fill:'#c0cfdb', lineSpacing: 2
+    }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
+
+    // Factory shortcuts / adjustments
+    const myFactories = gs.buildings.filter(b => Number(b.owner) === Number(p) && b.type === 'FACTORY' && !b.underConstruction);
+    const activeFactories = myFactories.filter(f => f.active !== false).length;
+    const fy = py + panH/2 - 70;
+    objs.push(this.add.text(leftX, fy - 18,
+      `Factories: ${activeFactories}/${myFactories.length} online  |  each ON converts 1⚙ +1🛢 +1🪵 -> 1🧩`,
+      { font:'10px monospace', fill:'#99ddaa' }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
+
+    const mkBtn = (x, label, bgc, cb) => {
+      const b = this.add.text(x, fy + 2, label, {
+        font:'bold 10px monospace', fill:'#fff', backgroundColor:bgc, padding:{x:8,y:5}
+      }).setOrigin(0,0).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor:true });
+      b.on('pointerdown', () => { this._contextMenuClicked = true; cb(); });
+      objs.push(b);
+      return b;
+    };
+
+    mkBtn(leftX, '[TURN ALL FACTORIES ON]', '#225522', () => {
+      for (const f of myFactories) f.active = true;
+      this._pushLog(`P${p}: all factories ON`);
+      this._refresh();
+      this._openEconomy();
+    });
+    mkBtn(leftX + 210, '[TURN ALL FACTORIES OFF]', '#552222', () => {
+      for (const f of myFactories) f.active = false;
+      this._pushLog(`P${p}: all factories OFF`);
+      this._refresh();
+      this._openEconomy();
+    });
+
+    this._addToUI(objs);
+    this._economyObjs = objs;
+  }
+
   // ── Trade Contracts Panel ─────────────────────────────────────────────────
   _toggleTrade() {
     if (this._tradeOpen) this._closeTrade();
@@ -3689,6 +3864,7 @@ export class GameScene extends Phaser.Scene {
     this._closeResearch?.();
     this._closeDesigner?.();
     this._closeSettings?.();
+    this._closeEconomy?.();
     this._tradeOpen = true;
     if (this.btnTrade) this.btnTrade.setStyle({ backgroundColor: '#6a4a11' });
 
@@ -3885,6 +4061,7 @@ export class GameScene extends Phaser.Scene {
     this._closeSettings();
     this._closeDesigner?.();
     this._closeTrade?.();
+    this._closeEconomy?.();
     this._researchOpen = true;
     const gs  = this.gameState;
     const p   = gs.currentPlayer;
