@@ -60,11 +60,11 @@ export const UNIT_TYPES = {
   LIGHT_BOMBER:     { name:'Light Bomber',     move:6,  attack:4, health:3, range:1, cost:{iron:5,oil:3}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:7, hard_attack:5, pierce:3, armor:1, defense:0, evasion:5,  accuracy:3,  buildTime:3, air:true, antiAir:false, fuelMax:4  },
   OBS_PLANE:        { name:'Obs. Plane',       move:10, attack:0, health:2, range:0, cost:{iron:3,oil:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:8, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:8,  accuracy:0,  buildTime:1, air:true, antiAir:false, fuelMax:8  },
   // ── Unlockable via research ───────────────────────────────────────────────
-  MONOPLANE_FIGHTER:{ name:'Monoplane Fighter',move:10, attack:4, health:4, range:2, cost:{iron:5,oil:3}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:6, soft_attack:5, hard_attack:3, pierce:3, armor:2, defense:0, evasion:14, accuracy:8,  buildTime:2, air:true, antiAir:true,  fuelMax:8,  unlockedBy:'monoplane_fighter' },
-  DIVE_BOMBER:      { name:'Dive Bomber',      move:7,  attack:5, health:3, range:1, cost:{iron:6,oil:3}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:8, hard_attack:7, pierce:5, armor:1, defense:0, evasion:4,  accuracy:12, buildTime:3, air:true, antiAir:false, fuelMax:5,  unlockedBy:'dive_bomber' },
-  HEAVY_BOMBER:     { name:'Heavy Bomber',     move:5,  attack:6, health:5, range:1, cost:{iron:9,oil:5}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:12,hard_attack:8, pierce:4, armor:2, defense:0, evasion:2,  accuracy:5,  buildTime:5, air:true, antiAir:false, fuelMax:4,  unlockedBy:'heavy_bomber' },
+  MONOPLANE_FIGHTER:{ name:'Monoplane Fighter',move:10, attack:4, health:4, range:2, cost:{iron:5,oil:3,components:1}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:6, soft_attack:5, hard_attack:3, pierce:3, armor:2, defense:0, evasion:14, accuracy:8,  buildTime:2, air:true, antiAir:true,  fuelMax:8,  unlockedBy:'monoplane_fighter' },
+  DIVE_BOMBER:      { name:'Dive Bomber',      move:7,  attack:5, health:3, range:1, cost:{iron:6,oil:3,components:1}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:8, hard_attack:7, pierce:5, armor:1, defense:0, evasion:4,  accuracy:12, buildTime:3, air:true, antiAir:false, fuelMax:5,  unlockedBy:'dive_bomber' },
+  HEAVY_BOMBER:     { name:'Heavy Bomber',     move:5,  attack:6, health:5, range:1, cost:{iron:9,oil:5,components:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:12,hard_attack:8, pierce:4, armor:2, defense:0, evasion:2,  accuracy:5,  buildTime:5, air:true, antiAir:false, fuelMax:4,  unlockedBy:'heavy_bomber' },
   MEDIUM_TANK:      { name:'Medium Tank',      move:3,  attack:4, health:8, range:3, cost:{iron:7,oil:3,components:1}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:3, hard_attack:6, pierce:7, armor:8, defense:2, evasion:3,  accuracy:5,  buildTime:4, unlockedBy:'medium_tank' },
-  SPG:              { name:'Self-Prop. Gun',   move:2,  attack:5, health:5, range:6, cost:{iron:7,oil:3}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:7, hard_attack:4, pierce:4, armor:4, defense:1, evasion:1,  accuracy:8,  buildTime:4, unlockedBy:'self_propelled_gun' },
+  SPG:              { name:'Self-Prop. Gun',   move:2,  attack:5, health:5, range:6, cost:{iron:7,oil:3,components:1}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:7, hard_attack:4, pierce:4, armor:4, defense:1, evasion:1,  accuracy:8,  buildTime:4, unlockedBy:'self_propelled_gun' },
   ARMORED_CAR:      { name:'Armored Car',      move:5,  attack:2, health:3, range:2, cost:{iron:4,oil:2}, shape:'star',     canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:3, hard_attack:1, pierce:2, armor:2, defense:0, evasion:8,  accuracy:5,  buildTime:2, unlockedBy:'armored_car' },
   ASSAULT_INFANTRY: { name:'Assault Infantry', move:2,  attack:3, health:3, range:1, cost:{iron:3,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:5, hard_attack:2, pierce:2, armor:2, defense:2, evasion:0,  accuracy:0,  buildTime:2, unlockedBy:'assault_infantry' },
   SMG_SQUAD:        { name:'SMG Squad',        move:3,  attack:3, health:3, range:1, cost:{iron:2,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:6, hard_attack:1, pierce:1, armor:1, defense:1, evasion:2,  accuracy:0,  buildTime:2, unlockedBy:'smg_doctrine' },
@@ -75,7 +75,7 @@ export const UNIT_TYPES = {
   HALFTRACK:        { name:'Light Halftrack',   move:4,  attack:2, health:4, range:2, cost:{iron:3,oil:1}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:3, hard_attack:1, pierce:1, armor:2, defense:1, evasion:2,  accuracy:2,  buildTime:2, transport:1, unlockedBy:'light_halftrack' },
   TORPEDO_BOAT:     { name:'Torpedo Boat',      move:10, attack:3, health:3, range:2, cost:{iron:3,oil:2}, shape:'diamond',  canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:0, hard_attack:6, pierce:6, armor:0, defense:0, evasion:10, accuracy:4,  buildTime:2, naval:true, unlockedBy:'torpedo_boat' },
   MOTOR_GUNBOAT:    { name:'Motor Gunboat',     move:8,  attack:3, health:4, range:3, cost:{iron:3,oil:2}, shape:'diamond',  canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:4, hard_attack:1, pierce:1, armor:1, defense:1, evasion:5,  accuracy:4,  buildTime:2, naval:true, unlockedBy:'motor_gunboat' },
-  DESTROYER_MK1:    { name:'Destroyer Mk.I',   move:8,  attack:5, health:8, range:4, cost:{iron:8,oil:4}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:3, hard_attack:6, pierce:6, armor:4, defense:2, evasion:3,  accuracy:5,  buildTime:4, naval:true, unlockedBy:'destroyer_mk1' },
+  DESTROYER_MK1:    { name:'Destroyer Mk.I',   move:8,  attack:5, health:8, range:4, cost:{iron:8,oil:4,components:2}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:3, hard_attack:6, pierce:6, armor:4, defense:2, evasion:3,  accuracy:5,  buildTime:4, naval:true, unlockedBy:'destroyer_mk1' },
 
   // ── Supply truck ────────────────────────────────────────────────────────
   // Soft unarmed vehicle that projects a supply bubble around itself.
@@ -210,11 +210,13 @@ export function designTrainCost(chassis, moduleKeys) {
   for (const key of moduleKeys) {
     const mod = MODULES[key];
     if (!mod) continue;
-    base.iron = (base.iron || 0) + mod.trainCost.iron;
-    base.oil  = (base.oil  || 0) + mod.trainCost.oil;
+    base.iron = (base.iron || 0) + (mod.trainCost.iron || 0);
+    base.oil  = (base.oil  || 0) + (mod.trainCost.oil  || 0);
+    base.components = (base.components || 0) + (mod.trainCost.components || 0);
   }
-  base.iron = Math.max(0, base.iron);
-  base.oil  = Math.max(0, base.oil);
+  base.iron = Math.max(0, base.iron || 0);
+  base.oil  = Math.max(0, base.oil || 0);
+  base.components = Math.max(0, base.components || 0);
   return base;
 }
 

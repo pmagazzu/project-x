@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.8';
+const GAME_VERSION = 'v1.3.9';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3567,6 +3567,43 @@ export class GameScene extends Phaser.Scene {
     if (this.btnTrade) this.btnTrade.setStyle({ backgroundColor: '#3a2a11' });
   }
 
+  _showFactoryPanel(factory) {
+    this._hideContextMenu();
+    const w = this.scale.width, h = this.scale.height;
+    const D = 230;
+    const objs = [];
+    const bg = this.add.rectangle(w/2, h/2, 380, 170, 0x121212, 0.97)
+      .setStrokeStyle(2, 0x666666).setScrollFactor(0).setDepth(D).setInteractive();
+    bg.on('pointerdown', () => { this._contextMenuClicked = true; });
+    objs.push(bg);
+    const active = factory.active !== false;
+    objs.push(this.add.text(w/2, h/2 - 50, 'FACTORY CONTROL', {
+      font:'bold 14px monospace', fill:'#dddddd'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1));
+    objs.push(this.add.text(w/2, h/2 - 20, `Status: ${active ? 'ONLINE' : 'OFFLINE'}  |  Converts 1⚙ +1🛢 +1🪵 -> 1🧩`, {
+      font:'10px monospace', fill: active ? '#88dd88' : '#dd8888'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1));
+    const toggle = this.add.text(w/2 - 70, h/2 + 24, active ? '[ TURN OFF ]' : '[ TURN ON ]', {
+      font:'bold 12px monospace', fill:'#ffffff', backgroundColor: active ? '#552222' : '#225522', padding:{x:10,y:6}
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor:true });
+    const close = this.add.text(w/2 + 70, h/2 + 24, '[ CLOSE ]', {
+      font:'bold 12px monospace', fill:'#dddddd', backgroundColor:'#333333', padding:{x:10,y:6}
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor:true });
+    toggle.on('pointerdown', () => {
+      this._contextMenuClicked = true;
+      factory.active = !active;
+      this._pushLog(`Factory ${factory.active ? 'ON' : 'OFF'}`);
+      for (const o of objs) { try { o.destroy(); } catch(e){} }
+      this._refresh();
+    });
+    close.on('pointerdown', () => {
+      this._contextMenuClicked = true;
+      for (const o of objs) { try { o.destroy(); } catch(e){} }
+    });
+    objs.push(toggle, close);
+    this._addToUI(objs);
+  }
+
   _openTrade() {
     this._closeTrade();
     this._closeResearch?.();
@@ -4276,11 +4313,9 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Factory control: click own factory to toggle production ON/OFF
+    // Factory control: click own factory to open ON/OFF control panel
     if (clickedBuilding && Number(clickedBuilding.owner) === Number(gs.currentPlayer) && clickedBuilding.type === 'FACTORY') {
-      clickedBuilding.active = (clickedBuilding.active === false) ? true : false;
-      this._pushLog(`Factory ${clickedBuilding.active ? 'ON' : 'OFF'}`);
-      this._refresh();
+      this._showFactoryPanel(clickedBuilding);
       return;
     }
 
