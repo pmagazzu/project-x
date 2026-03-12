@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.7';
+const GAME_VERSION = 'v1.3.8';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2273,9 +2273,10 @@ export class GameScene extends Phaser.Scene {
         const toCancel = buildingQueue[0];
         const refundType = toCancel.type;
         const refundDesign = toCancel.designId !== undefined ? gs.designs[p].find(d => d.id === toCancel.designId) : null;
-        const cost = refundDesign ? refundDesign.trainCost : (refundType ? UNIT_TYPES[refundType].cost : { iron: 0, oil: 0 });
-        gs.players[p].iron += cost.iron;
-        gs.players[p].oil  += cost.oil;
+        const cost = refundDesign ? refundDesign.trainCost : (refundType ? UNIT_TYPES[refundType].cost : { iron: 0, oil: 0, components: 0 });
+        gs.players[p].iron += (cost.iron || 0);
+        gs.players[p].oil  += (cost.oil || 0);
+        gs.players[p].components = (gs.players[p].components || 0) + (cost.components || 0);
         const idx = gs.pendingRecruits.findIndex(r => r === toCancel);
         if (idx >= 0) gs.pendingRecruits.splice(idx, 1);
         this._hideRecruitPanel();
@@ -2293,7 +2294,7 @@ export class GameScene extends Phaser.Scene {
     available.forEach((unitType, i) => {
       const def = UNIT_TYPES[unitType];
       const queueCapReached = buildingQueue.length >= 6;
-      const canAfford = !queueCapReached && gs.players[p].iron >= def.cost.iron && gs.players[p].oil >= def.cost.oil;
+      const canAfford = !queueCapReached && gs.players[p].iron >= (def.cost.iron||0) && gs.players[p].oil >= (def.cost.oil||0) && (gs.players[p].components||0) >= (def.cost.components||0);
       const _bt = def.buildTime ?? 1;
       const ry = baseRowY + i * rowH + rowH/2;
 
@@ -2319,7 +2320,7 @@ export class GameScene extends Phaser.Scene {
       objs.push(statTxt);
 
       // Cost right
-      const costStr = `⚙${def.cost.iron}${def.cost.oil > 0 ? `  🛢${def.cost.oil}` : ''}`;
+      const costStr = `⚙${def.cost.iron||0}${(def.cost.oil||0) > 0 ? `  🛢${def.cost.oil}` : ''}${(def.cost.components||0) > 0 ? `  🧩${def.cost.components}` : ''}`;
       const costClr = canAfford ? '#88bb66' : '#554444';
       const costTxt = this.add.text(w/2 + rowW/2 - 12, ry, costStr, {
         font: 'bold 12px monospace', fill: costClr
@@ -2345,7 +2346,7 @@ export class GameScene extends Phaser.Scene {
     customDesigns.forEach((design, i) => {
       const idx = available.length + i;
       const queueCapReached = buildingQueue.length >= 6;
-      const canAfford = !queueCapReached && gs.players[p].iron >= design.trainCost.iron && gs.players[p].oil >= design.trainCost.oil;
+      const canAfford = !queueCapReached && gs.players[p].iron >= (design.trainCost.iron||0) && gs.players[p].oil >= (design.trainCost.oil||0) && (gs.players[p].components||0) >= (design.trainCost.components||0);
       const _dbt = UNIT_TYPES[design.chassis]?.buildTime ?? 1;
       const ry = baseRowY + idx * rowH + rowH/2;
       const modTier = Math.max(0, ...((design.modules || []).map(mk => MODULES[mk]?.tier ?? 0)));
@@ -2369,7 +2370,7 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(201);
       objs.push(statTxt);
 
-      const costTxt = this.add.text(w/2 + rowW/2 - 12, ry, `⚙${design.trainCost.iron}${design.trainCost.oil > 0 ? `  🛢${design.trainCost.oil}` : ''}`, {
+      const costTxt = this.add.text(w/2 + rowW/2 - 12, ry, `⚙${design.trainCost.iron||0}${(design.trainCost.oil||0) > 0 ? `  🛢${design.trainCost.oil}` : ''}${(design.trainCost.components||0) > 0 ? `  🧩${design.trainCost.components}` : ''}`, {
         font: 'bold 12px monospace', fill: canAfford ? '#d6c86a' : '#554444'
       }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(201);
       objs.push(costTxt);
@@ -3312,16 +3313,16 @@ export class GameScene extends Phaser.Scene {
       addHeader('LAND MILITARY');
       if (noBuilding) allOpts.push({ label: `Barracks    4⚙ 4🪵`,    cost:{iron:4,oil:0,wood:4},  enabled: iron>=4&&wood>=4,        cb: () => this._onBuildStructure('BARRACKS',4,0,4) });
       if (noBuilding) allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢`, cost:{iron:8,oil:2},          enabled: iron>=8&&oil>=2,         cb: () => this._onBuildStructure('VEHICLE_DEPOT',8,2) });
-      if (noBuilding) allOpts.push({ label: `Adv Barracks T2 10⚙ 2🛢 6🪵`, cost:{iron:10,oil:2,wood:6}, enabled: iron>=10&&oil>=2&&wood>=6, cb: () => this._onBuildStructure('ADV_BARRACKS',10,2,6) });
-      if (noBuilding) allOpts.push({ label: `Armor Works T2 14⚙ 4🛢 4🪵`,  cost:{iron:14,oil:4,wood:4}, enabled: iron>=14&&oil>=4&&wood>=4, cb: () => this._onBuildStructure('ARMOR_WORKS',14,4,4) });
+      if (noBuilding) allOpts.push({ label: `Adv Barracks T2 10⚙ 2🛢 6🪵 2🧩`, cost:{iron:10,oil:2,wood:6,components:2}, enabled: iron>=10&&oil>=2&&wood>=6&&(gs.players[p].components||0)>=2, cb: () => this._onBuildStructure('ADV_BARRACKS',10,2,6,2) });
+      if (noBuilding) allOpts.push({ label: `Armor Works T2 14⚙ 4🛢 4🪵 3🧩`,  cost:{iron:14,oil:4,wood:4,components:3}, enabled: iron>=14&&oil>=4&&wood>=4&&(gs.players[p].components||0)>=3, cb: () => this._onBuildStructure('ARMOR_WORKS',14,4,4,3) });
       if (noBuilding) allOpts.push({ label: `Airfield     6⚙ 2🛢 2🪵`,      cost:{iron:6,oil:2,wood:2}, enabled: iron>=6&&oil>=2&&wood>=2, cb: () => this._onBuildStructure('AIRFIELD',6,2,2) });
-      if (noBuilding) allOpts.push({ label: `Adv Airfield T2 12⚙ 5🛢 4🪵`, cost:{iron:12,oil:5,wood:4}, enabled: iron>=12&&oil>=5&&wood>=4, cb: () => this._onBuildStructure('ADV_AIRFIELD',12,5,4) });
+      if (noBuilding) allOpts.push({ label: `Adv Airfield T2 12⚙ 5🛢 4🪵 3🧩`, cost:{iron:12,oil:5,wood:4,components:3}, enabled: iron>=12&&oil>=5&&wood>=4&&(gs.players[p].components||0)>=3, cb: () => this._onBuildStructure('ADV_AIRFIELD',12,5,4,3) });
       addHeader('NAVAL');
-      if (noBuilding) allOpts.push({ label: `Naval Yard  8⚙ 2🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:8,oil:2},  enabled: coastal && iron>=8&&oil>=2,  cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
-      if (noBuilding) allOpts.push({ label: `Harbor      5⚙ 1🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:5,oil:1},  enabled: coastal && iron>=5&&oil>=1,  cb: () => this._onBuildStructure('HARBOR',5,1) });
-      if (noBuilding) allOpts.push({ label: `Dry Dock   12⚙ 4🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:12,oil:4}, enabled: coastal && iron>=12&&oil>=4, cb: () => this._onBuildStructure('DRY_DOCK',12,4) });
-      if (noBuilding) allOpts.push({ label: `Naval Base 16⚙ 6🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:16,oil:6}, enabled: coastal && iron>=16&&oil>=6, cb: () => this._onBuildStructure('NAVAL_BASE',16,6) });
-      if (noBuilding) allOpts.push({ label: `Naval Dockyard T2 16⚙ 5🛢 4🪵 ${coastal?'':'[COAST]'}`, cost:{iron:16,oil:5,wood:4}, enabled: coastal && iron>=16&&oil>=5&&wood>=4, cb: () => this._onBuildStructure('NAVAL_DOCKYARD',16,5,4) });
+      if (noBuilding && coastal) allOpts.push({ label: `Naval Yard  8⚙ 2🛢`,   cost:{iron:8,oil:2},  enabled: iron>=8&&oil>=2,  cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
+      if (noBuilding && coastal) allOpts.push({ label: `Harbor      5⚙ 1🛢`,   cost:{iron:5,oil:1},  enabled: iron>=5&&oil>=1,  cb: () => this._onBuildStructure('HARBOR',5,1) });
+      if (noBuilding && coastal) allOpts.push({ label: `Dry Dock   12⚙ 4🛢`,   cost:{iron:12,oil:4}, enabled: iron>=12&&oil>=4, cb: () => this._onBuildStructure('DRY_DOCK',12,4) });
+      if (noBuilding && coastal) allOpts.push({ label: `Naval Base 16⚙ 6🛢`,   cost:{iron:16,oil:6}, enabled: iron>=16&&oil>=6, cb: () => this._onBuildStructure('NAVAL_BASE',16,6) });
+      if (noBuilding && coastal) allOpts.push({ label: `Naval Dockyard T2 16⚙ 5🛢 4🪵 3🧩`, cost:{iron:16,oil:5,wood:4,components:3}, enabled: iron>=16&&oil>=5&&wood>=4&&(gs.players[p].components||0)>=3, cb: () => this._onBuildStructure('NAVAL_DOCKYARD',16,5,4,3) });
       addHeader('DEFENSE & OBSTACLES');
       if (noBuilding) allOpts.push({ label: `Bunker      3⚙ 2🪵`,   cost:{iron:3,oil:0,wood:2},  enabled: iron>=3&&wood>=2, cb: () => this._onBuildStructure('BUNKER',3,0,2) });
       if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙`,       cost:{iron:3,oil:0},         enabled: iron>=3,          cb: () => this._onBuildStructure('OBS_POST',3) });
@@ -4551,11 +4552,11 @@ export class GameScene extends Phaser.Scene {
     this._refresh();
   }
 
-  _onBuildStructure(type, ironCost, oilCost = 0, woodCost = 0) {
+  _onBuildStructure(type, ironCost, oilCost = 0, woodCost = 0, compCost = 0) {
     const gs = this.gameState, u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
     if (buildingAt(gs, u.q, u.r)) return;
-    const NAVAL_FACILITIES = new Set(['NAVAL_YARD','HARBOR','DRY_DOCK','NAVAL_BASE']);
+    const NAVAL_FACILITIES = new Set(['NAVAL_YARD','HARBOR','DRY_DOCK','NAVAL_BASE','NAVAL_DOCKYARD']);
     if (NAVAL_FACILITIES.has(type) && !this._isCoastalHex(u.q, u.r)) {
       this._log.unshift('Build failed: naval facilities require a coastal hex');
       this._log = this._log.slice(0, 8);
@@ -4565,9 +4566,11 @@ export class GameScene extends Phaser.Scene {
     if (gs.players[gs.currentPlayer].iron < ironCost) return;
     if (gs.players[gs.currentPlayer].oil  < oilCost)  return;
     if ((gs.players[gs.currentPlayer].wood || 0) < woodCost) return;
+    if ((gs.players[gs.currentPlayer].components || 0) < compCost) return;
     gs.players[gs.currentPlayer].iron -= ironCost;
     gs.players[gs.currentPlayer].oil  -= oilCost;
     gs.players[gs.currentPlayer].wood  = (gs.players[gs.currentPlayer].wood || 0) - woodCost;
+    gs.players[gs.currentPlayer].components = (gs.players[gs.currentPlayer].components || 0) - compCost;
     this._placeBuilding(type, u);
   }
 
