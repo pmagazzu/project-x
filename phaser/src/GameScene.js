@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.68';
+const GAME_VERSION = 'v1.3.69';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5152,7 +5152,8 @@ export class GameScene extends Phaser.Scene {
     // Retaliation
     const retDist = hexDistance(attacker.q,attacker.r,target.q,target.r);
     const subDiveBlock = tDef.noSurfaceRetaliation && !aDef.noSurfaceRetaliation;
-    const canRet = !blindFire && !INDIRECT.has(attacker.type) && !subDiveBlock && retDist<=(tDef.range||1) && !target.suppressed;
+    const retHasLOS = !this.terrain || hasLOS(target.q, target.r, attacker.q, attacker.r, this.terrain, this.mapSize);
+    const canRet = !blindFire && !INDIRECT.has(attacker.type) && !subDiveBlock && retDist<=(tDef.range||1) && retHasLOS && !target.suppressed;
     let expRetDmg=0, retTier='';
     if (canRet) {
       const rBase = navalVsNaval ? tDef.hard_attack : ((aDef.armor>2)?tDef.hard_attack:tDef.soft_attack);
