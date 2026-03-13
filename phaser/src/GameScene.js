@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.62';
+const GAME_VERSION = 'v1.3.63';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -4678,8 +4678,21 @@ export class GameScene extends Phaser.Scene {
       const target = this.attackable.find(h => h.q === q && h.r === r);
       if (target) {
         const tUnit = gs.units.find(u => u.id === target.targetId);
-        if (tUnit) this._showCombatPreview(this.selectedUnit, tUnit, false);
-        return;
+        if (tUnit) {
+          this._showCombatPreview(this.selectedUnit, tUnit, false);
+          return;
+        }
+      }
+      // Fallback: if player clicks a visible enemy directly and it's in current direct-attack set,
+      // still open preview (guards against stale targetId/position desync edge-cases).
+      if (this.selectedUnit && clickedUnit && Number(clickedUnit.owner) !== Number(gs.currentPlayer)) {
+        const attackFog = AIR_UNITS.has(this.selectedUnit.type) ? null : this._currentFog;
+        const directNow = getAttackableHexes(gs, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r, attackFog);
+        const ok = directNow.some(h => h.targetId === clickedUnit.id || (h.q === clickedUnit.q && h.r === clickedUnit.r));
+        if (ok) {
+          this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+          return;
+        }
       }
     }
 
