@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.53';
+const GAME_VERSION = 'v1.3.54';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3316,9 +3316,10 @@ export class GameScene extends Phaser.Scene {
           cb: () => this._enterUnloadMode(unit) });
       }
     }
-    if (!unit.attacked && !unit.suppressed && def.attack > 0) {
+    const canOffensivelyAttack = ((def.attack || 0) > 0) || ((def.soft_attack || 0) > 0) || ((def.hard_attack || 0) > 0) || ((def.naval_attack || 0) > 0);
+    if (!unit.attacked && !unit.suppressed && canOffensivelyAttack) {
       const visibleEnemies = getAttackableHexes(gs, unit, unit.q, unit.r, this._currentFog);
-      const hasRange = def.range > 0;
+      const hasRange = (def.range || 0) > 0;
       // ATTACK — only if confirmed visible enemy in range (direct fire, no penalty)
       if (visibleEnemies.length > 0) {
         actions.push({ label: 'ATTACK', key: 'attack', enabled: true, color: 0x882222,
@@ -4725,7 +4726,9 @@ export class GameScene extends Phaser.Scene {
       this.mode = 'select';
     }
     // Always show attackable targets (fog-filtered) as clickable indicators on enemies
-    if (!unit.attacked && !unit.suppressed && UNIT_TYPES[unit.type].attack > 0) {
+    const _defA = UNIT_TYPES[unit.type] || {};
+    const canOffensivelyAttack = ((_defA.attack || 0) > 0) || ((_defA.soft_attack || 0) > 0) || ((_defA.hard_attack || 0) > 0) || ((_defA.naval_attack || 0) > 0);
+    if (!unit.attacked && !unit.suppressed && canOffensivelyAttack) {
       this.attackable = getAttackableHexes(gs, unit, unit.q, unit.r, this._currentFog);
     } else {
       this.attackable = [];
