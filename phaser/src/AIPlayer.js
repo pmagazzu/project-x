@@ -82,28 +82,36 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply) {
   const cfg = AI_STRATEGIES[strat] ?? AI_STRATEGIES.balanced;
   let score = 0;
 
-  // Attack bonus: can we hit someone from here?
-  const attackable = getAttackableHexes(gs, unit, q, r, null);
-  if (attackable.length > 0) {
-    score += (cfg.attackBonus + 10) + attackable.length * 3;
-    for (const h of attackable) {
-      const t = gs.units.find(u => u.q === h.q && u.r === h.r && u.owner !== unit.owner);
-      if (t && t.health <= 1) score += 25; // kill-shot bonus
+  // Attack/pressure scoring (de-emphasized for engineers)
+  if (unit.type !== 'ENGINEER') {
+    const attackable = getAttackableHexes(gs, unit, q, r, null);
+    if (attackable.length > 0) {
+      score += (cfg.attackBonus + 10) + attackable.length * 3;
+      for (const h of attackable) {
+        const t = gs.units.find(u => u.q === h.q && u.r === h.r && u.owner !== unit.owner);
+        if (t && t.health <= 1) score += 25; // kill-shot bonus
+      }
+    }
+
+    // Advance toward nearest enemy (or retreat if defensive)
+    if (enemies.length > 0) {
+      const nearestEnemy = Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r)));
+      const currentDist  = Math.min(...enemies.map(e => hexDistance(unit.q, unit.r, e.q, e.r)));
+      if (cfg.retreatToHQ) {
+        if (nearestEnemy > currentDist) score += cfg.captureBonus;
+      } else {
+        if (nearestEnemy < currentDist) score += cfg.attackBonus + 5;
+        score += Math.max(0, 8 - nearestEnemy);
+      }
     }
   }
 
-  // Advance toward nearest enemy (or retreat if defensive)
-  if (enemies.length > 0) {
-    const nearestEnemy = Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r)));
-    const currentDist  = Math.min(...enemies.map(e => hexDistance(unit.q, unit.r, e.q, e.r)));
-    if (cfg.retreatToHQ) {
-      // Defensive: reward moving AWAY from enemies
-      if (nearestEnemy > currentDist) score += cfg.captureBonus;
-    } else {
-      // Aggressive/balanced: reward closing on enemies
-      if (nearestEnemy < currentDist) score += cfg.attackBonus + 5;
-      score += Math.max(0, 8 - nearestEnemy); // proximity bonus
-    }
+  // Strategic pressure: progress toward enemy HQs so AI doesn't stall mid-game.
+  const enemyHQs = gs.buildings.filter(b => b.type === 'HQ' && b.owner !== unit.owner);
+  if (enemyHQs.length > 0 && !cfg.retreatToHQ) {
+    const nd = Math.min(...enemyHQs.map(b => hexDistance(q, r, b.q, b.r)));
+    const cd = Math.min(...enemyHQs.map(b => hexDistance(unit.q, unit.r, b.q, b.r)));
+    if (nd < cd) score += (unit.type === 'ENGINEER' ? 2 : 7);
   }
 
   // Defensive: reward moving toward own HQ
@@ -137,7 +145,7 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply) {
   if (!inSupply) {
     const nearestEnemy = enemies.length > 0 ? Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r))) : 99;
     const emergencyPush = nearestEnemy <= 2;
-    score -= emergencyPush ? 3 : 18;
+    score -= emergencyPush ? 3 : 10;
   }
 
   // Small random tiebreaker
