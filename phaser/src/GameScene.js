@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.70';
+const GAME_VERSION = 'v1.3.71';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -141,14 +141,14 @@ export class GameScene extends Phaser.Scene {
     this.procLandProfile = data.procLandProfile || 'continent';
     this.procQuickStart  = (data.procQuickStart !== undefined) ? !!data.procQuickStart : true;
     // Map sizes per scenario
-    const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, random: 40, air_test: 20, custom: data.customSize || 40, default: 25 };
+    const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, random: 40, air_test: 20, test: data.customSize || 40, custom: data.customSize || 40, default: 25 };
     this.mapSize   = MAP_SIZES[this.scenario] || MAP_SIZE;
     // AI players: set of player numbers controlled by AI
     this.aiPlayers  = new Set(data.aiP2 ? [2] : []);
-    // AI strategy: randomly assigned each game, configurable in settings
-    this.aiStrategy = data.aiStrategy || randomStrategy();
+    // AI strategy: default balanced for stable testing
+    this.aiStrategy = data.aiStrategy || 'balanced';
     // Random map uses a unique seed each game
-    this.mapSeed = (this.scenario === 'random' || this.scenario === 'custom') ? (Date.now() & 0xFFFFFF) : 0;
+    this.mapSeed = (this.scenario === 'random' || this.scenario === 'custom' || this.scenario === 'test') ? (Date.now() & 0xFFFFFF) : 0;
 
     this.gameState = createGameState(this.scenario);
     this.gameState._techTree = TECH_TREE; // inject for resolveEndOfTurn research tick
@@ -2340,7 +2340,11 @@ export class GameScene extends Phaser.Scene {
         const pen = supplyPenalty(u.outOfSupply);
         effects.push(`Out of supply: −${pen.attackPenalty} attack / −${pen.movePenalty} move`);
       }
-      const fxLine = effects.length ? `\n${effects.slice(0,2).join('  ·  ')}` : '';
+      const standB = gs.buildings.find(b => b.q === u.q && b.r === u.r && !ROAD_TYPES.has(b.type));
+      const standRes = gs.resourceHexes[`${u.q},${u.r}`];
+      if (standB) effects.push(`Standing on: ${BUILDING_TYPES[standB.type]?.name || standB.type} (${Number(standB.owner)===Number(u.owner)?'friendly':'enemy'})`);
+      else if (standRes) effects.push(`Resource tile: ${standRes.type}`);
+      const fxLine = effects.length ? `\n${effects.slice(0,3).join('  ·  ')}` : '';
       this.unitStatusTxt.setText(`${status}${fxLine}`);
     } else if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
       const key  = `${this.hoveredHex.q},${this.hoveredHex.r}`;
@@ -3428,6 +3432,28 @@ export class GameScene extends Phaser.Scene {
         enabled: !undoBlocked,
         color: undoBlocked ? 0x553322 : 0x554422,
         cb: () => this._onUndoMove()
+      });
+    }
+
+    // Enemy building interaction: raid or hold for capture (non-HQ/core only)
+    const standB = gs.buildings.find(b => b.q === unit.q && b.r === unit.r && !ROAD_TYPES.has(b.type));
+    const raidBlocked = new Set(['HQ','NAVAL_BASE','ARMOR_WORKS','ADV_BARRACKS','ADV_AIRFIELD','NAVAL_DOCKYARD']);
+    if (standB && Number(standB.owner) !== Number(gs.currentPlayer) && !raidBlocked.has(standB.type)) {
+      actions.push({
+        label: 'RAID BUILDING', key: 'raid', enabled: true, color: 0x774411,
+        cb: () => {
+          const b = gs.buildings.find(x => x.id === standB.id);
+          if (!b) return;
+          const p = gs.players[gs.currentPlayer];
+          if (b.type === 'MINE') p.iron = (p.iron || 0) + 2;
+          if (b.type === 'OIL_PUMP') p.oil = (p.oil || 0) + 1;
+          if (b.type === 'LUMBER_CAMP' || b.type === 'FARM') p.wood = (p.wood || 0) + 2;
+          gs.buildings = gs.buildings.filter(x => x.id !== b.id);
+          unit.moved = true; unit.attacked = true;
+          this._pushLog(`P${gs.currentPlayer} raided ${BUILDING_TYPES[b.type]?.name || b.type}`);
+          this._hideContextMenu();
+          this._refresh();
+        }
       });
     }
 
@@ -5173,8 +5199,9 @@ export class GameScene extends Phaser.Scene {
     const sw=this.scale.width,sh=this.scale.height,cx=sw*0.5,cy=sh*0.5,D=210;
     const objs=[];
 
+    const UI_SCALE = 1.9; // near-double text size for readability
     const mk=(txt,x,y,col='#d0dde8',sz=12,bold=false,ox=0.5,oy=0.5)=>{
-      const t=this.add.text(x,y,txt,{font:`${bold?'bold ':''}${sz}px monospace`,fill:col}).setOrigin(ox,oy).setScrollFactor(0).setDepth(D+1);
+      const t=this.add.text(x,y,txt,{font:`${bold?'bold ':''}${Math.max(10, Math.round(sz*UI_SCALE))}px monospace`,fill:col}).setOrigin(ox,oy).setScrollFactor(0).setDepth(D+1);
       objs.push(t);return t;
     };
     const bx=(x,y,w,h,fill,alpha=1,stroke=null)=>{
@@ -5189,7 +5216,7 @@ export class GameScene extends Phaser.Scene {
       if(proj>0){const lw=bW*(f-af);bx(x-bW/2+bW*af+lw/2,y,lw,10,0x882222,0.7);}
     };
 
-    const cW=Math.min(820,sw-24), cH=430;
+    const cW=Math.min(1100,sw-20), cH=700;
     bx(cx,cy,sw,sh,0x000000,0.72);
     bx(cx,cy,cW,cH,0x0a0d12,0.98,0x2e3d50);
 
@@ -5255,7 +5282,8 @@ export class GameScene extends Phaser.Scene {
       mk(row[1], rx+160, ry, row[2], 9, true, 0, 0);
     });
     // Score summary line
-    mk(`Pre-roll score: ${preRollScore}  (range ${scoreMin}–${scoreMax})`, cx, sbY+sbH-10, '#aabbcc', 10, true, 0.5, 1);
+    mk(`Pre-roll score: ${preRollScore}  (range ${scoreMin}–${scoreMax})`, cx, sbY+sbH-26, '#aabbcc', 10, true, 0.5, 1);
+    mk(`Formula: 50 + ACC + bonuses − evasion − cover + penalties`, cx, sbY+sbH-6, '#88a0b8', 9, false, 0.5, 1);
 
     // ── Outcome band ──────────────────────────────────────────────────────────
     const outY = sbY + sbH + 6;
@@ -6177,8 +6205,8 @@ export class GameScene extends Phaser.Scene {
       // All plains — nothing to do
     } else if (this.scenario === 'naval') {
       this._genNavalTerrain(map, ms);
-    } else if (this.scenario === 'random' || this.scenario === 'custom') {
-      this._genProcTerrain(map, ms, this.mapSeed, this.procLandProfile || 'islands');
+    } else if (this.scenario === 'random' || this.scenario === 'custom' || this.scenario === 'test') {
+      this._genProcTerrain(map, ms, this.mapSeed, this.procLandProfile || (this.scenario === 'test' ? 'test' : 'islands'));
     } else {
       // Standard procedural terrain (scout / grand / default)
       const seed = this.scenario === 'grand' ? 99999 : 12345;
@@ -6271,6 +6299,7 @@ export class GameScene extends Phaser.Scene {
       continent:      { scale: 0.045, sea: 0.36, edgeFalloff: 0.8, edgeStart: 0.70, islandAmp: 0.00, islandRad: 0.0, centers: [] },
       two_continents: { scale: 0.055, sea: 0.39, edgeFalloff: 1.0, edgeStart: 0.63, islandAmp: 0.00, islandRad: 0.0, centers: [] },
       archipelago:    { scale: 0.115, sea: 0.52, edgeFalloff: 1.35, edgeStart: 0.50, islandAmp: 0.24, islandRad: 0.13, centers: [[0.18,0.22],[0.36,0.20],[0.54,0.26],[0.72,0.24],[0.82,0.36],[0.72,0.52],[0.54,0.58],[0.34,0.62],[0.18,0.56]] },
+      test:           { scale: 0.062, sea: 0.48, edgeFalloff: 1.05, edgeStart: 0.72, islandAmp: 0.40, islandRad: 0.34, centers: [[0.50,0.50]] },
       landlocked:     { scale: 0.060, sea: -99, edgeFalloff: 0.0, edgeStart: 1.0, islandAmp: 0.0, islandRad: 0.0, centers: [] },
     }[landProfile] || { scale: 0.075, sea: 0.44, edgeFalloff: 1.2, edgeStart: 0.55, islandAmp: 0.0, islandRad: 0.0, centers: [] };
 
@@ -6539,6 +6568,17 @@ export class GameScene extends Phaser.Scene {
 
     let p1 = findSpawn(Math.floor(ms * 0.08), Math.floor(ms * 0.28));
     let p2 = findSpawn(Math.floor(ms * 0.72), Math.floor(ms * 0.92));
+
+    // TEST profile: enforce roughly 18-hex spawn separation on one medium island.
+    if ((this.procLandProfile || 'test') === 'test') {
+      const center = { q: Math.floor(ms * 0.5), r: Math.floor(ms * 0.5) };
+      const d = 9; // ~18 apart
+      const tp1 = { q: Math.max(2, center.q - d), r: center.r };
+      const tp2 = { q: Math.min(ms - 3, center.q + d), r: center.r };
+      map[`${tp1.q},${tp1.r}`] = 0;
+      map[`${tp2.q},${tp2.r}`] = 0;
+      p1 = tp1; p2 = tp2;
+    }
 
     if (!p1 || !p2) {
       // Fallback pass: pick best walkable hex on largest available component by side.

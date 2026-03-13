@@ -5,50 +5,10 @@ const SCENARIOS = [
     key:   'custom',
     label: 'CUSTOM MAP',
     icon:  '🗺',
-    sub:   'Proc-gen · choose size · unique every game',
+    sub:   'Proc-gen · choose size · map type TEST',
     color: 0x3a1f66,
     hoverColor: 0x5a2f99,
     customSize: true,
-  },
-  {
-    key:   'scout',
-    label: 'SCOUT MAP',
-    icon:  '🌲',
-    sub:   '25×25 terrain · engineers · explore & build',
-    color: 0x1a3a22,
-    hoverColor: 0x2a5533,
-  },
-  {
-    key:   'naval',
-    label: 'NAVAL THEATER',
-    icon:  '🌊',
-    sub:   'Island bases · build your fleet · amphibious warfare',
-    color: 0x0d2a44,
-    hoverColor: 0x1a3d66,
-  },
-  {
-    key:   'combat',
-    label: 'COMBAT DRILL',
-    icon:  '⚔',
-    sub:   'Plains · all units · pure combat test',
-    color: 0x3a1111,
-    hoverColor: 0x5a1a1a,
-  },
-  {
-    key:   'grand',
-    label: 'GRAND CAMPAIGN',
-    icon:  '🏔',
-    sub:   'Big map · full armies · long game',
-    color: 0x2a2a11,
-    hoverColor: 0x3d3d1a,
-  },
-  {
-    key:   'air_test',
-    label: 'AIR TESTING',
-    icon:  '✈',
-    sub:   'Plains · both airfields in range · test air combat',
-    color: 0x1a2233,
-    hoverColor: 0x2a3350,
   },
 ];
 
@@ -68,7 +28,7 @@ export class MenuScene extends Phaser.Scene {
 
   create() {
     const w = this.scale.width, h = this.scale.height;
-    this._aiP2 = false;
+    this._aiP2 = true;
 
     // Background — dark field with subtle vignette
     this.add.rectangle(w/2, h/2, w, h, 0x080a08);
@@ -144,7 +104,7 @@ export class MenuScene extends Phaser.Scene {
         if (sc.customSize) {
           this._showSizePicker(sc.key);
         } else {
-          this.scene.start('GameScene', { scenario: sc.key, aiP2: this._aiP2 });
+          this.scene.start('GameScene', { scenario: sc.key, aiP2: this._aiP2, aiStrategy: 'balanced' });
         }
       });
     });
@@ -156,7 +116,7 @@ export class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     // ── AI Toggle — top-right ─────────────────────────────────────────────
-    this._aiToggleBtn = this.add.text(w - 14, 14, '[ P2: HUMAN ]', {
+    this._aiToggleBtn = this.add.text(w - 14, 14, '[ P2: AI  🤖 ]', {
       font: 'bold 12px monospace', fill: '#556655',
       backgroundColor: '#0d130d', padding: { x: 10, y: 6 }
     }).setOrigin(1, 0).setInteractive({ useHandCursor: true });
@@ -266,16 +226,10 @@ export class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(123);
 
     const LAND_PROFILES = [
-      { key: 'islands',          label: 'Islands' },
-      { key: 'large_islands',    label: 'Large Islands' },
-      { key: 'continent',        label: 'Continent' },
-      { key: 'two_continents',   label: 'Two Continents' },
-      { key: 'archipelago',      label: 'Archipelago' },
-      { key: 'naval_supremacy',  label: 'Naval Supremacy' },
-      { key: 'landlocked',       label: 'Landlocked (No Naval)' },
+      { key: 'test', label: 'TEST' },
     ];
 
-    let profile = 'continent';
+    let profile = 'test';
     let quickStart = true;
     const created = [overlay, panel, topLine, title];
 
@@ -337,6 +291,7 @@ export class MenuScene extends Phaser.Scene {
           scenario: scenarioKey,
           customSize,
           aiP2: this._aiP2,
+          aiStrategy: 'balanced',
           procLandProfile: profile,
           procQuickStart: quickStart,
         });
