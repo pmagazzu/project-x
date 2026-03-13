@@ -92,13 +92,13 @@ export const UNIT_TYPES = {
 export const MODULES = {
   AT_RIFLE:      { name: 'Anti-Tank Rifle',  tier: 1, chassis: ['INFANTRY','ENGINEER'],            statDelta: { pierce: 2, hard_attack: 1 },           designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1,  oil:  0 } },
   FIELD_RADIO:   { name: 'Field Radio',      tier: 1, chassis: ['INFANTRY','ENGINEER','RECON'],     statDelta: { sight: 1, accuracy: 3 },               designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1,  oil:  0 } },
-  BETTER_ENGINE: { name: 'Better Engine',    tier: 1, chassis: ['TANK','ARTILLERY','RECON'],        statDelta: { move: 1 },                             designCost: { iron: 2, oil: 1 }, trainCost: { iron: 0,  oil:  1 } },
-  EXTRA_ARMOR:   { name: 'Extra Armor',      tier: 1, chassis: ['TANK'],                            statDelta: { armor: 2, defense: 1, move: -1 },      designCost: { iron: 3, oil: 0 }, trainCost: { iron: 2,  oil:  0 } },
+  BETTER_ENGINE: { name: 'Better Engine',    tier: 1, chassis: ['TANK','ARTILLERY','RECON'],        statDelta: { move: 1 },                             designCost: { iron: 2, oil: 1 }, trainCost: { iron: 0,  oil:  1 }, mutuallyExclusiveWith:['EXTRA_ARMOR'] },
+  EXTRA_ARMOR:   { name: 'Extra Armor',      tier: 1, chassis: ['TANK'],                            statDelta: { armor: 2, defense: 1, move: -1 },      designCost: { iron: 3, oil: 0 }, trainCost: { iron: 2,  oil:  0 }, mutuallyExclusiveWith:['BETTER_ENGINE'] },
   EXTRA_FUEL:    { name: 'Extra Fuel Tank',  tier: 1, chassis: ['TANK','ARTILLERY'],                statDelta: { move: 1, defense: -1 },                designCost: { iron: 1, oil: 1 }, trainCost: { iron: 0,  oil:  1 } },
   RED_BALL:      { name: 'Red Ball (speed)', tier: 1, chassis: ['RECON'],                           statDelta: { move: 2, defense: -1 },                designCost: { iron: 1, oil: 1 }, trainCost: { iron: 0,  oil:  2 } },
-  REINFORCED_POS:{ name: 'Reinforced Pos.',  tier: 1, chassis: ['MORTAR','ARTILLERY'],              statDelta: { defense: 2, move: -1 },                designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1,  oil:  0 } },
+  REINFORCED_POS:{ name: 'Reinforced Pos.',  tier: 1, chassis: ['MORTAR','ARTILLERY'],              statDelta: { defense: 2, move: -1 },                designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1,  oil:  0 }, mutuallyExclusiveWith:['LONG_RANGE'] },
   SKELETON_CREW: { name: 'Skeleton Crew',    tier: 0, chassis: ['INFANTRY','ENGINEER','MEDIC'],     statDelta: { health: -1, defense: -1 },             designCost: { iron: 0, oil: 0 }, trainCost: { iron: -1, oil:  0 } },
-  LONG_RANGE:    { name: 'Long Barrel',      tier: 1, chassis: ['ARTILLERY','MORTAR'],              statDelta: { range: 1, soft_attack: 1, move: -1 },  designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1,  oil:  0 } },
+  LONG_RANGE:    { name: 'Long Barrel',      tier: 1, chassis: ['ARTILLERY','MORTAR'],              statDelta: { range: 1, soft_attack: 1, move: -1 },  designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1,  oil:  0 }, mutuallyExclusiveWith:['REINFORCED_POS'] },
   // Infantry loadout modules (research-unlocked)
   INF_SMG_PACKAGE:      { name: 'SMG Package',        tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY'], statDelta: { range: -1, soft_attack: 2, fortification_assault: 2 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'smg_doctrine' },
   INF_GRENADE_KIT:      { name: 'Grenade Kit',        tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY','ENGINEER'], statDelta: { soft_attack: 1, fortification_assault: 1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'grenade_training' },
@@ -228,6 +228,16 @@ export function designTrainCost(chassis, moduleKeys) {
 export function registerDesign(state, player, chassis, moduleKeys, designName) {
   const designs = state.designs[player];
   if (designs.length >= MAX_DESIGNS_PER_PLAYER) return { ok: false, reason: `Max ${MAX_DESIGNS_PER_PLAYER} designs reached` };
+
+  // Validate mutual exclusions
+  const modSet = new Set(moduleKeys);
+  for (const mk of modSet) {
+    const mod = MODULES[mk];
+    if (!mod) continue;
+    for (const ex of (mod.mutuallyExclusiveWith || [])) {
+      if (modSet.has(ex)) return { ok: false, reason: `${mod.name} conflicts with ${MODULES[ex]?.name || ex}` };
+    }
+  }
   const cost = designRegistrationCost(moduleKeys);
   if (state.players[player].iron < cost.iron) return { ok: false, reason: `Need ${cost.iron} iron` };
   if (state.players[player].oil  < cost.oil)  return { ok: false, reason: `Need ${cost.oil} oil` };

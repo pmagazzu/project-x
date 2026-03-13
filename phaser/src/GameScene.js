@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.48';
+const GAME_VERSION = 'v1.3.49';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2785,7 +2785,24 @@ export class GameScene extends Phaser.Scene {
       objs.length = 0;
       this._renderDesignerPanel(gs, p, w, h, D, objs, ALL_CHASSIS, selChassis, selMods, designName,
         (ch) => { selChassis = ch; selMods = new Set(); rebuild(); },
-        (mk) => { selMods.has(mk) ? selMods.delete(mk) : selMods.add(mk); rebuild(); },
+        (mk) => {
+          if (selMods.has(mk)) {
+            selMods.delete(mk);
+          } else {
+            const mod = MODULES[mk];
+            // Enforce mutual exclusions (foundation for deeper design trees)
+            if (mod?.mutuallyExclusiveWith) {
+              for (const ex of mod.mutuallyExclusiveWith) selMods.delete(ex);
+            }
+            // Also remove any selected modules that list this one as mutually exclusive
+            for (const picked of [...selMods]) {
+              const pm = MODULES[picked];
+              if (pm?.mutuallyExclusiveWith?.includes(mk)) selMods.delete(picked);
+            }
+            selMods.add(mk);
+          }
+          rebuild();
+        },
         () => {
           // Register
           const chassis = selChassis;
