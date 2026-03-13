@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.63';
+const GAME_VERSION = 'v1.3.64';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5074,7 +5074,9 @@ export class GameScene extends Phaser.Scene {
     const u   = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
     const res = gs.resourceHexes[`${u.q},${u.r}`];
-    if (!res || buildingAt(gs, u.q, u.r)) return;
+    const existing = buildingAt(gs, u.q, u.r);
+    const blockedByNonRoad = !!(existing && !ROAD_TYPES.has(existing.type));
+    if (!res || blockedByNonRoad) return;
     if (gs.players[gs.currentPlayer].iron < 4) return;
     const btype = (resType || res.type) === 'OIL' ? 'OIL_PUMP' : 'MINE';
     if (btype === 'OIL_PUMP' && gs.players[gs.currentPlayer].oil < 0) return; // safety
