@@ -155,11 +155,14 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply) {
       const me = gs.players[unit.owner] || {};
       const wood = me.wood || 0;
       const food = me.food || 0;
-      if (resHex?.type === 'IRON') score += 22;
-      else if (resHex?.type === 'OIL') score += 20;
-      else if ((ttype === 1 || ttype === 7) && wood < 6) score += 11; // lumber potential when wood-tight
-      else if ((ttype === 0 || ttype === 6 || ttype === 7) && food < 8) score += 8; // farm potential
+      let buildValue = 0;
+      if (resHex?.type === 'IRON') buildValue = 22;
+      else if (resHex?.type === 'OIL') buildValue = 20;
+      else if ((ttype === 1 || ttype === 7) && wood < 6) buildValue = 11; // lumber potential when wood-tight
+      else if ((ttype === 0 || ttype === 6 || ttype === 7) && food < 8) buildValue = 8; // farm potential
+      score += buildValue;
       if (!hasRoad && gs.turn >= 3) score += 4; // infra bias
+      if (q === unit.q && r === unit.r && buildValue > 0) score += 12; // prefer building now vs wandering
     }
   }
 
@@ -168,7 +171,7 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply) {
   if (!inSupply) {
     const nearestEnemy = enemies.length > 0 ? Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r))) : 99;
     const emergencyPush = nearestEnemy <= 2;
-    score -= emergencyPush ? 3 : 10;
+    score -= emergencyPush ? 4 : 18;
   }
 
   // Small random tiebreaker
@@ -222,6 +225,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const unit = gs.units.find(u => u.id === uid);
     if (!unit || unit.owner !== player || unit.embarked) continue;
     if (unit.fuel !== undefined && unit.fuel <= 0) continue; // no fuel
+    if (unit.constructing) continue; // never abandon active construction
 
     // Snapshot original position so we can restore after planning
     unit._aiOrigQ = unit.q; unit._aiOrigR = unit.r;
@@ -229,7 +233,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     // A) Attack from current position
     const preMoveTargets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
     const preMoveTarget  = chooseBestTarget(gs, unit, preMoveTargets);
-    if (preMoveTarget) {
+    const canRiskAttack = (unit.outOfSupply || 0) < 2 || (preMoveTarget && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
+    if (preMoveTarget && canRiskAttack) {
       actions.push({
         type:       'attack',
         attackerId: unit.id,
@@ -243,10 +248,30 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
     // B) Move toward best destination
     if (!unit.moved) {
+      // Engineers: if current hex is high-value build site, hold position to build.
+      if (unit.type === 'ENGINEER') {
+        const k = `${unit.q},${unit.r}`;
+        const hasRoad = !!roadAt(gs, unit.q, unit.r);
+        const hasNonRoadBuilding = !!(buildingAt(gs, unit.q, unit.r) && !hasRoad);
+        const ttype = terrain?.[k] ?? 0;
+        const resHex = gs.resourceHexes?.[k];
+        const me = gs.players[player] || {};
+        const wood = me.wood || 0;
+        const food = me.food || 0;
+        const goodBuildTile = !hasNonRoadBuilding && (
+          resHex?.type === 'IRON' || resHex?.type === 'OIL' ||
+          ((ttype === 1 || ttype === 7) && wood < 6) ||
+          ((ttype === 0 || ttype === 6 || ttype === 7) && food < 8)
+        );
+        if (goodBuildTile) {
+          unit.moved = true; // planning-only hold; restored later
+        }
+      }
+
       // Temporarily restore full budget for reachable calc
       const savedMovesLeft = unit.movesLeft;
       unit.movesLeft = UNIT_TYPES[unit.type].move;
-      const reachable = getReachableHexes(gs, unit, terrain, mapSize);
+      const reachable = unit.moved ? [] : getReachableHexes(gs, unit, terrain, mapSize);
       unit.movesLeft  = savedMovesLeft;
 
       if (reachable.length > 0) {
@@ -287,7 +312,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       if (!unit._aiPlannedAttack) {
         const postMoveTargets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
         const postMoveTarget  = chooseBestTarget(gs, unit, postMoveTargets);
-        if (postMoveTarget) {
+        const canRiskPostAttack = (unit.outOfSupply || 0) < 2 || (postMoveTarget && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
+        if (postMoveTarget && canRiskPostAttack) {
           actions.push({
             type:       'attack',
             attackerId: unit.id,
