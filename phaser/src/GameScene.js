@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.65';
+const GAME_VERSION = 'v1.3.66';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1879,10 +1879,11 @@ export class GameScene extends Phaser.Scene {
         sg.moveTo(x, y + ss * 0.6); sg.lineTo(x, y + ss * 1.1);
         sg.strokePath();
       } else if (def.shape === 'star') {
-        // Recon: forward chevron
+        // Recon: binocular glyph (distinct from mortar slash)
+        sg.strokeCircle(x - ss * 0.45, y, ss * 0.34);
+        sg.strokeCircle(x + ss * 0.45, y, ss * 0.34);
         sg.beginPath();
-        sg.moveTo(x - ss * 0.9, y + ss * 0.5); sg.lineTo(x + ss * 0.5, y - ss * 0.2);
-        sg.lineTo(x + ss * 0.5, y + ss * 0.5);
+        sg.moveTo(x - ss * 0.12, y); sg.lineTo(x + ss * 0.12, y);
         sg.strokePath();
       } else if (def.shape === 'arrow') {
         // Anti-tank: right-pointing arrow
