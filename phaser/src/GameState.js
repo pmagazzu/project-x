@@ -23,7 +23,7 @@ export const UNIT_TYPES = {
   ENGINEER:  { name:'Engineer',  move:2, attack:1, health:2, range:1, cost:{iron:3,oil:0}, shape:'diamond',  canDigIn:false, canBuild:true,  canHeal:false, sight:2, soft_attack:1, hard_attack:0, pierce:1, armor:1, defense:0, evasion:0,  accuracy:-5, buildTime:1 },
   RECON:     { name:'Recon',     move:4, attack:1, health:2, range:2, cost:{iron:3,oil:1}, shape:'star',     canDigIn:false, canBuild:false, canHeal:false, sight:6, soft_attack:2, hard_attack:0, pierce:1, armor:1, defense:0, evasion:15, accuracy:5,  buildTime:1 },
   ANTI_TANK: { name:'Anti-Tank', move:2, attack:1, health:2, range:3, cost:{iron:3,oil:0}, shape:'arrow',    canDigIn:true,  canBuild:false, canHeal:false, sight:3, soft_attack:1, hard_attack:3, pierce:6, armor:1, defense:1, evasion:0,  accuracy:0,  buildTime:2 },
-  MORTAR:    { name:'Mortar',    move:2, attack:3, health:2, range:4, cost:{iron:2,oil:0}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:4, hard_attack:1, pierce:2, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:2 },
+  MORTAR:    { name:'Mortar',    move:2, attack:3, health:2, range:4, cost:{iron:2,oil:0}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:3, hard_attack:1, pierce:2, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:2 },
   MEDIC:     { name:'Medic',     move:2, attack:0, health:2, range:0, cost:{iron:2,oil:0}, shape:'cross',    canDigIn:false, canBuild:false, canHeal:true,  sight:2, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:1 },
 
   // ── Naval units ──────────────────────────────────────────────────────────
@@ -1247,16 +1247,17 @@ export function resolveTurn(state, terrain) {
 
     // Outcome tier
     let tier, dmg = 0, attackerDmg = 0, suppressed = false;
+    let potentialRet = 0;
     if (score < 20) {
       tier = 'Catastrophic Failure';
-      attackerDmg = Math.ceil(baseAttack * 0.5);
+      potentialRet = Math.ceil(baseAttack * 0.5);
     } else if (score < 40) {
       tier = 'Repelled';
-      attackerDmg = 1;
+      potentialRet = 1;
     } else if (score < 60) {
       tier = 'Neutral';
       dmg = Math.max(1, Math.round(baseAttack * pierceRatio * 0.5));
-      attackerDmg = 1;
+      potentialRet = 1;
     } else if (score < 80) {
       tier = 'Effective';
       dmg = Math.max(1, Math.round(baseAttack * pierceRatio));
@@ -1269,6 +1270,13 @@ export function resolveTurn(state, terrain) {
     // Defense flat reduction (unsupplied defender loses some defensive efficiency)
     const effectiveTargetDefense = Math.max(0, (tDef.defense || 0) - defSupplyPen.attackPenalty);
     dmg = Math.max(0, dmg - effectiveTargetDefense);
+
+    // Retaliation gating: defender must be in range and alive after incoming damage.
+    const retDist = hexDistance(attacker.q, attacker.r, target.q, target.r);
+    const defenderRange = tDef.range || 0;
+    const defenderCanAttack = ((tDef.attack || 0) > 0) || ((tDef.soft_attack || 0) > 0) || ((tDef.hard_attack || 0) > 0) || ((tDef.naval_attack || 0) > 0);
+    const canRetaliate = !blindFire && defenderCanAttack && retDist <= defenderRange && (target.health - dmg > 0) && !target.suppressed;
+    attackerDmg = canRetaliate ? potentialRet : 0;
 
     // Accumulate damage
     if (dmg > 0)        damage[targetId]  = (damage[targetId]  || 0) + dmg;
