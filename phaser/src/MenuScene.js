@@ -5,7 +5,7 @@ const SCENARIOS = [
     key:   'custom',
     label: 'CUSTOM MAP',
     icon:  '🗺',
-    sub:   'Proc-gen · choose size · map type TEST',
+    sub:   'Proc-gen · choose size · unique every game',
     color: 0x3a1f66,
     hoverColor: 0x5a2f99,
     customSize: true,
@@ -226,10 +226,16 @@ export class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(123);
 
     const LAND_PROFILES = [
-      { key: 'test', label: 'TEST' },
+      { key: 'islands',          label: 'Islands' },
+      { key: 'large_islands',    label: 'Large Islands' },
+      { key: 'continent',        label: 'Continent' },
+      { key: 'two_continents',   label: 'Two Continents' },
+      { key: 'archipelago',      label: 'Archipelago' },
+      { key: 'naval_supremacy',  label: 'Naval Supremacy' },
+      { key: 'landlocked',       label: 'Landlocked (No Naval)' },
     ];
 
-    let profile = 'test';
+    let profile = 'continent';
     let quickStart = true;
     const created = [overlay, panel, topLine, title];
 

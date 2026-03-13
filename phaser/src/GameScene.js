@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.72';
+const GAME_VERSION = 'v1.3.73';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -141,14 +141,14 @@ export class GameScene extends Phaser.Scene {
     this.procLandProfile = data.procLandProfile || 'continent';
     this.procQuickStart  = (data.procQuickStart !== undefined) ? !!data.procQuickStart : true;
     // Map sizes per scenario
-    const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, random: 40, air_test: 20, test: data.customSize || 40, custom: data.customSize || 40, default: 25 };
+    const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, random: 40, air_test: 20, custom: data.customSize || 40, default: 25 };
     this.mapSize   = MAP_SIZES[this.scenario] || MAP_SIZE;
     // AI players: set of player numbers controlled by AI
     this.aiPlayers  = new Set(data.aiP2 ? [2] : []);
-    // AI strategy: default balanced for stable testing
+    // AI strategy
     this.aiStrategy = data.aiStrategy || 'balanced';
     // Random map uses a unique seed each game
-    this.mapSeed = (this.scenario === 'random' || this.scenario === 'custom' || this.scenario === 'test') ? (Date.now() & 0xFFFFFF) : 0;
+    this.mapSeed = (this.scenario === 'random' || this.scenario === 'custom') ? (Date.now() & 0xFFFFFF) : 0;
 
     this.gameState = createGameState(this.scenario);
     this.gameState._techTree = TECH_TREE; // inject for resolveEndOfTurn research tick
@@ -6205,8 +6205,8 @@ export class GameScene extends Phaser.Scene {
       // All plains — nothing to do
     } else if (this.scenario === 'naval') {
       this._genNavalTerrain(map, ms);
-    } else if (this.scenario === 'random' || this.scenario === 'custom' || this.scenario === 'test') {
-      this._genProcTerrain(map, ms, this.mapSeed, this.procLandProfile || (this.scenario === 'test' ? 'test' : 'islands'));
+    } else if (this.scenario === 'random' || this.scenario === 'custom') {
+      this._genProcTerrain(map, ms, this.mapSeed, this.procLandProfile || 'islands');
     } else {
       // Standard procedural terrain (scout / grand / default)
       const seed = this.scenario === 'grand' ? 99999 : 12345;
@@ -6299,7 +6299,6 @@ export class GameScene extends Phaser.Scene {
       continent:      { scale: 0.045, sea: 0.36, edgeFalloff: 0.8, edgeStart: 0.70, islandAmp: 0.00, islandRad: 0.0, centers: [] },
       two_continents: { scale: 0.055, sea: 0.39, edgeFalloff: 1.0, edgeStart: 0.63, islandAmp: 0.00, islandRad: 0.0, centers: [] },
       archipelago:    { scale: 0.115, sea: 0.52, edgeFalloff: 1.35, edgeStart: 0.50, islandAmp: 0.24, islandRad: 0.13, centers: [[0.18,0.22],[0.36,0.20],[0.54,0.26],[0.72,0.24],[0.82,0.36],[0.72,0.52],[0.54,0.58],[0.34,0.62],[0.18,0.56]] },
-      test:           { scale: 0.062, sea: 0.48, edgeFalloff: 1.05, edgeStart: 0.72, islandAmp: 0.40, islandRad: 0.34, centers: [[0.50,0.50]] },
       landlocked:     { scale: 0.060, sea: -99, edgeFalloff: 0.0, edgeStart: 1.0, islandAmp: 0.0, islandRad: 0.0, centers: [] },
     }[landProfile] || { scale: 0.075, sea: 0.44, edgeFalloff: 1.2, edgeStart: 0.55, islandAmp: 0.0, islandRad: 0.0, centers: [] };
 
@@ -6569,47 +6568,7 @@ export class GameScene extends Phaser.Scene {
     let p1 = findSpawn(Math.floor(ms * 0.08), Math.floor(ms * 0.28));
     let p2 = findSpawn(Math.floor(ms * 0.72), Math.floor(ms * 0.92));
 
-    // TEST profile: enforce same-main-island spawns ~18 hexes apart.
-    if ((this.procLandProfile || 'test') === 'test') {
-      const center = { q: Math.floor(ms * 0.5), r: Math.floor(ms * 0.5) };
-      const d = 9; // ~18 apart target
-      const tp1 = { q: Math.max(2, center.q - d), r: center.r };
-      map[`${tp1.q},${tp1.r}`] = 0;
 
-      const isWalk = (q, r) => {
-        const t = map[`${q},${r}`];
-        return t !== undefined && t !== 4 && t !== 5 && t !== 2;
-      };
-      const comp = new Set();
-      const qv = [tp1];
-      while (qv.length) {
-        const cur = qv.pop();
-        const k = `${cur.q},${cur.r}`;
-        if (comp.has(k)) continue;
-        if (!isWalk(cur.q, cur.r)) continue;
-        comp.add(k);
-        for (const [dq, dr] of NEIGHBORS) {
-          const nq = cur.q + dq, nr = cur.r + dr;
-          if (!isValid(nq, nr, ms)) continue;
-          const nk = `${nq},${nr}`;
-          if (!comp.has(nk)) qv.push({ q: nq, r: nr });
-        }
-      }
-
-      let best = null, bestScore = -Infinity;
-      for (const k of comp) {
-        const [q, r] = k.split(',').map(Number);
-        if (q < Math.floor(ms * 0.55)) continue;
-        const dist = hexDistance(tp1.q, tp1.r, q, r);
-        const walkN = NEIGHBORS.filter(([dq,dr]) => isWalk(q+dq, r+dr)).length;
-        const score = -Math.abs(dist - 18) * 4 + walkN * 3;
-        if (score > bestScore) { bestScore = score; best = { q, r }; }
-      }
-
-      const tp2 = best || { q: Math.min(ms - 3, center.q + d), r: center.r };
-      map[`${tp2.q},${tp2.r}`] = 0;
-      p1 = tp1; p2 = tp2;
-    }
 
     if (!p1 || !p2) {
       // Fallback pass: pick best walkable hex on largest available component by side.
