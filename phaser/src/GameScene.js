@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.55';
+const GAME_VERSION = 'v1.3.56';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3318,7 +3318,8 @@ export class GameScene extends Phaser.Scene {
     }
     const canOffensivelyAttack = ((def.attack || 0) > 0) || ((def.soft_attack || 0) > 0) || ((def.hard_attack || 0) > 0) || ((def.naval_attack || 0) > 0);
     if (!unit.attacked && !unit.suppressed && canOffensivelyAttack) {
-      const visibleEnemies = getAttackableHexes(gs, unit, unit.q, unit.r, this._currentFog);
+      const attackFog = AIR_UNITS.has(unit.type) ? null : this._currentFog;
+      const visibleEnemies = getAttackableHexes(gs, unit, unit.q, unit.r, attackFog);
       const hasRange = (def.range || 0) > 0;
       // ATTACK — only if confirmed visible enemy in range (direct fire, no penalty)
       if (visibleEnemies.length > 0) {
@@ -4729,7 +4730,8 @@ export class GameScene extends Phaser.Scene {
     const _defA = UNIT_TYPES[unit.type] || {};
     const canOffensivelyAttack = ((_defA.attack || 0) > 0) || ((_defA.soft_attack || 0) > 0) || ((_defA.hard_attack || 0) > 0) || ((_defA.naval_attack || 0) > 0);
     if (!unit.attacked && !unit.suppressed && canOffensivelyAttack) {
-      this.attackable = getAttackableHexes(gs, unit, unit.q, unit.r, this._currentFog);
+      const attackFog = AIR_UNITS.has(unit.type) ? null : this._currentFog;
+      this.attackable = getAttackableHexes(gs, unit, unit.q, unit.r, attackFog);
     } else {
       this.attackable = [];
     }
@@ -4789,7 +4791,8 @@ export class GameScene extends Phaser.Scene {
     if (!this.selectedUnit || this.selectedUnit.attacked) return;
     this.mode = 'attack_direct';
     this.reachable  = [];
-    this.attackable = getAttackableHexes(this.gameState, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r, this._currentFog);
+    const attackFog = AIR_UNITS.has(this.selectedUnit.type) ? null : this._currentFog;
+    this.attackable = getAttackableHexes(this.gameState, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r, attackFog);
     this._refresh();
   }
 
