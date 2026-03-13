@@ -1263,6 +1263,7 @@ export function resolveTurn(state, terrain) {
     // Outcome tier
     let tier, dmg = 0, attackerDmg = 0, suppressed = false;
     let potentialRet = 0;
+    const isIndirectAttack = INDIRECT_FIRE.has(attacker.type);
     if (score < 20) {
       tier = 'Catastrophic Failure';
       potentialRet = Math.ceil(baseAttack * 0.5);
@@ -1285,6 +1286,9 @@ export function resolveTurn(state, terrain) {
     // Defense flat reduction (unsupplied defender loses some defensive efficiency)
     const effectiveTargetDefense = Math.max(0, (tDef.defense || 0) - defSupplyPen.attackPenalty);
     dmg = Math.max(0, dmg - effectiveTargetDefense);
+
+    // Indirect-fire attackers never take direct defender return damage in this system.
+    if (isIndirectAttack) potentialRet = 0;
 
     // Retaliation gating: defender must be in range and alive after incoming damage.
     const retDist = hexDistance(attacker.q, attacker.r, target.q, target.r);
@@ -1616,6 +1620,10 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   else if (score < 80)  { tier = 'Effective';            dmg = Math.max(1, Math.round(baseAttack * pierceRatio)); }
   else                  { tier = 'Overwhelming';         dmg = Math.max(1, Math.round(baseAttack * pierceRatio)); suppressed = true; }
 
+  // Mortar/artillery should not take defender return damage in this system.
+  const isIndirectAttack = INDIRECT_FIRE.has(attacker.type);
+  if (isIndirectAttack) attackerDmg = 0;
+
   const effectiveTargetDefense = Math.max(0, (tDef.defense || 0) - defSupplyPen.attackPenalty);
   dmg = Math.max(0, dmg - effectiveTargetDefense);
 
@@ -1624,7 +1632,7 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   const defenderRange = tDef.range || 1;
   // Subs with noSurfaceRetaliation can't retaliate against surface ships (they dive instead)
   const subDiveBlock = tDef.noSurfaceRetaliation && !aDef.noSurfaceRetaliation;
-  const canRetaliate = !blindFire && !INDIRECT_FIRE.has(attacker.type) && !subDiveBlock && dist <= defenderRange && target.health - dmg > 0 && !target.suppressed;
+  const canRetaliate = !blindFire && !isIndirectAttack && !subDiveBlock && dist <= defenderRange && target.health - dmg > 0 && !target.suppressed;
 
   let retDmg = 0, retScore = 0, retTier = '';
   if (canRetaliate) {
