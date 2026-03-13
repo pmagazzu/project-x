@@ -78,7 +78,7 @@ function chooseBestTarget(gs, unit, attackTargets) {
   return best;
 }
 
-function scoreMove(gs, unit, q, r, strat, enemies, myHQs, mySupply) {
+function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply) {
   const cfg = AI_STRATEGIES[strat] ?? AI_STRATEGIES.balanced;
   let score = 0;
 
@@ -111,6 +111,25 @@ function scoreMove(gs, unit, q, r, strat, enemies, myHQs, mySupply) {
     const nearestHQ  = Math.min(...myHQs.map(b => hexDistance(q, r, b.q, b.r)));
     const curHQDist  = Math.min(...myHQs.map(b => hexDistance(unit.q, unit.r, b.q, b.r)));
     if (nearestHQ < curHQDist) score += cfg.captureBonus;
+  }
+
+  // Engineer logistics/economy movement bias: move where building value exists.
+  if (unit.type === 'ENGINEER' && !unit.constructing) {
+    const key = `${q},${r}`;
+    const resHex = gs.resourceHexes?.[key];
+    const hasRoad = !!roadAt(gs, q, r);
+    const hasNonRoadBuilding = !!(buildingAt(gs, q, r) && !hasRoad);
+    if (!hasNonRoadBuilding) {
+      const ttype = terrain?.[key] ?? 0;
+      const me = gs.players[unit.owner] || {};
+      const wood = me.wood || 0;
+      const food = me.food || 0;
+      if (resHex?.type === 'IRON') score += 22;
+      else if (resHex?.type === 'OIL') score += 20;
+      else if ((ttype === 1 || ttype === 7) && wood < 6) score += 11; // lumber potential when wood-tight
+      else if ((ttype === 0 || ttype === 6 || ttype === 7) && food < 8) score += 8; // farm potential
+      if (!hasRoad && gs.turn >= 3) score += 4; // infra bias
+    }
   }
 
   // Supply awareness: avoid ending out of supply unless near-contact (sneaky/emergency pushes).
@@ -205,7 +224,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
         let bestDest = null, bestScore = -Infinity;
         for (const hex of reachable) {
-          const s = scoreMove(gs, unit, hex.q, hex.r, strategy, enemies, myHQs, mySupply);
+          const s = scoreMove(gs, terrain, unit, hex.q, hex.r, strategy, enemies, myHQs, mySupply);
           if (s > bestScore) { bestScore = s; bestDest = hex; }
         }
 
@@ -398,6 +417,18 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     });
 
     for (const unitType of sorted) {
+      // Anti-spam guardrails for support units
+      if (unitType === 'ENGINEER') {
+        const myEng = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER').length;
+        const econBuilt = gs.buildings.filter(bb => bb.owner === player && ['MINE','OIL_PUMP','FARM','LUMBER_CAMP','SCIENCE_LAB','FACTORY'].includes(bb.type)).length;
+        const engCap = Math.max(1, Math.min(4, 1 + Math.floor(econBuilt / 3)));
+        if (myEng >= engCap) continue;
+      }
+      if (unitType === 'SUPPLY_TRUCK') {
+        const myTrucks = gs.units.filter(u => u.owner === player && u.type === 'SUPPLY_TRUCK').length;
+        if (myTrucks >= 3) continue;
+      }
+
       const cost = UNIT_TYPES[unitType]?.cost || {};
       if (resSim.iron >= (cost.iron || 0) &&
           resSim.oil  >= (cost.oil  || 0) &&
