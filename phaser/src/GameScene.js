@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.58';
+const GAME_VERSION = 'v1.3.59';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2234,7 +2234,7 @@ export class GameScene extends Phaser.Scene {
   // ── Bottom panel ──────────────────────────────────────────────────────────
   _createBottomPanel() {
     const w = this.scale.width, h = this.scale.height;
-    const panH = 120, D = 100;
+    const panH = 132, D = 100;
 
     // Left: unit info panel — dark background with subtle top border accent
     this.unitPanel = this.add.rectangle(200, h - panH/2, 390, panH, 0x0d0d0d, 0.96)
@@ -2316,7 +2316,26 @@ export class GameScene extends Phaser.Scene {
         if (u.dugIn) status += '🪖 Dug in  ';
         if (u.outOfSupply > 0) status += `⚠ OUT OF SUPPLY (${u.outOfSupply}t)`;
       }
-      this.unitStatusTxt.setText(status);
+      // Contextual modifiers affecting this unit right now
+      const ttype = this.terrain?.[`${u.q},${u.r}`] ?? 0;
+      const tLabel = TERRAIN_LABELS[ttype] || 'Plains';
+      const effects = [];
+      if (ttype === 1) effects.push('Terrain: Forest cover (+defense)');
+      else if (ttype === 7) effects.push('Terrain: Light woods cover');
+      else if (ttype === 2) effects.push('Terrain: Mountain cover (high)');
+      else if (ttype === 0 || ttype === 6) {
+        const infLike = new Set(['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD','LMG_TEAM','HMG_TEAM','SNIPER','ENGINEER','MEDIC','ANTI_TANK']);
+        if (infLike.has(u.type) && !u.dugIn) effects.push('⚠ Open ground exposure penalty');
+      }
+      const fort = gs.buildings.find(b => (b.type==='BUNKER'||b.type==='TRENCH'||b.type==='SANDBAG') && b.q===u.q && b.r===u.r && b.owner===u.owner);
+      if (fort) effects.push(`Fortification: ${BUILDING_TYPES[fort.type]?.name || fort.type}`);
+      if (u.dugIn) effects.push('Dug in bonus active');
+      if (u.outOfSupply > 0) {
+        const pen = supplyPenalty(u.outOfSupply);
+        effects.push(`Out of supply: −${pen.attackPenalty} attack / −${pen.movePenalty} move`);
+      }
+      const fxLine = effects.length ? `\n${effects.slice(0,2).join('  ·  ')}` : '';
+      this.unitStatusTxt.setText(`${status}${fxLine}`);
     } else if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
       const key  = `${this.hoveredHex.q},${this.hoveredHex.r}`;
       const t    = TERRAIN_LABELS[this.terrain[key]] || 'Plains';
@@ -2348,7 +2367,7 @@ export class GameScene extends Phaser.Scene {
 
     if (canAct) {
       const w2 = this.scale.width, h2 = this.scale.height;
-      const panH2 = 120;
+      const panH2 = 132;
       const bw = 118, bh = 42, gap = 4;
       const ax = w2 - 390, ay = h2 - panH2 + 8;
       const actions = this._getUnitActions(u);
@@ -3326,11 +3345,7 @@ export class GameScene extends Phaser.Scene {
         actions.push({ label: 'ATTACK', key: 'attack', enabled: true, color: 0x882222,
           cb: () => this._onDirectAttackMode() });
       }
-      // FIRE AT TILE — always available (blind fire, accuracy debuff, shows full range)
-      if (hasRange) {
-        actions.push({ label: 'FIRE AT TILE', key: 'fire_tile', enabled: true, color: 0x663311,
-          cb: () => this._onAttackMode() });
-      }
+      // FIRE AT TILE temporarily disabled from player UI (kept in code for future re-enable).
     }
     if (def.canDigIn && !unit.dugIn && !unit.moved) {
       actions.push({ label: 'DIG IN', key: 'digin',  enabled: true,  color: 0x8B5A2B, cb: () => this._onDigIn() });
@@ -5078,7 +5093,10 @@ export class GameScene extends Phaser.Scene {
     const pierceMod = Math.round((pierceRatio-0.5)*20);
 
     // Score breakdown (no random roll)
-    const terrainMod = tTerrain===1?10:tTerrain===2?20:0;
+    const terrainMod = tTerrain===1?10:tTerrain===2?20:(tTerrain===7?5:0);
+    const infLike = new Set(['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD','LMG_TEAM','HMG_TEAM','SNIPER','ENGINEER','MEDIC','ANTI_TANK']);
+    const onFort = !!gs.buildings?.find(b => (b.type==='BUNKER'||b.type==='TRENCH'||b.type==='SANDBAG') && b.q===target.q && b.r===target.r && b.owner===target.owner);
+    const openPlainMod = ((tTerrain===0 || tTerrain===6) && infLike.has(target.type) && !target.dugIn && !onFort) ? 6 : 0;
     const dugInMod   = target.dugIn?8:0;
     const onBunker   = gs.buildings?.find(b=>b.type==='BUNKER'&&b.q===target.q&&b.r===target.r&&b.owner===target.owner);
     const bunkerMod  = onBunker?15:0;
@@ -5088,7 +5106,7 @@ export class GameScene extends Phaser.Scene {
     const preRollScore = Math.max(0, Math.min(100,
       baseScore + (aDef.accuracy||0) + aaBonus - Math.max(0, (tDef.evasion||0) - (defSupPen*2))
       - terrainMod - dugInMod - bunkerMod - blindMod + pierceMod
-      - (atkSupPen * 3) + (defSupPen * 3)));
+      + openPlainMod - (atkSupPen * 3) + (defSupPen * 3)));
     const ROLL = 15; // ±15 random
     const scoreMin = Math.max(0, preRollScore - ROLL);
     const scoreMax = Math.min(100, preRollScore + ROLL);
@@ -5188,6 +5206,7 @@ export class GameScene extends Phaser.Scene {
     if (aDef.accuracy)   rows.push([`Accuracy (${aDef.name})`,      `+${aDef.accuracy}`, '#88cc88']);
     if (tDef.evasion)    rows.push([`Evasion (${tDef.name})`,       `−${tDef.evasion}`,  '#cc8844']);
     if (terrainMod)      rows.push([`Terrain cover`,                 `−${terrainMod}`,    '#aa7744']);
+    if (openPlainMod)    rows.push([`Open plains exposure`,          `+${openPlainMod}`,  '#ff9966']);
     if (dugInMod)        rows.push([`Dug-in fortification`,          `−${dugInMod}`,      '#aa7744']);
     if (bunkerMod)       rows.push([`Bunker protection`,             `−${bunkerMod}`,     '#aa7744']);
     if (blindMod)        rows.push([`Blind fire penalty`,            `−${blindMod}`,      '#cc4444']);
@@ -6013,6 +6032,7 @@ export class GameScene extends Phaser.Scene {
         if (entry.accuracy !== 0)  mods.push(`acc${entry.accuracy > 0 ? '+' : ''}${entry.accuracy}`);
         if (entry.evasion !== 0)   mods.push(`eva-${entry.evasion}`);
         if (entry.terrainMod !== 0) mods.push(`terrain-${entry.terrainMod}`);
+        if ((entry.openPlainMod||0) !== 0) mods.push(`open+${entry.openPlainMod||0}`);
         if (entry.dugInMod !== 0)  mods.push(`dugin-${entry.dugInMod}`);
         if (entry.bunkerMod !== 0) mods.push(`bunker-${entry.bunkerMod}`);
         if ((entry.attackerSupplyPenalty||0) !== 0) mods.push(`atkOOS-${(entry.attackerSupplyPenalty||0)*3}`);
