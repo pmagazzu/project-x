@@ -52,6 +52,16 @@ export const AI_STRATEGIES = {
     retreatToHQ:   false,
     digInChance:   0.2,
   },
+  adaptive: {
+    label:         'Adaptive',
+    recruitPrio:   ['INFANTRY','ANTI_TANK','TANK','ARTILLERY','MORTAR','HALFTRACK','SUPPLY_TRUCK'],
+    navalPrio:     ['DESTROYER','PATROL_BOAT','SUPPLY_SHIP','MTB','TRANSPORT_SM'],
+    airPrio:       ['BIPLANE_FIGHTER','OBS_PLANE','LIGHT_BOMBER'],
+    attackBonus:   12,
+    captureBonus:  34,
+    retreatToHQ:   false,
+    digInChance:   0.25,
+  },
 };
 
 export function randomStrategy() {
@@ -119,6 +129,19 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply) {
     const nearestHQ  = Math.min(...myHQs.map(b => hexDistance(q, r, b.q, b.r)));
     const curHQDist  = Math.min(...myHQs.map(b => hexDistance(unit.q, unit.r, b.q, b.r)));
     if (nearestHQ < curHQDist) score += cfg.captureBonus;
+  }
+
+  // Low-health tactical caution: withdraw fragile units unless they have clear attack value.
+  const maxHp = UNIT_TYPES[unit.type]?.health || unit.maxHealth || 1;
+  const hpFrac = (unit.health || maxHp) / maxHp;
+  if (hpFrac <= 0.4 && enemies.length > 0) {
+    const nearestEnemy = Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r)));
+    if (nearestEnemy <= 3) score -= 8;
+    if (myHQs.length > 0) {
+      const nearestHQ = Math.min(...myHQs.map(b => hexDistance(q, r, b.q, b.r)));
+      const curHQDist = Math.min(...myHQs.map(b => hexDistance(unit.q, unit.r, b.q, b.r)));
+      if (nearestHQ < curHQDist) score += 6;
+    }
   }
 
   // Engineer logistics/economy movement bias: move where building value exists.
@@ -407,6 +430,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   );
 
   // Reuse simulated resource spend from movement/infra planning so recruit decisions are coherent.
+  const plannedCount = {};
+  for (const u of gs.units.filter(u => u.owner === player && !u.embarked)) {
+    plannedCount[u.type] = (plannedCount[u.type] || 0) + 1;
+  }
 
   for (const b of myBuildings) {
     const bType = BUILDING_TYPES[b.type];
@@ -437,12 +464,22 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         if (myTrucks >= 3) continue;
       }
 
+      // Composition guards: avoid overstacking one cheap chassis.
+      const lineTypes = ['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD','LMG_TEAM','HMG_TEAM'];
+      const totalCombat = Math.max(1, Object.entries(plannedCount)
+        .filter(([t]) => UNIT_TYPES[t]?.attack > 0 || UNIT_TYPES[t]?.soft_attack > 0 || UNIT_TYPES[t]?.hard_attack > 0)
+        .reduce((s,[,n]) => s + n, 0));
+      const lineCount = lineTypes.reduce((s,t) => s + (plannedCount[t] || 0), 0);
+      if (unitType === 'INFANTRY' && lineCount / totalCombat > 0.55) continue;
+      if ((unitType === 'PATROL_BOAT' || unitType === 'MTB') && (plannedCount[unitType] || 0) >= 4) continue;
+
       const cost = UNIT_TYPES[unitType]?.cost || {};
       if (resSim.iron >= (cost.iron || 0) &&
           resSim.oil  >= (cost.oil  || 0) &&
           resSim.wood >= (cost.wood || 0) &&
           resSim.components >= (cost.components || 0)) {
         actions.push({ type: 'recruit', buildingId: b.id, unitType });
+        plannedCount[unitType] = (plannedCount[unitType] || 0) + 1;
         resSim.iron -= (cost.iron || 0);
         resSim.oil  -= (cost.oil  || 0);
         resSim.wood -= (cost.wood || 0);
