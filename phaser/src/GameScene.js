@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.71';
+const GAME_VERSION = 'v1.3.72';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -6569,13 +6569,44 @@ export class GameScene extends Phaser.Scene {
     let p1 = findSpawn(Math.floor(ms * 0.08), Math.floor(ms * 0.28));
     let p2 = findSpawn(Math.floor(ms * 0.72), Math.floor(ms * 0.92));
 
-    // TEST profile: enforce roughly 18-hex spawn separation on one medium island.
+    // TEST profile: enforce same-main-island spawns ~18 hexes apart.
     if ((this.procLandProfile || 'test') === 'test') {
       const center = { q: Math.floor(ms * 0.5), r: Math.floor(ms * 0.5) };
-      const d = 9; // ~18 apart
+      const d = 9; // ~18 apart target
       const tp1 = { q: Math.max(2, center.q - d), r: center.r };
-      const tp2 = { q: Math.min(ms - 3, center.q + d), r: center.r };
       map[`${tp1.q},${tp1.r}`] = 0;
+
+      const isWalk = (q, r) => {
+        const t = map[`${q},${r}`];
+        return t !== undefined && t !== 4 && t !== 5 && t !== 2;
+      };
+      const comp = new Set();
+      const qv = [tp1];
+      while (qv.length) {
+        const cur = qv.pop();
+        const k = `${cur.q},${cur.r}`;
+        if (comp.has(k)) continue;
+        if (!isWalk(cur.q, cur.r)) continue;
+        comp.add(k);
+        for (const [dq, dr] of NEIGHBORS) {
+          const nq = cur.q + dq, nr = cur.r + dr;
+          if (!isValid(nq, nr, ms)) continue;
+          const nk = `${nq},${nr}`;
+          if (!comp.has(nk)) qv.push({ q: nq, r: nr });
+        }
+      }
+
+      let best = null, bestScore = -Infinity;
+      for (const k of comp) {
+        const [q, r] = k.split(',').map(Number);
+        if (q < Math.floor(ms * 0.55)) continue;
+        const dist = hexDistance(tp1.q, tp1.r, q, r);
+        const walkN = NEIGHBORS.filter(([dq,dr]) => isWalk(q+dq, r+dr)).length;
+        const score = -Math.abs(dist - 18) * 4 + walkN * 3;
+        if (score > bestScore) { bestScore = score; best = { q, r }; }
+      }
+
+      const tp2 = best || { q: Math.min(ms - 3, center.q + d), r: center.r };
       map[`${tp2.q},${tp2.r}`] = 0;
       p1 = tp1; p2 = tp2;
     }
