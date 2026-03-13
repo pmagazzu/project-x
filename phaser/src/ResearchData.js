@@ -192,6 +192,20 @@ export const TECH_TREE = {
     cost:20, prereqs:[],
     effect:{ unitStatBonus:{ RECON:{ sight:1, evasion:2 } } },
   },
+  advanced_optics: {
+    id:'advanced_optics', branch:'infantry', tier:1, kind:'module',
+    name:'Advanced Optics Package',
+    desc:'🔩 MODULE FAMILY — Unlocks Advanced Optics (spotter focus). Conflicts with Concealed Profile.',
+    cost:18, prereqs:['basic_recon_training'],
+    effect:{ unlockModule:'OPTICS_SCOUT' },
+  },
+  concealment_drills: {
+    id:'concealment_drills', branch:'infantry', tier:1, kind:'module',
+    name:'Concealment Drills',
+    desc:'🔩 MODULE FAMILY — Unlocks Concealed Profile (stealth focus). Conflicts with Advanced Optics.',
+    cost:18, prereqs:['basic_recon_training'],
+    effect:{ unlockModule:'CONCEALED_PROFILE' },
+  },
   assault_infantry: {
     id:'assault_infantry', branch:'infantry', tier:2, kind:'doctrine',
     name:'Assault Infantry Doctrine',
@@ -231,6 +245,20 @@ export const TECH_TREE = {
     desc:'🔩 MODULE — Vehicle ammo package: +pierce and +hard attack.',
     cost:22, prereqs:['light_tank_armor'],
     effect:{ unlockModule:'VEH_APCR_ROUNDS' },
+  },
+  hv_gun_theory: {
+    id:'hv_gun_theory', branch:'vehicles', tier:2, kind:'module',
+    name:'High-Velocity Gun Theory',
+    desc:'🔩 MODULE FAMILY — Unlocks HV Cannon (anti-armor focus). Conflicts with Short Barrel.',
+    cost:30, prereqs:['apcr_rounds','medium_tank'],
+    effect:{ unlockModule:'GUN_HV_CANNON' },
+  },
+  short_barrel_doctrine: {
+    id:'short_barrel_doctrine', branch:'vehicles', tier:1, kind:'module',
+    name:'Short Barrel Doctrine',
+    desc:'🔩 MODULE FAMILY — Unlocks Short Barrel (support/firestorm focus). Conflicts with HV Cannon.',
+    cost:20, prereqs:['engine_upgrade'],
+    effect:{ unlockModule:'GUN_SHORT_BARREL' },
   },
   engine_upgrade: {
     id:'engine_upgrade', branch:'vehicles', tier:0, kind:'stat',

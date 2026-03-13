@@ -109,6 +109,13 @@ export const MODULES = {
   INF_CAMO_WEBBING:     { name: 'Camo Webbing',       tier: 1, chassis: ['INFANTRY','RECON','ASSAULT_INFANTRY'], statDelta: { evasion: 2, defense: 1, move: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'camo_webbing' },
   VEH_APCR_ROUNDS:      { name: 'APCR Rounds',        tier: 1, chassis: ['TANK','MEDIUM_TANK','SPG','ARMORED_CAR'], statDelta: { pierce: 2, hard_attack: 1 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'apcr_rounds' },
   AIR_DROP_TANKS:       { name: 'Drop Tanks',         tier: 1, chassis: ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE','MONOPLANE_FIGHTER'], statDelta: { move: 1, fuelMax: 1, defense: -1 }, designCost: { iron: 1, oil: 1 }, trainCost: { iron: 0, oil: 1 }, requiredTech: 'drop_tanks' },
+
+  // ── Module families (mutually-exclusive archetypes) ───────────────────
+  GUN_HV_CANNON:         { name: 'HV Cannon',         tier: 2, chassis: ['TANK','MEDIUM_TANK','SPG'], statDelta: { hard_attack: 2, pierce: 2, range: 1, move: -1 }, designCost: { iron: 2, oil: 1 }, trainCost: { iron: 1, oil: 1 }, requiredTech: 'hv_gun_theory', mutuallyExclusiveWith:['GUN_SHORT_BARREL'] },
+  GUN_SHORT_BARREL:      { name: 'Short Barrel',      tier: 1, chassis: ['TANK','MEDIUM_TANK','SPG','ARTILLERY','MORTAR'], statDelta: { soft_attack: 2, range: -1, move: 1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'short_barrel_doctrine', mutuallyExclusiveWith:['GUN_HV_CANNON','LONG_RANGE'] },
+
+  OPTICS_SCOUT:          { name: 'Advanced Optics',   tier: 1, chassis: ['RECON','ARMORED_CAR','MOTORCYCLE','INFANTRY'], statDelta: { sight: 2, accuracy: 2, defense: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'advanced_optics', mutuallyExclusiveWith:['CONCEALED_PROFILE'] },
+  CONCEALED_PROFILE:     { name: 'Concealed Profile', tier: 1, chassis: ['RECON','ARMORED_CAR','MOTORCYCLE','INFANTRY'], statDelta: { evasion: 3, sight: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'concealment_drills', mutuallyExclusiveWith:['OPTICS_SCOUT'] },
 };
 
 // Which building trains which chassis types (for design registration)
