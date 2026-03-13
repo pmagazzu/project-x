@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.69';
+const GAME_VERSION = 'v1.3.70';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -4683,7 +4683,8 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'attack_direct') {
       const target = this.attackable.find(h => h.q === q && h.r === r);
       if (target) {
-        const tUnit = gs.units.find(u => u.id === target.targetId);
+        const tUnit = gs.units.find(u => u.id === target.targetId) ||
+          gs.units.find(u => !u.dead && Number(u.owner) !== Number(gs.currentPlayer) && u.q === target.q && u.r === target.r);
         if (tUnit) {
           this._showCombatPreview(this.selectedUnit, tUnit, false);
           return;

@@ -817,6 +817,9 @@ export function getAttackableHexes(state, unit, fromQ, fromR, fog) {
       const dr = (u._origR !== undefined) ? u._origR : u.r;
       if (hexDistance(fromQ, fromR, dq, dr) > def.range) return false;
       if (fog && !fog.has(`${dq},${dr}`)) return false; // hidden in fog
+      // Direct-fire units require LOS for known-target attack mode.
+      const indirect = INDIRECT_FIRE.has(unit.type);
+      if (!indirect && state._terrain && !hasLOS(fromQ, fromR, dq, dr, state._terrain)) return false;
       return true;
     })
     .map(u => {
