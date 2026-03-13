@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.60';
+const GAME_VERSION = 'v1.3.61';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5091,6 +5091,9 @@ export class GameScene extends Phaser.Scene {
     if (atkSupPen > 0) baseAtk = Math.max(1, baseAtk - atkSupPen);
     const pierceRatio = aDef.pierce < tDef.armor ? aDef.pierce/tDef.armor : 1;
     const pierceMod = Math.round((pierceRatio-0.5)*20);
+    const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
+    const infRangePenalty = (attacker.type === 'INFANTRY' && dist >= 2) ? 8 : 0;
+    if (infRangePenalty > 0) baseAtk = Math.max(1, baseAtk - 1);
 
     // Score breakdown (no random roll)
     const terrainMod = tTerrain===1?10:tTerrain===2?20:(tTerrain===7?5:0);
@@ -5106,7 +5109,7 @@ export class GameScene extends Phaser.Scene {
     const preRollScore = Math.max(0, Math.min(100,
       baseScore + (aDef.accuracy||0) + aaBonus - Math.max(0, (tDef.evasion||0) - (defSupPen*2))
       - terrainMod - dugInMod - bunkerMod - blindMod + pierceMod
-      + openPlainMod - (atkSupPen * 3) + (defSupPen * 3)));
+      + openPlainMod - infRangePenalty - (atkSupPen * 3) + (defSupPen * 3)));
     const ROLL = 15; // ±15 random
     const scoreMin = Math.max(0, preRollScore - ROLL);
     const scoreMax = Math.min(100, preRollScore + ROLL);
@@ -5126,9 +5129,9 @@ export class GameScene extends Phaser.Scene {
     const maxDmg = dmgAt(scoreMax,     baseAtk, pierceRatio, effDef);
 
     // Retaliation
-    const dist = hexDistance(attacker.q,attacker.r,target.q,target.r);
+    const retDist = hexDistance(attacker.q,attacker.r,target.q,target.r);
     const subDiveBlock = tDef.noSurfaceRetaliation && !aDef.noSurfaceRetaliation;
-    const canRet = !blindFire && !INDIRECT.has(attacker.type) && !subDiveBlock && dist<=(tDef.range||1) && !target.suppressed;
+    const canRet = !blindFire && !INDIRECT.has(attacker.type) && !subDiveBlock && retDist<=(tDef.range||1) && !target.suppressed;
     let expRetDmg=0, retTier='';
     if (canRet) {
       const rBase = navalVsNaval ? tDef.hard_attack : ((aDef.armor>2)?tDef.hard_attack:tDef.soft_attack);
@@ -5210,6 +5213,7 @@ export class GameScene extends Phaser.Scene {
     if (dugInMod)        rows.push([`Dug-in fortification`,          `−${dugInMod}`,      '#aa7744']);
     if (bunkerMod)       rows.push([`Bunker protection`,             `−${bunkerMod}`,     '#aa7744']);
     if (blindMod)        rows.push([`Blind fire penalty`,            `−${blindMod}`,      '#cc4444']);
+    if (infRangePenalty) rows.push([`Infantry max-range penalty`,    `−${infRangePenalty} score / −1 ATK`, '#ffbb66']);
     if (fighterStrafePenalty) rows.push([`Fighter strafing penalty`, `ATK x0.5`, '#ffbb66']);
     if (atkSupPen>0)     rows.push([`Attacker out-of-supply`,        `−${atkSupPen*3} score / −${atkSupPen} ATK`, '#ff9966']);
     if (defSupPen>0)     rows.push([`Defender out-of-supply`,        `+${defSupPen*3} score / DEF−${defSupPen}`, '#ff9966']);
@@ -6037,6 +6041,7 @@ export class GameScene extends Phaser.Scene {
         if (entry.bunkerMod !== 0) mods.push(`bunker-${entry.bunkerMod}`);
         if ((entry.attackerSupplyPenalty||0) !== 0) mods.push(`atkOOS-${(entry.attackerSupplyPenalty||0)*3}`);
         if ((entry.defenderSupplyPenalty||0) !== 0) mods.push(`defOOS+${(entry.defenderSupplyPenalty||0)*3}`);
+        if ((entry.infantryRangePenalty||0) !== 0) mods.push(`infRng-${entry.infantryRangePenalty||0}`);
         if (entry.flankMod !== 0)  mods.push(`flank+${entry.flankMod}`);
         mods.push(`roll${entry.roll >= 0 ? '+' : ''}${entry.roll}`);
         addLine(`  Score: 50 + ${mods.join(' ')} = ${entry.score}`, '#ddddaa');

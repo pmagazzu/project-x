@@ -115,11 +115,25 @@ export const TECH_TREE = {
     cost:10, prereqs:[],
     effect:{ unitStatBonus:{ INFANTRY:{ defense:1 }, ENGINEER:{ defense:1 }, MEDIC:{ defense:1 }, ANTI_TANK:{ defense:1 } } },
   },
+  basic_training: {
+    id:'basic_training', branch:'infantry', tier:0, kind:'stat',
+    name:'Basic Training',
+    desc:'Infantry finally drill the basics: +1 accuracy, +1 defense.',
+    cost:10, prereqs:[],
+    effect:{ unitStatBonus:{ INFANTRY:{ accuracy:1, defense:1 } } },
+  },
+  tier1_rifles: {
+    id:'tier1_rifles', branch:'infantry', tier:0, kind:'stat',
+    name:'Tier I Service Rifles',
+    desc:'Infantry range increases to 2 hexes, but shots at max range are less effective.',
+    cost:14, prereqs:['basic_training'],
+    effect:{ unitStatBonus:{ INFANTRY:{ range:1 } } },
+  },
   semi_auto_rifle: {
     id:'semi_auto_rifle', branch:'infantry', tier:0, kind:'stat',
     name:'Semi-Automatic Rifle',
     desc:'Faster fire rate. Infantry soft attack +1.',
-    cost:15, prereqs:[],
+    cost:15, prereqs:['tier1_rifles'],
     effect:{ unitStatBonus:{ INFANTRY:{ soft_attack:1 } } },
   },
   bayonet_doctrine: {

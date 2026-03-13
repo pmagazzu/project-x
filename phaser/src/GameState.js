@@ -1197,6 +1197,14 @@ export function resolveTurn(state, terrain) {
     // Base combat score (50 = neutral starting point)
     let score = 50;
     score += aDef.accuracy;
+
+    // Infantry long-range rifle penalty (max-range shots are less effective)
+    const INF_RIFLE_TYPES = new Set(['INFANTRY']);
+    const infantryRangePenalty = (INF_RIFLE_TYPES.has(attacker.type) && dist >= 2) ? 8 : 0;
+    if (infantryRangePenalty > 0) {
+      baseAttack = Math.max(1, baseAttack - 1);
+      score -= infantryRangePenalty;
+    }
     // Blind fire penalty: firing at a hex without confirmed intel = -20 score
     const blindFirePenalty = blindFire ? 20 : 0;
     score -= blindFirePenalty;
@@ -1301,6 +1309,7 @@ export function resolveTurn(state, terrain) {
       terrainMod, openPlainMod, dugInMod, bunkerMod, flankMod, roll, blindFirePenalty,
       attackerSupplyPenalty: atkSupplyPen.attackPenalty || 0,
       defenderSupplyPenalty: defSupplyPen.attackPenalty || 0,
+      infantryRangePenalty: infantryRangePenalty || 0,
       score, tier, dmg, attackerDmg, suppressed, blindFire,
     };
     combatLog.push(entry);
@@ -1563,6 +1572,15 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   let score = 50;
   score += aDef.accuracy;
   score += aaBonus;
+
+  // Infantry long-range rifle penalty (max-range shots are less effective)
+  const INF_RIFLE_TYPES = new Set(['INFANTRY']);
+  const infantryRangePenalty = (INF_RIFLE_TYPES.has(attacker.type) && dist >= 2) ? 8 : 0;
+  if (infantryRangePenalty > 0) {
+    baseAttack = Math.max(1, baseAttack - 1);
+    score -= infantryRangePenalty;
+  }
+
   const blindFirePenalty = blindFire ? 20 : 0;
   score -= blindFirePenalty;
   if (atkSupplyPen.attackPenalty > 0) score -= atkSupplyPen.attackPenalty * 3;
@@ -1643,6 +1661,7 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
     terrainMod, openPlainMod, dugInMod, bunkerMod, flankMod: 0, roll, blindFirePenalty,
     attackerSupplyPenalty: atkSupplyPen.attackPenalty || 0,
     defenderSupplyPenalty: defSupplyPen.attackPenalty || 0,
+    infantryRangePenalty: infantryRangePenalty || 0,
     score, tier, dmg, attackerDmg, suppressed, blindFire,
     defenderCanRetaliate: canRetaliate, retaliationDmg: retDmg, retaliationScore: retScore, retaliationTier: retTier,
   };
