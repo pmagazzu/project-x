@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.66';
+const GAME_VERSION = 'v1.3.67';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1885,6 +1885,11 @@ export class GameScene extends Phaser.Scene {
         sg.beginPath();
         sg.moveTo(x - ss * 0.12, y); sg.lineTo(x + ss * 0.12, y);
         sg.strokePath();
+      } else if (def.shape === 'car') {
+        // Armored car: hull + two wheels
+        sg.strokeRect(x - ss * 0.9, y - ss * 0.35, ss * 1.8, ss * 0.8);
+        sg.strokeCircle(x - ss * 0.55, y + ss * 0.6, ss * 0.23);
+        sg.strokeCircle(x + ss * 0.55, y + ss * 0.6, ss * 0.23);
       } else if (def.shape === 'arrow') {
         // Anti-tank: right-pointing arrow
         sg.beginPath();
