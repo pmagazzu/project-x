@@ -2025,20 +2025,47 @@ export function resolveEndOfTurn(state, terrain) {
 }
 
 function findFreeAdjacentHex(state, q, r, unitType = null, terrain = null) {
+  const mapSize = state._mapSize || 25;
+  const isValid = (x, y) => x >= 0 && y >= 0 && x < mapSize && y < mapSize;
+
+  const isSpawnable = (x, y) => {
+    if (!isValid(x, y)) return false;
+    const occ = unitAt(state, x, y);
+    const bld = buildingAt(state, x, y);
+    const blockedByBuilding = bld && !ROAD_TYPES.has(bld.type);
+    if (occ || blockedByBuilding) return false;
+    if (unitType && terrain) {
+      const ttype = terrain[`${x},${y}`] ?? 0;
+      if (!canEnterTerrain(unitType, ttype)) return false;
+    }
+    return true;
+  };
+
+  // 1) Prefer adjacent spawn (existing behavior)
   for (const [dq, dr] of HEX_NEIGHBORS) {
     const nq = q + dq, nr = r + dr;
-    const occ = unitAt(state, nq, nr);
-    const bld = buildingAt(state, nq, nr);
-    // Roads should not block spawns; they are movement infrastructure.
-    const blockedByBuilding = bld && !ROAD_TYPES.has(bld.type);
-    if (occ || blockedByBuilding) continue;
-    // If unitType and terrain provided, check that the unit can actually stand here
-    if (unitType && terrain) {
-      const ttype = terrain[`${nq},${nr}`] ?? 0;
-      if (!canEnterTerrain(unitType, ttype)) continue;
-    }
-    return { q: nq, r: nr };
+    if (isSpawnable(nq, nr)) return { q: nq, r: nr };
   }
+
+  // 2) Fallback: nearest free hex in expanding BFS radius.
+  // This prevents hard-lock when barracks/depot is surrounded by structures.
+  const maxSearch = 8;
+  const seen = new Set([`${q},${r}`]);
+  const queue = [{ q, r, d: 0 }];
+  while (queue.length) {
+    const cur = queue.shift();
+    if (cur.d > 0 && cur.d <= maxSearch && isSpawnable(cur.q, cur.r)) return { q: cur.q, r: cur.r };
+    if (cur.d >= maxSearch) continue;
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const nq = cur.q + dq, nr = cur.r + dr;
+      if (!isValid(nq, nr)) continue;
+      const k = `${nq},${nr}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      queue.push({ q: nq, r: nr, d: cur.d + 1 });
+    }
+  }
+
   return null;
 }
 
