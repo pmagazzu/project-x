@@ -116,6 +116,16 @@ export const MODULES = {
 
   OPTICS_SCOUT:          { name: 'Advanced Optics',   tier: 1, chassis: ['RECON','ARMORED_CAR','MOTORCYCLE','INFANTRY'], statDelta: { sight: 2, accuracy: 2, defense: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'advanced_optics', mutuallyExclusiveWith:['CONCEALED_PROFILE'] },
   CONCEALED_PROFILE:     { name: 'Concealed Profile', tier: 1, chassis: ['RECON','ARMORED_CAR','MOTORCYCLE','INFANTRY'], statDelta: { evasion: 3, sight: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'concealment_drills', mutuallyExclusiveWith:['OPTICS_SCOUT'] },
+
+  // Additional deep families
+  AIR_LIGHT_FRAME:       { name: 'Light Airframe',    tier: 1, chassis: ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE','MONOPLANE_FIGHTER','DIVE_BOMBER'], statDelta: { move: 1, evasion: 2, health: -1 }, designCost: { iron: 1, oil: 1 }, trainCost: { iron: 0, oil: 1 }, requiredTech: 'light_airframe', mutuallyExclusiveWith:['AIR_ARMORED_FRAME'] },
+  AIR_ARMORED_FRAME:     { name: 'Armored Airframe',  tier: 1, chassis: ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE','MONOPLANE_FIGHTER','DIVE_BOMBER'], statDelta: { health: 1, defense: 1, move: -1 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'armored_airframe', mutuallyExclusiveWith:['AIR_LIGHT_FRAME'] },
+
+  TANK_MOBILITY_KIT:     { name: 'Mobility Kit',      tier: 1, chassis: ['TANK','MEDIUM_TANK','ARMORED_CAR','HALFTRACK'], statDelta: { move: 1, evasion: 1, armor: -1 }, designCost: { iron: 1, oil: 1 }, trainCost: { iron: 0, oil: 1 }, requiredTech: 'tank_mobility_kit', mutuallyExclusiveWith:['TANK_SIEGE_PLATING'] },
+  TANK_SIEGE_PLATING:    { name: 'Siege Plating',     tier: 2, chassis: ['TANK','MEDIUM_TANK','SPG'], statDelta: { armor: 2, defense: 1, move: -1 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'tank_siege_plating', mutuallyExclusiveWith:['TANK_MOBILITY_KIT'] },
+
+  INF_ASSAULT_DRILL:     { name: 'Assault Drill',     tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD'], statDelta: { soft_attack: 1, move: 1, defense: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'inf_assault_drill', mutuallyExclusiveWith:['INF_SUPPRESSIVE_DRILL'] },
+  INF_SUPPRESSIVE_DRILL: { name: 'Suppressive Drill', tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY','LMG_TEAM','HMG_TEAM'], statDelta: { range: 1, suppression: 1, move: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'inf_suppressive_drill', mutuallyExclusiveWith:['INF_ASSAULT_DRILL'] },
 };
 
 // Which building trains which chassis types (for design registration)

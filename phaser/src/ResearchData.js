@@ -206,6 +206,20 @@ export const TECH_TREE = {
     cost:18, prereqs:['basic_recon_training'],
     effect:{ unlockModule:'CONCEALED_PROFILE' },
   },
+  inf_assault_drill: {
+    id:'inf_assault_drill', branch:'infantry', tier:1, kind:'module',
+    name:'Infantry Assault Drill',
+    desc:'🔩 MODULE FAMILY — Unlocks Assault Drill (close assault doctrine). Conflicts with Suppressive Drill.',
+    cost:16, prereqs:['semi_auto_rifle'],
+    effect:{ unlockModule:'INF_ASSAULT_DRILL' },
+  },
+  inf_suppressive_drill: {
+    id:'inf_suppressive_drill', branch:'infantry', tier:1, kind:'module',
+    name:'Infantry Suppressive Drill',
+    desc:'🔩 MODULE FAMILY — Unlocks Suppressive Drill (support fire doctrine). Conflicts with Assault Drill.',
+    cost:16, prereqs:['lmg_suppression'],
+    effect:{ unlockModule:'INF_SUPPRESSIVE_DRILL' },
+  },
   assault_infantry: {
     id:'assault_infantry', branch:'infantry', tier:2, kind:'doctrine',
     name:'Assault Infantry Doctrine',
@@ -259,6 +273,20 @@ export const TECH_TREE = {
     desc:'🔩 MODULE FAMILY — Unlocks Short Barrel (support/firestorm focus). Conflicts with HV Cannon.',
     cost:20, prereqs:['engine_upgrade'],
     effect:{ unlockModule:'GUN_SHORT_BARREL' },
+  },
+  tank_mobility_kit: {
+    id:'tank_mobility_kit', branch:'vehicles', tier:1, kind:'module',
+    name:'Tank Mobility Kit',
+    desc:'🔩 MODULE FAMILY — Unlocks Mobility Kit (speed/evasion focus). Conflicts with Siege Plating.',
+    cost:20, prereqs:['engine_upgrade'],
+    effect:{ unlockModule:'TANK_MOBILITY_KIT' },
+  },
+  tank_siege_plating: {
+    id:'tank_siege_plating', branch:'vehicles', tier:2, kind:'module',
+    name:'Tank Siege Plating',
+    desc:'🔩 MODULE FAMILY — Unlocks Siege Plating (armor/defense focus). Conflicts with Mobility Kit.',
+    cost:28, prereqs:['light_tank_armor','medium_tank'],
+    effect:{ unlockModule:'TANK_SIEGE_PLATING' },
   },
   engine_upgrade: {
     id:'engine_upgrade', branch:'vehicles', tier:0, kind:'stat',
@@ -345,6 +373,20 @@ export const TECH_TREE = {
     desc:'🔩 MODULE — Airframe add-on: +move/+fuel at slight durability cost.',
     cost:18, prereqs:['fuel_tanks'],
     effect:{ unlockModule:'AIR_DROP_TANKS' },
+  },
+  light_airframe: {
+    id:'light_airframe', branch:'air', tier:1, kind:'module',
+    name:'Light Airframe Program',
+    desc:'🔩 MODULE FAMILY — Unlocks Light Airframe (speed/evasion). Conflicts with Armored Airframe.',
+    cost:18, prereqs:['fuel_tanks'],
+    effect:{ unlockModule:'AIR_LIGHT_FRAME' },
+  },
+  armored_airframe: {
+    id:'armored_airframe', branch:'air', tier:1, kind:'module',
+    name:'Armored Airframe Program',
+    desc:'🔩 MODULE FAMILY — Unlocks Armored Airframe (durability). Conflicts with Light Airframe.',
+    cost:18, prereqs:['biplane_upgrade'],
+    effect:{ unlockModule:'AIR_ARMORED_FRAME' },
   },
   biplane_upgrade: {
     id:'biplane_upgrade', branch:'air', tier:0, kind:'stat',
