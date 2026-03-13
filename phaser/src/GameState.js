@@ -1282,7 +1282,7 @@ export function resolveTurn(state, terrain) {
     const retDist = hexDistance(attacker.q, attacker.r, target.q, target.r);
     const defenderRange = tDef.range || 0;
     const defenderCanAttack = ((tDef.attack || 0) > 0) || ((tDef.soft_attack || 0) > 0) || ((tDef.hard_attack || 0) > 0) || ((tDef.naval_attack || 0) > 0);
-    const canRetaliate = !blindFire && defenderCanAttack && retDist <= defenderRange && (target.health - dmg > 0) && !target.suppressed;
+    const canRetaliate = !blindFire && !INDIRECT_FIRE.has(attacker.type) && defenderCanAttack && retDist <= defenderRange && (target.health - dmg > 0) && !target.suppressed;
     attackerDmg = canRetaliate ? potentialRet : 0;
 
     // Accumulate damage
