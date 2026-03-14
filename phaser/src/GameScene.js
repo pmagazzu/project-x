@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.3.86';
+export const GAME_VERSION = 'v1.3.87';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -4601,6 +4601,7 @@ export class GameScene extends Phaser.Scene {
         (_isMovingAir0 && clickedUnit.owner === this.selectedUnit.owner && !AIR_UNITS.has(clickedUnit.type));
       if (isReachable && hexFree) {
         this.selectedUnit.q = q; this.selectedUnit.r = r;
+        this.selectedUnit.dugIn = false;
         this.selectedUnit.sprinted = true;
         this.selectedUnit.attacked = true; // sprint negates attack
         this.selectedUnit.movesLeft = 0;
@@ -4660,6 +4661,7 @@ export class GameScene extends Phaser.Scene {
           (this.selectedUnit.movesLeft ?? _maxMove) - _moveCost);
         // Do NOT add to pendingMoves — position is real immediately
         this.selectedUnit.q = q; this.selectedUnit.r = r;
+        this.selectedUnit.dugIn = false;
         this.selectedUnit.moved = (this.selectedUnit.movesLeft <= 0);
         // Check if move revealed new fog hexes — if so, undo is blocked
         if (_preFog) {
