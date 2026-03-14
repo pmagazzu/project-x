@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.01';
+export const GAME_VERSION = 'v1.4.02';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1874,17 +1874,24 @@ export class GameScene extends Phaser.Scene {
         }
         const shownTier = Math.max(0, Math.min(3, Math.max(chassisTier, modTier)));
         const tierCol = shownTier >= 3 ? 0xd9534f : shownTier === 2 ? 0xe49c3d : shownTier === 1 ? 0x4da3ff : 0x8a9aaa;
+
+        // Large top band marker (high visibility)
+        this.unitGfx.fillStyle(0x0b0f16, alpha * 0.92);
+        this.unitGfx.fillRect(cx2 + 1, cy2 + 1, cW - 2, 4);
+        this.unitGfx.fillStyle(tierCol, alpha * 0.98);
+        const segW = Math.max(6, Math.floor((cW - 8) / 3));
+        if (shownTier === 0) {
+          this.unitGfx.fillRect(cx2 + 4, cy2 + 2, segW, 2);
+        } else {
+          for (let i = 0; i < shownTier; i++) this.unitGfx.fillRect(cx2 + 4 + i * (segW + 1), cy2 + 2, segW, 2);
+        }
+
+        // Keep bottom-right badge too
         const tx = cx2 + cW - 11, ty = cy2 + cH - 9;
         this.unitGfx.fillStyle(0x0b0f16, alpha * 0.95);
         this.unitGfx.fillRect(tx - 10, ty - 8, 20, 16);
         this.unitGfx.lineStyle(1.2, tierCol, alpha);
         this.unitGfx.strokeRect(tx - 10, ty - 8, 20, 16);
-
-        // Extra corner chip so tiers are readable at glance.
-        this.unitGfx.fillStyle(tierCol, alpha * 0.95);
-        this.unitGfx.fillRect(cx2 + 1, cy2 + cH - 4, Math.max(4, shownTier * 3 + 2), 3);
-
-        // Interior glyph by tier: T0 shows gray dash; T1+ shows 1..3 thick pips.
         if (shownTier === 0) {
           this.unitGfx.fillStyle(0x6f7c88, alpha * 0.95);
           this.unitGfx.fillRect(tx - 5, ty - 1, 10, 2);
@@ -2407,7 +2414,17 @@ export class GameScene extends Phaser.Scene {
           ? (gs.designs[hu.owner]?.find(d => d.id === hu.designId)?.name || huDef.name)
           : huDef.name;
         const hoverPrefix = hoverOwn && hu.designId !== undefined ? '★ ' : '';
-        this.unitStatusTxt.setText(`Unit: P${hu.owner} ${hoverPrefix}${hoverName}  HP: ${hu.health}/${hu.maxHealth}`);
+        let tierTxt = '';
+        if (!hoverOwn) {
+          const chassisTier = UNIT_TYPES[hu.type]?.tier ?? 0;
+          let modTier = 0;
+          if (hu.designId !== undefined) {
+            const d = gs.designs?.[hu.owner]?.find(dd => dd.id === hu.designId);
+            if (d?.modules?.length) modTier = Math.max(0, ...d.modules.map(mk => MODULES[mk]?.tier ?? 0));
+          }
+          tierTxt = `  [Tier ${Math.max(chassisTier, modTier)}]`;
+        }
+        this.unitStatusTxt.setText(`Unit: P${hu.owner} ${hoverPrefix}${hoverName}  HP: ${hu.health}/${hu.maxHealth}${tierTxt}`);
       } else {
         this.unitStatusTxt.setText('');
       }
