@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.02';
+export const GAME_VERSION = 'v1.4.03';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1689,6 +1689,25 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  _unitShownTier(unit) {
+    const gs = this.gameState;
+    const chassisTier = UNIT_TYPES[unit.type]?.tier ?? 0;
+    let modTier = 0;
+    if (unit.designId !== undefined) {
+      const d = gs.designs?.[unit.owner]?.find(dd => dd.id === unit.designId);
+      if (d?.modules?.length) modTier = Math.max(0, ...d.modules.map(mk => MODULES[mk]?.tier ?? 0));
+    }
+    // Fallback inference: if unit stats differ from base chassis, treat as upgraded.
+    let inferred = 0;
+    if (modTier === 0) {
+      const base = UNIT_TYPES[unit.type] || {};
+      const keys = ['soft_attack','hard_attack','pierce','armor','defense','range','move','accuracy','evasion','health','sight'];
+      const delta = keys.reduce((s, k) => s + Math.abs((unit[k] ?? base[k] ?? 0) - (base[k] ?? 0)), 0);
+      if (delta >= 1) inferred = delta >= 6 ? 2 : 1;
+    }
+    return Math.max(0, Math.min(3, Math.max(chassisTier, modTier, inferred)));
+  }
+
   // ── Units ─────────────────────────────────────────────────────────────────
   _redrawUnits() {
     this.unitGfx.clear();
@@ -1866,13 +1885,7 @@ export class GameScene extends Phaser.Scene {
 
       // Enemy tier hint (T0..T3) — shows progression level only, not exact modules.
       if (isEnemy) {
-        const chassisTier = UNIT_TYPES[unit.type]?.tier ?? 0;
-        let modTier = 0;
-        if (unit.designId !== undefined) {
-          const d = gs.designs?.[unit.owner]?.find(dd => dd.id === unit.designId);
-          if (d?.modules?.length) modTier = Math.max(0, ...d.modules.map(mk => MODULES[mk]?.tier ?? 0));
-        }
-        const shownTier = Math.max(0, Math.min(3, Math.max(chassisTier, modTier)));
+        const shownTier = this._unitShownTier(unit);
         const tierCol = shownTier >= 3 ? 0xd9534f : shownTier === 2 ? 0xe49c3d : shownTier === 1 ? 0x4da3ff : 0x8a9aaa;
 
         // Large top band marker (high visibility)
@@ -2416,13 +2429,7 @@ export class GameScene extends Phaser.Scene {
         const hoverPrefix = hoverOwn && hu.designId !== undefined ? '★ ' : '';
         let tierTxt = '';
         if (!hoverOwn) {
-          const chassisTier = UNIT_TYPES[hu.type]?.tier ?? 0;
-          let modTier = 0;
-          if (hu.designId !== undefined) {
-            const d = gs.designs?.[hu.owner]?.find(dd => dd.id === hu.designId);
-            if (d?.modules?.length) modTier = Math.max(0, ...d.modules.map(mk => MODULES[mk]?.tier ?? 0));
-          }
-          tierTxt = `  [Tier ${Math.max(chassisTier, modTier)}]`;
+          tierTxt = `  [Tier ${this._unitShownTier(hu)}]`;
         }
         this.unitStatusTxt.setText(`Unit: P${hu.owner} ${hoverPrefix}${hoverName}  HP: ${hu.health}/${hu.maxHealth}${tierTxt}`);
       } else {
