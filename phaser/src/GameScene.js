@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.77';
+const GAME_VERSION = 'v1.3.78';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -4712,7 +4712,9 @@ export class GameScene extends Phaser.Scene {
         const tUnit = gs.units.find(u => u.id === target.targetId) ||
           gs.units.find(u => !u.dead && Number(u.owner) !== Number(gs.currentPlayer) && u.q === target.q && u.r === target.r);
         if (tUnit) {
-          this._showCombatPreview(this.selectedUnit, tUnit, false);
+          // Emergency stability hotfix: execute direct attack immediately on valid click
+          // to avoid preview-path desync blocking combat.
+          this._doImmediateAttack(this.selectedUnit, tUnit.id, false);
           return;
         }
       }
@@ -4725,7 +4727,7 @@ export class GameScene extends Phaser.Scene {
         const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
         const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r, this.terrain, this.mapSize);
         if (inRange && losOk) {
-          this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+          this._doImmediateAttack(this.selectedUnit, clickedUnit.id, false);
           return;
         }
       }
