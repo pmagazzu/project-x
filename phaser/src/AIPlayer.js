@@ -71,6 +71,26 @@ export function randomStrategy() {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+function estimateAttackCommitScore(gs, unit, target) {
+  const a = UNIT_TYPES[unit.type] || {};
+  const d = UNIT_TYPES[target.type] || {};
+  const dist = hexDistance(unit.q, unit.r, target.q, target.r);
+
+  const atkBase = (d.armor || 0) > 2 ? (a.hard_attack || 0) : (a.soft_attack || 0);
+  const pierceRatio = (a.pierce || 0) < (d.armor || 0) ? ((a.pierce || 0) / Math.max(1, d.armor || 1)) : 1;
+  const estOut = Math.max(0, Math.round(atkBase * pierceRatio) - (d.defense || 0));
+
+  const indirect = (unit.type === 'ARTILLERY' || unit.type === 'MORTAR');
+  const canRet = !indirect && dist <= (d.range || 1);
+  const retBase = ((a.armor || 0) > 2) ? (d.hard_attack || 0) : (d.soft_attack || 0);
+  const retPierce = (d.pierce || 0) < (a.armor || 0) ? ((d.pierce || 0) / Math.max(1, a.armor || 1)) : 1;
+  const estIn = canRet ? Math.max(0, Math.round(retBase * retPierce) - (a.defense || 0)) : 0;
+
+  const killBonus = estOut >= (target.health || 1) ? 8 : 0;
+  const highValue = (target.type === 'ARTILLERY' || target.type === 'MORTAR' || target.type === 'MEDIC') ? 4 : 0;
+  return (estOut - estIn) + killBonus + highValue;
+}
+
 function chooseBestTarget(gs, unit, attackTargets) {
   let best = null, bestScore = -Infinity;
   const reconCautious = unit.type === 'RECON';
@@ -85,11 +105,12 @@ function chooseBestTarget(gs, unit, attackTargets) {
       const highValue = target.type === 'ARTILLERY' || target.type === 'MORTAR' || target.type === 'MEDIC';
       if (!killShot && !highValue) continue;
     }
-    // Prefer almost-dead targets, then high-value types, then closest
+    // Prefer almost-dead/high-value targets and good projected trade.
     const dyingBonus  = (target.maxHealth - target.health) * 4;
     const typeBonus   = target.type === 'ARTILLERY' || target.type === 'MORTAR' ? 6 : 0;
     const distPenalty = hexDistance(unit.q, unit.r, target.q, target.r);
-    const score = dyingBonus + target.maxHealth - target.health + typeBonus - distPenalty * 0.5;
+    const tradeScore  = estimateAttackCommitScore(gs, unit, target);
+    const score = dyingBonus + target.maxHealth - target.health + typeBonus + tradeScore * 1.8 - distPenalty * 0.5;
     if (score > bestScore) { bestScore = score; best = target; }
   }
   return best;
@@ -301,7 +322,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const preMoveTargets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
     const preMoveTarget  = chooseBestTarget(gs, unit, preMoveTargets);
     const canRiskAttack = (unit.outOfSupply || 0) < 2 || (preMoveTarget && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
-    if (preMoveTarget && canRiskAttack) {
+    const preTrade = preMoveTarget ? estimateAttackCommitScore(gs, unit, preMoveTarget) : -999;
+    const preThreshold = getUnitRole(unit.type) === 'recon' ? 2 : 0;
+    if (preMoveTarget && canRiskAttack && preTrade >= preThreshold) {
       actions.push({
         type:       'attack',
         attackerId: unit.id,
@@ -380,7 +403,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const postMoveTargets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
         const postMoveTarget  = chooseBestTarget(gs, unit, postMoveTargets);
         const canRiskPostAttack = (unit.outOfSupply || 0) < 2 || (postMoveTarget && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
-        if (postMoveTarget && canRiskPostAttack) {
+        const postTrade = postMoveTarget ? estimateAttackCommitScore(gs, unit, postMoveTarget) : -999;
+        const postThreshold = getUnitRole(unit.type) === 'recon' ? 2 : 0;
+        if (postMoveTarget && canRiskPostAttack && postTrade >= postThreshold) {
           actions.push({
             type:       'attack',
             attackerId: unit.id,
