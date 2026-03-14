@@ -9,7 +9,7 @@ import {
   createGameState, createUnit, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
   findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
-  calcUpkeep, calcRPFromLabs, computeSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS,
+  calcUpkeep, calcRPFromLabs, computeSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS, getRecruitFoodCost,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, computeDesignStats,
@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.09';
+export const GAME_VERSION = 'v1.4.10';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2589,7 +2589,8 @@ export class GameScene extends Phaser.Scene {
     available.forEach((unitType, i) => {
       const def = UNIT_TYPES[unitType];
       const queueCapReached = buildingQueue.length >= 6;
-      const canAfford = !queueCapReached && gs.players[p].iron >= (def.cost.iron||0) && gs.players[p].oil >= (def.cost.oil||0) && (gs.players[p].components||0) >= (def.cost.components||0);
+      const foodCost = getRecruitFoodCost(unitType);
+      const canAfford = !queueCapReached && gs.players[p].iron >= (def.cost.iron||0) && gs.players[p].oil >= (def.cost.oil||0) && (gs.players[p].components||0) >= (def.cost.components||0) && (gs.players[p].food||0) >= foodCost;
       const _bt = def.buildTime ?? 1;
       const ry = baseRowY + i * rowH + rowH/2;
 
@@ -2615,7 +2616,7 @@ export class GameScene extends Phaser.Scene {
       objs.push(statTxt);
 
       // Cost right
-      const costStr = `⚙${def.cost.iron||0}${(def.cost.oil||0) > 0 ? `  🛢${def.cost.oil}` : ''}${(def.cost.components||0) > 0 ? `  🧩${def.cost.components}` : ''}`;
+      const costStr = `⚙${def.cost.iron||0}${(def.cost.oil||0) > 0 ? `  🛢${def.cost.oil}` : ''}${(def.cost.components||0) > 0 ? `  🧩${def.cost.components}` : ''}${foodCost > 0 ? `  🌾${foodCost}` : ''}`;
       const costClr = canAfford ? '#88bb66' : '#554444';
       const costTxt = this.add.text(w/2 + rowW/2 - 12, ry, costStr, {
         font: 'bold 12px monospace', fill: costClr
@@ -2641,7 +2642,8 @@ export class GameScene extends Phaser.Scene {
     customDesigns.forEach((design, i) => {
       const idx = available.length + i;
       const queueCapReached = buildingQueue.length >= 6;
-      const canAfford = !queueCapReached && gs.players[p].iron >= (design.trainCost.iron||0) && gs.players[p].oil >= (design.trainCost.oil||0) && (gs.players[p].components||0) >= (design.trainCost.components||0);
+      const dFoodCost = getRecruitFoodCost(design.chassis);
+      const canAfford = !queueCapReached && gs.players[p].iron >= (design.trainCost.iron||0) && gs.players[p].oil >= (design.trainCost.oil||0) && (gs.players[p].components||0) >= (design.trainCost.components||0) && (gs.players[p].food||0) >= dFoodCost;
       const _dbt = UNIT_TYPES[design.chassis]?.buildTime ?? 1;
       const ry = baseRowY + idx * rowH + rowH/2;
       const modTier = Math.max(0, ...((design.modules || []).map(mk => MODULES[mk]?.tier ?? 0)));
@@ -2665,7 +2667,7 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(201);
       objs.push(statTxt);
 
-      const costTxt = this.add.text(w/2 + rowW/2 - 12, ry, `⚙${design.trainCost.iron||0}${(design.trainCost.oil||0) > 0 ? `  🛢${design.trainCost.oil}` : ''}${(design.trainCost.components||0) > 0 ? `  🧩${design.trainCost.components}` : ''}`, {
+      const costTxt = this.add.text(w/2 + rowW/2 - 12, ry, `⚙${design.trainCost.iron||0}${(design.trainCost.oil||0) > 0 ? `  🛢${design.trainCost.oil}` : ''}${(design.trainCost.components||0) > 0 ? `  🧩${design.trainCost.components}` : ''}${dFoodCost > 0 ? `  🌾${dFoodCost}` : ''}`, {
         font: 'bold 12px monospace', fill: canAfford ? '#d6c86a' : '#554444'
       }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(201);
       objs.push(costTxt);

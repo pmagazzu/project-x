@@ -16,7 +16,7 @@ import {
   UNIT_TYPES, BUILDING_TYPES, AIR_UNITS, NAVAL_UNITS,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, computeDesignStats,
-  getReachableHexes, getAttackableHexes, hexDistance, buildingAt, roadAt, computeSupply,
+  getReachableHexes, getAttackableHexes, hexDistance, buildingAt, roadAt, computeSupply, getRecruitFoodCost,
 } from './GameState.js';
 
 // ── Strategy definitions ───────────────────────────────────────────────────
@@ -295,17 +295,20 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     iron: gs.players[player].iron || 0,
     oil: gs.players[player].oil || 0,
     wood: gs.players[player].wood || 0,
+    food: gs.players[player].food || 0,
     components: gs.players[player].components || 0,
   };
   const canAfford = (cost = {}) =>
     resSim.iron >= (cost.iron || 0) &&
     resSim.oil >= (cost.oil || 0) &&
     resSim.wood >= (cost.wood || 0) &&
+    resSim.food >= (cost.food || 0) &&
     resSim.components >= (cost.components || 0);
   const spend = (cost = {}) => {
     resSim.iron -= (cost.iron || 0);
     resSim.oil -= (cost.oil || 0);
     resSim.wood -= (cost.wood || 0);
+    resSim.food -= (cost.food || 0);
     resSim.components -= (cost.components || 0);
   };
 
@@ -609,15 +612,18 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       if ((unitType === 'PATROL_BOAT' || unitType === 'MTB') && (plannedCount[unitType] || 0) >= 4) continue;
 
       const cost = UNIT_TYPES[unitType]?.cost || {};
+      const foodCost = getRecruitFoodCost(unitType);
       if (resSim.iron >= (cost.iron || 0) &&
           resSim.oil  >= (cost.oil  || 0) &&
           resSim.wood >= (cost.wood || 0) &&
+          resSim.food >= foodCost &&
           resSim.components >= (cost.components || 0)) {
         actions.push({ type: 'recruit', buildingId: b.id, unitType });
         plannedCount[unitType] = (plannedCount[unitType] || 0) + 1;
         resSim.iron -= (cost.iron || 0);
         resSim.oil  -= (cost.oil  || 0);
         resSim.wood -= (cost.wood || 0);
+        resSim.food -= foodCost;
         resSim.components -= (cost.components || 0);
         break;
       }

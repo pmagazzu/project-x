@@ -991,6 +991,13 @@ export function calcIncome(state, player, techBonuses = null) {
   return { iron, oil, wood, food, gold, components, rp };
 }
 
+// Recruit-time food cost helper (debug/balance pass)
+export function getRecruitFoodCost(unitType) {
+  const up = UNIT_UPKEEP[unitType]?.food || 0;
+  // Convert upkeep pressure into upfront manpower/food requirement.
+  return Math.max(0, Math.ceil(up * 5));
+}
+
 // ── Recruitment ────────────────────────────────────────────────────────────
 // unitType can be a standard type key OR a design id (number)
 export function canRecruit(state, player, unitType, buildingId) {
@@ -1007,6 +1014,8 @@ export function canRecruit(state, player, unitType, buildingId) {
     if (state.players[player].iron < (design.trainCost.iron||0)) return { ok: false, reason: `Need ${design.trainCost.iron||0} iron` };
     if (state.players[player].oil  < (design.trainCost.oil||0))  return { ok: false, reason: `Need ${design.trainCost.oil||0} oil` };
     if ((state.players[player].components||0) < (design.trainCost.components||0)) return { ok: false, reason: `Need ${design.trainCost.components||0} components` };
+    const dFood = getRecruitFoodCost(design.chassis);
+    if ((state.players[player].food||0) < dFood) return { ok: false, reason: `Need ${dFood} food` };
     return { ok: true };
   }
 
@@ -1015,6 +1024,8 @@ export function canRecruit(state, player, unitType, buildingId) {
   if (state.players[player].iron < (def.cost.iron||0)) return { ok: false, reason: 'Not enough iron' };
   if (state.players[player].oil  < (def.cost.oil||0))  return { ok: false, reason: 'Not enough oil' };
   if ((state.players[player].components||0) < (def.cost.components||0)) return { ok: false, reason: 'Not enough components' };
+  const foodCost = getRecruitFoodCost(unitType);
+  if ((state.players[player].food||0) < foodCost) return { ok: false, reason: 'Not enough food' };
   return { ok: true };
 }
 
@@ -1027,6 +1038,7 @@ export function queueRecruit(state, player, unitType, buildingId) {
     state.players[player].iron -= (design.trainCost.iron||0);
     state.players[player].oil  -= (design.trainCost.oil||0);
     state.players[player].components = (state.players[player].components||0) - (design.trainCost.components||0);
+    state.players[player].food = (state.players[player].food||0) - getRecruitFoodCost(design.chassis);
     const buildTime = UNIT_TYPES[design.chassis]?.buildTime ?? 1;
     state.pendingRecruits.push({ owner: player, designId: unitType, buildingId, turnsLeft: buildTime });
     return { ok: true };
@@ -1036,6 +1048,7 @@ export function queueRecruit(state, player, unitType, buildingId) {
   state.players[player].iron -= (def.cost.iron||0);
   state.players[player].oil  -= (def.cost.oil||0);
   state.players[player].components = (state.players[player].components||0) - (def.cost.components||0);
+  state.players[player].food = (state.players[player].food||0) - getRecruitFoodCost(unitType);
   state.pendingRecruits.push({ owner: player, type: unitType, buildingId, turnsLeft: def.buildTime ?? 1 });
   return { ok: true };
 }
