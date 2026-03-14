@@ -73,11 +73,18 @@ export function randomStrategy() {
 
 function chooseBestTarget(gs, unit, attackTargets) {
   let best = null, bestScore = -Infinity;
+  const reconCautious = unit.type === 'RECON';
   for (const hex of attackTargets) {
     const target = gs.units.find(u =>
       u.q === hex.q && u.r === hex.r && u.owner !== unit.owner && !u.embarked
     );
     if (!target) continue;
+    // Recon should avoid suiciding into line infantry unless it's a high-value/kill shot.
+    if (reconCautious) {
+      const killShot = (target.health || 0) <= 1;
+      const highValue = target.type === 'ARTILLERY' || target.type === 'MORTAR' || target.type === 'MEDIC';
+      if (!killShot && !highValue) continue;
+    }
     // Prefer almost-dead targets, then high-value types, then closest
     const dyingBonus  = (target.maxHealth - target.health) * 4;
     const typeBonus   = target.type === 'ARTILLERY' || target.type === 'MORTAR' ? 6 : 0;

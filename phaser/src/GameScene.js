@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.3.91';
+export const GAME_VERSION = 'v1.3.92';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3598,8 +3598,8 @@ export class GameScene extends Phaser.Scene {
       if (noBuilding) allOpts.push({ label: `Market 💰   3⚙ 4🪵`,             cost:{iron:3,oil:0,wood:4}, enabled: iron>=3&&wood>=4, cb: () => this._onBuildStructure('MARKET',3,0,4) });
       if (noBuilding) allOpts.push({ label: `Science Lab ⚗  6⚙ 4🪵`,         cost:{iron:6,oil:0,wood:4}, enabled: iron>=6&&wood>=4, cb: () => this._onBuildStructure('SCIENCE_LAB',6,0,4) });
       if (noBuilding) allOpts.push({ label: `Factory 🧩    10⚙ 3🛢 8🪵`,      cost:{iron:10,oil:3,wood:8}, enabled: iron>=10&&oil>=3&&wood>=8, cb: () => this._onBuildStructure('FACTORY',10,3,8) });
-      // Coastal Battery — spawns as immobile unit (no building on hex required)
-      allOpts.push({ label: `Coast. Battery 6⚙ 1🛢`, cost:{iron:6,oil:1}, enabled: iron>=6&&oil>=1, cb: () => this._onBuildCoastalBattery() });
+      // Coastal Battery — must be placed on coastal land hex
+      if (coastal) allOpts.push({ label: `Coast. Battery 6⚙ 1🛢`, cost:{iron:6,oil:1}, enabled: iron>=6&&oil>=1, cb: () => this._onBuildCoastalBattery() });
       // AA Emplacement — spawns as immobile anti-air unit
       allOpts.push({ label: `AA Emplacement 4⚙ 1🛢`, cost:{iron:4,oil:1}, enabled: iron>=4&&oil>=1, cb: () => this._onBuildAAEmplacement() });
       // Future entries just go here — pagination handles overflow automatically
@@ -5134,6 +5134,13 @@ export class GameScene extends Phaser.Scene {
     const gs = this.gameState, u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
     const p = gs.currentPlayer;
+    const ttype = this.terrain[`${u.q},${u.r}`] ?? 0;
+    const neighbors = [[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];
+    const coastal = (ttype <= 3 || ttype === 6 || ttype === 7) && neighbors.some(([dq,dr]) => {
+      const t = this.terrain[`${u.q + dq},${u.r + dr}`];
+      return t === 4 || t === 5;
+    });
+    if (!coastal) { this._pushLog('Build failed: Coastal Battery must be on a coastal hex'); this._refresh(); return; }
     if (gs.players[p].iron < 6 || gs.players[p].oil < 1) return;
     gs.players[p].iron -= 6; gs.players[p].oil -= 1;
     const def = UNIT_TYPES['COASTAL_BATTERY'];
@@ -5276,7 +5283,7 @@ export class GameScene extends Phaser.Scene {
     const sw=this.scale.width,sh=this.scale.height,cx=sw*0.5,cy=sh*0.5,D=210;
     const objs=[];
 
-    const UI_SCALE = 2.6; // large text readability
+    const UI_SCALE = 1.45; // readable without overlap
     const mk=(txt,x,y,col='#d0dde8',sz=12,bold=false,ox=0.5,oy=0.5)=>{
       const t=this.add.text(x,y,txt,{font:`${bold?'bold ':''}${Math.max(10, Math.round(sz*UI_SCALE))}px monospace`,fill:col}).setOrigin(ox,oy).setScrollFactor(0).setDepth(D+1);
       objs.push(t);return t;
@@ -5981,7 +5988,7 @@ export class GameScene extends Phaser.Scene {
     const rollStr = roll >= 0 ? `+${roll}` : `${roll}`;
     const detailTop = outY + 36;
     const wrap = cW - 48;
-    mk(`CALC: score ${entry.score ?? '?'} = 50 + roll ${rollStr} + acc(${entry.accuracy ?? 0}) - evasion(${entry.evasion ?? 0}) - cover(${(entry.terrainMod||0)+(entry.dugInMod||0)+(entry.bunkerMod||0)}) + other mods`, cX, detailTop, '#d8e6f3', 10, true, 0.5, 0, wrap);
+    mk(`CALC: hit quality ${entry.score ?? '?'} / 100 = 50 + roll ${rollStr} + acc(${entry.accuracy ?? 0}) - evasion(${entry.evasion ?? 0}) - cover(${(entry.terrainMod||0)+(entry.dugInMod||0)+(entry.bunkerMod||0)}) + other mods`, cX, detailTop, '#d8e6f3', 10, true, 0.5, 0, wrap);
     mk(`ATTACKER: ATK ${entry.baseAttack ?? '?'}  pierce ${entry.pierce ?? '?'}  terrain ${atkTerrain}${atkMods ? `  ·  modules: ${atkMods}` : ''}`, cX, detailTop + 40, '#9cc9ff', 10, true, 0.5, 0, wrap);
     mk(`DEFENDER: armor ${entry.armor ?? '?'}  terrain ${defTerrain}${defMods ? `  ·  modules: ${defMods}` : ''}`, cX, detailTop + 74, '#ffbf9f', 10, true, 0.5, 0, wrap);
 
@@ -5995,7 +6002,7 @@ export class GameScene extends Phaser.Scene {
     mk(`MODIFIERS: ${modParts.length ? modParts.join('  ·  ') : 'none'}`, cX, detailTop + 108, '#f1f5f9', 10, true, 0.5, 0, wrap);
 
     const retText = (entry.defenderCanRetaliate && entry.retaliationDmg > 0)
-      ? `RETALIATION: YES  (${entry.retaliationTier || '?'}, score ${entry.retaliationScore ?? '?'})  defender deals -${entry.retaliationDmg}`
+      ? `RETALIATION: YES  (${entry.retaliationTier || '?'}, hit quality ${entry.retaliationScore ?? '?'})  defender deals -${entry.retaliationDmg}`
       : `RETALIATION: NO  (${entry.blindFire ? 'blind fire' : (entry.retHasLOS===false ? 'no LOS' : 'out of range / suppressed / invalid')})`;
     mk(retText, cX, detailTop + 142, (entry.defenderCanRetaliate ? '#ffcf95' : '#91a4b8'), 10, true, 0.5, 0, wrap);
 
@@ -6152,7 +6159,7 @@ export class GameScene extends Phaser.Scene {
         const attackLabel = entry.isArmored ? `Hard Atk:${entry.baseAttack}` : `Soft Atk:${entry.baseAttack}`;
         addLine(`  ${attackLabel}  Pierce:${entry.pierce} vs Armor:${entry.armor}  ratio:${entry.pierceRatio.toFixed(2)}`, '#aaddff');
 
-        // Score breakdown
+        // Hit-quality breakdown
         const mods = [];
         if (entry.accuracy !== 0)  mods.push(`acc${entry.accuracy > 0 ? '+' : ''}${entry.accuracy}`);
         if (entry.evasion !== 0)   mods.push(`eva-${entry.evasion}`);
@@ -6165,7 +6172,7 @@ export class GameScene extends Phaser.Scene {
         if ((entry.infantryRangePenalty||0) !== 0) mods.push(`infRng-${entry.infantryRangePenalty||0}`);
         if (entry.flankMod !== 0)  mods.push(`flank+${entry.flankMod}`);
         mods.push(`roll${entry.roll >= 0 ? '+' : ''}${entry.roll}`);
-        addLine(`  Score: 50 + ${mods.join(' ')} = ${entry.score}`, '#ddddaa');
+        addLine(`  Hit quality: 50 + ${mods.join(' ')} = ${entry.score}`, '#ddddaa');
 
         // Outcome
         addLine(`  ► ${entry.tier}  |  Def takes ${entry.dmg} dmg  |  Att takes ${entry.attackerDmg} dmg${entry.suppressed ? '  |  SUPPRESSED' : ''}`, tierColor, true);
