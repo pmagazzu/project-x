@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.3.93';
+export const GAME_VERSION = 'v1.3.94';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3363,12 +3363,17 @@ export class GameScene extends Phaser.Scene {
       const attackFog = AIR_UNITS.has(unit.type) ? null : this._currentFog;
       const visibleEnemies = getAttackableHexes(gs, unit, unit.q, unit.r, attackFog);
       const hasRange = (def.range || 0) > 0;
-      // ATTACK — only if confirmed visible enemy in range (direct fire, no penalty)
+      const isIndirect = (unit.type === 'ARTILLERY' || unit.type === 'MORTAR');
+      // Direct attack when visible enemy exists.
       if (visibleEnemies.length > 0) {
         actions.push({ label: 'ATTACK', key: 'attack', enabled: true, color: 0x882222,
           cb: () => this._onDirectAttackMode() });
       }
-      // FIRE AT TILE temporarily disabled from player UI (kept in code for future re-enable).
+      // Indirect units must always be able to fire by tile (range-hex targeting).
+      if (isIndirect && hasRange) {
+        actions.push({ label: 'BOMBARD (INDIRECT)', key: 'bombard', enabled: true, color: 0x664422,
+          cb: () => this._onAttackMode() });
+      }
     }
     if (def.canDigIn && !unit.dugIn && !unit.moved) {
       actions.push({ label: 'DIG IN', key: 'digin',  enabled: true,  color: 0x8B5A2B, cb: () => this._onDigIn() });
