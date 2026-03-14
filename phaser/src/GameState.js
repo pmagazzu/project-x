@@ -646,7 +646,7 @@ export function hexDistance(q1, r1, q2, r2) {
 // Returns an array of {q,r} hexes from start (exclusive) to dest (inclusive),
 // or null if no path exists.  Uses Dijkstra with terrain costs; ignores units
 // (standing-order units move around obstacles each turn by re-pathing).
-export function findPath(terrain, mapSize, startQ, startR, destQ, destR, unitType = 'ENGINEER') {
+export function findPath(terrain, mapSize, startQ, startR, destQ, destR, unitType = 'ENGINEER', state = null) {
   const dist  = new Map();
   const prev  = new Map();
   const visited = new Set();
@@ -669,10 +669,13 @@ export function findPath(terrain, mapSize, startQ, startR, destQ, destR, unitTyp
       if (visited.has(key)) continue;
       const ttype = terrain[key] ?? 0;
       if (!canEnterTerrain(unitType, ttype)) continue;
-      // Use raw terrain cost (no road boost — roads don't exist yet on planned route)
-      const moveCost = getMoveCost(ttype, false, unitType);
+      // Prefer roads when available for standing orders.
+      const hasRoad = !!(state && roadAt(state, nq, nr));
+      const moveCost = getMoveCost(ttype, hasRoad, unitType);
       const realCost = moveCost >= 999 ? 10 : moveCost; // treat impassable-for-vehicles as expensive but not infinite for path search
-      const newCost = cost + realCost;
+      // Small bias toward roads for tie-break quality.
+      const roadBias = hasRoad ? -0.12 : 0;
+      const newCost = cost + realCost + roadBias;
       if (!dist.has(key) || newCost < dist.get(key)) {
         dist.set(key, newCost);
         prev.set(key, { q, r });
@@ -1398,7 +1401,7 @@ export function resolveTurn(state, terrain) {
 
     // Re-pathfind from current position each turn
     const mapSz = state._mapSize || 25;
-    const path = findPath(terrain, mapSz, unit.q, unit.r, order.destQ, order.destR, 'ENGINEER');
+    const path = findPath(terrain, mapSz, unit.q, unit.r, order.destQ, order.destR, 'ENGINEER', state);
     if (!path || path.length === 0) {
       events.push(`Engineer (P${owner}) auto-road blocked — no path to (${order.destQ},${order.destR}) from (${unit.q},${unit.r})`);
       delete unit.roadOrder; continue;
@@ -1777,7 +1780,7 @@ export function resolveEndOfTurn(state, terrain) {
     }
     // Re-pathfind from current position
     const mapSz = state._mapSize || 25;
-    const path = findPath(terrain, mapSz, unit.q, unit.r, order.destQ, order.destR, unit.type);
+    const path = findPath(terrain, mapSz, unit.q, unit.r, order.destQ, order.destR, unit.type, state);
     if (!path || path.length === 0) {
       events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) auto-move blocked — no path`);
       delete unit.moveOrder; continue;
@@ -1824,7 +1827,7 @@ export function resolveEndOfTurn(state, terrain) {
     }
     // Re-pathfind from current position
     const mapSz = state._mapSize || 25;
-    const path = findPath(terrain, mapSz, unit.q, unit.r, order.destQ, order.destR, 'ENGINEER');
+    const path = findPath(terrain, mapSz, unit.q, unit.r, order.destQ, order.destR, 'ENGINEER', state);
     if (!path || path.length === 0) {
       events.push(`Engineer (P${player}) auto-road blocked — no path`);
       delete unit.roadOrder; continue;

@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.07';
+export const GAME_VERSION = 'v1.4.08';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -4663,7 +4663,7 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'move_order') {
       const unit = this._moveOrderUnit;
       if (unit) {
-        const path = findPath(this.terrain, this.mapSize, unit.q, unit.r, q, r, unit.type);
+        const path = findPath(this.terrain, this.mapSize, unit.q, unit.r, q, r, unit.type, this.gameState);
         if (path && path.length > 0) {
           unit.moveOrder = { destQ: q, destR: r, path };
         } else {
@@ -4678,7 +4678,7 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'road_dest') {
       const unit = this._roadOrderUnit;
       if (unit) {
-        const path = findPath(this.terrain, this.mapSize, unit.q, unit.r, q, r, 'ENGINEER');
+        const path = findPath(this.terrain, this.mapSize, unit.q, unit.r, q, r, 'ENGINEER', this.gameState);
         if (path && path.length > 0) {
           unit.roadOrder = { destQ: q, destR: r, path };
           // Lock engineer for this turn — order counts as their action
@@ -4965,7 +4965,7 @@ export class GameScene extends Phaser.Scene {
 
     btn.on('pointerdown', () => {
       this._contextMenuClicked = true;
-      const path = findPath(this.terrain, this.mapSize, unit.q, unit.r, q, r, unit.type);
+      const path = findPath(this.terrain, this.mapSize, unit.q, unit.r, q, r, unit.type, this.gameState);
       if (path && path.length > 0) {
         unit.moveOrder = { destQ: q, destR: r, path };
         this._pushLog(`P${unit.owner} sets move order to (${q},${r})`);
