@@ -1558,6 +1558,7 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
 
   // Air-to-ground strafing balance: fighters are weaker vs ground units.
   const attackerIsAir = AIR_UNITS.has(attacker.type);
+  const targetIsAir = AIR_UNITS.has(target.type);
   const fighterStrafePenalty = attackerIsAir && !targetIsAir && aDef.antiAir;
   if (fighterStrafePenalty) {
     baseAttack = Math.max(1, Math.floor(baseAttack * 0.5));
@@ -1574,7 +1575,6 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   if (aDef.pierce < tDef.armor) pierceRatio = aDef.pierce / tDef.armor;
 
   // Anti-air bonus: AA units get accuracy bonus vs air targets
-  const targetIsAir = AIR_UNITS.has(target.type);
   const aaBonus = (aDef.antiAir && targetIsAir) ? 10 : 0;
 
   let score = 50;
