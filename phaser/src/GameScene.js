@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.3.97';
+export const GAME_VERSION = 'v1.3.98';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1758,9 +1758,18 @@ export class GameScene extends Phaser.Scene {
           Math.floor(ca.blue * (1 - t) + cb.blue * t)
         );
       };
+      const movedOnly = unit.moved && !unit.attacked;
       const teamBase = _mixU(color, 0x6e6e6e, 0.68); // less dominant team fill
-      const unitBodyColor = spent ? _mixU(teamBase, 0x7f7f7f, 0.55) : teamBase; // AP-spent: partially grayscale
-      const unitAccent = spent ? _mixU(_mixU(color, 0xffffff, 0.22), 0x888888, 0.45) : _mixU(color, 0xffffff, 0.22);
+      const unitBodyColor = spent
+        ? _mixU(teamBase, 0x7f7f7f, 0.55)            // fully spent (move+attack)
+        : movedOnly
+          ? _mixU(teamBase, 0x8a7a58, 0.38)          // moved but can still attack
+          : teamBase;
+      const unitAccent = spent
+        ? _mixU(_mixU(color, 0xffffff, 0.22), 0x888888, 0.45)
+        : movedOnly
+          ? _mixU(_mixU(color, 0xffffff, 0.20), 0xc49444, 0.35)
+          : _mixU(color, 0xffffff, 0.22);
 
       // Dug-in ring
       if (unit.dugIn) {
@@ -1830,6 +1839,11 @@ export class GameScene extends Phaser.Scene {
       // top accent stripe carries team color without dominating body
       this.unitGfx.fillStyle(unitAccent, alpha * 0.9);
       this.unitGfx.fillRect(cx2 + 1, cy2 + 1, cW - 2, 3);
+      // Moved marker (amber pip) for units that already moved this turn.
+      if (movedOnly) {
+        this.unitGfx.fillStyle(0xd9a441, alpha * 0.95);
+        this.unitGfx.fillCircle(cx2 + cW - 6, cy2 + 6, 3);
+      }
 
       // Inner highlight (top + left edge)
       this.unitGfx.lineStyle(1, 0xffffff, fillAlpha * 0.35);
@@ -3257,6 +3271,10 @@ export class GameScene extends Phaser.Scene {
       if (this._nameModalOpen) return;
       if (!this.selectedUnit || Number(this.selectedUnit.owner) !== Number(this.gameState.currentPlayer)) return;
       this._enterMoveOrderMode(this.selectedUnit);
+    });
+    this.input.keyboard.on('keydown-N',     () => {
+      if (this._nameModalOpen) return;
+      this._selectNextReadyUnit();
     });
     // Supply overlay hotkey intentionally disabled (was keydown-S). Use UI button only.
     this.input.keyboard.on('keydown-SPACE', () => {
@@ -4799,6 +4817,28 @@ export class GameScene extends Phaser.Scene {
     }
 
     this._clearSelection();
+  }
+
+  _selectNextReadyUnit() {
+    const gs = this.gameState;
+    const curP = Number(gs.currentPlayer);
+    const ready = gs.units.filter(u => !u.dead && !u.embarked && Number(u.owner) === curP && !u.moved);
+    if (ready.length === 0) {
+      this._pushLog(`P${curP}: no unmoved units left`);
+      this._refresh();
+      return;
+    }
+
+    let idx = 0;
+    if (this.selectedUnit) {
+      const curIdx = ready.findIndex(u => u.id === this.selectedUnit.id);
+      if (curIdx >= 0) idx = (curIdx + 1) % ready.length;
+    }
+
+    const pick = ready[idx];
+    this._selectUnit(pick);
+    const { x, y } = hexToWorld(pick.q, pick.r);
+    this.cameras.main.pan(x, y, 180, 'Sine.easeOut', true);
   }
 
   _selectUnit(unit) {
