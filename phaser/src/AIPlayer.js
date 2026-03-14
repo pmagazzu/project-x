@@ -95,12 +95,22 @@ function chooseBestTarget(gs, unit, attackTargets) {
   return best;
 }
 
-function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply) {
+function getUnitRole(unitType) {
+  if (unitType === 'RECON' || unitType === 'MOTORCYCLE') return 'recon';
+  if (unitType === 'ARTILLERY' || unitType === 'MORTAR' || unitType === 'SPG') return 'indirect';
+  if (unitType === 'MEDIC' || unitType === 'SUPPLY_TRUCK' || unitType === 'SUPPLY_SHIP') return 'support';
+  if (unitType === 'TANK' || unitType === 'MEDIUM_TANK' || unitType === 'ARMORED_CAR' || unitType === 'HALFTRACK') return 'assault';
+  if (unitType === 'ENGINEER') return 'engineer';
+  return 'line';
+}
+
+function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx = {}) {
   const cfg = AI_STRATEGIES[strat] ?? AI_STRATEGIES.balanced;
+  const role = getUnitRole(unit.type);
   let score = 0;
 
-  // Attack/pressure scoring (de-emphasized for engineers)
-  if (unit.type !== 'ENGINEER') {
+  // Attack/pressure scoring (de-emphasized for engineers/support)
+  if (unit.type !== 'ENGINEER' && role !== 'support') {
     const attackable = getAttackableHexes(gs, unit, q, r, null);
     if (attackable.length > 0) {
       score += (cfg.attackBonus + 10) + attackable.length * 3;
@@ -129,6 +139,12 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply) {
     const nd = Math.min(...enemyHQs.map(b => hexDistance(q, r, b.q, b.r)));
     const cd = Math.min(...enemyHQs.map(b => hexDistance(unit.q, unit.r, b.q, b.r)));
     if (nd < cd) score += (unit.type === 'ENGINEER' ? 2 : 7);
+    // Occasional deception route: allow wider flank pathing instead of pure shortest-line pressure.
+    if (ctx.deceptionTurn && role !== 'engineer' && role !== 'support') {
+      const nearest = enemyHQs.reduce((a,b) => hexDistance(q,r,a.q,a.r) < hexDistance(q,r,b.q,b.r) ? a : b);
+      const lateral = Math.abs((q - nearest.q) - (r - nearest.r));
+      score += Math.min(6, lateral * 0.6);
+    }
   }
 
   // Defensive: reward moving toward own HQ
@@ -173,10 +189,45 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply) {
     }
   }
 
+  // Unit-role doctrine improvements
+  const nearestEnemy = enemies.length > 0 ? Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r))) : 99;
+  if (role === 'recon') {
+    // Recon should scout/screens, not frontline brawl.
+    if (nearestEnemy <= 1) score -= 20;
+    if (nearestEnemy >= 2 && nearestEnemy <= 4) score += 10;
+    if (nearestEnemy > 6) score -= 4; // too far, not useful spotting
+  }
+  if (role === 'indirect') {
+    // Indirect wants standoff with firing lanes.
+    const attackable = getAttackableHexes(gs, unit, q, r, null);
+    if (attackable.length > 0) score += 12;
+    if (nearestEnemy <= 1) score -= 24;
+    if (nearestEnemy >= 2 && nearestEnemy <= 5) score += 6;
+  }
+  if (role === 'support') {
+    // Support stays behind line and near friendlies.
+    if (nearestEnemy <= 2) score -= 18;
+    const friendlyCombat = gs.units.filter(u => u.owner === unit.owner && u.id !== unit.id && (UNIT_TYPES[u.type]?.attack || 0) > 0);
+    if (friendlyCombat.length > 0) {
+      const nearFriend = Math.min(...friendlyCombat.map(f => hexDistance(q, r, f.q, f.r)));
+      if (nearFriend <= 2) score += 8;
+      if (nearFriend > 5) score -= 5;
+    }
+  }
+
+  // Map/resource awareness: prefer routes that pressure contested resources.
+  if (ctx.resourceTargets?.length) {
+    const rd = Math.min(...ctx.resourceTargets.map(t => hexDistance(q, r, t.q, t.r)));
+    const curRd = Math.min(...ctx.resourceTargets.map(t => hexDistance(unit.q, unit.r, t.q, t.r)));
+    if (rd < curRd) score += (role === 'recon' ? 8 : role === 'assault' ? 6 : 3);
+  }
+
+  // Easier paths: value roads for maneuver units.
+  if (roadAt(gs, q, r) && (role === 'assault' || role === 'recon' || role === 'line')) score += 3;
+
   // Supply awareness: avoid ending out of supply unless near-contact (sneaky/emergency pushes).
   const inSupply = mySupply?.has?.(`${q},${r}`);
   if (!inSupply) {
-    const nearestEnemy = enemies.length > 0 ? Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r))) : 99;
     const emergencyPush = nearestEnemy <= 2;
     score -= emergencyPush ? 4 : 18;
   }
@@ -196,6 +247,15 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const getEnemies = () => gs.units.filter(u => u.owner !== player && !u.embarked);
   const getMyHQs   = () => gs.buildings.filter(b => b.owner === player && b.type === 'HQ');
   const mySupply   = computeSupply(gs, player, terrain, mapSize);
+  const deceptionTurn = Math.random() < 0.18;
+  const resourceTargets = Object.entries(gs.resourceHexes || {})
+    .map(([k, v]) => ({ k, q: Number(k.split(',')[0]), r: Number(k.split(',')[1]), type: v?.type }))
+    .filter(t => {
+      const b = gs.buildings.find(bb => bb.q === t.q && bb.r === t.r && (bb.type === 'MINE' || bb.type === 'OIL_PUMP'));
+      return !b || Number(b.owner) !== Number(player);
+    })
+    .slice(0, 24);
+  const aiCtx = { deceptionTurn, resourceTargets };
 
   // Simulated AI economy spend during planning so we don't overcommit.
   const resSim = {
@@ -287,7 +347,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
         let bestDest = null, bestScore = -Infinity;
         for (const hex of reachable) {
-          const s = scoreMove(gs, terrain, unit, hex.q, hex.r, strategy, enemies, myHQs, mySupply);
+          const s = scoreMove(gs, terrain, unit, hex.q, hex.r, strategy, enemies, myHQs, mySupply, aiCtx);
           if (s > bestScore) { bestScore = s; bestDest = hex; }
         }
 
