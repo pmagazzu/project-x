@@ -618,6 +618,12 @@ export function createGameState(scenario = 'default') {
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
   }
 
+  // Ensure each HQ starts with a dirt road on the same hex.
+  for (const hq of state.buildings.filter(b => b.type === 'HQ')) {
+    const hasRoad = state.buildings.some(b => ROAD_TYPES.has(b.type) && b.q === hq.q && b.r === hq.r);
+    if (!hasRoad) state.buildings.push(createBuilding('ROAD', hq.owner, hq.q, hq.r));
+  }
+
   return state;
 }
 
@@ -1465,7 +1471,7 @@ export function resolveTurn(state, terrain) {
     const spawnChassis = recruit.designId !== undefined
       ? (state.designs[recruit.owner].find(d => d.id === recruit.designId)?.chassis ?? null)
       : (recruit.type ?? null);
-    const spawnHex = findFreeAdjacentHex(state, b.q, b.r, spawnChassis, state._terrain);
+    const spawnHex = findFreeAdjacentHex(state, b.q, b.r, spawnChassis, state._terrain, recruit.owner);
     if (!spawnHex) {
       recruit.turnsLeft = 0; // stay ready; retry next turn
       events.push(`P${recruit.owner} recruit delayed — no space near ${BUILDING_TYPES[b.type]?.name || 'building'}`);
@@ -1726,7 +1732,7 @@ export function resolveEndOfTurn(state, terrain) {
     const spawnChassis = recruit.designId !== undefined
       ? (state.designs[recruit.owner].find(d => d.id === recruit.designId)?.chassis ?? null)
       : (recruit.type ?? null);
-    const spawnHex = findFreeAdjacentHex(state, b.q, b.r, spawnChassis, state._terrain);
+    const spawnHex = findFreeAdjacentHex(state, b.q, b.r, spawnChassis, state._terrain, recruit.owner);
     if (!spawnHex) {
       recruit.turnsLeft = 0;
       events.push(`P${recruit.owner} recruit delayed at ${BUILDING_TYPES[b.type]?.name || 'building'} (spawn blocked)`);
@@ -2038,16 +2044,30 @@ export function resolveEndOfTurn(state, terrain) {
   return events;
 }
 
-function findFreeAdjacentHex(state, q, r, unitType = null, terrain = null) {
+function findFreeAdjacentHex(state, q, r, unitType = null, terrain = null, spawnOwner = null) {
   const mapSize = state._mapSize || 25;
   const isValid = (x, y) => x >= 0 && y >= 0 && x < mapSize && y < mapSize;
 
   const isSpawnable = (x, y) => {
     if (!isValid(x, y)) return false;
-    const occ = unitAt(state, x, y);
-    const bld = buildingAt(state, x, y);
-    const blockedByBuilding = bld && !ROAD_TYPES.has(bld.type);
-    if (occ || blockedByBuilding) return false;
+
+    const unitsHere = state.units.filter(u => !u.dead && u.q === x && u.r === y);
+    const isOrigin = (x === q && y === r);
+
+    if (spawnOwner !== null && unitsHere.some(u => Number(u.owner) !== Number(spawnOwner))) return false;
+
+    if (isOrigin) {
+      // Spawn ON producer tile is allowed only if occupants are friendly engineer/air stack types.
+      const hasBlockingGround = unitsHere.some(u => u.type !== 'ENGINEER' && !AIR_UNITS.has(u.type));
+      if (hasBlockingGround) return false;
+    } else {
+      // Non-origin spawn hexes must be empty of units.
+      if (unitsHere.length > 0) return false;
+      const bld = buildingAt(state, x, y);
+      const blockedByBuilding = bld && !ROAD_TYPES.has(bld.type);
+      if (blockedByBuilding) return false;
+    }
+
     if (unitType && terrain) {
       const ttype = terrain[`${x},${y}`] ?? 0;
       if (!canEnterTerrain(unitType, ttype)) return false;
@@ -2055,7 +2075,10 @@ function findFreeAdjacentHex(state, q, r, unitType = null, terrain = null) {
     return true;
   };
 
-  // 1) Prefer adjacent spawn (existing behavior)
+  // 1) Prefer spawning ON the producer tile when legal.
+  if (isSpawnable(q, r)) return { q, r };
+
+  // 2) Then prefer adjacent spawn.
   for (const [dq, dr] of HEX_NEIGHBORS) {
     const nq = q + dq, nr = r + dr;
     if (isSpawnable(nq, nr)) return { q: nq, r: nr };
