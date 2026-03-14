@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.3.80';
+export const GAME_VERSION = 'v1.3.81';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -4803,14 +4803,21 @@ export class GameScene extends Phaser.Scene {
     this._refresh();
   }
 
-  // Right-click: open context menu when clicking ON a friendly unit; deselect everywhere else
+  // Right-click: open context menu on own unit; otherwise close menus.
   _onHexRightClick(q, r) {
     // Cancel special modes on right-click
     if (this.mode === 'road_dest') { this._cancelRoadDestMode(); return; }
     if (this.mode === 'move_order') { this._cancelMoveOrderMode(); return; }
     if (this.mode === 'transport_load' || this.mode === 'transport_unload') { this._cancelTransportMode(); return; }
+
     const gs = this.gameState;
     const clickedUnit = gs.units.find(u => u.q === q && u.r === r && !u.dead);
+
+    // Right-click anywhere should first close transient menus/panels.
+    this._hideContextMenu();
+    this._hideRecruitPanel?.();
+    this._closeFactoryPanel?.();
+
     if (clickedUnit && clickedUnit.owner === gs.currentPlayer) {
       // Right-clicked directly on own unit → select + show action menu
       if (this.selectedUnit !== clickedUnit) this._selectUnit(clickedUnit);
@@ -5540,11 +5547,24 @@ export class GameScene extends Phaser.Scene {
       this._showAICombatFlash(action.attackerQ, action.attackerR, action.targetQ, action.targetR);
       if (log.length > 0) {
         const card = this._showCombatCard(log[0], 1, 1);
-        this.time.delayedCall(500, () => { card.forEach(o => { try { o.destroy(); } catch(e){} }); });
+        let done = false;
+        const dismiss = () => {
+          if (done) return;
+          done = true;
+          card.forEach(o => { try { o.destroy(); } catch(e){} });
+          this._splashDismiss = null;
+          this.input.off('pointerup', dismiss);
+          next();
+        };
+        this._splashDismiss = dismiss;
+        this.time.delayedCall(120, () => {
+          this.input.on('pointerup', dismiss);
+          this.input.keyboard?.once('keydown-SPACE', dismiss);
+        });
       } else {
         this._pushLog('AI attack resolved with no combat log entry');
+        this.time.delayedCall(200, next);
       }
-      this.time.delayedCall(700, next);
 
     } else if (action.type === 'recruit') {
       queueRecruit(gs, gs.currentPlayer, action.unitType, action.buildingId);
