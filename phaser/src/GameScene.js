@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.3.85';
+export const GAME_VERSION = 'v1.3.86';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3253,7 +3253,14 @@ export class GameScene extends Phaser.Scene {
     // Supply overlay hotkey intentionally disabled (was keydown-S). Use UI button only.
     this.input.keyboard.on('keydown-SPACE', () => {
       if (this._nameModalOpen) return;
-      if (this._splashDismiss) { this._splashDismiss(); this._splashDismiss = null; return; }
+      const now = performance.now();
+      if (this._spaceGuardUntil && now < this._spaceGuardUntil) return;
+      if (this._splashDismiss) {
+        this._spaceGuardUntil = now + 380; // prevent chained submit from same key-repeat burst
+        this._splashDismiss();
+        this._splashDismiss = null;
+        return;
+      }
       if (this._endTurnPending) { this._onSubmit(); this._hideEndTurnConfirm(); return; }
       this._confirmEndTurn();
     });
@@ -5971,6 +5978,7 @@ export class GameScene extends Phaser.Scene {
     this._addToUI([btn]);
 
     const dismiss = () => {
+      this._spaceGuardUntil = performance.now() + 380;
       this._splashDismiss = null;
       [...objects, btn].forEach(o => { try { o.destroy(); } catch(e){} });
       onDismiss();
