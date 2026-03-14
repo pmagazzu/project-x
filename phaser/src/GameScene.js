@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.3.83';
+export const GAME_VERSION = 'v1.3.84';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5190,8 +5190,14 @@ export class GameScene extends Phaser.Scene {
     // Retaliation
     const retDist = hexDistance(attacker.q,attacker.r,target.q,target.r);
     const subDiveBlock = tDef.noSurfaceRetaliation && !aDef.noSurfaceRetaliation;
-    const retHasLOS = !this.terrain || hasLOS(target.q, target.r, attacker.q, attacker.r, this.terrain, this.mapSize);
+    const retHasLOS = retDist <= 1 || !this.terrain || hasLOS(target.q, target.r, attacker.q, attacker.r, this.terrain, this.mapSize);
     const canRet = !blindFire && !INDIRECT.has(attacker.type) && !subDiveBlock && retDist<=(tDef.range||1) && retHasLOS && !target.suppressed;
+    const noRetReason = blindFire ? 'blind fire' :
+      (INDIRECT.has(attacker.type) ? 'indirect fire attacker' :
+      (subDiveBlock ? 'defender dived' :
+      (retDist > (tDef.range||1) ? 'defender out of range' :
+      (!retHasLOS ? 'no line of sight' :
+      (target.suppressed ? 'defender suppressed' : 'no valid retaliation')))));
     let expRetDmg=0, retTier='';
     if (canRet) {
       const rBase = navalVsNaval ? tDef.hard_attack : ((aDef.armor>2)?tDef.hard_attack:tDef.soft_attack);
@@ -5210,7 +5216,7 @@ export class GameScene extends Phaser.Scene {
     const sw=this.scale.width,sh=this.scale.height,cx=sw*0.5,cy=sh*0.5,D=210;
     const objs=[];
 
-    const UI_SCALE = 1.9; // near-double text size for readability
+    const UI_SCALE = 2.6; // large text readability
     const mk=(txt,x,y,col='#d0dde8',sz=12,bold=false,ox=0.5,oy=0.5)=>{
       const t=this.add.text(x,y,txt,{font:`${bold?'bold ':''}${Math.max(10, Math.round(sz*UI_SCALE))}px monospace`,fill:col}).setOrigin(ox,oy).setScrollFactor(0).setDepth(D+1);
       objs.push(t);return t;
@@ -5227,7 +5233,7 @@ export class GameScene extends Phaser.Scene {
       if(proj>0){const lw=bW*(f-af);bx(x-bW/2+bW*af+lw/2,y,lw,10,0x882222,0.7);}
     };
 
-    const cW=Math.min(1100,sw-20), cH=700;
+    const cW=Math.min(1320,sw-10), cH=860;
     bx(cx,cy,sw,sh,0x000000,0.72);
     bx(cx,cy,cW,cH,0x0a0d12,0.98,0x2e3d50);
 
@@ -5300,7 +5306,7 @@ export class GameScene extends Phaser.Scene {
     const outY = sbY + sbH + 6;
     bx(cx, outY+14, cW-16, 28, TIER_BG[tier]||0x1a1a1a, 1, 0x334455);
     const rangeStr = tierLo===tierHi ? tier : `${tierLo}  →  ${tier}  →  ${tierHi}`;
-    mk(`Expected: ${rangeStr.toUpperCase()}  |  est. −${expDmg} to defender${canRet?`  ·  ↩ ret. −${expRetDmg}`:' · no retaliation'}`, cx, outY+14, TIER_COL[tier]||'#ccc', 10, true);
+    mk(`Expected: ${rangeStr.toUpperCase()}  |  est. −${expDmg} to defender${canRet?`  ·  ↩ ret. −${expRetDmg}`:` · no retaliation (${noRetReason})`}`, cx, outY+14, TIER_COL[tier]||'#ccc', 10, true);
 
     // ── Buttons ───────────────────────────────────────────────────────────────
     const btnY = cy+cH/2-22;
@@ -5310,7 +5316,17 @@ export class GameScene extends Phaser.Scene {
     this._addToUI([...objs,atkBtn,canBtn]);
 
     const cleanup=()=>[...objs,atkBtn,canBtn].forEach(o=>{try{o.destroy();}catch(e){}});
-    atkBtn.on('pointerdown',()=>{ this._contextMenuClicked=true; cleanup(); this._doImmediateAttack(attacker,target.id,blindFire); });
+    atkBtn.on('pointerdown',()=>{
+      this._contextMenuClicked=true;
+      // Short on-card strike animation before resolve
+      const slash = this.add.graphics().setScrollFactor(0).setDepth(D+3);
+      const sx1 = lCX + pW*0.15, sy1 = pY - 12;
+      const sx2 = rCX - pW*0.15, sy2 = pY - 12;
+      slash.lineStyle(6, 0xff4444, 0.95);
+      slash.beginPath(); slash.moveTo(sx1, sy1); slash.lineTo(sx2, sy2); slash.strokePath();
+      this.tweens.add({ targets: slash, alpha: 0, duration: 140, onComplete: () => { try { slash.destroy(); } catch(e){} } });
+      this.time.delayedCall(120, () => { cleanup(); this._doImmediateAttack(attacker,target.id,blindFire); });
+    });
     canBtn.on('pointerdown',()=>{ this._contextMenuClicked=true; cleanup(); this._refresh(); });
     atkBtn.on('pointerover',()=>atkBtn.setStyle({fill:'#ffdddd'}));
     atkBtn.on('pointerout', ()=>atkBtn.setStyle({fill:'#ffffff'}));
@@ -5831,8 +5847,9 @@ export class GameScene extends Phaser.Scene {
     };
     const PC = [null, 0x3366cc, 0xcc3333]; // player colors
 
+    const CARD_SCALE = 1.9;
     const mk = (txt, x, y, col='#d0dde8', sz=12, bold=false, ox=0.5, oy=0.5) => {
-      const t = this.add.text(x, y, txt, { font:`${bold?'bold ':''}${sz}px monospace`, fill:col })
+      const t = this.add.text(x, y, txt, { font:`${bold?'bold ':''}${Math.max(10, Math.round(sz*CARD_SCALE))}px monospace`, fill:col })
         .setOrigin(ox, oy).setScrollFactor(0).setDepth(D+1);
       objs.push(t); return t;
     };
@@ -5858,7 +5875,7 @@ export class GameScene extends Phaser.Scene {
     box(cx, cy, sw, sh, 0x000000, 0.65);
 
     // ── Card shell ────────────────────────────────────────────────────────────
-    const cW = Math.min(700, sw - 32), cH = 320;
+    const cW = Math.min(1280, sw - 12), cH = 700;
     const cX = cx, cY = cy;
     box(cX, cY, cW, cH, 0x0b0e14, 0.98, 0x2e3d50);
 
@@ -5970,11 +5987,25 @@ export class GameScene extends Phaser.Scene {
     if (entry.blindFirePenalty) mods.push(`Blind −${entry.blindFirePenalty}`);
     if (entry.suppressed)      mods.push('SUPPRESSED');
     mk(mods.join('  ·  ')||'No modifiers', cX, modY+14, '#445566', 9, false, 0.5, 0.5);
+    const gs = this.gameState;
+    const atkU = gs.units.find(u => u.id === entry.attackerId);
+    const defU = gs.units.find(u => u.id === entry.targetId);
+    const atkTerrain = atkU ? (TERRAIN_LABELS[this.terrain?.[`${atkU.q},${atkU.r}`] ?? 0] || 'Plains') : '?';
+    const defTerrain = defU ? (TERRAIN_LABELS[this.terrain?.[`${defU.q},${defU.r}`] ?? 0] || 'Plains') : '?';
+    const atkDesign = atkU?.designId !== undefined ? gs.designs?.[atkU.owner]?.find(d => d.id === atkU.designId) : null;
+    const defDesign = defU?.designId !== undefined ? gs.designs?.[defU.owner]?.find(d => d.id === defU.designId) : null;
+    const atkModNames = (atkDesign?.moduleKeys || []).map(k => MODULES[k]?.name || k).slice(0,4).join(', ');
+    const defModNames = (defDesign?.moduleKeys || []).map(k => MODULES[k]?.name || k).slice(0,4).join(', ');
+
+    mk(`ATTACKER CONTEXT: terrain=${atkTerrain}${atkModNames?`  ·  mods: ${atkModNames}`:''}`, cX, modY+28, '#99c8ff', 10, true, 0.5, 0.5);
+    mk(`DEFENDER CONTEXT: terrain=${defTerrain}${defModNames?`  ·  mods: ${defModNames}`:''}`, cX, modY+46, '#ffb799', 10, true, 0.5, 0.5);
+
     // Retaliation line
     if (entry.defenderCanRetaliate && entry.retaliationDmg > 0) {
-      mk(`↩ Retaliation: ${entry.retaliationTier||'?'} (score ${entry.retaliationScore??'?'})  —  defender deals −${entry.retaliationDmg}`, cX, modY+28, '#ffcc88', 9, false, 0.5, 0.5);
+      mk(`↩ Retaliation: ${entry.retaliationTier||'?'} (score ${entry.retaliationScore??'?'})  —  defender deals −${entry.retaliationDmg}`, cX, modY+66, '#ffcc88', 10, true, 0.5, 0.5);
     } else {
-      mk(`↩ No retaliation — ${entry.blindFire?'blind fire':'defender dived / out of range'}`, cX, modY+28, '#334455', 9, false, 0.5, 0.5);
+      const rReason = entry.blindFire ? 'blind fire' : (entry.retHasLOS===false ? 'no line of sight' : 'out of range / suppressed / no valid retaliation');
+      mk(`↩ No retaliation — ${rReason}`, cX, modY+66, '#7f8f9f', 10, true, 0.5, 0.5);
     }
 
     // ── Footer ────────────────────────────────────────────────────────────────
