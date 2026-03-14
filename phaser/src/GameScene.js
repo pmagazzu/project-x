@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.04';
+export const GAME_VERSION = 'v1.4.05';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1713,6 +1713,10 @@ export class GameScene extends Phaser.Scene {
   // ── Units ─────────────────────────────────────────────────────────────────
   _redrawUnits() {
     this.unitGfx.clear();
+    if (this._unitTierLabels) {
+      for (const t of this._unitTierLabels) { try { t.destroy(); } catch(e){} }
+    }
+    this._unitTierLabels = [];
     const gs  = this.gameState;
     const fog = this._currentFog;
 
@@ -1914,6 +1918,19 @@ export class GameScene extends Phaser.Scene {
           this.unitGfx.fillStyle(tierCol, alpha * 0.98);
           for (let i = 0; i < shownTier; i++) this.unitGfx.fillRect(tx - 7 + i * 5, ty - 3, 4, 6);
         }
+      }
+
+      // Explicit enemy tier text label (high-visibility, unmissable)
+      if (isEnemy) {
+        const shownTier = this._unitShownTier(unit);
+        const tierCol = shownTier >= 3 ? '#ff6666' : shownTier === 2 ? '#ffb347' : shownTier === 1 ? '#66b3ff' : '#b8c2cc';
+        const t = this.add.text(x, y - (r + 11), `T${shownTier}`, {
+          font: 'bold 11px monospace',
+          fill: tierCol,
+          backgroundColor: '#101820',
+          padding: { x: 3, y: 1 },
+        }).setOrigin(0.5, 0.5).setDepth(9);
+        this._unitTierLabels.push(t);
       }
 
       // ── Type symbol (NATO-inspired) ────────────────────────────────────────
