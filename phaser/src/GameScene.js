@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.08';
+export const GAME_VERSION = 'v1.4.09';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -140,6 +140,7 @@ export class GameScene extends Phaser.Scene {
     this.scenario = data.scenario || 'default';
     this.procLandProfile = data.procLandProfile || 'continent';
     this.procQuickStart  = (data.procQuickStart !== undefined) ? !!data.procQuickStart : true;
+    this.debugNoFog      = !!data.debugNoFog;
     // Map sizes per scenario
     const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, random: 40, air_test: 20, custom: data.customSize || 40, default: 25 };
     this.mapSize   = MAP_SIZES[this.scenario] || MAP_SIZE;
@@ -906,11 +907,17 @@ export class GameScene extends Phaser.Scene {
     // Recompute fog based on current unit positions (own units may have moved during planning).
     // We-go integrity is maintained by _origQ/_origR on enemy units — enemy display positions
     // are locked to turn-start regardless of fog recomputation.
-    this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
-    // Track discovered hex memory per player (used for fogged-road visibility)
-    this._discovered = this._discovered || { 1: new Set(), 2: new Set() };
-    const cp = Number(this.gameState.currentPlayer) || 1;
-    for (const k of this._currentFog || []) this._discovered[cp].add(k);
+    if (this.debugNoFog) {
+      this._currentFog = null;
+      if (this.fogRT) this.fogRT.setVisible(false);
+    } else {
+      this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
+      // Track discovered hex memory per player (used for fogged-road visibility)
+      this._discovered = this._discovered || { 1: new Set(), 2: new Set() };
+      const cp = Number(this.gameState.currentPlayer) || 1;
+      for (const k of this._currentFog || []) this._discovered[cp].add(k);
+      if (this.fogRT) this.fogRT.setVisible(true);
+    }
     this._redrawHighlights();
     this._redrawRoads();
     this._redrawBuildings();
@@ -2177,6 +2184,11 @@ export class GameScene extends Phaser.Scene {
   // Call at turn start to lock in fog for the planning phase
   _freezeFog() {
     this.gameState.currentPlayer = Number(this.gameState.currentPlayer) || 1;
+    if (this.debugNoFog) {
+      this._currentFog = null;
+      if (this.fogRT) this.fogRT.setVisible(false);
+      return;
+    }
     this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
     this._discovered = this._discovered || { 1: new Set(), 2: new Set() };
     const cp = Number(this.gameState.currentPlayer) || 1;
@@ -2184,6 +2196,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   _redrawFog() {
+    if (this.debugNoFog) {
+      this.fogRT?.clear();
+      this.fogRT?.setVisible(false);
+      return;
+    }
     // RenderTexture approach: fill entire map black, then erase visible hexes.
     // O(visible) erase calls vs O(mapSize²) fill calls — critical for 120×120+ maps.
     //

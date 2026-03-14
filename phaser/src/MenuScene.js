@@ -243,6 +243,7 @@ export class MenuScene extends Phaser.Scene {
 
     let profile = 'continent';
     let quickStart = true;
+    let debugNoFog = false;
     const created = [overlay, panel, topLine, title];
 
     const rebuild = () => {
@@ -295,6 +296,21 @@ export class MenuScene extends Phaser.Scene {
       }).setOrigin(0.5).setDepth(123);
       note._dynamic = true; created.push(note);
 
+      const fogY = qsY + 84;
+      const fogLbl = this.add.text(w/2 - 230, fogY, 'Debug Fog of War', {
+        font: '12px monospace', fill: '#c8c0a0'
+      }).setOrigin(0, 0.5).setDepth(123);
+      fogLbl._dynamic = true; created.push(fogLbl);
+
+      const fogBtn = this.add.text(w/2 + 130, fogY, debugNoFog ? '[ OFF (DEBUG) ]' : '[ ON ]', {
+        font: 'bold 12px monospace',
+        fill: debugNoFog ? '#ffcc88' : '#aaddaa',
+        backgroundColor: debugNoFog ? '#3a1f00' : '#153015',
+        padding: {x:10,y:5}
+      }).setOrigin(0.5).setDepth(123).setInteractive({ useHandCursor: true });
+      fogBtn.on('pointerdown', () => { debugNoFog = !debugNoFog; rebuild(); });
+      fogBtn._dynamic = true; created.push(fogBtn);
+
       const startBtn = this.add.text(w/2, panelY + panelH - 52, '[ START GAME ]', {
         font: 'bold 14px monospace', fill: '#ffffff', backgroundColor: '#2a5533', padding: {x:18,y:8}
       }).setOrigin(0.5).setDepth(123).setInteractive({ useHandCursor: true });
@@ -306,6 +322,7 @@ export class MenuScene extends Phaser.Scene {
           aiStrategy: 'balanced',
           procLandProfile: profile,
           procQuickStart: quickStart,
+          debugNoFog,
         });
       });
       startBtn._dynamic = true; created.push(startBtn);
