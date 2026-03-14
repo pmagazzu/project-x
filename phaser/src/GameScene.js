@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.3.96';
+export const GAME_VERSION = 'v1.3.97';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -6394,6 +6394,7 @@ export class GameScene extends Phaser.Scene {
     const COAST_LV  = SEA_LV + 0.04;
     const HILL_LV   = 0.64;
     const MTN_LV    = 0.79;
+    const isContinentLike = (landProfile === 'continent' || landProfile === 'two_continents');
 
     // Build height map
     const h = {};
@@ -6435,23 +6436,27 @@ export class GameScene extends Phaser.Scene {
         let ex = ((q / ms) - (0.5 + cxOff)) * 2;
         let er = ((r / ms) - (0.5 + cyOff)) * 2;
 
-        const coastWarpA = this._fbm(q * 0.11 + 310, r * 0.11 + 740, seed + 4242, 3) * 0.14;
-        const coastWarpB = this._fbm(q * 0.09 + 120, r * 0.09 + 520, seed + 9898, 3) * 0.14;
+        const coastWarpAmp = isContinentLike ? 0.09 : 0.14;
+        const coastWarpA = this._fbm(q * 0.11 + 310, r * 0.11 + 740, seed + 4242, 3) * coastWarpAmp;
+        const coastWarpB = this._fbm(q * 0.09 + 120, r * 0.09 + 520, seed + 9898, 3) * coastWarpAmp;
         ex += coastWarpA;
         er += coastWarpB;
 
         // Continent-like profiles use warped ellipse (more natural varied shapes).
         let edgeDist;
         if (landProfile === 'continent' || landProfile === 'two_continents') {
-          const ax = 0.95 + (this._fbm(seed * 0.001, 31.1, seed + 91, 1) - 0.5) * 0.28;
-          const ay = 0.95 + (this._fbm(seed * 0.001, 37.9, seed + 117, 1) - 0.5) * 0.28;
-          edgeDist = Math.sqrt((ex / ax) * (ex / ax) + (er / ay) * (er / ay));
+          // Keep continents organic but avoid geometric/trapezoid silhouettes.
+          const ax = 0.98 + (this._fbm(seed * 0.001, 31.1, seed + 91, 1) - 0.5) * 0.16;
+          const ay = 0.98 + (this._fbm(seed * 0.001, 37.9, seed + 117, 1) - 0.5) * 0.16;
+          const radial = Math.sqrt((ex / ax) * (ex / ax) + (er / ay) * (er / ay));
+          const boxy = Math.max(Math.abs(ex), Math.abs(er));
+          edgeDist = radial * 0.88 + boxy * 0.12;
         } else {
           edgeDist = Math.max(Math.abs(ex), Math.abs(er));
         }
 
         // Extra raggedness around shoreline band
-        const shoreNoise = this._fbm(q * 0.20 + 700, r * 0.20 + 300, seed + 1313, 2) * 0.10;
+        const shoreNoise = this._fbm(q * 0.20 + 700, r * 0.20 + 300, seed + 1313, 2) * (isContinentLike ? 0.07 : 0.10);
         edgeDist += shoreNoise;
 
         v -= Math.max(0, edgeDist - PROFILE.edgeStart) * PROFILE.edgeFalloff;
@@ -6477,11 +6482,15 @@ export class GameScene extends Phaser.Scene {
         const rough = this._fbm(q * 0.16 + 740, r * 0.16 + 260, seed + 6666, 2);
 
         // Mountains: rarer and more range-like; not blanket coverage.
-        const isMountain = (v > MTN_LV && ridge > 0.60) || (v > MTN_LV + 0.03 && ridge > 0.54);
+        const mtnV = isContinentLike ? (MTN_LV + 0.02) : MTN_LV;
+        const isMountain = (v > mtnV && ridge > 0.60) || (v > mtnV + 0.03 && ridge > 0.54);
         if (isMountain) { map[`${q},${r}`] = 2; continue; }
 
-        // Hills: near high terrain and ridge shoulders, with occasional strays.
-        const isHill = (v > HILL_LV && ridge > 0.48) || (v > HILL_LV + 0.04) || (ridge > 0.72 && rough > 0.56);
+        // Hills: tone down on continent profiles to avoid hill carpets.
+        const hillV = isContinentLike ? (HILL_LV + 0.06) : HILL_LV;
+        const isHill = (v > hillV && ridge > (isContinentLike ? 0.56 : 0.48)) ||
+                       (v > hillV + 0.06) ||
+                       (!isContinentLike && ridge > 0.72 && rough > 0.56);
         if (isHill) { map[`${q},${r}`] = 3; continue; }
 
         // Flat land — secondary noise for vegetation
