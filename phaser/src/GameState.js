@@ -1581,6 +1581,7 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   score += aDef.accuracy;
   score += aaBonus;
 
+  const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
   // Infantry long-range rifle penalty (max-range shots are less effective)
   const INF_RIFLE_TYPES = new Set(['INFANTRY']);
   const infantryRangePenalty = (INF_RIFLE_TYPES.has(attacker.type) && dist >= 2) ? 8 : 0;
@@ -1632,12 +1633,12 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   dmg = Math.max(0, dmg - effectiveTargetDefense);
 
   // Retaliation: defender fires back if alive after attacker's hit and in range
-  const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
+  const retDist = hexDistance(attacker.q, attacker.r, target.q, target.r);
   const defenderRange = tDef.range || 1;
   // Subs with noSurfaceRetaliation can't retaliate against surface ships (they dive instead)
   const subDiveBlock = tDef.noSurfaceRetaliation && !aDef.noSurfaceRetaliation;
   const retHasLOS = !state._terrain || hasLOS(target.q, target.r, attacker.q, attacker.r, state._terrain);
-  const canRetaliate = !blindFire && !isIndirectAttack && !subDiveBlock && dist <= defenderRange && retHasLOS && target.health - dmg > 0 && !target.suppressed;
+  const canRetaliate = !blindFire && !isIndirectAttack && !subDiveBlock && retDist <= defenderRange && retHasLOS && target.health - dmg > 0 && !target.suppressed;
 
   let retDmg = 0, retScore = 0, retTier = '';
   if (canRetaliate) {
