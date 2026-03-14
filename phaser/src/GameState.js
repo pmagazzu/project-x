@@ -2181,9 +2181,9 @@ export function computeSupply(state, player, mapSize) {
         const key = `${nq},${nr}`;
         const fromRoad = isRoadHex(q, r);
         const toRoad = isRoadHex(nq, nr);
-        // Roads still help, but with a 1-hex entry tax:
-        // entering a road from non-road consumes 1 range; continuing on roads is free.
-        const stepCost = toRoad ? (fromRoad ? 0 : 1) : 1;
+        // Roads still help, but with a heavier entry tax (reduced extension reach):
+        // entering a road from non-road consumes 3 range (was 1); continuing on roads is free.
+        const stepCost = toRoad ? (fromRoad ? 0 : 3) : 1;
         const nextRem = rem - stepCost;
         const prevBest = visited.get(key) ?? -1;
         if (nextRem > prevBest) {
