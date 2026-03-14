@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.3.88';
+export const GAME_VERSION = 'v1.3.89';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3250,6 +3250,11 @@ export class GameScene extends Phaser.Scene {
     this._shiftKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
     this.input.keyboard.on('keydown-ESC',   () => { if (this._nameModalOpen) return; if (!this._endTurnPending) this._toggleSettings(); });
     this.input.keyboard.on('keydown-X',     () => { if (this._nameModalOpen) return; this._confirmEndTurn(); });
+    this.input.keyboard.on('keydown-M',     () => {
+      if (this._nameModalOpen) return;
+      if (!this.selectedUnit || Number(this.selectedUnit.owner) !== Number(this.gameState.currentPlayer)) return;
+      this._enterMoveOrderMode(this.selectedUnit);
+    });
     // Supply overlay hotkey intentionally disabled (was keydown-S). Use UI button only.
     this.input.keyboard.on('keydown-SPACE', () => {
       if (this._nameModalOpen) return;
@@ -4812,7 +4817,45 @@ export class GameScene extends Phaser.Scene {
     this._refresh();
   }
 
-  // Right-click: open context menu on own unit; otherwise close menus.
+  _showMoveOrderQuickMenu(q, r) {
+    const unit = this.selectedUnit;
+    if (!unit) return;
+    const ax = this._menuAnchor?.x ?? (this.scale.width * 0.5);
+    const ay = this._menuAnchor?.y ?? (this.scale.height * 0.5);
+
+    this._hideContextMenu();
+    const objs = [];
+    const bg = this.add.rectangle(ax, ay, 250, 72, 0x0b0f16, 0.98).setScrollFactor(0).setDepth(210).setStrokeStyle(1.5, 0x2e3d50);
+    const title = this.add.text(ax, ay - 20, `Hex (${q},${r})`, { font: 'bold 12px monospace', fill: '#8ea5bc' })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(211);
+    const btn = this.add.text(ax, ay + 4, '📍 SET MOVE ORDER HERE', {
+      font: 'bold 12px monospace', fill: '#d8eefc', backgroundColor: '#224466', padding: { x: 8, y: 5 }
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(211).setInteractive({ useHandCursor: true });
+
+    const close = () => {
+      if (this._contextMenuObjs) this._contextMenuObjs.forEach(o => { try { o.destroy(); } catch(e){} });
+      this._contextMenuObjs = null;
+    };
+
+    btn.on('pointerdown', () => {
+      this._contextMenuClicked = true;
+      const path = findPath(this.terrain, this.mapSize, unit.q, unit.r, q, r, unit.type);
+      if (path && path.length > 0) {
+        unit.moveOrder = { destQ: q, destR: r, path };
+        this._pushLog(`P${unit.owner} sets move order to (${q},${r})`);
+      } else {
+        this._pushLog(`Move order failed — no path to (${q},${r})`);
+      }
+      close();
+      this._refresh();
+    });
+
+    objs.push(bg, title, btn);
+    this._contextMenuObjs = objs;
+    this._addToUI(objs);
+  }
+
+  // Right-click: own unit => unit menu. If unit selected and right-click elsewhere => tile quick menu for move order.
   _onHexRightClick(q, r) {
     // Cancel special modes on right-click
     if (this.mode === 'road_dest') { this._cancelRoadDestMode(); return; }
@@ -4828,13 +4871,19 @@ export class GameScene extends Phaser.Scene {
     this._closeFactoryPanel?.();
 
     if (clickedUnit && clickedUnit.owner === gs.currentPlayer) {
-      // Right-clicked directly on own unit → select + show action menu
       if (this.selectedUnit !== clickedUnit) this._selectUnit(clickedUnit);
       this._showContextMenu(clickedUnit);
-    } else {
-      // Right-clicked on empty hex or enemy → deselect
-      this._clearSelection();
+      return;
     }
+
+    // If a friendly unit is currently selected, offer tile-level move-order action.
+    if (this.selectedUnit && Number(this.selectedUnit.owner) === Number(gs.currentPlayer)) {
+      this._showMoveOrderQuickMenu(q, r);
+      return;
+    }
+
+    // No selected unit context -> clear selection.
+    this._clearSelection();
   }
 
   _clearSelection() {
@@ -6713,8 +6762,9 @@ export class GameScene extends Phaser.Scene {
         return dOwn <= dEnemy;
       };
 
-      // HQ
+      // HQ + starting dirt road under HQ
       gs.buildings.push(createBuilding('HQ', player, hq.q, hq.r));
+      gs.buildings.push(createBuilding('ROAD', player, hq.q, hq.r));
 
       // Resource sites near HQ (always placed as resource hexes; buildings depend on quick-start)
       let ironHex = findNearby(hq.q, hq.r, new Set([2,3]), 6) || findNearby(hq.q, hq.r, new Set([0,7]), 7) || findFreeNear(hq.q, hq.r, 5);
