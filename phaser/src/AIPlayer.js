@@ -200,13 +200,25 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
       const wood = me.wood || 0;
       const food = me.food || 0;
       let buildValue = 0;
-      if (resHex?.type === 'IRON') buildValue = 22;
-      else if (resHex?.type === 'OIL') buildValue = 20;
+      if (resHex?.type === 'IRON') buildValue = 24;
+      else if (resHex?.type === 'OIL') buildValue = 22;
       else if ((ttype === 1 || ttype === 7) && wood < 6) buildValue = 11; // lumber potential when wood-tight
       else if ((ttype === 0 || ttype === 6 || ttype === 7) && food < 8) buildValue = 8; // farm potential
       score += buildValue;
-      if (!hasRoad && gs.turn >= 3) score += 4; // infra bias
-      if (q === unit.q && r === unit.r && buildValue > 0) score += 12; // prefer building now vs wandering
+      if (!hasRoad && gs.turn >= 3) score += 5; // infra bias
+      if (q === unit.q && r === unit.r && buildValue > 0) score += 14; // prefer building now vs wandering
+    }
+
+    // Strong pull toward nearest unworked strategic resource to keep expansion active.
+    const targets = Object.entries(gs.resourceHexes || {}).map(([k, v]) => ({ q: Number(k.split(',')[0]), r: Number(k.split(',')[1]), type: v?.type }));
+    const unworked = targets.filter(t => {
+      const b = gs.buildings.find(bb => bb.q === t.q && bb.r === t.r && (bb.type === 'MINE' || bb.type === 'OIL_PUMP'));
+      return !b || Number(b.owner) !== Number(unit.owner);
+    });
+    if (unworked.length > 0) {
+      const dNew = Math.min(...unworked.map(t => hexDistance(q, r, t.q, t.r)));
+      const dCur = Math.min(...unworked.map(t => hexDistance(unit.q, unit.r, t.q, t.r)));
+      if (dNew < dCur) score += 14;
     }
   }
 
@@ -574,7 +586,12 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       if (unitType === 'ENGINEER') {
         const myEng = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER').length;
         const econBuilt = gs.buildings.filter(bb => bb.owner === player && ['MINE','OIL_PUMP','FARM','LUMBER_CAMP','SCIENCE_LAB','FACTORY'].includes(bb.type)).length;
-        const engCap = Math.max(1, Math.min(4, 1 + Math.floor(econBuilt / 3)));
+        const unworkedRes = Object.entries(gs.resourceHexes || {}).filter(([k]) => {
+          const [rq, rr] = k.split(',').map(Number);
+          const b = gs.buildings.find(bb => bb.q === rq && bb.r === rr && (bb.type === 'MINE' || bb.type === 'OIL_PUMP'));
+          return !b || Number(b.owner) !== Number(player);
+        }).length;
+        const engCap = Math.max(2, Math.min(6, 2 + Math.floor(econBuilt / 3) + Math.floor(unworkedRes / 4)));
         if (myEng >= engCap) continue;
       }
       if (unitType === 'SUPPLY_TRUCK') {

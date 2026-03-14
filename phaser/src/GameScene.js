@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.3.99';
+export const GAME_VERSION = 'v1.4.00';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1863,6 +1863,28 @@ export class GameScene extends Phaser.Scene {
       const borderC = (this.selectedUnit === unit) ? 0xffff00 : unitAccent;
       this.unitGfx.lineStyle(borderW, borderC, alpha);
       this.unitGfx.strokeRect(cx2, cy2, cW, cH);
+
+      // Enemy tier hint (T0..T3) — shows progression level only, not exact modules.
+      if (isEnemy) {
+        const chassisTier = UNIT_TYPES[unit.type]?.tier ?? 0;
+        let modTier = 0;
+        if (unit.designId !== undefined) {
+          const d = gs.designs?.[unit.owner]?.find(dd => dd.id === unit.designId);
+          if (d?.modules?.length) modTier = Math.max(0, ...d.modules.map(mk => MODULES[mk]?.tier ?? 0));
+        }
+        const shownTier = Math.max(0, Math.min(3, Math.max(chassisTier, modTier)));
+        const tierCol = shownTier >= 3 ? 0xd9534f : shownTier === 2 ? 0xe49c3d : shownTier === 1 ? 0x4da3ff : 0x8a9aaa;
+        const tx = cx2 + cW - 11, ty = cy2 + cH - 9;
+        this.unitGfx.fillStyle(0x0b0f16, alpha * 0.9);
+        this.unitGfx.fillRect(tx - 9, ty - 7, 18, 14);
+        this.unitGfx.lineStyle(1, tierCol, alpha);
+        this.unitGfx.strokeRect(tx - 9, ty - 7, 18, 14);
+        // tiny notch bars: count = tier
+        if (shownTier > 0) {
+          this.unitGfx.fillStyle(tierCol, alpha * 0.95);
+          for (let i = 0; i < shownTier; i++) this.unitGfx.fillRect(tx - 7 + i * 5, ty - 2, 3, 4);
+        }
+      }
 
       // ── Type symbol (NATO-inspired) ────────────────────────────────────────
       const sg = this.unitGfx;
