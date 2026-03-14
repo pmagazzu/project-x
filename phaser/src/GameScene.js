@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.3.82';
+export const GAME_VERSION = 'v1.3.83';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -6047,6 +6047,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   _showPassScreen(msg) {
+    // Safety: clear any lingering end-turn confirm state so pass-screen SPACE can't auto-submit.
+    this._hideEndTurnConfirm?.();
+    this._endTurnPending = false;
+
     const w = this.scale.width, h = this.scale.height;
     const gs = this.gameState;
     const p = gs.currentPlayer;
