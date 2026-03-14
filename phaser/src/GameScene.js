@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.78';
+export const GAME_VERSION = 'v1.3.79';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3234,14 +3234,14 @@ export class GameScene extends Phaser.Scene {
     // Suppress browser context menu so right-click works in-game
     this.game.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    this.input.on('wheel', (ptr, _o, _dx, dy) => {
-      // New zoom behavior: fixed ~10% step per gesture tick, smoothed in update().
+    this.input.on('wheel', (_ptr, _o, _dx, dy) => {
+      // Centered zoom: always zoom toward screen center (no top-left drift).
       const step = 1.10;
       const dir = dy > 0 ? -1 : 1; // wheel down => zoom out
       const factor = dir > 0 ? step : (1 / step);
       if (this._zoomTarget === undefined) this._zoomTarget = cam.zoom;
       this._zoomTarget = Phaser.Math.Clamp(this._zoomTarget * factor, 0.2, 4.0);
-      this._zoomPointer = { x: ptr.x, y: ptr.y };
+      this._zoomPointer = { x: this.scale.width / 2, y: this.scale.height / 2 };
       this._zoomLastInputAt = performance.now();
     });
 

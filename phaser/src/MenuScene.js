@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { GAME_VERSION } from './GameScene.js';
 
 const SCENARIOS = [
   {
@@ -113,6 +114,11 @@ export class MenuScene extends Phaser.Scene {
     this.add.rectangle(w/2, h - 24, w, 34, 0x050705, 1);
     this.add.text(w/2, h - 24, 'Right-click = action menu  ·  WASD/Arrow Keys = pan  ·  Scroll = zoom  ·  ESC = settings', {
       font: '10px monospace', fill: '#2a3a2a',
+    }).setOrigin(0.5);
+
+    // Big version tag at bottom for easy build verification
+    this.add.text(w/2, h - 56, `${GAME_VERSION}`, {
+      font: 'bold 26px monospace', fill: '#6f8f5a', stroke: '#111611', strokeThickness: 4
     }).setOrigin(0.5);
 
     // ── AI Toggle — top-right ─────────────────────────────────────────────
