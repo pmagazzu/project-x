@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.06';
+export const GAME_VERSION = 'v1.4.07';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1920,17 +1920,22 @@ export class GameScene extends Phaser.Scene {
         }
       }
 
-      // Explicit tier text label (high-visibility, unmissable) for ALL units
+      // Subtle tier counter for ALL units (integrated pips on counter, no floating text)
       {
         const shownTier = this._unitShownTier(unit);
-        const tierCol = shownTier >= 3 ? '#ff6666' : shownTier === 2 ? '#ffb347' : shownTier === 1 ? '#66b3ff' : '#b8c2cc';
-        const t = this.add.text(x, y - (r + 11), `T${shownTier}`, {
-          font: 'bold 11px monospace',
-          fill: tierCol,
-          backgroundColor: '#101820',
-          padding: { x: 3, y: 1 },
-        }).setOrigin(0.5, 0.5).setDepth(9);
-        this._unitTierLabels.push(t);
+        const tierCol = shownTier >= 3 ? 0xd9534f : shownTier === 2 ? 0xe49c3d : shownTier === 1 ? 0x4da3ff : 0x8a9aaa;
+        const py = cy2 + 6;
+        const startX = cx2 + cW - 16;
+        // backdrop strip
+        this.unitGfx.fillStyle(0x0b0f16, alpha * 0.72);
+        this.unitGfx.fillRect(startX - 2, py - 3, 14, 6);
+        if (shownTier === 0) {
+          this.unitGfx.fillStyle(0x6f7c88, alpha * 0.9);
+          this.unitGfx.fillRect(startX + 2, py - 1, 6, 2); // subtle T0 dash
+        } else {
+          this.unitGfx.fillStyle(tierCol, alpha * 0.95);
+          for (let i = 0; i < shownTier; i++) this.unitGfx.fillRect(startX + i * 4, py - 2, 3, 4);
+        }
       }
 
       // ── Type symbol (NATO-inspired) ────────────────────────────────────────
