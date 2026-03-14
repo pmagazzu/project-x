@@ -1789,6 +1789,7 @@ export function resolveEndOfTurn(state, terrain) {
       const blocker = state.units.find(u => u.q === nq && u.r === nr && u.id !== unit.id && !u.embarked);
       if (blocker) break; // stalled this step, try again next turn
       unit.q = nq; unit.r = nr;
+      unit.dugIn = false;
       if (nq === order.destQ && nr === order.destR) {
         events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) reached destination`);
         delete unit.moveOrder; break;

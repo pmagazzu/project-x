@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.3.90';
+export const GAME_VERSION = 'v1.3.91';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -4714,7 +4714,7 @@ export class GameScene extends Phaser.Scene {
       if (clickedUnit && clickedUnit.owner !== gs.currentPlayer && !this.selectedUnit.attacked) {
         const range = UNIT_TYPES[this.selectedUnit.type].range;
         if (hexDistance(this.selectedUnit.q, this.selectedUnit.r, q, r) <= range) {
-          this._doImmediateAttack(this.selectedUnit, clickedUnit.id, false);
+          this._showCombatPreview(this.selectedUnit, clickedUnit, false);
           return;
         }
       }
@@ -4729,7 +4729,7 @@ export class GameScene extends Phaser.Scene {
         if (tUnit) {
           // Emergency stability hotfix: execute direct attack immediately on valid click
           // to avoid preview-path desync blocking combat.
-          this._doImmediateAttack(this.selectedUnit, tUnit.id, false);
+          this._showCombatPreview(this.selectedUnit, tUnit, false);
           return;
         }
       }
@@ -4742,7 +4742,7 @@ export class GameScene extends Phaser.Scene {
         const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
         const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r, this.terrain, this.mapSize);
         if (inRange && losOk) {
-          this._doImmediateAttack(this.selectedUnit, clickedUnit.id, false);
+          this._showCombatPreview(this.selectedUnit, clickedUnit, false);
           return;
         }
       }
@@ -4767,7 +4767,7 @@ export class GameScene extends Phaser.Scene {
     if (this.selectedUnit && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
       const attackTarget = this.attackable.find(h => h.q === q && h.r === r);
       if (attackTarget && clickedUnit && clickedUnit.owner !== gs.currentPlayer) {
-        this._doImmediateAttack(this.selectedUnit, clickedUnit.id, false);
+        this._showCombatPreview(this.selectedUnit, clickedUnit, false);
         return;
       }
     }
@@ -5318,20 +5318,26 @@ export class GameScene extends Phaser.Scene {
     portrait(lX,pY,attacker.type,attacker.owner,aDef.name,attacker.health,attacker.maxHealth||aDef.health,expRetDmg,'ATTACKER');
     portrait(rX,pY,target.type,target.owner,tDef.name,target.health,target.maxHealth||tDef.health,expDmg,'DEFENDER');
 
-    // Center VS + attack str
+    // Center quick-comparison
     mk('VS',cx,pY-30,'#2a3a4a',14,true);
     mk(`${baseAtk}`,cx,pY-8,'#e8d090',20,true);
-    mk('ATK STR',cx,pY+14,'#556677',9);
+    mk('ATTACK POWER',cx,pY+14,'#556677',9);
+
+    // Under-card per-unit stats (explicit)
+    const atkStats = `ATK ${baseAtk}  DEF ${aDef.defense||0}  ARM ${aDef.armor||0}  RNG ${aDef.range||1}  ACC ${aDef.accuracy||0}  EVA ${aDef.evasion||0}`;
+    const defStats = `ATK ${tDef.soft_attack||0}/${tDef.hard_attack||0}  DEF ${tDef.defense||0}  ARM ${tDef.armor||0}  RNG ${tDef.range||1}  ACC ${tDef.accuracy||0}  EVA ${tDef.evasion||0}`;
+    mk(atkStats, lX, pY + 74, '#8fb9ff', 8, true);
+    mk(defStats, rX, pY + 74, '#ffb38f', 8, true);
 
     // ── Score breakdown panel ─────────────────────────────────────────────────
     const sbY = cy-cH/2+56+pH+14;
     const sbH = 108;
     bx(cx, sbY+sbH/2, cW-16, sbH, 0x080c10, 0.95, 0x1e2d3a);
-    mk('SCORE BREAKDOWN', cx, sbY+6, '#6688aa', 10, true, 0.5, 0);
+    mk('HIT QUALITY BREAKDOWN (0–100)', cx, sbY+6, '#6688aa', 10, true, 0.5, 0);
 
     // Build modifier rows
     const rows = [
-      ['Base score',        `${baseScore}`, '#778899'],
+      ['Base hit quality',  `${baseScore}`, '#778899'],
     ];
     if (aDef.accuracy)   rows.push([`Accuracy (${aDef.name})`,      `+${aDef.accuracy}`, '#88cc88']);
     if (tDef.evasion)    rows.push([`Evasion (${tDef.name})`,       `−${tDef.evasion}`,  '#cc8844']);
@@ -5345,7 +5351,7 @@ export class GameScene extends Phaser.Scene {
     if (atkSupPen>0)     rows.push([`Attacker out-of-supply`,        `−${atkSupPen*3} score / −${atkSupPen} ATK`, '#ff9966']);
     if (defSupPen>0)     rows.push([`Defender out-of-supply`,        `+${defSupPen*3} score / DEF−${defSupPen}`, '#ff9966']);
     if (pierceMod !== 0) rows.push([`Pierce ${aDef.pierce} vs Armor ${tDef.armor}`, `${pierceMod>=0?'+':''}${pierceMod}`, pierceMod>=0?'#88cc88':'#cc8844']);
-    rows.push([`Random roll`,                                        `±${ROLL}`,          '#7799aa']);
+    rows.push([`Random variance roll`,                               `±${ROLL}`,          '#7799aa']);
 
     // Two-column layout for rows
     const col1X=cx-cW/2+24, col2X=cx+10;
@@ -5359,8 +5365,8 @@ export class GameScene extends Phaser.Scene {
       mk(row[1], rx+160, ry, row[2], 9, true, 0, 0);
     });
     // Score summary line
-    mk(`Pre-roll score: ${preRollScore}  (range ${scoreMin}–${scoreMax})`, cx, sbY+sbH-26, '#aabbcc', 10, true, 0.5, 1);
-    mk(`Formula: 50 + ACC + bonuses − evasion − cover + penalties`, cx, sbY+sbH-6, '#88a0b8', 9, false, 0.5, 1);
+    mk(`Pre-roll hit quality: ${preRollScore} / 100  (possible ${scoreMin}–${scoreMax} after random roll)`, cx, sbY+sbH-26, '#aabbcc', 10, true, 0.5, 1);
+    mk(`Roll = random ±${ROLL} added at resolve time (represents battlefield variance)`, cx, sbY+sbH-6, '#88a0b8', 9, false, 0.5, 1);
 
     // ── Outcome band ──────────────────────────────────────────────────────────
     const outY = sbY + sbH + 6;
@@ -5380,8 +5386,8 @@ export class GameScene extends Phaser.Scene {
       this._contextMenuClicked=true;
       // Short on-card strike animation before resolve
       const slash = this.add.graphics().setScrollFactor(0).setDepth(D+3);
-      const sx1 = lCX + pW*0.15, sy1 = pY - 12;
-      const sx2 = rCX - pW*0.15, sy2 = pY - 12;
+      const sx1 = lX + pW*0.15, sy1 = pY - 12;
+      const sx2 = rX - pW*0.15, sy2 = pY - 12;
       slash.lineStyle(6, 0xff4444, 0.95);
       slash.beginPath(); slash.moveTo(sx1, sy1); slash.lineTo(sx2, sy2); slash.strokePath();
       this.tweens.add({ targets: slash, alpha: 0, duration: 140, onComplete: () => { try { slash.destroy(); } catch(e){} } });
