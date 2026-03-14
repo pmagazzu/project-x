@@ -642,6 +642,11 @@ export function hexDistance(q1, r1, q2, r2) {
   return (Math.abs(q1-q2) + Math.abs(q1+r1-q2-r2) + Math.abs(r1-r2)) / 2;
 }
 
+function ustat(unit, key, fallback = 0) {
+  if (unit && unit[key] !== undefined && unit[key] !== null) return unit[key];
+  return UNIT_TYPES[unit?.type]?.[key] ?? fallback;
+}
+
 // ── Full-map pathfinding for standing orders (e.g., auto-road) ────────────
 // Returns an array of {q,r} hexes from start (exclusive) to dest (inclusive),
 // or null if no path exists.  Uses Dijkstra with terrain costs; ignores units
@@ -817,14 +822,14 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
 // Enemy units with pending moves are treated as being at their ORIGINAL (turn-start) position —
 // prevents revealing where enemies moved to before the turn resolves.
 export function getAttackableHexes(state, unit, fromQ, fromR, fog) {
-  const def = UNIT_TYPES[unit.type];
+  const range = ustat(unit, 'range', UNIT_TYPES[unit.type]?.range || 1);
   return state.units
     .filter(u => {
       if (u.owner === unit.owner || u.dead) return false;
       // Use display position (orig if moved) — same as what the player sees
       const dq = (u._origQ !== undefined) ? u._origQ : u.q;
       const dr = (u._origR !== undefined) ? u._origR : u.r;
-      if (hexDistance(fromQ, fromR, dq, dr) > def.range) return false;
+      if (hexDistance(fromQ, fromR, dq, dr) > range) return false;
       if (fog && !fog.has(`${dq},${dr}`)) return false; // hidden in fog
       // Direct-fire units require LOS for known-target attack mode.
       const indirect = INDIRECT_FIRE.has(unit.type);
@@ -874,7 +879,7 @@ function hasLOS(fromQ, fromR, toQ, toR, terrain) {
 // Returns ALL hexes within attack range — for blind fire targeting
 // terrain: optional — if provided, LOS is checked (indirect-fire units bypass this)
 export function getAttackRangeHexes(mapSize, unit, fromQ, fromR, terrain) {
-  const range = UNIT_TYPES[unit.type].range;
+  const range = ustat(unit, 'range', UNIT_TYPES[unit.type]?.range || 1);
   const indirect = INDIRECT_FIRE.has(unit.type);
   const result = [];
   for (let q = 0; q < mapSize; q++) {
@@ -1176,8 +1181,8 @@ export function resolveTurn(state, terrain) {
     const attacker = state.units.find(u => u.id === parseInt(idStr));
     const target   = state.units.find(u => u.id === targetId);
     if (!attacker || !target) continue;
-    const aDef = UNIT_TYPES[attacker.type];
-    const tDef = UNIT_TYPES[target.type];
+    const aDef = { ...UNIT_TYPES[attacker.type], ...attacker };
+    const tDef = { ...UNIT_TYPES[target.type], ...target };
     const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
     if (dist > aDef.range) {
       events.push(`${aDef.name} (P${attacker.owner}) missed — target moved out of range`);
@@ -1561,8 +1566,8 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   const target   = state.units.find(u => u.id === targetId);
   if (!attacker || !target) return [];
 
-  const aDef = UNIT_TYPES[attacker.type];
-  const tDef = UNIT_TYPES[target.type];
+  const aDef = { ...UNIT_TYPES[attacker.type], ...attacker };
+  const tDef = { ...UNIT_TYPES[target.type], ...target };
   const INDIRECT_FIRE = new Set(['ARTILLERY', 'MORTAR']);
 
   const attackerIsNaval = NAVAL_UNITS.has(attacker.type) || attacker.type === 'COASTAL_BATTERY';

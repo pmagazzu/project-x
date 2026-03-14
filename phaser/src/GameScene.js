@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.11';
+export const GAME_VERSION = 'v1.4.12';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2406,7 +2406,7 @@ export class GameScene extends Phaser.Scene {
         : '';
       this.unitStatsTxt.setText(
         `HP: ${u.health}/${u.maxHealth}  AP: ${ap}/2${fuelStr}` +
-        `  SA: ${def.soft_attack}  HA: ${def.hard_attack}  PRC: ${def.pierce}  ARM: ${def.armor}  MOV: ${def.move}  RNG: ${def.range}`
+        `  SA: ${u.soft_attack ?? def.soft_attack}  HA: ${u.hard_attack ?? def.hard_attack}  PRC: ${u.pierce ?? def.pierce}  ARM: ${u.armor ?? def.armor}  MOV: ${u.move ?? def.move}  RNG: ${u.range ?? def.range}`
       );
       const pa = gs.pendingAttacks[u.id];
       let status = '';
