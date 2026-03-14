@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.3.81';
+export const GAME_VERSION = 'v1.3.82';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5956,7 +5956,7 @@ export class GameScene extends Phaser.Scene {
     const rollCol = roll>5?'#88ee44':roll<-5?'#ff6644':'#aabbcc';
     const rollStr = roll>=0?`+${roll}`:String(roll);
     // Score line
-    mk(`Score: ${entry.score??'?'}  (base 50 + roll ${rollStr})   Atk: ${entry.baseAttack??'?'}   Pierce ${entry.pierce??'?'} / Armor ${entry.armor??'?'}`, cX, modY, '#667788', 9, false, [0.5,0.5]);
+    mk(`Score: ${entry.score??'?'}  (base 50 + roll ${rollStr})   Atk: ${entry.baseAttack??'?'}   Pierce ${entry.pierce??'?'} / Armor ${entry.armor??'?'}`, cX, modY, '#667788', 9, false, 0.5, 0.5);
     // Modifiers line
     const mods = [];
     if (entry.accuracy)        mods.push(`Acc ${(entry.accuracy??0)>=0?'+':''}${entry.accuracy}`);
@@ -5969,12 +5969,12 @@ export class GameScene extends Phaser.Scene {
     if (entry.flankMod)        mods.push(`Flank +${entry.flankMod}`);
     if (entry.blindFirePenalty) mods.push(`Blind −${entry.blindFirePenalty}`);
     if (entry.suppressed)      mods.push('SUPPRESSED');
-    mk(mods.join('  ·  ')||'No modifiers', cX, modY+14, '#445566', 9, false, [0.5,0.5]);
+    mk(mods.join('  ·  ')||'No modifiers', cX, modY+14, '#445566', 9, false, 0.5, 0.5);
     // Retaliation line
     if (entry.defenderCanRetaliate && entry.retaliationDmg > 0) {
-      mk(`↩ Retaliation: ${entry.retaliationTier||'?'} (score ${entry.retaliationScore??'?'})  —  defender deals −${entry.retaliationDmg}`, cX, modY+28, '#ffcc88', 9, false, [0.5,0.5]);
+      mk(`↩ Retaliation: ${entry.retaliationTier||'?'} (score ${entry.retaliationScore??'?'})  —  defender deals −${entry.retaliationDmg}`, cX, modY+28, '#ffcc88', 9, false, 0.5, 0.5);
     } else {
-      mk(`↩ No retaliation — ${entry.blindFire?'blind fire':'defender dived / out of range'}`, cX, modY+28, '#334455', 9, false, [0.5,0.5]);
+      mk(`↩ No retaliation — ${entry.blindFire?'blind fire':'defender dived / out of range'}`, cX, modY+28, '#334455', 9, false, 0.5, 0.5);
     }
 
     // ── Footer ────────────────────────────────────────────────────────────────
