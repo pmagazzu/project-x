@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.03';
+export const GAME_VERSION = 'v1.4.04';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1691,19 +1691,21 @@ export class GameScene extends Phaser.Scene {
 
   _unitShownTier(unit) {
     const gs = this.gameState;
-    const chassisTier = UNIT_TYPES[unit.type]?.tier ?? 0;
+    const def = UNIT_TYPES[unit.type] || {};
+    const chassisTier = def.tier ?? 0;
     let modTier = 0;
     if (unit.designId !== undefined) {
       const d = gs.designs?.[unit.owner]?.find(dd => dd.id === unit.designId);
       if (d?.modules?.length) modTier = Math.max(0, ...d.modules.map(mk => MODULES[mk]?.tier ?? 0));
     }
-    // Fallback inference: if unit stats differ from base chassis, treat as upgraded.
+    // Fallback inference: tech-gated chassis and stat deltas.
     let inferred = 0;
+    if (def.unlockedBy) inferred = Math.max(inferred, (def.cost?.components || 0) > 0 ? 2 : 1);
     if (modTier === 0) {
       const base = UNIT_TYPES[unit.type] || {};
       const keys = ['soft_attack','hard_attack','pierce','armor','defense','range','move','accuracy','evasion','health','sight'];
       const delta = keys.reduce((s, k) => s + Math.abs((unit[k] ?? base[k] ?? 0) - (base[k] ?? 0)), 0);
-      if (delta >= 1) inferred = delta >= 6 ? 2 : 1;
+      if (delta >= 1) inferred = Math.max(inferred, delta >= 6 ? 2 : 1);
     }
     return Math.max(0, Math.min(3, Math.max(chassisTier, modTier, inferred)));
   }
@@ -2358,7 +2360,7 @@ export class GameScene extends Phaser.Scene {
         ? (gs.designs[u.owner]?.find(d => d.id === u.designId)?.name || def.name)
         : def.name;
       const nameLabel = isOwnUnit && u.designId !== undefined ? `★ ${displayName}` : `[ ${displayName} ]`;
-      this.unitNameTxt.setText(`${nameLabel}  P${u.owner}`);
+      this.unitNameTxt.setText(`${nameLabel}  P${u.owner}  [Tier ${this._unitShownTier(u)}]`);
       const ap = (u.moved ? 0 : 1) + (u.attacked ? 0 : 1);
       const fuelStr = u.fuel !== undefined
         ? `  ⛽ ${u.fuel}/${u.fuelMax}${u.fuel <= 2 ? ' ⚠' : ''}`
