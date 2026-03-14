@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.3.79';
+export const GAME_VERSION = 'v1.3.80';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -4699,7 +4699,7 @@ export class GameScene extends Phaser.Scene {
       if (clickedUnit && clickedUnit.owner !== gs.currentPlayer && !this.selectedUnit.attacked) {
         const range = UNIT_TYPES[this.selectedUnit.type].range;
         if (hexDistance(this.selectedUnit.q, this.selectedUnit.r, q, r) <= range) {
-          this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+          this._doImmediateAttack(this.selectedUnit, clickedUnit.id, false);
           return;
         }
       }
@@ -4752,7 +4752,7 @@ export class GameScene extends Phaser.Scene {
     if (this.selectedUnit && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
       const attackTarget = this.attackable.find(h => h.q === q && h.r === r);
       if (attackTarget && clickedUnit && clickedUnit.owner !== gs.currentPlayer) {
-        this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+        this._doImmediateAttack(this.selectedUnit, clickedUnit.id, false);
         return;
       }
     }
@@ -5526,13 +5526,24 @@ export class GameScene extends Phaser.Scene {
       const target   = gs.units.find(u => u.id === action.targetId);
       if (!attacker || !target) { next(); return; }
 
-      // Execute the attack
-      resolveImmediateAttack(gs, attacker, action.targetId);
+      // Execute the attack (critical: pass attacker.id, not attacker object)
+      let log = [];
+      try {
+        log = resolveImmediateAttack(gs, attacker.id, action.targetId, false) || [];
+      } catch (e) {
+        this._pushLog(`AI attack error: ${e?.message || e}`);
+      }
       attacker.attacked = true;
       this._refresh();
 
-      // Show combat flash
+      // Show combat flash + card for transparency
       this._showAICombatFlash(action.attackerQ, action.attackerR, action.targetQ, action.targetR);
+      if (log.length > 0) {
+        const card = this._showCombatCard(log[0], 1, 1);
+        this.time.delayedCall(500, () => { card.forEach(o => { try { o.destroy(); } catch(e){} }); });
+      } else {
+        this._pushLog('AI attack resolved with no combat log entry');
+      }
       this.time.delayedCall(700, next);
 
     } else if (action.type === 'recruit') {
