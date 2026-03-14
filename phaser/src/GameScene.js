@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.00';
+export const GAME_VERSION = 'v1.4.01';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1875,14 +1875,22 @@ export class GameScene extends Phaser.Scene {
         const shownTier = Math.max(0, Math.min(3, Math.max(chassisTier, modTier)));
         const tierCol = shownTier >= 3 ? 0xd9534f : shownTier === 2 ? 0xe49c3d : shownTier === 1 ? 0x4da3ff : 0x8a9aaa;
         const tx = cx2 + cW - 11, ty = cy2 + cH - 9;
-        this.unitGfx.fillStyle(0x0b0f16, alpha * 0.9);
-        this.unitGfx.fillRect(tx - 9, ty - 7, 18, 14);
-        this.unitGfx.lineStyle(1, tierCol, alpha);
-        this.unitGfx.strokeRect(tx - 9, ty - 7, 18, 14);
-        // tiny notch bars: count = tier
-        if (shownTier > 0) {
-          this.unitGfx.fillStyle(tierCol, alpha * 0.95);
-          for (let i = 0; i < shownTier; i++) this.unitGfx.fillRect(tx - 7 + i * 5, ty - 2, 3, 4);
+        this.unitGfx.fillStyle(0x0b0f16, alpha * 0.95);
+        this.unitGfx.fillRect(tx - 10, ty - 8, 20, 16);
+        this.unitGfx.lineStyle(1.2, tierCol, alpha);
+        this.unitGfx.strokeRect(tx - 10, ty - 8, 20, 16);
+
+        // Extra corner chip so tiers are readable at glance.
+        this.unitGfx.fillStyle(tierCol, alpha * 0.95);
+        this.unitGfx.fillRect(cx2 + 1, cy2 + cH - 4, Math.max(4, shownTier * 3 + 2), 3);
+
+        // Interior glyph by tier: T0 shows gray dash; T1+ shows 1..3 thick pips.
+        if (shownTier === 0) {
+          this.unitGfx.fillStyle(0x6f7c88, alpha * 0.95);
+          this.unitGfx.fillRect(tx - 5, ty - 1, 10, 2);
+        } else {
+          this.unitGfx.fillStyle(tierCol, alpha * 0.98);
+          for (let i = 0; i < shownTier; i++) this.unitGfx.fillRect(tx - 7 + i * 5, ty - 3, 4, 6);
         }
       }
 
