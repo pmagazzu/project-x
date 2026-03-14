@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.05';
+export const GAME_VERSION = 'v1.4.06';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1920,8 +1920,8 @@ export class GameScene extends Phaser.Scene {
         }
       }
 
-      // Explicit enemy tier text label (high-visibility, unmissable)
-      if (isEnemy) {
+      // Explicit tier text label (high-visibility, unmissable) for ALL units
+      {
         const shownTier = this._unitShownTier(unit);
         const tierCol = shownTier >= 3 ? '#ff6666' : shownTier === 2 ? '#ffb347' : shownTier === 1 ? '#66b3ff' : '#b8c2cc';
         const t = this.add.text(x, y - (r + 11), `T${shownTier}`, {
