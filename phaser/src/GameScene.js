@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-const GAME_VERSION = 'v1.3.75';
+const GAME_VERSION = 'v1.3.77';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5311,9 +5311,16 @@ export class GameScene extends Phaser.Scene {
     // IGOUGO: resolve combat now, show card, refresh
     const gs = this.gameState;
     const target = gs.units.find(u => u.id === targetId);
-    if (!target) return;
+    if (!target) { this._pushLog('Attack failed: target missing'); return; }
     const hpBefore = { atk: attacker.health, def: target.health };
-    const log = resolveImmediateAttack(gs, attacker.id, targetId, blindFire);
+    let log = [];
+    try {
+      log = resolveImmediateAttack(gs, attacker.id, targetId, blindFire) || [];
+    } catch (e) {
+      this._pushLog(`Attack resolver error: ${e?.message || e}`);
+      this._refresh();
+      return;
+    }
     this.reachable = []; this.attackable = []; this.mode = 'select';
     // Road sabotage: air units or artillery can damage roads on the target hex
     const defender = gs.units.find(u => u.id === targetId);
@@ -5361,6 +5368,8 @@ export class GameScene extends Phaser.Scene {
         this.input.on('pointerup', dismiss);
         this.input.keyboard?.once('keydown-SPACE', dismiss);
       });
+    } else {
+      this._pushLog('Attack resolved with no combat log entry (unexpected)');
     }
     const winner = checkWinner(gs);
     if (winner) { this._showResolution([], winner); }
