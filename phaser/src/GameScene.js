@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.3.89';
+export const GAME_VERSION = 'v1.3.90';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3225,7 +3225,8 @@ export class GameScene extends Phaser.Scene {
         const hex   = worldToHex(world.x, world.y);
         if (isValid(hex.q, hex.r, this.mapSize)) {
           this._menuAnchor = { x: ptr.x, y: ptr.y }; // remember cursor pos for menu placement
-          this._onHexRightClick(hex.q, hex.r);
+          const shiftRmb = !!ptr.event?.shiftKey;
+          this._onHexRightClick(hex.q, hex.r, shiftRmb);
         }
       }
       this._isDragging = false;
@@ -4855,8 +4856,9 @@ export class GameScene extends Phaser.Scene {
     this._addToUI(objs);
   }
 
-  // Right-click: own unit => unit menu. If unit selected and right-click elsewhere => tile quick menu for move order.
-  _onHexRightClick(q, r) {
+  // Right-click: own unit => unit menu. Else deselect/cancel by default.
+  // Shift+RMB on a tile with a selected friendly unit => quick move-order menu.
+  _onHexRightClick(q, r, shiftRmb = false) {
     // Cancel special modes on right-click
     if (this.mode === 'road_dest') { this._cancelRoadDestMode(); return; }
     if (this.mode === 'move_order') { this._cancelMoveOrderMode(); return; }
@@ -4876,13 +4878,13 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // If a friendly unit is currently selected, offer tile-level move-order action.
-    if (this.selectedUnit && Number(this.selectedUnit.owner) === Number(gs.currentPlayer)) {
+    // Power-user shortcut only: Shift+RMB opens move-order quick menu.
+    if (shiftRmb && this.selectedUnit && Number(this.selectedUnit.owner) === Number(gs.currentPlayer)) {
       this._showMoveOrderQuickMenu(q, r);
       return;
     }
 
-    // No selected unit context -> clear selection.
+    // Default muscle memory behavior: deselect/cancel.
     this._clearSelection();
   }
 
