@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.3.94';
+export const GAME_VERSION = 'v1.3.95';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1720,9 +1720,11 @@ export class GameScene extends Phaser.Scene {
       // Hide enemy units in fog (use display position, not queued position)
       const key = `${dispQ},${dispR}`;
       if (isEnemy && fog && fog.size > 0 && !fog.has(key)) continue;
-      // Stealth: hide stealthy enemy units unless detected
+      // Stealth: hide stealthy enemy units unless detected.
+      // But if they have attacked, reveal them (no invisible firing).
       if (isEnemy && (UNIT_TYPES[unit.type]?.stealthy || 0) > 0) {
-        if (!isStealthDetected(gs, unit, gs.currentPlayer)) continue; // not detected — skip render
+        const revealedByFiring = !!unit.attacked;
+        if (!revealedByFiring && !isStealthDetected(gs, unit, gs.currentPlayer)) continue; // not detected — skip render
       }
 
       // If this unit is currently sliding, interpolate between from/to world coords
