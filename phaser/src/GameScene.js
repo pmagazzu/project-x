@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.3.84';
+export const GAME_VERSION = 'v1.3.85';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5837,20 +5837,12 @@ export class GameScene extends Phaser.Scene {
       COASTAL_BATTERY:'▣', AA_EMPLACEMENT:'⊕' };
     const g = t => GLYPH[t] || '◌';
 
-    const TIER_COL = {
-      'Catastrophic Failure': '#ff4444', 'Repelled': '#ff8844',
-      'Neutral': '#cccccc', 'Effective': '#88ee44', 'Overwhelming': '#44ffcc',
-    };
-    const TIER_BG = {
-      'Catastrophic Failure': 0x4a0000, 'Repelled': 0x3a1800,
-      'Neutral': 0x1a1a1a, 'Effective': 0x0e2800, 'Overwhelming': 0x002a1a,
-    };
-    const PC = [null, 0x3366cc, 0xcc3333]; // player colors
-
-    const CARD_SCALE = 1.9;
-    const mk = (txt, x, y, col='#d0dde8', sz=12, bold=false, ox=0.5, oy=0.5) => {
-      const t = this.add.text(x, y, txt, { font:`${bold?'bold ':''}${Math.max(10, Math.round(sz*CARD_SCALE))}px monospace`, fill:col })
-        .setOrigin(ox, oy).setScrollFactor(0).setDepth(D+1);
+    const PC = [null, 0x3366cc, 0xcc3333];
+    const SCALE = 1.45;
+    const mk = (txt, x, y, col='#d0dde8', sz=12, bold=false, ox=0.5, oy=0.5, wrapW=null) => {
+      const style = { font:`${bold?'bold ':''}${Math.max(10, Math.round(sz*SCALE))}px monospace`, fill:col };
+      if (wrapW) style.wordWrap = { width: wrapW };
+      const t = this.add.text(x, y, txt, style).setOrigin(ox, oy).setScrollFactor(0).setDepth(D+1);
       objs.push(t); return t;
     };
     const box = (x, y, w, h, fill, alpha=1, stroke=null) => {
@@ -5858,135 +5850,57 @@ export class GameScene extends Phaser.Scene {
       if (stroke !== null) r.setStrokeStyle(1.5, stroke);
       objs.push(r); return r;
     };
-    const hpBar = (x, y, barW, current, max, dmg) => {
-      const h = 10, bx = x - barW/2;
-      box(x, y, barW, h, 0x111111, 1, 0x334455);
-      const hpFrac = Math.max(0, current) / Math.max(1, max);
-      const col = hpFrac > 0.6 ? 0x44bb44 : hpFrac > 0.3 ? 0xddaa00 : 0xcc2222;
-      if (hpFrac > 0) box(bx + (barW*hpFrac)/2, y, barW*hpFrac, h, col);
-      if (dmg > 0) {
-        const lostW = Math.min(barW, barW * dmg / Math.max(1, max));
-        const lostX = bx + barW*hpFrac + lostW/2;
-        box(lostX, y, lostW, h, 0x882222, 0.6);
-      }
-    };
 
-    // ── Backdrop ──────────────────────────────────────────────────────────────
-    box(cx, cy, sw, sh, 0x000000, 0.65);
-
-    // ── Card shell ────────────────────────────────────────────────────────────
-    const cW = Math.min(1280, sw - 12), cH = 700;
+    const cW = Math.min(1160, sw - 18), cH = Math.min(680, sh - 20);
     const cX = cx, cY = cy;
-    box(cX, cY, cW, cH, 0x0b0e14, 0.98, 0x2e3d50);
+    box(cx, cy, sw, sh, 0x000000, 0.62);
+    box(cX, cY, cW, cH, 0x0b0e14, 0.985, 0x2e3d50);
 
-    // Top header strip
-    const hdrBg = entry.panic ? 0x3d2000 : 0x0d1b2a;
-    box(cX, cY - cH/2 + 22, cW, 44, hdrBg, 1, 0x2e3d50);
-    const hdrTxt = entry.panic ? '⚡  PANIC CLASH' : '⚔  COMBAT';
-    mk(hdrTxt, cX - 30, cY - cH/2 + 22, '#c8b87a', 15, true, 0.5, 0.5);
-    if (total > 1) mk(`${idx} / ${total}`, cX + cW/2 - 16, cY - cH/2 + 22, '#556677', 11, false, 1, 0.5);
+    // Header
+    box(cX, cY - cH/2 + 24, cW, 48, 0x0d1b2a, 1, 0x2e3d50);
+    mk('⚔  COMBAT', cX, cY - cH/2 + 24, '#d8c48a', 15, true);
+    if (total > 1) mk(`${idx} / ${total}`, cX + cW/2 - 18, cY - cH/2 + 24, '#8ea5bc', 10, false, 1, 0.5);
 
-    // Portrait zones
-    const pW = cW * 0.38, pH = 160;
-    const lCX = cX - cW/2 + 16 + pW/2;
-    const rCX = cX + cW/2 - 16 - pW/2;
-    const pY  = cY - cH/2 + 44 + pH/2 + 4;
-
-    const portrait = (pcx, pcy, type, owner, name, hpBefore, hpAfter, dmgTaken, role) => {
-      const borderCol = PC[owner] || 0x445566;
-      box(pcx, pcy, pW, pH, 0x0f151c, 1, borderCol);
-      // Role label (ATTACKER / DEFENDER)
-      const roleCol = role === 'ATTACKER' ? '#5588ee' : '#ee5544';
-      box(pcx, pcy - pH/2 + 11, pW, 22, owner===1?0x1a2a44:0x3a1414, 1);
-      mk(role, pcx, pcy - pH/2 + 11, roleCol, 10, true);
-      // Big unit glyph
-      mk(g(type), pcx, pcy - 22, PC[owner]?`#${PC[owner].toString(16).padStart(6,'0')}`:'#aaaaaa', 42, true);
-      // Unit name
-      mk(name, pcx, pcy + 28, '#dde8f0', 11, true);
-      // HP bar
-      hpBar(pcx, pcy + 50, pW - 20, hpAfter, hpBefore, dmgTaken);
-      // HP text
-      const hpColor = dmgTaken > 0 ? '#ff8888' : '#88cc88';
-      mk(`HP  ${Math.max(0,hpAfter)} / ${hpBefore}${dmgTaken>0?'  (−'+dmgTaken+')':''}`, pcx, pcy + 65, hpColor, 10);
-    };
+    // Portrait cards
+    const pW = Math.floor(cW * 0.38), pH = 180;
+    const lCX = cX - cW*0.29, rCX = cX + cW*0.29;
+    const pY = cY - cH/2 + 160;
 
     const atkHP0 = entry.attackerHPBefore ?? 0;
-    const defHP0 = entry.targetHPBefore   ?? 0;
-    const atkHP1 = Math.max(0, atkHP0 - (entry.attackerDmg||0));
-    const defHP1 = Math.max(0, defHP0 - (entry.dmg||0));
+    const defHP0 = entry.targetHPBefore ?? 0;
+    const atkHP1 = Math.max(0, atkHP0 - (entry.attackerDmg || 0));
+    const defHP1 = Math.max(0, defHP0 - (entry.dmg || 0));
 
-    portrait(lCX, pY, entry.attackerType, entry.attackerOwner, entry.attackerName||'?', atkHP0, atkHP1, entry.attackerDmg||0, 'ATTACKER');
-    portrait(rCX, pY, entry.targetType,   entry.targetOwner,   entry.targetName||'?',   defHP0, defHP1, entry.dmg||0,         'DEFENDER');
-
-    // ── Center column: VS + outcome ───────────────────────────────────────────
-    const midX = cX, midTop = pY - pH/2;
-    mk('VS', midX, midTop + 28, '#334455', 18, true);
-
-    // Strength numbers
-    mk(`${entry.baseAttack ?? '?'}`, midX, midTop + 60, '#e8d090', 22, true);
-    mk('ATK', midX, midTop + 80, '#7799aa', 9, false);
-
-    // Score
-    mk(`SCORE  ${entry.score ?? '?'}`, midX, midTop + 102, '#aabbcc', 11, true);
-
-    // Roll
-    const roll = entry.roll ?? 0;
-    mk(`Roll  ${roll>=0?'+':''}${roll}`, midX, midTop + 118, roll>=0?'#88cc88':'#cc6666', 10);
-
-    // ── Outcome banner ────────────────────────────────────────────────────────
-    const outY = cY + cH/2 - 74;
-    const tierCol  = TIER_COL[entry.tier]  || '#cccccc';
-    const tierBgC  = TIER_BG[entry.tier]   || 0x1a1a1a;
-    if (entry.type === 'combat' || entry.panic) {
-      // Label based on ACTUAL damage exchange, not attack score tier
-      const atkDmg = entry.attackerDmg || 0;  // damage attacker took (from retaliation)
-      const defDmg = entry.dmg         || 0;  // damage defender took
-      const attackerDestroyed = entry.attackerHPBefore !== undefined ? (entry.attackerHPBefore - atkDmg) <= 0 : false;
-      const defenderDestroyed = entry.targetHPBefore   !== undefined ? (entry.targetHPBefore   - defDmg) <= 0 : false;
-      let outcomeLabel, outcomeTierCol, outcomeBgC;
-      if (attackerDestroyed && defenderDestroyed) {
-        outcomeLabel = 'MUTUAL DESTRUCTION'; outcomeTierCol = '#ff8833'; outcomeBgC = 0x4a2200;
-      } else if (attackerDestroyed) {
-        outcomeLabel = 'ATTACKER DESTROYED'; outcomeTierCol = '#ff4444'; outcomeBgC = 0x440000;
-      } else if (defenderDestroyed) {
-        outcomeLabel = 'DEFENDER DESTROYED'; outcomeTierCol = '#44ff88'; outcomeBgC = 0x004422;
-      } else if (defDmg > atkDmg) {
-        outcomeLabel = 'ATTACK SUCCESSFUL';  outcomeTierCol = '#88ee88'; outcomeBgC = 0x1a3a1a;
-      } else if (atkDmg > defDmg) {
-        outcomeLabel = 'ATTACK REPELLED';    outcomeTierCol = '#ee8888'; outcomeBgC = 0x3a1a1a;
-      } else if (defDmg === 0 && atkDmg === 0) {
-        outcomeLabel = 'NO EFFECT';          outcomeTierCol = '#888888'; outcomeBgC = 0x1a1a1a;
-      } else {
-        // Equal nonzero damage — truly neutral exchange
-        outcomeLabel = 'EXCHANGE';           outcomeTierCol = '#ccaa44'; outcomeBgC = 0x2a2200;
+    const hpBar = (x, y, w, hp, max, dmg) => {
+      box(x, y, w, 12, 0x111111, 1, 0x334455);
+      const frac = Math.max(0, hp) / Math.max(1, max);
+      if (frac > 0) box(x - w/2 + (w*frac)/2, y, w*frac, 12, frac > 0.6 ? 0x44bb44 : frac > 0.3 ? 0xddaa00 : 0xcc2222);
+      if (dmg > 0) {
+        const lostW = Math.min(w, w * dmg / Math.max(1, max));
+        box(x - w/2 + w*frac + lostW/2, y, lostW, 12, 0x882222, 0.6);
       }
-      box(cX, outY, cW - 4, 30, outcomeBgC, 1, 0x445566);
-      mk(outcomeLabel, cX, outY, outcomeTierCol, 14, true);
-    } else if (entry.type === 'miss') {
-      mk('MISS — TARGET OUT OF RANGE', cX, outY, '#888888', 13, true);
-    } else {
-      mk('BLIND FIRE — EMPTY HEX', cX, outY, '#888888', 13, true);
-    }
+    };
 
-    // ── Score breakdown + roll reveal ─────────────────────────────────────────
-    const modY = outY + 20;
-    const rollCol = roll>5?'#88ee44':roll<-5?'#ff6644':'#aabbcc';
-    const rollStr = roll>=0?`+${roll}`:String(roll);
-    // Score line
-    mk(`Score: ${entry.score??'?'}  (base 50 + roll ${rollStr})   Atk: ${entry.baseAttack??'?'}   Pierce ${entry.pierce??'?'} / Armor ${entry.armor??'?'}`, cX, modY, '#667788', 9, false, 0.5, 0.5);
-    // Modifiers line
-    const mods = [];
-    if (entry.accuracy)        mods.push(`Acc ${(entry.accuracy??0)>=0?'+':''}${entry.accuracy}`);
-    if (entry.evasion)         mods.push(`Eva −${entry.evasion}`);
-    if (entry.terrainMod)      mods.push(`Terrain −${entry.terrainMod}`);
-    if (entry.dugInMod)        mods.push(`Dug-in −${entry.dugInMod}`);
-    if (entry.bunkerMod)       mods.push(`Bunker −${entry.bunkerMod}`);
-    if (entry.attackerSupplyPenalty) mods.push(`Atk OOS −${entry.attackerSupplyPenalty * 3}`);
-    if (entry.defenderSupplyPenalty) mods.push(`Def OOS +${entry.defenderSupplyPenalty * 3}`);
-    if (entry.flankMod)        mods.push(`Flank +${entry.flankMod}`);
-    if (entry.blindFirePenalty) mods.push(`Blind −${entry.blindFirePenalty}`);
-    if (entry.suppressed)      mods.push('SUPPRESSED');
-    mk(mods.join('  ·  ')||'No modifiers', cX, modY+14, '#445566', 9, false, 0.5, 0.5);
+    const portrait = (pcx, role, type, owner, name, hp0, hp1, dmgTaken) => {
+      box(pcx, pY, pW, pH, 0x0f151c, 1, PC[owner] || 0x445566);
+      box(pcx, pY - pH/2 + 14, pW, 24, owner===1?0x1a2a44:0x3a1414, 1);
+      mk(role, pcx, pY - pH/2 + 14, role === 'ATTACKER' ? '#77a9ff' : '#ff8888', 10, true);
+      mk(g(type), pcx, pY - 30, PC[owner]?`#${PC[owner].toString(16).padStart(6,'0')}`:'#aaaaaa', 36, true);
+      mk(name || '?', pcx, pY + 18, '#eef6ff', 12, true);
+      hpBar(pcx, pY + 48, pW - 28, hp1, hp0, dmgTaken);
+      mk(`HP ${hp1}/${hp0}${dmgTaken>0?`  (-${dmgTaken})`:''}`, pcx, pY + 66, dmgTaken>0?'#ffaaaa':'#99dd99', 10, true);
+    };
+
+    portrait(lCX, 'ATTACKER', entry.attackerType, entry.attackerOwner, entry.attackerName, atkHP0, atkHP1, entry.attackerDmg || 0);
+    portrait(rCX, 'DEFENDER', entry.targetType, entry.targetOwner, entry.targetName, defHP0, defHP1, entry.dmg || 0);
+
+    // Outcome banner
+    const outY = pY + pH/2 + 26;
+    const outcome = entry.attackerDmg > (entry.dmg || 0) ? 'ATTACK REPELLED' : ((entry.dmg || 0) > entry.attackerDmg ? 'ATTACK SUCCESSFUL' : 'EXCHANGE');
+    box(cX, outY, cW - 24, 44, outcome === 'ATTACK SUCCESSFUL' ? 0x1a3a1a : outcome === 'ATTACK REPELLED' ? 0x3a1a1a : 0x2a2200, 1, 0x445566);
+    mk(outcome, cX, outY, outcome === 'ATTACK SUCCESSFUL' ? '#88ee88' : outcome === 'ATTACK REPELLED' ? '#ee8888' : '#ddbb66', 14, true);
+
+    // Details block
     const gs = this.gameState;
     const atkU = gs.units.find(u => u.id === entry.attackerId);
     const defU = gs.units.find(u => u.id === entry.targetId);
@@ -5994,23 +5908,33 @@ export class GameScene extends Phaser.Scene {
     const defTerrain = defU ? (TERRAIN_LABELS[this.terrain?.[`${defU.q},${defU.r}`] ?? 0] || 'Plains') : '?';
     const atkDesign = atkU?.designId !== undefined ? gs.designs?.[atkU.owner]?.find(d => d.id === atkU.designId) : null;
     const defDesign = defU?.designId !== undefined ? gs.designs?.[defU.owner]?.find(d => d.id === defU.designId) : null;
-    const atkModNames = (atkDesign?.moduleKeys || []).map(k => MODULES[k]?.name || k).slice(0,4).join(', ');
-    const defModNames = (defDesign?.moduleKeys || []).map(k => MODULES[k]?.name || k).slice(0,4).join(', ');
+    const atkMods = (atkDesign?.moduleKeys || []).map(k => MODULES[k]?.name || k).slice(0,4).join(', ');
+    const defMods = (defDesign?.moduleKeys || []).map(k => MODULES[k]?.name || k).slice(0,4).join(', ');
 
-    mk(`ATTACKER CONTEXT: terrain=${atkTerrain}${atkModNames?`  ·  mods: ${atkModNames}`:''}`, cX, modY+28, '#99c8ff', 10, true, 0.5, 0.5);
-    mk(`DEFENDER CONTEXT: terrain=${defTerrain}${defModNames?`  ·  mods: ${defModNames}`:''}`, cX, modY+46, '#ffb799', 10, true, 0.5, 0.5);
+    const roll = entry.roll ?? 0;
+    const rollStr = roll >= 0 ? `+${roll}` : `${roll}`;
+    const detailTop = outY + 36;
+    const wrap = cW - 48;
+    mk(`CALC: score ${entry.score ?? '?'} = 50 + roll ${rollStr} + acc(${entry.accuracy ?? 0}) - evasion(${entry.evasion ?? 0}) - cover(${(entry.terrainMod||0)+(entry.dugInMod||0)+(entry.bunkerMod||0)}) + other mods`, cX, detailTop, '#d8e6f3', 10, true, 0.5, 0, wrap);
+    mk(`ATTACKER: ATK ${entry.baseAttack ?? '?'}  pierce ${entry.pierce ?? '?'}  terrain ${atkTerrain}${atkMods ? `  ·  modules: ${atkMods}` : ''}`, cX, detailTop + 40, '#9cc9ff', 10, true, 0.5, 0, wrap);
+    mk(`DEFENDER: armor ${entry.armor ?? '?'}  terrain ${defTerrain}${defMods ? `  ·  modules: ${defMods}` : ''}`, cX, detailTop + 74, '#ffbf9f', 10, true, 0.5, 0, wrap);
 
-    // Retaliation line
-    if (entry.defenderCanRetaliate && entry.retaliationDmg > 0) {
-      mk(`↩ Retaliation: ${entry.retaliationTier||'?'} (score ${entry.retaliationScore??'?'})  —  defender deals −${entry.retaliationDmg}`, cX, modY+66, '#ffcc88', 10, true, 0.5, 0.5);
-    } else {
-      const rReason = entry.blindFire ? 'blind fire' : (entry.retHasLOS===false ? 'no line of sight' : 'out of range / suppressed / no valid retaliation');
-      mk(`↩ No retaliation — ${rReason}`, cX, modY+66, '#7f8f9f', 10, true, 0.5, 0.5);
-    }
+    const modParts = [];
+    if (entry.openPlainMod) modParts.push(`open+${entry.openPlainMod}`);
+    if (entry.flankMod) modParts.push(`flank+${entry.flankMod}`);
+    if (entry.attackerSupplyPenalty) modParts.push(`atkOOS-${entry.attackerSupplyPenalty*3}`);
+    if (entry.defenderSupplyPenalty) modParts.push(`defOOS+${entry.defenderSupplyPenalty*3}`);
+    if (entry.infantryRangePenalty) modParts.push(`infRng-${entry.infantryRangePenalty}`);
+    if (entry.blindFirePenalty) modParts.push(`blind-${entry.blindFirePenalty}`);
+    mk(`MODIFIERS: ${modParts.length ? modParts.join('  ·  ') : 'none'}`, cX, detailTop + 108, '#f1f5f9', 10, true, 0.5, 0, wrap);
 
-    // ── Footer ────────────────────────────────────────────────────────────────
-    box(cX, cY + cH/2 - 16, cW, 32, 0x080b10, 1, 0x2e3d50);
-    mk('CLICK  or  SPACE  to  continue', cX, cY + cH/2 - 16, '#3a4a5a', 11, false);
+    const retText = (entry.defenderCanRetaliate && entry.retaliationDmg > 0)
+      ? `RETALIATION: YES  (${entry.retaliationTier || '?'}, score ${entry.retaliationScore ?? '?'})  defender deals -${entry.retaliationDmg}`
+      : `RETALIATION: NO  (${entry.blindFire ? 'blind fire' : (entry.retHasLOS===false ? 'no LOS' : 'out of range / suppressed / invalid')})`;
+    mk(retText, cX, detailTop + 142, (entry.defenderCanRetaliate ? '#ffcf95' : '#91a4b8'), 10, true, 0.5, 0, wrap);
+
+    box(cX, cY + cH/2 - 18, cW, 34, 0x080b10, 1, 0x2e3d50);
+    mk('CLICK or SPACE to continue', cX, cY + cH/2 - 18, '#dbe8f5', 10, true);
 
     this._addToUI(objs);
     return objs;
