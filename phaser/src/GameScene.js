@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.15';
+export const GAME_VERSION = 'v1.4.16';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -6254,6 +6254,8 @@ export class GameScene extends Phaser.Scene {
       this._focusPlayerHQ(p, true);
       this._freezeFog();
       this._refresh();
+      // Extra anti-loop guard: after pass-screen SPACE dismiss, ignore submit SPACE for a short window.
+      this._spaceGuardUntil = Math.max(this._spaceGuardUntil || 0, performance.now() + 1400);
     });
   }
 
