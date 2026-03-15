@@ -465,6 +465,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           const myLabs   = gs.buildings.filter(b => b.owner === player && b.type === 'SCIENCE_LAB' && !b.underConstruction).length;
           const myFactories = gs.buildings.filter(b => b.owner === player && b.type === 'FACTORY' && !b.underConstruction).length;
           const myRoads  = gs.buildings.filter(b => b.owner === player && b.type === 'ROAD').length;
+          const myAdvBarracks = gs.buildings.filter(b => b.owner === player && b.type === 'ADV_BARRACKS' && !b.underConstruction).length;
+          const myArmorWorks = gs.buildings.filter(b => b.owner === player && b.type === 'ARMOR_WORKS' && !b.underConstruction).length;
+          const myAdvAirfield = gs.buildings.filter(b => b.owner === player && b.type === 'ADV_AIRFIELD' && !b.underConstruction).length;
+          const myNavalDockyard = gs.buildings.filter(b => b.owner === player && b.type === 'NAVAL_DOCKYARD' && !b.underConstruction).length;
 
           // Priority 1: exploit local resources (always do this first)
           const wood = gs.players[player].wood || 0;
@@ -503,6 +507,18 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             // Factory: components, cap at 2
             if (myFactories < 2 && gs.turn >= 5) needs.push({ type: 'FACTORY', score: 6 - myFactories * 3 });
 
+            // Tier-2 production chain: once components economy exists, unlock higher-tier unit buildings.
+            const comp = resSim.components || 0;
+            const canPushTier2 = gs.turn >= 9 && (myFactories >= 1 || comp >= 3);
+            if (canPushTier2) {
+              if (myAdvBarracks < 1) needs.push({ type: 'ADV_BARRACKS', score: 8 });
+              if (myArmorWorks < 1)  needs.push({ type: 'ARMOR_WORKS', score: 8.5 });
+              if (myAdvAirfield < 1) needs.push({ type: 'ADV_AIRFIELD', score: 7.5 });
+              if (myNavalDockyard < 1 && (gs.buildings.some(bb => bb.owner === player && ['HARBOR','NAVAL_YARD','DRY_DOCK','NAVAL_BASE'].includes(bb.type)))) {
+                needs.push({ type: 'NAVAL_DOCKYARD', score: 7.2 });
+              }
+            }
+
             // Sort by score descending and try each
             needs.sort((a, b) => b.score - a.score);
             let built = false;
@@ -533,7 +549,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   // --- Phase 1b: Register simple custom designs (occasionally) ---
   const existingDesigns = gs.designs?.[player] || [];
-  if (existingDesigns.length < MAX_DESIGNS_PER_PLAYER && gs.turn >= 3 && Math.random() < 0.3) {
+  const myLabsCount = gs.buildings.filter(b => b.owner === player && b.type === 'SCIENCE_LAB' && !b.underConstruction).length;
+  const designChance = Math.min(0.72, 0.22 + myLabsCount * 0.10 + Math.max(0, gs.turn - 6) * 0.01);
+  if (existingDesigns.length < MAX_DESIGNS_PER_PLAYER && gs.turn >= 3 && Math.random() < designChance) {
     // Pick a simple design: chassis + one affordable module
     const AI_DESIGN_RECIPES = [
       { chassis: 'INFANTRY',  modules: ['FIELD_RADIO'],  name: 'Radioman' },
@@ -541,6 +559,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       { chassis: 'TANK',      modules: ['BETTER_ENGINE'], name: 'Fast Tank' },
       { chassis: 'TANK',      modules: ['EXTRA_ARMOR'],  name: 'Heavy Tank' },
       { chassis: 'ARTILLERY', modules: ['LONG_RANGE'],   name: 'Long-Range Art.' },
+      { chassis: 'MORTAR',    modules: ['LONG_RANGE'],   name: 'Support Mortar' },
+      { chassis: 'RECON',     modules: ['FIELD_RADIO'],  name: 'Recon Net' },
       { chassis: 'ENGINEER',  modules: ['FIELD_RADIO'],  name: 'Signal Engr.' },
     ];
     // Filter to designs we haven't already registered
