@@ -588,14 +588,23 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       // Anti-spam guardrails for support units
       if (unitType === 'ENGINEER') {
         const myEng = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER').length;
+        const queuedEng = gs.pendingRecruits.filter(r => r.owner === player && r.type === 'ENGINEER').length;
+        const totalMyUnits = gs.units.filter(u => u.owner === player && !u.embarked).length;
         const econBuilt = gs.buildings.filter(bb => bb.owner === player && ['MINE','OIL_PUMP','FARM','LUMBER_CAMP','SCIENCE_LAB','FACTORY'].includes(bb.type)).length;
         const unworkedRes = Object.entries(gs.resourceHexes || {}).filter(([k]) => {
           const [rq, rr] = k.split(',').map(Number);
           const b = gs.buildings.find(bb => bb.q === rq && bb.r === rr && (bb.type === 'MINE' || bb.type === 'OIL_PUMP'));
           return !b || Number(b.owner) !== Number(player);
         }).length;
-        const engCap = Math.max(2, Math.min(6, 2 + Math.floor(econBuilt / 3) + Math.floor(unworkedRes / 4)));
-        if (myEng >= engCap) continue;
+
+        // Tight anti-spam: small core engineer count + composition ceiling.
+        const engCapBase = gs.turn < 8 ? 2 : 3;
+        const engCapFromMap = Math.floor(unworkedRes / 6) + Math.floor(econBuilt / 8);
+        const engCap = Math.max(1, Math.min(4, engCapBase + engCapFromMap));
+        const engRatio = (myEng + queuedEng) / Math.max(1, totalMyUnits + queuedEng);
+
+        if ((myEng + queuedEng) >= engCap) continue;
+        if (engRatio > 0.24) continue;
       }
       if (unitType === 'SUPPLY_TRUCK') {
         const myTrucks = gs.units.filter(u => u.owner === player && u.type === 'SUPPLY_TRUCK').length;
