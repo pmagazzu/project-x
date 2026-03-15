@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.13';
+export const GAME_VERSION = 'v1.4.14';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3337,9 +3337,14 @@ export class GameScene extends Phaser.Scene {
         const world = cam.getWorldPoint(ptr.x, ptr.y);
         const hex   = worldToHex(world.x, world.y);
         if (isValid(hex.q, hex.r, this.mapSize)) {
-          this._menuAnchor = { x: ptr.x, y: ptr.y }; // remember cursor pos for menu placement
-          const shiftRmb = !!ptr.event?.shiftKey;
-          this._onHexRightClick(hex.q, hex.r, shiftRmb);
+          // In attack modes, treat RMB as target confirm (same as LMB) for faster mortar/artillery flow.
+          if (this.mode === 'attack' || this.mode === 'attack_direct') {
+            this._onHexClick(hex.q, hex.r);
+          } else {
+            this._menuAnchor = { x: ptr.x, y: ptr.y }; // remember cursor pos for menu placement
+            const shiftRmb = !!ptr.event?.shiftKey;
+            this._onHexRightClick(hex.q, hex.r, shiftRmb);
+          }
         }
       }
       this._isDragging = false;
@@ -4873,16 +4878,19 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'attack') {
       const inRange = this.attackable.find(h => h.q === q && h.r === r);
       if (inRange) {
-        const blindTarget = gs.units.find(u => u.q === q && u.r === r && u.owner !== gs.currentPlayer);
+        const blindTarget = gs.units.find(u => !u.dead && Number(u.owner) !== Number(gs.currentPlayer) && u.q === q && u.r === r);
         if (blindTarget) {
           this._showCombatPreview(this.selectedUnit, blindTarget, true);
         } else {
-          this.selectedUnit.attacked = true;
-          this.reachable = []; this.attackable = []; this.mode = 'select';
+          // Do NOT consume attack on empty tile; keep mode active and explain why.
+          this._pushLog(`Indirect fire: no enemy unit on (${q},${r})`);
           this._refresh();
         }
         return;
       }
+      this._pushLog(`Indirect fire: tile (${q},${r}) out of range`);
+      this._refresh();
+      return;
     }
 
     // Click on attack-indicator enemy target (works in select/move mode — direct fire shortcut)
