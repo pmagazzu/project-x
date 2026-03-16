@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.23';
+export const GAME_VERSION = 'v1.4.24';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -4597,8 +4597,7 @@ export class GameScene extends Phaser.Scene {
       const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
       const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r, this.terrain, this.mapSize);
       if (d >= 1 && d <= effRange && losOk) {
-        if (indirect) this._doImmediateAttack(this.selectedUnit, clickedUnit.id, false);
-        else this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+        this._showCombatPreview(this.selectedUnit, clickedUnit, false);
         return;
       }
       this._pushLog(`Attack rejected: ${d > effRange ? 'out of range' : (losOk ? 'invalid state' : 'no LOS')}`);
@@ -5051,8 +5050,7 @@ export class GameScene extends Phaser.Scene {
       const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
       const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r, this.terrain, this.mapSize);
       if (d >= 1 && d <= effRange && losOk) {
-        if (indirect) this._doImmediateAttack(this.selectedUnit, clickedUnit.id, false);
-        else this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+        this._showCombatPreview(this.selectedUnit, clickedUnit, false);
         return;
       }
       this._pushLog(`Attack rejected (RMB): ${d > effRange ? 'out of range' : (losOk ? 'invalid state' : 'no LOS')}`);
