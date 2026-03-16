@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.20';
+export const GAME_VERSION = 'v1.4.21';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5027,6 +5027,21 @@ export class GameScene extends Phaser.Scene {
     this._hideContextMenu();
     this._hideRecruitPanel?.();
     this._closeFactoryPanel?.();
+
+    // Hard path: right-click enemy with selected friendly attacker => attack preview now.
+    if (this.selectedUnit && clickedUnit && Number(clickedUnit.owner) !== Number(gs.currentPlayer) && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
+      const effRange = this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range ?? 1;
+      const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r);
+      const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
+      const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r, this.terrain, this.mapSize);
+      if (d >= 1 && d <= effRange && losOk) {
+        this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+        return;
+      }
+      this._pushLog(`Attack rejected (RMB): ${d > effRange ? 'out of range' : (losOk ? 'invalid state' : 'no LOS')}`);
+      this._refresh();
+      return;
+    }
 
     if (clickedUnit && clickedUnit.owner === gs.currentPlayer) {
       if (this.selectedUnit !== clickedUnit) this._selectUnit(clickedUnit);
