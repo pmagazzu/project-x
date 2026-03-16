@@ -596,6 +596,25 @@ export function createGameState(scenario = 'default') {
     for (const [q,r] of [[10,8],[7,11],[12,10]])
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
 
+  } else if (scenario === 'mortar_test') {
+    // Mortar LOS bypass test: one mortar with 3 enemies in range, LOS blocked by mountains.
+    state.players[1].iron = 20; state.players[1].oil = 10; state.players[1].food = 10;
+    state.players[2].iron = 20; state.players[2].oil = 10; state.players[2].food = 10;
+
+    // Keep both HQs so winner logic doesn't auto-end.
+    state.buildings.push(createBuilding('HQ', 1, 3, 10));
+    state.buildings.push(createBuilding('HQ', 2, 15, 10));
+    state.buildings.push(createBuilding('BARRACKS', 1, 4, 10));
+    state.buildings.push(createBuilding('BARRACKS', 2, 14, 10));
+
+    // P1 test unit
+    state.units.push(createUnit('MORTAR', 1, 5, 10));
+
+    // P2 targets all within range 3 of mortar at (5,10)
+    state.units.push(createUnit('INFANTRY', 2, 8, 10));
+    state.units.push(createUnit('INFANTRY', 2, 7, 11));
+    state.units.push(createUnit('INFANTRY', 2, 7, 9));
+
   } else {
     // default -- close combat test (original layout)
     state.units.push(createUnit('INFANTRY', 1, 9,  11));

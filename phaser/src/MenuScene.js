@@ -11,6 +11,14 @@ const SCENARIOS = [
     hoverColor: 0x5a2f99,
     customSize: true,
   },
+  {
+    key:   'mortar_test',
+    label: 'MORTAR TEST',
+    icon:  '△',
+    sub:   'Single mortar vs 3 targets behind mountains (LOS bypass test)',
+    color: 0x3a2a1a,
+    hoverColor: 0x6a4a1f,
+  },
 ];
 
 const SIZE_TIERS = [

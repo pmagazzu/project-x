@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.18';
+export const GAME_VERSION = 'v1.4.19';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -142,7 +142,7 @@ export class GameScene extends Phaser.Scene {
     this.procQuickStart  = (data.procQuickStart !== undefined) ? !!data.procQuickStart : true;
     this.debugNoFog      = !!data.debugNoFog;
     // Map sizes per scenario
-    const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, random: 40, air_test: 20, custom: data.customSize || 40, default: 25 };
+    const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, random: 40, air_test: 20, mortar_test: 20, custom: data.customSize || 40, default: 25 };
     this.mapSize   = MAP_SIZES[this.scenario] || MAP_SIZE;
     // AI players: set of player numbers controlled by AI
     this.aiPlayers  = new Set(data.aiP2 ? [2] : []);
@@ -6440,6 +6440,9 @@ export class GameScene extends Phaser.Scene {
 
     if (this.scenario === 'combat') {
       // All plains — nothing to do
+    } else if (this.scenario === 'mortar_test') {
+      // Deliberate LOS blockers between mortar and all in-range targets.
+      for (const [q, r] of [[6,10], [6,11], [6,9]]) map[`${q},${r}`] = 2; // mountains
     } else if (this.scenario === 'naval') {
       this._genNavalTerrain(map, ms);
     } else if (this.scenario === 'random' || this.scenario === 'custom') {
