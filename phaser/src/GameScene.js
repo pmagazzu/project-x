@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.24';
+export const GAME_VERSION = 'v1.4.25';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -4597,7 +4597,8 @@ export class GameScene extends Phaser.Scene {
       const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
       const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r, this.terrain, this.mapSize);
       if (d >= 1 && d <= effRange && losOk) {
-        this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+        if (indirect) this._showIndirectConfirm(this.selectedUnit, clickedUnit);
+        else this._showCombatPreview(this.selectedUnit, clickedUnit, false);
         return;
       }
       this._pushLog(`Attack rejected: ${d > effRange ? 'out of range' : (losOk ? 'invalid state' : 'no LOS')}`);
@@ -5050,7 +5051,8 @@ export class GameScene extends Phaser.Scene {
       const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
       const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r, this.terrain, this.mapSize);
       if (d >= 1 && d <= effRange && losOk) {
-        this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+        if (indirect) this._showIndirectConfirm(this.selectedUnit, clickedUnit);
+        else this._showCombatPreview(this.selectedUnit, clickedUnit, false);
         return;
       }
       this._pushLog(`Attack rejected (RMB): ${d > effRange ? 'out of range' : (losOk ? 'invalid state' : 'no LOS')}`);
@@ -5590,6 +5592,26 @@ export class GameScene extends Phaser.Scene {
     canBtn.on('pointerdown',()=>{ this._contextMenuClicked=true; cleanup(); this._refresh(); });
     atkBtn.on('pointerover',()=>atkBtn.setStyle({fill:'#ffdddd'}));
     atkBtn.on('pointerout', ()=>atkBtn.setStyle({fill:'#ffffff'}));
+  }
+
+  _showIndirectConfirm(attacker, target) {
+    if (!attacker || !target) return;
+    const w = this.scale.width, h = this.scale.height, D = 212;
+    const objs = [];
+    const bg = this.add.rectangle(w/2, h/2, 520, 180, 0x0b1016, 0.98).setScrollFactor(0).setDepth(D).setStrokeStyle(2, 0x445566);
+    const t1 = this.add.text(w/2, h/2 - 56, 'INDIRECT ATTACK CONFIRM', { font: 'bold 16px monospace', fill: '#d7e9ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1);
+    const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
+    const rng = attacker.range ?? UNIT_TYPES[attacker.type]?.range ?? 1;
+    const t2 = this.add.text(w/2, h/2 - 24, `${attacker.type} -> ${target.type}   Range ${dist}/${rng}   LOS ignored by attacker`, { font: '12px monospace', fill: '#9fc3e8' }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1);
+    const t3 = this.add.text(w/2, h/2 + 2, 'Defender retaliation still uses defender LOS/range rules', { font: '11px monospace', fill: '#7f95ab' }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1);
+    const atkBtn = this.add.text(w/2 - 90, h/2 + 52, '  ATTACK  ', { font: 'bold 13px monospace', fill: '#ffffff', backgroundColor: '#992211', padding: { x: 14, y: 7 } }).setOrigin(0.5).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor: true });
+    const canBtn = this.add.text(w/2 + 90, h/2 + 52, '  CANCEL  ', { font: 'bold 13px monospace', fill: '#cccccc', backgroundColor: '#1a1a2a', padding: { x: 14, y: 7 } }).setOrigin(0.5).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor: true });
+    objs.push(bg, t1, t2, t3, atkBtn, canBtn);
+    this._addToUI(objs);
+
+    const cleanup = () => objs.forEach(o => { try { o.destroy(); } catch(e){} });
+    atkBtn.on('pointerdown', () => { cleanup(); this._doImmediateAttack(attacker, target.id, false); });
+    canBtn.on('pointerdown', () => { cleanup(); this._refresh(); });
   }
 
   _doImmediateAttack(attacker, targetId, blindFire) {
