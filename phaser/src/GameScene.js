@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.16';
+export const GAME_VERSION = 'v1.4.17';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -4877,18 +4877,29 @@ export class GameScene extends Phaser.Scene {
 
     if (this.mode === 'attack') {
       const inRange = this.attackable.find(h => h.q === q && h.r === r);
-      if (inRange) {
-        const blindTarget = gs.units.find(u => !u.dead && Number(u.owner) !== Number(gs.currentPlayer) && u.q === q && u.r === r);
-        if (blindTarget) {
-          this._showCombatPreview(this.selectedUnit, blindTarget, true);
-        } else {
-          // Do NOT consume attack on empty tile; keep mode active and explain why.
-          this._pushLog(`Indirect fire: no enemy unit on (${q},${r})`);
-          this._refresh();
-        }
+      const enemyOnHex = gs.units.find(u => !u.dead && Number(u.owner) !== Number(gs.currentPlayer) && u.q === q && u.r === r);
+      if (inRange && enemyOnHex) {
+        this._showCombatPreview(this.selectedUnit, enemyOnHex, true);
         return;
       }
-      this._pushLog(`Indirect fire: tile (${q},${r}) out of range`);
+
+      // Hard fallback: if attackable cache desynced, still allow enemy click by geometric range.
+      if (enemyOnHex && this.selectedUnit) {
+        const effRange = this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range ?? 1;
+        const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, q, r);
+        if (d >= 1 && d <= effRange) {
+          this._pushLog(`Indirect fallback: geometric-range fire on (${q},${r})`);
+          this._showCombatPreview(this.selectedUnit, enemyOnHex, true);
+          return;
+        }
+      }
+
+      if (inRange && !enemyOnHex) {
+        // Do NOT consume attack on empty tile; keep mode active and explain why.
+        this._pushLog(`Indirect fire: no enemy unit on (${q},${r})`);
+      } else {
+        this._pushLog(`Indirect fire: tile (${q},${r}) out of range`);
+      }
       this._refresh();
       return;
     }
@@ -5086,6 +5097,7 @@ export class GameScene extends Phaser.Scene {
     this.mode = 'attack';
     this.reachable  = [];
     this.attackable = getAttackRangeHexes(this.mapSize, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r, this.terrain);
+    this._pushLog(`Indirect mode: ${this.selectedUnit.type} range=${this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range} targets=${this.attackable.length}`);
     this._refresh();
   }
 
