@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.21';
+export const GAME_VERSION = 'v1.4.22';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -4588,6 +4588,21 @@ export class GameScene extends Phaser.Scene {
     if (!isVisibleHex) {
       if (clickedUnit && Number(clickedUnit.owner) !== curPClick) clickedUnit = null;
       if (clickedBuilding && Number(clickedBuilding.owner) !== curPClick) clickedBuilding = null;
+    }
+
+    // Hard attack shortcut: if a friendly unit is selected, clicking an enemy tries immediate attack preview.
+    if (this.selectedUnit && Number(this.selectedUnit.owner) === curPClick && clickedUnit && Number(clickedUnit.owner) !== curPClick && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
+      const effRange = this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range ?? 1;
+      const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r);
+      const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
+      const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r, this.terrain, this.mapSize);
+      if (d >= 1 && d <= effRange && losOk) {
+        this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+        return;
+      }
+      this._pushLog(`Attack rejected: ${d > effRange ? 'out of range' : (losOk ? 'invalid state' : 'no LOS')}`);
+      this._refresh();
+      return;
     }
 
     // Left-click cycle support on crowded hexes (units/building).
