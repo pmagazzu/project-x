@@ -1364,7 +1364,8 @@ export function resolveTurn(state, terrain) {
     const defenderRange = tDef.range || 0;
     const defenderCanAttack = ((tDef.attack || 0) > 0) || ((tDef.soft_attack || 0) > 0) || ((tDef.hard_attack || 0) > 0) || ((tDef.naval_attack || 0) > 0);
     const retHasLOS = retDist <= 1 || !state._terrain || hasLOS(target.q, target.r, attacker.q, attacker.r, state._terrain);
-    const canRetaliate = !blindFire && !INDIRECT_FIRE.has(attacker.type) && defenderCanAttack && retDist <= defenderRange && retHasLOS && (target.health - dmg > 0) && !target.suppressed;
+    const coastalVsLandNoRet = attacker.type === 'COASTAL_BATTERY' && !targetIsNaval;
+    const canRetaliate = !coastalVsLandNoRet && !blindFire && !INDIRECT_FIRE.has(attacker.type) && defenderCanAttack && retDist <= defenderRange && retHasLOS && (target.health - dmg > 0) && !target.suppressed;
     attackerDmg = canRetaliate ? potentialRet : 0;
 
     // Accumulate damage
@@ -1720,7 +1721,8 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   // Subs with noSurfaceRetaliation can't retaliate against surface ships (they dive instead)
   const subDiveBlock = tDef.noSurfaceRetaliation && !aDef.noSurfaceRetaliation;
   const retHasLOS = retDist <= 1 || !state._terrain || hasLOS(target.q, target.r, attacker.q, attacker.r, state._terrain);
-  const canRetaliate = !blindFire && !isIndirectAttack && !subDiveBlock && retDist <= defenderRange && retHasLOS && target.health - dmg > 0 && !target.suppressed;
+  const coastalVsLandNoRet = attacker.type === 'COASTAL_BATTERY' && !targetIsNaval;
+  const canRetaliate = !coastalVsLandNoRet && !blindFire && !isIndirectAttack && !subDiveBlock && retDist <= defenderRange && retHasLOS && target.health - dmg > 0 && !target.suppressed;
 
   let retDmg = 0, retScore = 0, retTier = '';
   if (canRetaliate) {
