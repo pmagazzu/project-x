@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.36';
+export const GAME_VERSION = 'v1.4.37';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -6699,6 +6699,25 @@ export class GameScene extends Phaser.Scene {
             // archipelago keeps lighter shaping
             v += bump * PROFILE.islandAmp + breakup * 0.08;
           }
+        }
+
+        // Civ-like continent shaping pass: one main landmass with irregular lobes.
+        if (isContinentLike) {
+          const cx = ms * (0.50 + (this._fbm(seed * 0.001, 2.1, seed + 301, 1) - 0.5) * 0.10);
+          const cy = ms * (0.50 + (this._fbm(seed * 0.001, 2.9, seed + 307, 1) - 0.5) * 0.10);
+          const a = ms * (0.26 + this._fbm(seed * 0.001, 3.7, seed + 313, 1) * 0.08);
+          const b = ms * (0.20 + this._fbm(seed * 0.001, 4.3, seed + 317, 1) * 0.07);
+
+          // Main ellipse + two side lobes for natural coastline silhouette
+          const d0 = Math.sqrt(((q - cx) / Math.max(1, a)) ** 2 + ((r - cy) / Math.max(1, b)) ** 2);
+          const l1x = cx + ms * 0.16, l1y = cy - ms * 0.06;
+          const l2x = cx - ms * 0.14, l2y = cy + ms * 0.10;
+          const d1 = Math.sqrt(((q - l1x) / Math.max(1, a * 0.62)) ** 2 + ((r - l1y) / Math.max(1, b * 0.68)) ** 2);
+          const d2 = Math.sqrt(((q - l2x) / Math.max(1, a * 0.58)) ** 2 + ((r - l2y) / Math.max(1, b * 0.64)) ** 2);
+          const blob = Math.max(0, 1 - d0, 1 - d1, 1 - d2);
+
+          const coastBreak = this._fbm(q * 0.14 + 911, r * 0.14 + 377, seed + 4040, 3) * 0.22;
+          v = (v * 0.34) + (blob * 1.02) + coastBreak - 0.24;
         }
 
         // Soft edge falloff with coastline roughness (avoids perfect geometric blobs)
