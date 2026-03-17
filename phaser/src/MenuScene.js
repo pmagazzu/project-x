@@ -39,8 +39,8 @@ export class MenuScene extends Phaser.Scene {
     const w = this.scale.width, h = this.scale.height;
     this._aiP2 = true;
 
-    // Background — dark field with subtle vignette
-    this.add.rectangle(w/2, h/2, w, h, 0x080a08);
+    // Background — arcade-dark war style
+    this._drawArcadeWarBackground(w, h);
 
     // Top accent line
     this.add.rectangle(w/2, 2, w, 4, 0x2a3a1a, 1);
@@ -145,6 +145,59 @@ export class MenuScene extends Phaser.Scene {
         backgroundColor: this._aiP2 ? '#2a1a00' : '#0d130d',
       });
     });
+  }
+
+  _drawArcadeWarBackground(w, h) {
+    // Base gradient bands
+    this.add.rectangle(w/2, h/2, w, h, 0x07090e, 1);
+    this.add.rectangle(w/2, h * 0.30, w, h * 0.45, 0x101823, 0.55);
+    this.add.rectangle(w/2, h * 0.78, w, h * 0.42, 0x0c140f, 0.68);
+
+    // Vignette corners
+    const vg = this.add.graphics();
+    vg.fillStyle(0x000000, 0.22);
+    vg.fillRect(0, 0, w, h);
+    vg.fillStyle(0x000000, 0.0);
+    vg.fillRect(34, 34, w - 68, h - 68);
+
+    // Scanlines
+    const sl = this.add.graphics();
+    sl.lineStyle(1, 0x1a2a2a, 0.20);
+    for (let y = 0; y < h; y += 3) {
+      sl.beginPath(); sl.moveTo(0, y); sl.lineTo(w, y); sl.strokePath();
+    }
+
+    // Tactical grid (subtle)
+    const grid = this.add.graphics();
+    grid.lineStyle(1, 0x2a3a4a, 0.20);
+    for (let x = 0; x < w; x += 44) { grid.beginPath(); grid.moveTo(x, 0); grid.lineTo(x, h); grid.strokePath(); }
+    for (let y = 0; y < h; y += 44) { grid.beginPath(); grid.moveTo(0, y); grid.lineTo(w, y); grid.strokePath(); }
+
+    // Horizon glow
+    this.add.rectangle(w/2, h * 0.63, w * 0.9, 2, 0x8b2a2a, 0.35);
+
+    // War silhouettes (simple arcade-style)
+    const sil = this.add.graphics();
+    sil.fillStyle(0x0a0f14, 0.98);
+    // Tank left
+    sil.fillRect(44, h - 96, 140, 32);
+    sil.fillRect(72, h - 114, 76, 20);
+    sil.fillRect(130, h - 108, 56, 6);
+    for (const wx of [58, 90, 122, 154]) sil.fillCircle(wx, h - 64, 9);
+    // Artillery right
+    sil.fillRect(w - 220, h - 92, 120, 24);
+    sil.fillRect(w - 180, h - 120, 24, 30);
+    sil.fillRect(w - 176, h - 134, 84, 6);
+    for (const wx of [w - 208, w - 178, w - 148, w - 118]) sil.fillCircle(wx, h - 66, 8);
+
+    // Neon red warning blips
+    const blips = this.add.graphics();
+    blips.fillStyle(0xff4444, 0.55);
+    for (let i = 0; i < 18; i++) {
+      const x = 40 + (i * 63) % (w - 80);
+      const y = 26 + ((i * 41) % Math.floor(h * 0.42));
+      blips.fillCircle(x, y, (i % 3) + 1.5);
+    }
   }
 
   _showSizePicker(scenarioKey) {
