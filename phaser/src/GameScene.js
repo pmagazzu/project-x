@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.37';
+export const GAME_VERSION = 'v1.4.38';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -6654,11 +6654,11 @@ export class GameScene extends Phaser.Scene {
     // Scale noise by map size so small maps don't become overly noisy/distorted.
     const sizeScale = Phaser.Math.Clamp(ms / 40, 0.65, 1.25);
     const SCALE     = PROFILE.scale * sizeScale; // lower = larger, smoother features
-    const SEA_LV    = PROFILE.sea;   // below → ocean
+    const isContinentLike = (landProfile === 'continent' || landProfile === 'two_continents');
+    const SEA_LV    = PROFILE.sea - (isContinentLike ? 0.08 : 0);   // below → ocean (boost continent landmass size)
     const COAST_LV  = SEA_LV + 0.04;
     const HILL_LV   = 0.64;
     const MTN_LV    = 0.79;
-    const isContinentLike = (landProfile === 'continent' || landProfile === 'two_continents');
 
     // Build height map
     const h = {};
