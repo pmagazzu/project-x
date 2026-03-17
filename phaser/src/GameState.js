@@ -1598,6 +1598,24 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   const navalVsLand     = attackerIsNaval && targetOnLand && !targetIsNaval;
   const navalVsNaval    = attackerIsNaval && targetIsNaval;
 
+  const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
+  const attackerRange = aDef.range || 1;
+  const isIndirectAttack = INDIRECT_FIRE.has(attacker.type);
+  const attackerHasLOS = !state._terrain || hasLOS(attacker.q, attacker.r, target.q, target.r, state._terrain);
+  const attackInRange = dist >= 1 && dist <= attackerRange;
+  const attackLOSOk = isIndirectAttack || blindFire || attackerHasLOS;
+
+  // Hard validation: never resolve impossible direct attacks.
+  if (!attackInRange || !attackLOSOk) {
+    return [{
+      type: 'miss',
+      attackerId: attacker.id, attackerType: attacker.type,
+      targetId: target.id, targetType: target.type,
+      reason: !attackInRange ? 'out_of_range' : 'no_los',
+      dist, attackerRange,
+    }];
+  }
+
   const isArmored = tDef.armor > 2;
   let baseAttack = isArmored ? aDef.hard_attack : aDef.soft_attack;
   // Naval vs naval: ships fight with hard_attack (hull vs hull)
@@ -1629,7 +1647,6 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   score += aDef.accuracy;
   score += aaBonus;
 
-  const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
   // Infantry long-range rifle penalty (max-range shots are less effective)
   const INF_RIFLE_TYPES = new Set(['INFANTRY']);
   const infantryRangePenalty = (INF_RIFLE_TYPES.has(attacker.type) && dist >= 2) ? 8 : 0;
@@ -1674,7 +1691,6 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   else                  { tier = 'Overwhelming';         dmg = Math.max(1, Math.round(baseAttack * pierceRatio)); suppressed = true; }
 
   // Mortar/artillery should not take defender return damage in this system.
-  const isIndirectAttack = INDIRECT_FIRE.has(attacker.type);
   if (isIndirectAttack) attackerDmg = 0;
 
   const effectiveTargetDefense = Math.max(0, (tDef.defense || 0) - defSupplyPen.attackPenalty);
