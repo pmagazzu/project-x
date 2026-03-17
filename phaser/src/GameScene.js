@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.32';
+export const GAME_VERSION = 'v1.4.33';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -6700,27 +6700,37 @@ export class GameScene extends Phaser.Scene {
         let ex = ((q / ms) - (0.5 + cxOff)) * 2;
         let er = ((r / ms) - (0.5 + cyOff)) * 2;
 
-        const coastWarpAmp = isContinentLike ? 0.09 : 0.14;
+        const coastWarpAmp = isContinentLike ? 0.12 : 0.14;
         const coastWarpA = this._fbm(q * 0.11 + 310, r * 0.11 + 740, seed + 4242, 3) * coastWarpAmp;
         const coastWarpB = this._fbm(q * 0.09 + 120, r * 0.09 + 520, seed + 9898, 3) * coastWarpAmp;
         ex += coastWarpA;
         er += coastWarpB;
 
-        // Continent-like profiles use warped ellipse (more natural varied shapes).
+        // Continent-like profiles: rotated + angular-warped ellipse to avoid trapezoid silhouettes.
         let edgeDist;
         if (landProfile === 'continent' || landProfile === 'two_continents') {
-          // Keep continents organic but avoid geometric/trapezoid silhouettes.
-          const ax = 0.98 + (this._fbm(seed * 0.001, 31.1, seed + 91, 1) - 0.5) * 0.16;
-          const ay = 0.98 + (this._fbm(seed * 0.001, 37.9, seed + 117, 1) - 0.5) * 0.16;
-          const radial = Math.sqrt((ex / ax) * (ex / ax) + (er / ay) * (er / ay));
-          const boxy = Math.max(Math.abs(ex), Math.abs(er));
-          edgeDist = radial * 0.88 + boxy * 0.12;
+          const rot = (this._fbm(seed * 0.001, 7.7, seed + 203, 1) - 0.5) * 1.2; // ~±34°
+          const cr = Math.cos(rot), sr = Math.sin(rot);
+          const rx = ex * cr - er * sr;
+          const ry = ex * sr + er * cr;
+
+          const ax = 1.00 + (this._fbm(seed * 0.001, 31.1, seed + 91, 1) - 0.5) * 0.12;
+          const ay = 1.00 + (this._fbm(seed * 0.001, 37.9, seed + 117, 1) - 0.5) * 0.12;
+
+          const theta = Math.atan2(ry, rx);
+          const angWarp =
+            Math.sin(theta * 3 + seed * 0.013) * 0.08 +
+            Math.sin(theta * 5 - seed * 0.009) * 0.04;
+
+          const radial = Math.sqrt((rx / ax) * (rx / ax) + (ry / ay) * (ry / ay));
+          const boxy = Math.max(Math.abs(rx), Math.abs(ry));
+          edgeDist = (radial + angWarp) * 0.96 + boxy * 0.04;
         } else {
           edgeDist = Math.max(Math.abs(ex), Math.abs(er));
         }
 
         // Extra raggedness around shoreline band
-        const shoreNoise = this._fbm(q * 0.20 + 700, r * 0.20 + 300, seed + 1313, 2) * (isContinentLike ? 0.07 : 0.10);
+        const shoreNoise = this._fbm(q * 0.20 + 700, r * 0.20 + 300, seed + 1313, 2) * (isContinentLike ? 0.09 : 0.10);
         edgeDist += shoreNoise;
 
         v -= Math.max(0, edgeDist - PROFILE.edgeStart) * PROFILE.edgeFalloff;
