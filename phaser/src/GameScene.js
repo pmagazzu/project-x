@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.27';
+export const GAME_VERSION = 'v1.4.28';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -4580,6 +4580,12 @@ export class GameScene extends Phaser.Scene {
     const gs = this.gameState;
     let clickedUnit     = unitAt(gs, q, r);
     let clickedBuilding = buildingAt(gs, q, r);
+    const enemyAtDisplayHex = gs.units.find(u => {
+      if (u.dead || Number(u.owner) === Number(gs.currentPlayer)) return false;
+      const dq = (u._origQ !== undefined) ? u._origQ : u.q;
+      const dr = (u._origR !== undefined) ? u._origR : u.r;
+      return dq === q && dr === r;
+    });
 
     // Fog safety: do not allow interaction with unseen enemy units/buildings
     const fog = this._currentFog;
@@ -4605,14 +4611,15 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
-      // Fallback enemy click check (range/LOS rule).
-      if (clickedUnit && Number(clickedUnit.owner) !== curPClick) {
+      // Fallback enemy click check (range/LOS rule) using display-hex enemy lookup.
+      const enemyClick = enemyAtDisplayHex || (clickedUnit && Number(clickedUnit.owner) !== curPClick ? clickedUnit : null);
+      if (enemyClick) {
         const effRange = this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range ?? 1;
-        const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r);
+        const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, enemyClick.q, enemyClick.r);
         const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
-        const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r, this.terrain, this.mapSize);
+        const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, enemyClick.q, enemyClick.r, this.terrain, this.mapSize);
         if (d >= 1 && d <= effRange && losOk) {
-          this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+          this._showCombatPreview(this.selectedUnit, enemyClick, false);
           return;
         }
         this._pushLog(`Attack rejected: ${d > effRange ? 'out of range' : (losOk ? 'invalid state' : 'no LOS')}`);
@@ -5053,6 +5060,12 @@ export class GameScene extends Phaser.Scene {
 
     const gs = this.gameState;
     const clickedUnit = gs.units.find(u => u.q === q && u.r === r && !u.dead);
+    const enemyAtDisplayHex = gs.units.find(u => {
+      if (u.dead || Number(u.owner) === Number(gs.currentPlayer)) return false;
+      const dq = (u._origQ !== undefined) ? u._origQ : u.q;
+      const dr = (u._origR !== undefined) ? u._origR : u.r;
+      return dq === q && dr === r;
+    });
 
     // Right-click anywhere should first close transient menus/panels.
     this._hideContextMenu();
@@ -5071,13 +5084,14 @@ export class GameScene extends Phaser.Scene {
           return;
         }
       }
-      if (clickedUnit && Number(clickedUnit.owner) !== curP) {
+      const enemyClick = enemyAtDisplayHex || (clickedUnit && Number(clickedUnit.owner) !== curP ? clickedUnit : null);
+      if (enemyClick) {
         const effRange = this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range ?? 1;
-        const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r);
+        const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, enemyClick.q, enemyClick.r);
         const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
-        const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r, this.terrain, this.mapSize);
+        const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, enemyClick.q, enemyClick.r, this.terrain, this.mapSize);
         if (d >= 1 && d <= effRange && losOk) {
-          this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+          this._showCombatPreview(this.selectedUnit, enemyClick, false);
           return;
         }
         this._pushLog(`Attack rejected (RMB): ${d > effRange ? 'out of range' : (losOk ? 'invalid state' : 'no LOS')}`);
