@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.31';
+export const GAME_VERSION = 'v1.4.32';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -2274,6 +2274,12 @@ export class GameScene extends Phaser.Scene {
     this.btnTrade    = this._makeBtn(w - 242, 42, '💱 TRADE', 0x3a2a11, () => this._toggleTrade(), D, 'right');
     this.btnSettings = this._makeBtn(w - 140, 42, '⚙ SET',   0x222244, () => this._toggleSettings(), D, 'right');
     this.btnSubmit   = this._makeBtn(w - 8,   42, 'END TURN',0x1a5c1a, () => this._confirmEndTurn(), D, 'right');
+
+    // Explicit turn counter badge (high visibility)
+    this.turnBadge = this.add.text(w - 8, 8, 'TURN 1', {
+      font: 'bold 12px monospace', fill: '#fff7c2',
+      backgroundColor: '#3a3312', padding: { x: 8, y: 4 }
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(D + 2);
   }
 
   _makeLabel(x, y, text, depth, center = false) {
@@ -2342,6 +2348,7 @@ export class GameScene extends Phaser.Scene {
     this.resFood.setStyle({ fill: unsupplied ? '#ff6644' : '#ccddcc' });
 
     this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  ${modeStr}`);
+    this.turnBadge?.setText(`TURN ${gs.turn}`);
   }
 
   // ── Bottom panel ──────────────────────────────────────────────────────────

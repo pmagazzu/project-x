@@ -507,6 +507,14 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             // Factory: components, cap at 2
             if (myFactories < 2 && gs.turn >= 5) needs.push({ type: 'FACTORY', score: 6 - myFactories * 3 });
 
+            // Military production baseline: don't stall on only T0 infantry/recon.
+            const myBarracks = gs.buildings.filter(bb => bb.owner === player && bb.type === 'BARRACKS' && !bb.underConstruction).length;
+            const myAirfield = gs.buildings.filter(bb => bb.owner === player && bb.type === 'AIRFIELD' && !bb.underConstruction).length;
+            const myHarbor = gs.buildings.filter(bb => bb.owner === player && ['HARBOR','NAVAL_YARD','SHIPYARD','DRY_DOCK','NAVAL_BASE'].includes(bb.type) && !bb.underConstruction).length;
+            if (gs.turn >= 4 && myBarracks < 2) needs.push({ type: 'BARRACKS', score: 7.5 - myBarracks * 2.5 });
+            if (gs.turn >= 8 && myAirfield < 1) needs.push({ type: 'AIRFIELD', score: 6.4 });
+            if (gs.turn >= 10 && myHarbor < 1) needs.push({ type: 'HARBOR', score: 5.8 });
+
             // Tier-2 production chain: once components economy exists, unlock higher-tier unit buildings.
             const comp = resSim.components || 0;
             const canPushTier2 = gs.turn >= 9 && (myFactories >= 1 || comp >= 3);
@@ -603,6 +611,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const ai = prio.indexOf(a), bi = prio.indexOf(b2);
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
+    const hasAdvancedOption = sorted.some(t => (UNIT_TYPES[t]?.tier || 0) >= 1 || !!UNIT_TYPES[t]?.unlockedBy);
 
     for (const unitType of sorted) {
       // Anti-spam guardrails for support units
@@ -633,6 +642,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
       // Composition guards: avoid overstacking one cheap chassis.
       const lineTypes = ['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD','LMG_TEAM','HMG_TEAM'];
+      if (gs.turn >= 12 && hasAdvancedOption && (unitType === 'INFANTRY' || unitType === 'RECON')) {
+        // Late-game: strongly de-prioritize pure T0 fillers when advanced options exist at this building.
+        continue;
+      }
       const totalCombat = Math.max(1, Object.entries(plannedCount)
         .filter(([t]) => UNIT_TYPES[t]?.attack > 0 || UNIT_TYPES[t]?.soft_attack > 0 || UNIT_TYPES[t]?.hard_attack > 0)
         .reduce((s,[,n]) => s + n, 0));
