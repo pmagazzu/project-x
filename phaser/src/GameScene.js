@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.30';
+export const GAME_VERSION = 'v1.4.31';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -3378,6 +3378,14 @@ export class GameScene extends Phaser.Scene {
       if (this._nameModalOpen) return;
       this._selectNextReadyUnit();
     });
+    this.input.keyboard.on('keydown-C',     () => {
+      if (this._nameModalOpen) return;
+      const u = this.selectedUnit;
+      if (!u || Number(u.owner) !== Number(this.gameState.currentPlayer) || !u.moveOrder) return;
+      delete u.moveOrder;
+      this._pushLog(`P${u.owner} canceled move order for ${UNIT_TYPES[u.type]?.name || u.type}`);
+      this._refresh();
+    });
     // Supply overlay hotkey intentionally disabled (was keydown-S). Use UI button only.
     this.input.keyboard.on('keydown-SPACE', () => {
       if (this._nameModalOpen) return;
@@ -4765,6 +4773,7 @@ export class GameScene extends Phaser.Scene {
         (_isMovingAir0 && clickedUnit.owner === this.selectedUnit.owner && !AIR_UNITS.has(clickedUnit.type));
       if (isReachable && hexFree) {
         this.selectedUnit.q = q; this.selectedUnit.r = r;
+        delete this.selectedUnit.moveOrder; // manual movement overrides standing order
         this.selectedUnit.dugIn = false;
         this.selectedUnit.sprinted = true;
         this.selectedUnit.attacked = true; // sprint negates attack
@@ -4825,6 +4834,7 @@ export class GameScene extends Phaser.Scene {
           (this.selectedUnit.movesLeft ?? _maxMove) - _moveCost);
         // Do NOT add to pendingMoves — position is real immediately
         this.selectedUnit.q = q; this.selectedUnit.r = r;
+        delete this.selectedUnit.moveOrder; // manual movement overrides standing order
         this.selectedUnit.dugIn = false;
         this.selectedUnit.moved = (this.selectedUnit.movesLeft <= 0);
         // Check if move revealed new fog hexes — if so, undo is blocked
