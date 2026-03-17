@@ -476,6 +476,17 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           const nonWoodEcon = myMines + myPumps + myFarms + myFactories;
           const maxLumber = Math.max(1, Math.min(2, Math.floor((nonWoodEcon + 1) / 3))); // usually 1-2 total camps
           const woodPressure = wood < 5;
+          const onPlains = (ttype === 0 || ttype === 6 || ttype === 7);
+          const onForest = (ttype === 1 || ttype === 7);
+
+          // Opening hierarchy (turn <= 8): ensure baseline infra/econ comes online.
+          if (gs.turn <= 8) {
+            if (!hasRoad && maybeBuild('ROAD')) continue;
+            if (resHex?.type === 'IRON' && myMines < 1 && maybeBuild('MINE')) continue;
+            if (resHex?.type === 'OIL' && myPumps < 1 && maybeBuild('OIL_PUMP')) continue;
+            if (onPlains && myFarms < 1 && maybeBuild('FARM')) continue;
+            if (onForest && myLumber < 1 && maybeBuild('LUMBER_CAMP')) continue;
+          }
 
           if (resHex?.type === 'OIL') {
             maybeBuild('OIL_PUMP');
@@ -489,8 +500,6 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             // Determine what the economy is most lacking
             const iron = resSim.iron;
             const oil  = resSim.oil;
-            const onPlains = (ttype === 0 || ttype === 6 || ttype === 7);
-            const onForest = (ttype === 1 || ttype === 7);
 
             // Build priority scoring — favor the weakest link in economy
             const needs = [];
@@ -502,7 +511,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             }
             // Road: infrastructure, priority rises when units are out of supply.
             const unsupplied = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0).length;
-            if (!hasRoad && gs.turn >= 3 && myRoads < 16) needs.push({ type: 'ROAD', score: 6 - myRoads * 0.25 + unsupplied * 3.5 });
+            if (!hasRoad && gs.turn >= 3 && myRoads < 20) needs.push({ type: 'ROAD', score: 8 - myRoads * 0.2 + unsupplied * 4.0 });
             // Science Lab: research, cap at 2
             if (myLabs < 2 && gs.turn >= 2) needs.push({ type: 'SCIENCE_LAB', score: 8 - myLabs * 4 });
             // Factory: components, cap at 2
