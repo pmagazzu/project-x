@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.26';
+export const GAME_VERSION = 'v1.4.27';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -4590,19 +4590,35 @@ export class GameScene extends Phaser.Scene {
       if (clickedBuilding && Number(clickedBuilding.owner) !== curPClick) clickedBuilding = null;
     }
 
-    // Hard attack shortcut: if a friendly unit is selected, clicking an enemy resolves attack path first.
-    if (this.selectedUnit && Number(this.selectedUnit.owner) === curPClick && clickedUnit && Number(clickedUnit.owner) !== curPClick && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
-      const effRange = this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range ?? 1;
-      const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r);
-      const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
-      const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r, this.terrain, this.mapSize);
-      if (d >= 1 && d <= effRange && losOk) {
-        this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+    // Hard attack shortcut: if selected unit clicks any highlighted attack hex, always open preview.
+    if (this.selectedUnit && Number(this.selectedUnit.owner) === curPClick && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
+      const attackTarget = (this.attackable || []).find(h => h.q === q && h.r === r);
+      if (attackTarget) {
+        const targetUnit = gs.units.find(u => u.id === attackTarget.targetId && !u.dead)
+          || gs.units.find(u => !u.dead && Number(u.owner) !== curPClick && u.q === attackTarget.q && u.r === attackTarget.r);
+        if (targetUnit) {
+          this._showCombatPreview(this.selectedUnit, targetUnit, false);
+          return;
+        }
+        this._pushLog('Attack target stale/missing on clicked attack hex');
+        this._refresh();
         return;
       }
-      this._pushLog(`Attack rejected: ${d > effRange ? 'out of range' : (losOk ? 'invalid state' : 'no LOS')}`);
-      this._refresh();
-      return;
+
+      // Fallback enemy click check (range/LOS rule).
+      if (clickedUnit && Number(clickedUnit.owner) !== curPClick) {
+        const effRange = this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range ?? 1;
+        const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r);
+        const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
+        const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r, this.terrain, this.mapSize);
+        if (d >= 1 && d <= effRange && losOk) {
+          this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+          return;
+        }
+        this._pushLog(`Attack rejected: ${d > effRange ? 'out of range' : (losOk ? 'invalid state' : 'no LOS')}`);
+        this._refresh();
+        return;
+      }
     }
 
     // Left-click cycle support on crowded hexes (units/building).
@@ -5043,19 +5059,31 @@ export class GameScene extends Phaser.Scene {
     this._hideRecruitPanel?.();
     this._closeFactoryPanel?.();
 
-    // Hard path: right-click enemy with selected friendly attacker => resolve attack path first.
-    if (this.selectedUnit && clickedUnit && Number(clickedUnit.owner) !== Number(gs.currentPlayer) && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
-      const effRange = this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range ?? 1;
-      const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r);
-      const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
-      const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r, this.terrain, this.mapSize);
-      if (d >= 1 && d <= effRange && losOk) {
-        this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+    // Hard path: right-click highlighted attack hex / enemy with selected attacker => preview.
+    if (this.selectedUnit && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
+      const curP = Number(gs.currentPlayer);
+      const attackTarget = (this.attackable || []).find(h => h.q === q && h.r === r);
+      if (attackTarget) {
+        const targetUnit = gs.units.find(u => u.id === attackTarget.targetId && !u.dead)
+          || gs.units.find(u => !u.dead && Number(u.owner) !== curP && u.q === attackTarget.q && u.r === attackTarget.r);
+        if (targetUnit) {
+          this._showCombatPreview(this.selectedUnit, targetUnit, false);
+          return;
+        }
+      }
+      if (clickedUnit && Number(clickedUnit.owner) !== curP) {
+        const effRange = this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range ?? 1;
+        const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r);
+        const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
+        const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r, this.terrain, this.mapSize);
+        if (d >= 1 && d <= effRange && losOk) {
+          this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+          return;
+        }
+        this._pushLog(`Attack rejected (RMB): ${d > effRange ? 'out of range' : (losOk ? 'invalid state' : 'no LOS')}`);
+        this._refresh();
         return;
       }
-      this._pushLog(`Attack rejected (RMB): ${d > effRange ? 'out of range' : (losOk ? 'invalid state' : 'no LOS')}`);
-      this._refresh();
-      return;
     }
 
     if (clickedUnit && clickedUnit.owner === gs.currentPlayer) {
