@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.38';
+export const GAME_VERSION = 'v1.4.39';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1581,6 +1581,22 @@ export class GameScene extends Phaser.Scene {
         // Coin sign
         g.fillStyle(0xffcc55, 0.95); g.fillCircle(x, y + s*0.08, s*0.22);
         g.lineStyle(1.2, 0x000000, 0.35); g.strokeCircle(x, y + s*0.08, s*0.22);
+
+      } else if (b.type === 'PORT') {
+        // Port: pier + crane + container blocks
+        const bw = s * 1.95, bh = s * 1.02;
+        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x355a74);
+        g.fillStyle(0x243b4b, 0.9); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
+        // Pier
+        g.fillStyle(0x9a8f7a, 0.88); g.fillRect(x - s*0.9, y + s*0.08, s*1.8, s*0.18);
+        // Crane
+        g.fillStyle(0xb7c2cc, 0.95); g.fillRect(x - s*0.18, y - s*0.44, s*0.12, s*0.58);
+        g.fillRect(x - s*0.18, y - s*0.44, s*0.52, s*0.1);
+        g.fillStyle(teamAccent, 0.9); g.fillRect(x + s*0.26, y - s*0.34, s*0.08, s*0.18);
+        // Containers
+        g.fillStyle(0x7a3f2a, 0.9); g.fillRect(x - s*0.72, y - s*0.2, s*0.32, s*0.2);
+        g.fillStyle(0x2d6e8a, 0.9); g.fillRect(x - s*0.34, y - s*0.2, s*0.28, s*0.2);
+        g.fillStyle(0x5d6f32, 0.9); g.fillRect(x + s*0.02, y - s*0.2, s*0.30, s*0.2);
 
       } else if (b.type === 'SCIENCE_LAB') {
         // Science lab: modular lab block + dish + glass tanks
@@ -3731,6 +3747,7 @@ export class GameScene extends Phaser.Scene {
       const onPlains = (ttype === 0 || ttype === 6 || ttype === 7);
       if (noBuilding && onPlains) allOpts.push({ label: `Farm 🍞     2⚙ 3🪵`,   cost:{iron:2,oil:0,wood:3}, enabled: iron>=2&&wood>=3, cb: () => this._onBuildStructure('FARM',2,0,3) });
       if (noBuilding) allOpts.push({ label: `Market 💰   3⚙ 4🪵`,             cost:{iron:3,oil:0,wood:4}, enabled: iron>=3&&wood>=4, cb: () => this._onBuildStructure('MARKET',3,0,4) });
+      if (noBuilding && coastal) allOpts.push({ label: `Port ⚓ T1 5⚙ 1🛢 4🪵`,  cost:{iron:5,oil:1,wood:4}, enabled: iron>=5&&oil>=1&&wood>=4, cb: () => this._onBuildStructure('PORT',5,1,4) });
       if (noBuilding) allOpts.push({ label: `Science Lab ⚗  6⚙ 4🪵`,         cost:{iron:6,oil:0,wood:4}, enabled: iron>=6&&wood>=4, cb: () => this._onBuildStructure('SCIENCE_LAB',6,0,4) });
       if (noBuilding) allOpts.push({ label: `Factory 🧩    10⚙ 3🛢 8🪵`,      cost:{iron:10,oil:3,wood:8}, enabled: iron>=10&&oil>=3&&wood>=8, cb: () => this._onBuildStructure('FACTORY',10,3,8) });
       // Coastal Battery — must be placed on coastal land hex
@@ -4091,6 +4108,37 @@ export class GameScene extends Phaser.Scene {
       this._refresh();
       this._openEconomy();
     });
+
+    // Port imports: buy basic materials with gold (debug/econ utility)
+    const myPorts = gs.buildings.filter(b => Number(b.owner) === Number(p) && b.type === 'PORT' && !b.underConstruction).length;
+    if (myPorts > 0) {
+      const iy = fy - 42;
+      objs.push(this.add.text(left, iy - 16, `PORT IMPORTS (${myPorts})  —  spend gold for +2 resources`, {
+        font:'10px monospace', fill:'#8fd2ff'
+      }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
+
+      const importBtn = (x, label, key, goldCost) => {
+        const can = (pl.gold || 0) >= goldCost;
+        const b = this.add.text(x, iy, `${label} ${goldCost}💰`, {
+          font:'bold 10px monospace', fill: can ? '#ffffff' : '#999999',
+          backgroundColor: can ? '#1f3f5a' : '#333333', padding:{x:8,y:5}
+        }).setOrigin(0,0).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor:true });
+        b.on('pointerdown', () => {
+          this._contextMenuClicked = true;
+          if ((pl.gold || 0) < goldCost) return;
+          pl.gold -= goldCost;
+          pl[key] = (pl[key] || 0) + 2;
+          this._pushLog(`P${p}: imported +2 ${key} via Port (${goldCost}💰)`);
+          this._refresh();
+          this._openEconomy();
+        });
+        objs.push(b);
+      };
+      importBtn(left,      '[+2 IRON ⚙]', 'iron', 2);
+      importBtn(left + 116,'[+2 OIL 🛢]', 'oil', 2);
+      importBtn(left + 228,'[+2 WOOD 🪵]','wood', 2);
+      importBtn(left + 348,'[+2 FOOD 🍞]','food', 2);
+    }
 
     this._addToUI(objs);
     this._economyObjs = objs;
@@ -7201,6 +7249,35 @@ export class GameScene extends Phaser.Scene {
         map[`${woodHex.q},${woodHex.r}`] = (map[`${woodHex.q},${woodHex.r}`] === 1 ? 1 : 7);
         if (quickStart && !gs.buildings.find(b => b.q === woodHex.q && b.r === woodHex.r)) {
           gs.buildings.push(createBuilding('LUMBER_CAMP', player, woodHex.q, woodHex.r));
+        }
+      }
+
+      // Guarantee >=2 tree/woods tiles within radius 7 of each HQ.
+      const treeWithin = [];
+      for (let dq = -7; dq <= 7; dq++) {
+        for (let dr = -7; dr <= 7; dr++) {
+          const q2 = hq.q + dq, r2 = hq.r + dr;
+          if (!isValid(q2, r2, ms)) continue;
+          if (hexDistance(hq.q, hq.r, q2, r2) > 7) continue;
+          const t = map[`${q2},${r2}`];
+          if (t === 1 || t === 7) treeWithin.push({ q: q2, r: r2 });
+        }
+      }
+      if (treeWithin.length < 2) {
+        let needed = 2 - treeWithin.length;
+        for (let d = 2; d <= 7 && needed > 0; d++) {
+          for (let dq = -d; dq <= d && needed > 0; dq++) {
+            for (let dr = -d; dr <= d && needed > 0; dr++) {
+              const q2 = hq.q + dq, r2 = hq.r + dr;
+              if (!isValid(q2, r2, ms) || hexDistance(hq.q, hq.r, q2, r2) > 7) continue;
+              if (!ownSide(q2, r2)) continue;
+              const t = map[`${q2},${r2}`];
+              if (t === 4 || t === 5 || t === 2) continue; // avoid water/mountain
+              if (t === 1 || t === 7) continue;
+              map[`${q2},${r2}`] = 7;
+              needed--;
+            }
+          }
         }
       }
 

@@ -22,7 +22,6 @@ const SCENARIOS = [
 ];
 
 const SIZE_TIERS = [
-  { label: 'Tiny',    size: 15,  sub: '15×15  · fast game' },
   { label: 'Small',   size: 25,  sub: '25×25  · ~1 hour' },
   { label: 'Medium',  size: 40,  sub: '40×40  · standard' },
   { label: 'Large',   size: 60,  sub: '60×60  · long game' },
