@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.41';
+export const GAME_VERSION = 'v1.4.42';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5971,12 +5971,8 @@ export class GameScene extends Phaser.Scene {
       }
 
     } else if (action.type === 'recruit') {
+      // queueRecruit already performs affordability checks and deducts ALL resources (incl. food/components).
       queueRecruit(gs, gs.currentPlayer, action.unitType, action.buildingId);
-      const cost = UNIT_TYPES[action.unitType]?.cost || {};
-      const res  = gs.players[gs.currentPlayer];
-      res.iron -= (cost.iron || 0);
-      res.oil  -= (cost.oil  || 0);
-      res.wood  = (res.wood || 0) - (cost.wood || 0);
       this._updateTopBar();
       next();
 
