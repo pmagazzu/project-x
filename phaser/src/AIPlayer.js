@@ -672,5 +672,36 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     }
   }
 
+  // --- Phase 3: Failsafe infra action ---
+  // If AI planned no build at all, force one practical economy/infra build when possible.
+  if (!actions.some(a => a.type === 'build') && gs.turn >= 4) {
+    const idleEngineers = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked && !u.constructing);
+    for (const eng of idleEngineers) {
+      const key = `${eng.q},${eng.r}`;
+      const t = terrain?.[key] ?? 0;
+      const hasRoad = !!roadAt(gs, eng.q, eng.r);
+      const hasNonRoadBuilding = !!(buildingAt(gs, eng.q, eng.r) && !hasRoad);
+      const resHex = gs.resourceHexes?.[key];
+
+      const tryBuild = (type) => {
+        const cost = BUILDING_TYPES[type]?.buildCost || {};
+        if (!canAfford(cost)) return false;
+        actions.push({ type: 'build', unitId: eng.id, buildingType: type });
+        spend(cost);
+        return true;
+      };
+
+      // Always allow road as a cheap baseline action.
+      if (!hasRoad && tryBuild('ROAD')) break;
+      if (hasNonRoadBuilding) continue;
+
+      if (resHex?.type === 'IRON' && tryBuild('MINE')) break;
+      if (resHex?.type === 'OIL' && tryBuild('OIL_PUMP')) break;
+      if ((t === 1 || t === 7) && tryBuild('LUMBER_CAMP')) break;
+      if ((t === 0 || t === 6 || t === 7) && tryBuild('FARM')) break;
+      if (gs.turn >= 6 && tryBuild('SCIENCE_LAB')) break;
+    }
+  }
+
   return actions;
 }
