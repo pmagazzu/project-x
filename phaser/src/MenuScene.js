@@ -19,6 +19,14 @@ const SCENARIOS = [
     color: 0x3a2a1a,
     hoverColor: 0x6a4a1f,
   },
+  {
+    key:   'coastal_battery_test',
+    label: 'COASTAL BATTERY TEST',
+    icon:  '▣',
+    sub:   'Battery retaliation/range sanity checks on fixed coastal setup',
+    color: 0x1f3348,
+    hoverColor: 0x2f4f72,
+  },
 ];
 
 const SIZE_TIERS = [

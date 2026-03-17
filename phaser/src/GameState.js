@@ -617,6 +617,24 @@ export function createGameState(scenario = 'default') {
     state.units.push(createUnit('INFANTRY', 2, 7, 11));
     state.units.push(createUnit('INFANTRY', 2, 7, 9));
 
+  } else if (scenario === 'coastal_battery_test') {
+    // Coastal battery retaliation/range test map.
+    state.players[1].iron = 20; state.players[1].oil = 10; state.players[1].food = 10;
+    state.players[2].iron = 20; state.players[2].oil = 10; state.players[2].food = 10;
+
+    state.buildings.push(createBuilding('HQ', 1, 3, 10));
+    state.buildings.push(createBuilding('HQ', 2, 15, 10));
+    state.buildings.push(createBuilding('BARRACKS', 1, 4, 10));
+    state.buildings.push(createBuilding('BARRACKS', 2, 14, 10));
+
+    // P1 battery on coast-adjacent tile.
+    state.units.push(createUnit('COASTAL_BATTERY', 1, 6, 10));
+
+    // In-range test targets
+    state.units.push(createUnit('RECON', 2, 9, 10));      // 3 hexes
+    state.units.push(createUnit('INFANTRY', 2, 10, 10));  // 4 hexes
+    state.units.push(createUnit('PATROL_BOAT', 2, 8, 10)); // naval target in shallow/deep strip
+
   } else {
     // default -- close combat test (original layout)
     state.units.push(createUnit('INFANTRY', 1, 9,  11));

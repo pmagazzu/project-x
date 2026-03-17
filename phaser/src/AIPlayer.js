@@ -500,8 +500,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             if (onForest && !resHex && myLumber < maxLumber && wood < 6) {
               needs.push({ type: 'LUMBER_CAMP', score: (myLumber < 1 ? 11 : 6) - myLumber * 4 - wood * 0.8 });
             }
-            // Road: infrastructure, moderate priority after turn 3
-            if (!hasRoad && gs.turn >= 3 && myRoads < 6) needs.push({ type: 'ROAD', score: 5 - myRoads * 0.5 });
+            // Road: infrastructure, priority rises when units are out of supply.
+            const unsupplied = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0).length;
+            if (!hasRoad && gs.turn >= 3 && myRoads < 10) needs.push({ type: 'ROAD', score: 5 - myRoads * 0.35 + unsupplied * 1.8 });
             // Science Lab: research, cap at 2
             if (myLabs < 2 && gs.turn >= 2) needs.push({ type: 'SCIENCE_LAB', score: 8 - myLabs * 4 });
             // Factory: components, cap at 2
@@ -611,6 +612,18 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const ai = prio.indexOf(a), bi = prio.indexOf(b2);
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
+
+    // Logistics override: when supply is strained, prioritize supply units.
+    const unsuppliedGround = gs.units.filter(u => u.owner === player && !u.embarked && !NAVAL_UNITS.has(u.type) && (u.outOfSupply || 0) > 0).length;
+    const unsuppliedNaval = gs.units.filter(u => u.owner === player && !u.embarked && NAVAL_UNITS.has(u.type) && (u.outOfSupply || 0) > 0).length;
+    if (unsuppliedGround >= 3 && sorted.includes('SUPPLY_TRUCK')) {
+      sorted.splice(sorted.indexOf('SUPPLY_TRUCK'), 1);
+      sorted.unshift('SUPPLY_TRUCK');
+    }
+    if (unsuppliedNaval >= 2 && sorted.includes('SUPPLY_SHIP')) {
+      sorted.splice(sorted.indexOf('SUPPLY_SHIP'), 1);
+      sorted.unshift('SUPPLY_SHIP');
+    }
     const hasAdvancedOption = sorted.some(t => (UNIT_TYPES[t]?.tier || 0) >= 1 || !!UNIT_TYPES[t]?.unlockedBy);
 
     for (const unitType of sorted) {
