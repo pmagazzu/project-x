@@ -36,6 +36,7 @@ const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
 export const GAME_VERSION = 'v1.4.49';
+const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5402,6 +5403,10 @@ export class GameScene extends Phaser.Scene {
       engineer.constructing = b.id;
     }
     gs.buildings.push(b);
+    if (!ROAD_TYPES.has(type) && !ECON_BUILDINGS.has(type)) {
+      const hasRoad = gs.buildings.some(r => ROAD_TYPES.has(r.type) && r.q === engineer.q && r.r === engineer.r);
+      if (!hasRoad) gs.buildings.push(createBuilding('ROAD', gs.currentPlayer, engineer.q, engineer.r));
+    }
     engineer.moved = true; engineer.building = true;
     this._clearSelection();
     this._refresh();
@@ -6031,6 +6036,10 @@ export class GameScene extends Phaser.Scene {
           unit.constructing = b.id;
         }
         gs.buildings.push(b);
+        if (!ECON_BUILDINGS.has(bType)) {
+          const hasRoad = gs.buildings.some(r => ROAD_TYPES.has(r.type) && r.q === unit.q && r.r === unit.r);
+          if (!hasRoad) gs.buildings.push(createBuilding('ROAD', p, unit.q, unit.r));
+        }
       }
 
       unit.moved = true;

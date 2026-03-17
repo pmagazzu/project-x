@@ -657,10 +657,12 @@ export function createGameState(scenario = 'default') {
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
   }
 
-  // Ensure each HQ starts with a dirt road on the same hex.
-  for (const hq of state.buildings.filter(b => b.type === 'HQ')) {
-    const hasRoad = state.buildings.some(b => ROAD_TYPES.has(b.type) && b.q === hq.q && b.r === hq.r);
-    if (!hasRoad) state.buildings.push(createBuilding('ROAD', hq.owner, hq.q, hq.r));
+  // Ensure non-economy buildings start with a dirt road on the same hex.
+  for (const b of state.buildings) {
+    if (ROAD_TYPES.has(b.type)) continue;
+    if (ECON_BUILDINGS.has(b.type)) continue;
+    const hasRoad = state.buildings.some(r => ROAD_TYPES.has(r.type) && r.q === b.q && r.r === b.r);
+    if (!hasRoad) state.buildings.push(createBuilding('ROAD', b.owner, b.q, b.r));
   }
 
   return state;
@@ -674,6 +676,7 @@ export function buildingAt(state, q, r) {
   return state.buildings.find(b => b.q === q && b.r === r) || null;
 }
 export const ROAD_TYPES = new Set(['ROAD', 'CONCRETE_ROAD', 'RAILWAY']);
+const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 export function roadAt(state, q, r) {
   return state.buildings.find(b => ROAD_TYPES.has(b.type) && b.q === q && b.r === r) || null;
 }
