@@ -502,7 +502,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             }
             // Road: infrastructure, priority rises when units are out of supply.
             const unsupplied = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0).length;
-            if (!hasRoad && gs.turn >= 3 && myRoads < 10) needs.push({ type: 'ROAD', score: 5 - myRoads * 0.35 + unsupplied * 1.8 });
+            if (!hasRoad && gs.turn >= 3 && myRoads < 16) needs.push({ type: 'ROAD', score: 6 - myRoads * 0.25 + unsupplied * 3.5 });
             // Science Lab: research, cap at 2
             if (myLabs < 2 && gs.turn >= 2) needs.push({ type: 'SCIENCE_LAB', score: 8 - myLabs * 4 });
             // Factory: components, cap at 2
@@ -595,6 +595,34 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const plannedCount = {};
   for (const u of gs.units.filter(u => u.owner === player && !u.embarked)) {
     plannedCount[u.type] = (plannedCount[u.type] || 0) + 1;
+  }
+
+  // Logistics emergency recruit pass (before normal priorities)
+  const unsuppliedGroundNow = gs.units.filter(u => u.owner === player && !u.embarked && !NAVAL_UNITS.has(u.type) && (u.outOfSupply || 0) > 0).length;
+  const unsuppliedNavalNow = gs.units.filter(u => u.owner === player && !u.embarked && NAVAL_UNITS.has(u.type) && (u.outOfSupply || 0) > 0).length;
+  if (unsuppliedGroundNow >= 3) {
+    const b = myBuildings.find(bb => (BUILDING_TYPES[bb.type]?.canRecruit || []).includes('SUPPLY_TRUCK') && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player));
+    if (b) {
+      const c = UNIT_TYPES['SUPPLY_TRUCK']?.cost || {};
+      const f = getRecruitFoodCost('SUPPLY_TRUCK');
+      if (resSim.iron >= (c.iron||0) && resSim.oil >= (c.oil||0) && resSim.wood >= (c.wood||0) && resSim.food >= f && resSim.components >= (c.components||0)) {
+        actions.push({ type: 'recruit', buildingId: b.id, unitType: 'SUPPLY_TRUCK' });
+        resSim.iron -= (c.iron||0); resSim.oil -= (c.oil||0); resSim.wood -= (c.wood||0); resSim.food -= f; resSim.components -= (c.components||0);
+        plannedCount['SUPPLY_TRUCK'] = (plannedCount['SUPPLY_TRUCK'] || 0) + 1;
+      }
+    }
+  }
+  if (unsuppliedNavalNow >= 2) {
+    const b = myBuildings.find(bb => (BUILDING_TYPES[bb.type]?.canRecruit || []).includes('SUPPLY_SHIP') && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player));
+    if (b) {
+      const c = UNIT_TYPES['SUPPLY_SHIP']?.cost || {};
+      const f = getRecruitFoodCost('SUPPLY_SHIP');
+      if (resSim.iron >= (c.iron||0) && resSim.oil >= (c.oil||0) && resSim.wood >= (c.wood||0) && resSim.food >= f && resSim.components >= (c.components||0)) {
+        actions.push({ type: 'recruit', buildingId: b.id, unitType: 'SUPPLY_SHIP' });
+        resSim.iron -= (c.iron||0); resSim.oil -= (c.oil||0); resSim.wood -= (c.wood||0); resSim.food -= f; resSim.components -= (c.components||0);
+        plannedCount['SUPPLY_SHIP'] = (plannedCount['SUPPLY_SHIP'] || 0) + 1;
+      }
+    }
   }
 
   for (const b of myBuildings) {

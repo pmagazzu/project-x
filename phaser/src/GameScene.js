@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.47';
+export const GAME_VERSION = 'v1.4.48';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -1742,6 +1742,10 @@ export class GameScene extends Phaser.Scene {
     this._unitTierLabels = [];
     const gs  = this.gameState;
     const fog = this._currentFog;
+    const supplyByOwner = {
+      1: computeSupply(gs, 1, this.mapSize),
+      2: computeSupply(gs, 2, this.mapSize),
+    };
 
     // Build stacked-hex map: key "q,r" -> count of non-embarked visible units on that hex
     const _stackCount = new Map();
@@ -2145,9 +2149,10 @@ export class GameScene extends Phaser.Scene {
         }
       }
 
-      // Out-of-supply indicator: red pip in top-left corner
-      if (unit.outOfSupply > 0) {
-        const oos = unit.outOfSupply;
+      // Out-of-supply indicator: live + persisted status
+      const liveUnsup = !unit.embarked && !(unit.ignoreSupply > 0) && !supplyByOwner[unit.owner]?.has(`${unit.q},${unit.r}`);
+      if (unit.outOfSupply > 0 || liveUnsup) {
+        const oos = Math.max(unit.outOfSupply || 0, liveUnsup ? 1 : 0);
         const pipR = 4;
         const pipX = cx2 + pipR + 1;
         const pipY = cy2 + pipR + 1;
