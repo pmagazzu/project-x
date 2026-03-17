@@ -2161,7 +2161,10 @@ export function checkWinner(state) {
 const HEX_NEIGHBORS = [[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];
 
 // ── Supply system ─────────────────────────────────────────────────────────
-// Base supply radius per building type (hexes). Roads use a 1-hex entry tax then free chaining.
+// Global supply range scale (0.65 = 35% shorter reach overall for buildings/road networks).
+const SUPPLY_RANGE_SCALE = 0.65;
+
+// Base supply radius per building type (hexes). Roads use an entry tax then free chaining.
 export const BUILDING_SUPPLY_RADIUS = {
   HQ:           8,
   BARRACKS:     4,
@@ -2206,9 +2209,9 @@ export function computeSupply(state, player, mapSize) {
         const key = `${nq},${nr}`;
         const fromRoad = isRoadHex(q, r);
         const toRoad = isRoadHex(nq, nr);
-        // Roads still help, but with a heavier entry tax (reduced extension reach):
-        // entering a road from non-road consumes 3 range (was 1); continuing on roads is free.
-        const stepCost = toRoad ? (fromRoad ? 0 : 3) : 1;
+        // Roads still help, but with heavier entry tax to reduce extension reach.
+        // entering a road from non-road consumes 5 range; continuing on roads is free.
+        const stepCost = toRoad ? (fromRoad ? 0 : 5) : 1;
         const nextRem = rem - stepCost;
         const prevBest = visited.get(key) ?? -1;
         if (nextRem > prevBest) {
@@ -2222,7 +2225,7 @@ export function computeSupply(state, player, mapSize) {
   // Flood from owned non-under-construction buildings
   for (const b of state.buildings) {
     if (b.owner !== player || b.underConstruction) continue;
-    const radius = BUILDING_SUPPLY_RADIUS[b.type] || 0;
+    const radius = Math.max(0, Math.floor((BUILDING_SUPPLY_RADIUS[b.type] || 0) * SUPPLY_RANGE_SCALE));
     if (radius > 0) floodFill(b.q, b.r, radius);
   }
 
