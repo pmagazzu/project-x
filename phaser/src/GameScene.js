@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.43';
+export const GAME_VERSION = 'v1.4.44';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
