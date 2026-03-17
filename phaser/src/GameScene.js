@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.33';
+export const GAME_VERSION = 'v1.4.34';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -6732,6 +6732,19 @@ export class GameScene extends Phaser.Scene {
         // Extra raggedness around shoreline band
         const shoreNoise = this._fbm(q * 0.20 + 700, r * 0.20 + 300, seed + 1313, 2) * (isContinentLike ? 0.09 : 0.10);
         edgeDist += shoreNoise;
+
+        // Guard against map-edge clipping creating trapezoid-looking continents.
+        if (isContinentLike) {
+          const edgePad = Math.floor(ms * 0.16);
+          const mQR = Math.min(q, r, (ms - 1) - q, (ms - 1) - r);
+          const sum = q + r;
+          const mDiag = Math.min(sum, (2 * (ms - 1)) - sum);
+          const m = Math.min(mQR, mDiag);
+          if (m < edgePad) {
+            const t = (edgePad - m) / Math.max(1, edgePad);
+            v -= t * 0.45; // stronger coast push near all map boundaries/diagonals
+          }
+        }
 
         v -= Math.max(0, edgeDist - PROFILE.edgeStart) * PROFILE.edgeFalloff;
 
