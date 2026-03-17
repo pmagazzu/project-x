@@ -2191,12 +2191,11 @@ function findFreeAdjacentHex(state, q, r, unitType = null, terrain = null, spawn
 }
 
 export function checkWinner(state) {
-  const p1 = state.units.filter(u => u.owner === 1).length;
-  const p2 = state.units.filter(u => u.owner === 2).length;
+  // Victory is HQ-based only (prevents accidental early wins from transient unit-count issues).
   const p1HQ = state.buildings.find(b => b.type === 'HQ' && b.owner === 1);
   const p2HQ = state.buildings.find(b => b.type === 'HQ' && b.owner === 2);
-  if (!p2HQ || p2 === 0) return 1;
-  if (!p1HQ || p1 === 0) return 2;
+  if (!p2HQ) return 1;
+  if (!p1HQ) return 2;
   return null;
 }
 
