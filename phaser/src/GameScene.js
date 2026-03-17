@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.29';
+export const GAME_VERSION = 'v1.4.30';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -5529,7 +5529,7 @@ export class GameScene extends Phaser.Scene {
       if(proj>0){const lw=bW*(f-af);bx(x-bW/2+bW*af+lw/2,y,lw,10,0x882222,0.7);}
     };
 
-    const cW=Math.min(1320,sw-10), cH=860;
+    const cW=Math.min(980,sw-80), cH=Math.min(620,sh-120);
     bx(cx,cy,sw,sh,0x000000,0.72);
     bx(cx,cy,cW,cH,0x0a0d12,0.98,0x2e3d50);
 
