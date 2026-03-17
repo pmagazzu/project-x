@@ -116,6 +116,7 @@ export const MODULES = {
 
   OPTICS_SCOUT:          { name: 'Advanced Optics',   tier: 1, chassis: ['RECON','ARMORED_CAR','MOTORCYCLE','INFANTRY'], statDelta: { sight: 2, accuracy: 2, defense: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'advanced_optics', mutuallyExclusiveWith:['CONCEALED_PROFILE'] },
   CONCEALED_PROFILE:     { name: 'Concealed Profile', tier: 1, chassis: ['RECON','ARMORED_CAR','MOTORCYCLE','INFANTRY'], statDelta: { evasion: 3, sight: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'concealment_drills', mutuallyExclusiveWith:['OPTICS_SCOUT'] },
+  RECON_FORAGING:        { name: 'Foraging Doctrine', tier: 1, chassis: ['RECON'], statDelta: { ignoreSupply: 1, defense: -1 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'advanced_optics' },
 
   // Additional deep families
   AIR_LIGHT_FRAME:       { name: 'Light Airframe',    tier: 1, chassis: ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE','MONOPLANE_FIGHTER','DIVE_BOMBER'], statDelta: { move: 1, evasion: 2, health: -1 }, designCost: { iron: 1, oil: 1 }, trainCost: { iron: 0, oil: 1 }, requiredTech: 'light_airframe', mutuallyExclusiveWith:['AIR_ARMORED_FRAME'] },
@@ -2060,6 +2061,11 @@ export function resolveEndOfTurn(state, terrain) {
   // ── Supply check ──────────────────────────────────────────────────────────
   const suppliedHexes = computeSupply(state, player, state._mapSize || 25);
   for (const unit of state.units.filter(u => u.owner === player && !u.embarked)) {
+    // Recon upgrade: unit ignores supply needs entirely.
+    if ((unit.ignoreSupply || 0) > 0) {
+      unit.outOfSupply = 0;
+      continue;
+    }
     const key = `${unit.q},${unit.r}`;
     if (suppliedHexes.has(key)) {
       // In supply — clear penalty
