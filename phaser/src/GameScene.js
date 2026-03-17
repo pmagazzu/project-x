@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.35';
+export const GAME_VERSION = 'v1.4.36';
 
 // Terrain type index → user_art filename key
 const TERRAIN_ART_KEYS = {
@@ -6662,6 +6662,13 @@ export class GameScene extends Phaser.Scene {
 
     // Build height map
     const h = {};
+
+    // World-space normalization helps avoid rhombus/square bias from raw q/r axes.
+    const cHex = hexToWorld(Math.floor(ms * 0.5), Math.floor(ms * 0.5));
+    const corners = [hexToWorld(0, 0), hexToWorld(ms - 1, 0), hexToWorld(0, ms - 1), hexToWorld(ms - 1, ms - 1)];
+    const maxDX = Math.max(...corners.map(p => Math.abs(p.x - cHex.x))) || 1;
+    const maxDY = Math.max(...corners.map(p => Math.abs(p.y - cHex.y))) || 1;
+
     for (let q = 0; q < ms; q++) {
       for (let r = 0; r < ms; r++) {
         let v = this._fbm(q * SCALE, r * SCALE, seed);
@@ -6697,8 +6704,15 @@ export class GameScene extends Phaser.Scene {
         // Soft edge falloff with coastline roughness (avoids perfect geometric blobs)
         const cxOff = (this._fbm(seed * 0.001, 11.3, seed + 51, 1) - 0.5) * 0.22;
         const cyOff = (this._fbm(seed * 0.001, 19.7, seed + 77, 1) - 0.5) * 0.18;
-        let ex = ((q / ms) - (0.5 + cxOff)) * 2;
-        let er = ((r / ms) - (0.5 + cyOff)) * 2;
+
+        const wp = hexToWorld(q, r);
+        // For continent-like profiles, normalize in world-space to reduce axial rhombus imprint.
+        let ex = isContinentLike
+          ? ((wp.x - cHex.x) / maxDX) + (cxOff * 0.65)
+          : ((q / ms) - (0.5 + cxOff)) * 2;
+        let er = isContinentLike
+          ? ((wp.y - cHex.y) / maxDY) + (cyOff * 0.65)
+          : ((r / ms) - (0.5 + cyOff)) * 2;
 
         const coastWarpAmp = isContinentLike ? 0.12 : 0.14;
         const coastWarpA = this._fbm(q * 0.11 + 310, r * 0.11 + 740, seed + 4242, 3) * coastWarpAmp;
