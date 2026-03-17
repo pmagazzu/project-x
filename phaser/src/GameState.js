@@ -885,7 +885,7 @@ function hexLine(q1, r1, q2, r2) {
 
 // Returns true if there is an unobstructed LOS between two hexes.
 // Intermediate hexes (not the source or target) that are forest or mountain block LOS.
-function hasLOS(fromQ, fromR, toQ, toR, terrain) {
+export function hasLOS(fromQ, fromR, toQ, toR, terrain) {
   if (!terrain) return true;
   const line = hexLine(fromQ, fromR, toQ, toR);
   for (let i = 1; i < line.length - 1; i++) {
