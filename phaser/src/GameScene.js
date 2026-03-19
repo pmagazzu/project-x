@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.58';
+export const GAME_VERSION = 'v1.4.59';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -143,6 +143,7 @@ export class GameScene extends Phaser.Scene {
     this.procQuickStart  = (data.procQuickStart !== undefined) ? !!data.procQuickStart : true;
     this.debugNoFog      = !!data.debugNoFog || this.scenario === 'mortar_test' || this.scenario === 'coastal_battery_test';
     this._mapBuilderMode = !!data.mapBuilder;
+    if (this._mapBuilderMode) this.debugNoFog = true;
     this._customMapData = data.customMap || null;
     // Map sizes per scenario
     const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, random: 40, air_test: 20, mortar_test: 20, coastal_battery_test: 20, custom: data.customSize || 40, default: 25 };
@@ -285,6 +286,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   _initMapBuilder() {
+    // Builder canvas starts as pure ocean so creators can sculpt from blank water.
+    this.gameState.units = [];
+    this.gameState.buildings = [];
+    this.gameState.resourceHexes = {};
+    for (let q = 0; q < this.mapSize; q++) {
+      for (let r = 0; r < this.mapSize; r++) {
+        if (!isValid(q, r, this.mapSize)) continue;
+        this.terrain[`${q},${r}`] = 5; // OCEAN
+      }
+    }
+
     this._builder = {
       mode: 'terrain',
       terrainType: 2, // default to mountain so first paint is visibly obvious
