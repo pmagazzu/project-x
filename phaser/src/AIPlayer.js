@@ -125,10 +125,96 @@ function getUnitRole(unitType) {
   return 'line';
 }
 
+function getOpeningMilestones(gs, player) {
+  const turn = gs.turn || 1;
+  const myBuildings = gs.buildings.filter(b => b.owner === player && !b.underConstruction);
+  const myUnits = gs.units.filter(u => u.owner === player && !u.embarked);
+
+  const count = (types) => myBuildings.filter(b => types.includes(b.type)).length;
+  const unitCount = (types) => myUnits.filter(u => types.includes(u.type)).length;
+
+  const counts = {
+    roads: count(['ROAD','CONCRETE_ROAD','RAILWAY']),
+    mines: count(['MINE']),
+    pumps: count(['OIL_PUMP']),
+    farms: count(['FARM']),
+    lumber: count(['LUMBER_CAMP']),
+    labs: count(['SCIENCE_LAB']),
+    factories: count(['FACTORY']),
+    barracks: count(['BARRACKS','ADV_BARRACKS']),
+    supplyTrucks: unitCount(['SUPPLY_TRUCK']),
+  };
+
+  const desired = {
+    roads: turn <= 3 ? 1 : turn <= 6 ? 2 : turn <= 9 ? 4 : 6,
+    mines: turn <= 5 ? 1 : 2,
+    pumps: turn <= 6 ? 1 : 2,
+    farms: turn <= 6 ? 1 : turn <= 10 ? 2 : 3,
+    lumber: turn <= 8 ? 1 : 2,
+    labs: turn <= 8 ? 1 : 2,
+    factories: turn <= 9 ? 0 : 1,
+    barracks: turn <= 7 ? 1 : 2,
+    supplyTrucks: turn <= 8 ? 0 : 1,
+  };
+
+  return {
+    turn,
+    counts,
+    desired,
+    deficits: {
+      roads: Math.max(0, desired.roads - counts.roads),
+      mines: Math.max(0, desired.mines - counts.mines),
+      pumps: Math.max(0, desired.pumps - counts.pumps),
+      farms: Math.max(0, desired.farms - counts.farms),
+      lumber: Math.max(0, desired.lumber - counts.lumber),
+      labs: Math.max(0, desired.labs - counts.labs),
+      factories: Math.max(0, desired.factories - counts.factories),
+      barracks: Math.max(0, desired.barracks - counts.barracks),
+      supplyTrucks: Math.max(0, desired.supplyTrucks - counts.supplyTrucks),
+    }
+  };
+}
+
+export function getAIKPIReport(gs, player) {
+  const opening = getOpeningMilestones(gs, player);
+  const units = gs.units.filter(u => u.owner === player && !u.embarked);
+  const totalUnits = units.length;
+  const combatUnits = units.filter(u => {
+    const d = UNIT_TYPES[u.type] || {};
+    return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
+  }).length;
+  const engineers = units.filter(u => u.type === 'ENGINEER').length;
+  const unsupplied = units.filter(u => (u.outOfSupply || 0) > 0).length;
+  const unitClusters = units.map(u => {
+    const nearby = units.filter(v => v.id !== u.id && hexDistance(u.q, u.r, v.q, v.r) <= 2).length;
+    return nearby;
+  });
+  const maxCluster = unitClusters.length > 0 ? Math.max(...unitClusters) + 1 : 0;
+
+  const d = opening.deficits;
+  const macroDeficit = d.roads + d.mines + d.pumps + d.farms + d.labs + d.factories + d.barracks;
+
+  let health = 'GOOD';
+  if (macroDeficit >= 6 || unsupplied >= Math.max(3, Math.floor(totalUnits * 0.3)) || maxCluster >= 10) health = 'POOR';
+  else if (macroDeficit >= 3 || unsupplied >= Math.max(2, Math.floor(totalUnits * 0.2)) || maxCluster >= 7) health = 'WARN';
+
+  return {
+    turn: opening.turn,
+    health,
+    counts: opening.counts,
+    desired: opening.desired,
+    deficits: opening.deficits,
+    totals: { totalUnits, combatUnits, engineers, unsupplied, maxCluster },
+    summary: `KPI T${opening.turn} ${health} | roads ${opening.counts.roads}/${opening.desired.roads} mine ${opening.counts.mines}/${opening.desired.mines} oil ${opening.counts.pumps}/${opening.desired.pumps} farm ${opening.counts.farms}/${opening.desired.farms} lab ${opening.counts.labs}/${opening.desired.labs} fac ${opening.counts.factories}/${opening.desired.factories} | units ${combatUnits}/${totalUnits} eng ${engineers} unsup ${unsupplied} cluster ${maxCluster}`
+  };
+}
+
 function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx = {}) {
   const cfg = AI_STRATEGIES[strat] ?? AI_STRATEGIES.balanced;
   const role = getUnitRole(unit.type);
   let score = 0;
+
+  const nearestEnemy = enemies.length > 0 ? Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r))) : 99;
 
   // Attack/pressure scoring (de-emphasized for engineers/support)
   if (unit.type !== 'ENGINEER' && role !== 'support') {
@@ -166,6 +252,15 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
       const lateral = Math.abs((q - nearest.q) - (r - nearest.r));
       score += Math.min(6, lateral * 0.6);
     }
+  }
+
+  // Phase 2: task-group objective pressure (main force vs flank force)
+  const obj = ctx.unitObjective?.[unit.id];
+  if (obj && role !== 'engineer' && role !== 'support') {
+    const dNew = hexDistance(q, r, obj.q, obj.r);
+    const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
+    if (dNew < dCur) score += 9;
+    if (dNew <= 2) score += 4;
   }
 
   // Defensive: reward moving toward own HQ
@@ -223,7 +318,6 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   }
 
   // Unit-role doctrine improvements
-  const nearestEnemy = enemies.length > 0 ? Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r))) : 99;
   if (role === 'recon') {
     // Recon should scout/screens, not frontline brawl.
     if (nearestEnemy <= 1) score -= 20;
@@ -265,6 +359,13 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
     score -= emergencyPush ? 4 : 18;
   }
 
+  // Phase 2 anti-blob: penalize over-clustering unless already in close contact.
+  if (role !== 'engineer' && role !== 'support') {
+    const nearbyFriendlies = gs.units.filter(u => u.owner === unit.owner && u.id !== unit.id && !u.embarked)
+      .filter(u => hexDistance(q, r, u.q, u.r) <= 2).length;
+    if (nearbyFriendlies >= 5 && nearestEnemy > 3) score -= (nearbyFriendlies - 4) * 3.5;
+  }
+
   // Small random tiebreaker
   score += Math.random() * 2;
   return score;
@@ -288,7 +389,42 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       return !b || Number(b.owner) !== Number(player);
     })
     .slice(0, 24);
-  const aiCtx = { deceptionTurn, resourceTargets };
+
+  // Phase 2: task-group split and objective assignment (main force + flank force)
+  const enemyHQs = gs.buildings.filter(b => b.type === 'HQ' && b.owner !== player);
+  const myCombatUnits = gs.units.filter(u => u.owner === player && !u.embarked)
+    .filter(u => {
+      const d = UNIT_TYPES[u.type] || {};
+      const role = getUnitRole(u.type);
+      return role !== 'engineer' && role !== 'support' && ((d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0);
+    });
+  const unitObjective = {};
+  if (enemyHQs.length > 0 && myCombatUnits.length >= 8) {
+    // main objective = nearest enemy HQ to our army centroid
+    const cx = myCombatUnits.reduce((s, u) => s + u.q, 0) / myCombatUnits.length;
+    const cy = myCombatUnits.reduce((s, u) => s + u.r, 0) / myCombatUnits.length;
+    const mainObj = enemyHQs.reduce((a, b) => hexDistance(cx, cy, a.q, a.r) <= hexDistance(cx, cy, b.q, b.r) ? a : b);
+
+    // flank objective = contested resource farthest from main objective, fallback enemy HQ
+    let flankObj = mainObj;
+    if (resourceTargets.length > 0) {
+      flankObj = resourceTargets.reduce((a, b) => hexDistance(a.q, a.r, mainObj.q, mainObj.r) >= hexDistance(b.q, b.r, mainObj.q, mainObj.r) ? a : b);
+    }
+
+    const sortedCombat = [...myCombatUnits].sort((a, b) => {
+      const ra = getUnitRole(a.type), rb = getUnitRole(b.type);
+      const pr = (r) => r === 'recon' ? 0 : r === 'assault' ? 1 : r === 'line' ? 2 : r === 'indirect' ? 3 : 4;
+      return pr(ra) - pr(rb);
+    });
+    const flankCount = Math.max(2, Math.floor(sortedCombat.length * 0.35));
+    for (let i = 0; i < sortedCombat.length; i++) {
+      const u = sortedCombat[i];
+      unitObjective[u.id] = i < flankCount ? { q: flankObj.q, r: flankObj.r } : { q: mainObj.q, r: mainObj.r };
+    }
+  }
+
+  const aiCtx = { deceptionTurn, resourceTargets, unitObjective };
+  const opening = getOpeningMilestones(gs, player);
 
   // Simulated AI economy spend during planning so we don't overcommit.
   const resSim = {
@@ -501,27 +637,28 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             const iron = resSim.iron;
             const oil  = resSim.oil;
 
-            // Build priority scoring — favor the weakest link in economy
+            // Build priority scoring — favor the weakest link in economy/opening milestones
             const needs = [];
+            const d = opening.deficits;
             // Farms: need food for upkeep, cap at 4
-            if (onPlains && myFarms < 4 && food < 10) needs.push({ type: 'FARM', score: (myFarms < 1 ? 20 : 12) - myFarms * 3 - food * 0.5 });
+            if (onPlains && myFarms < 4 && food < 10) needs.push({ type: 'FARM', score: (myFarms < 1 ? 20 : 12) - myFarms * 3 - food * 0.5 + d.farms * 6 });
             // Lumber: only when wood-starved, hard cap by broader economy size
             if (onForest && !resHex && myLumber < maxLumber && wood < 6) {
-              needs.push({ type: 'LUMBER_CAMP', score: (myLumber < 1 ? 11 : 6) - myLumber * 4 - wood * 0.8 });
+              needs.push({ type: 'LUMBER_CAMP', score: (myLumber < 1 ? 11 : 6) - myLumber * 4 - wood * 0.8 + d.lumber * 4 });
             }
             // Road: infrastructure, priority rises when units are out of supply.
             const unsupplied = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0).length;
-            if (!hasRoad && gs.turn >= 3 && myRoads < 20) needs.push({ type: 'ROAD', score: 8 - myRoads * 0.2 + unsupplied * 4.0 });
+            if (!hasRoad && gs.turn >= 3 && myRoads < 20) needs.push({ type: 'ROAD', score: 8 - myRoads * 0.2 + unsupplied * 4.0 + d.roads * 5 });
             // Science Lab: research, cap at 2
-            if (myLabs < 2 && gs.turn >= 2) needs.push({ type: 'SCIENCE_LAB', score: 8 - myLabs * 4 });
+            if (myLabs < 2 && gs.turn >= 2) needs.push({ type: 'SCIENCE_LAB', score: 8 - myLabs * 4 + d.labs * 6 });
             // Factory: components, cap at 2
-            if (myFactories < 2 && gs.turn >= 5) needs.push({ type: 'FACTORY', score: 6 - myFactories * 3 });
+            if (myFactories < 2 && gs.turn >= 5) needs.push({ type: 'FACTORY', score: 6 - myFactories * 3 + d.factories * 7 });
 
             // Military production baseline: don't stall on only T0 infantry/recon.
             const myBarracks = gs.buildings.filter(bb => bb.owner === player && bb.type === 'BARRACKS' && !bb.underConstruction).length;
             const myAirfield = gs.buildings.filter(bb => bb.owner === player && bb.type === 'AIRFIELD' && !bb.underConstruction).length;
             const myHarbor = gs.buildings.filter(bb => bb.owner === player && ['HARBOR','NAVAL_YARD','SHIPYARD','DRY_DOCK','NAVAL_BASE'].includes(bb.type) && !bb.underConstruction).length;
-            if (gs.turn >= 4 && myBarracks < 2) needs.push({ type: 'BARRACKS', score: 7.5 - myBarracks * 2.5 });
+            if (gs.turn >= 4 && myBarracks < 2) needs.push({ type: 'BARRACKS', score: 7.5 - myBarracks * 2.5 + d.barracks * 6 });
             if (gs.turn >= 8 && myAirfield < 1) needs.push({ type: 'AIRFIELD', score: 6.4 });
             if (gs.turn >= 10 && myHarbor < 1) needs.push({ type: 'HARBOR', score: 5.8 });
 
@@ -662,6 +799,20 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       sorted.unshift('SUPPLY_SHIP');
     }
     const hasAdvancedOption = sorted.some(t => (UNIT_TYPES[t]?.tier || 0) >= 1 || !!UNIT_TYPES[t]?.unlockedBy);
+
+    // Opening milestone controller (T1–T12): ensure baseline macro tools come online.
+    if (opening.turn <= 12) {
+      const enforce = [];
+      const macroDeficit = opening.deficits.roads + opening.deficits.mines + opening.deficits.pumps + opening.deficits.farms + opening.deficits.labs + opening.deficits.factories;
+      if (macroDeficit > 0 && sorted.includes('ENGINEER')) enforce.push('ENGINEER');
+      if (opening.deficits.supplyTrucks > 0 && sorted.includes('SUPPLY_TRUCK')) enforce.push('SUPPLY_TRUCK');
+      if (enforce.length > 0) {
+        for (const t of enforce.reverse()) {
+          const idx = sorted.indexOf(t);
+          if (idx > -1) { sorted.splice(idx, 1); sorted.unshift(t); }
+        }
+      }
+    }
 
     for (const unitType of sorted) {
       // Anti-spam guardrails for support units

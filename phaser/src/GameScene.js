@@ -4,7 +4,7 @@ import {
   MAP_SIZE, HEX_SIZE, ISO_SQUISH, getMapBounds
 } from './HexGrid.js';
 import { MenuScene } from './MenuScene.js';
-import { planAITurn, AI_STRATEGIES, randomStrategy } from './AIPlayer.js';
+import { planAITurn, AI_STRATEGIES, randomStrategy, getAIKPIReport } from './AIPlayer.js';
 import {
   createGameState, createUnit, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
@@ -5894,23 +5894,31 @@ export class GameScene extends Phaser.Scene {
     const stratLabel = AI_STRATEGIES[this.aiStrategy]?.label || 'Balanced';
 
     // Status bar (replaces pass screen for AI turn)
-    const overlay = this.add.rectangle(w/2, 22, w, 44, 0x1a1200, 0.92)
+    const overlay = this.add.rectangle(w/2, 34, w, 68, 0x1a1200, 0.92)
       .setScrollFactor(0).setDepth(200);
-    const lbl = this.add.text(w/2, 22, `⚙  AI Player ${gs.currentPlayer} — ${stratLabel} — acting…`, {
+    const lbl = this.add.text(w/2, 20, `⚙  AI Player ${gs.currentPlayer} — ${stratLabel} — acting…`, {
       font: 'bold 14px monospace', fill: '#ffcc44',
     }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(201);
-    this._addToUI([overlay, lbl]);
+    const preKPI = getAIKPIReport(gs, gs.currentPlayer);
+    const kpiLbl = this.add.text(w/2, 44, preKPI.summary, {
+      font: '12px monospace', fill: preKPI.health === 'POOR' ? '#ff6666' : (preKPI.health === 'WARN' ? '#ffcc66' : '#99ff99'),
+    }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(201);
+    this._addToUI([overlay, lbl, kpiLbl]);
 
     // Plan all actions (does NOT execute — pure data)
     const actions = planAITurn(gs, this.terrain, this.mapSize, this.aiStrategy);
     const aiCounts = actions.reduce((acc, a) => { acc[a.type] = (acc[a.type] || 0) + 1; return acc; }, {});
     this._pushLog(`AI P${gs.currentPlayer}: ${actions.length} actions (move:${aiCounts.move||0} atk:${aiCounts.attack||0} build:${aiCounts.build||0} recruit:${aiCounts.recruit||0} design:${aiCounts.design||0})`);
+    this._pushLog(`AI P${gs.currentPlayer}: ${preKPI.summary}`);
 
     // Execute actions sequentially with delays and visual feedback
     this._executeAIActions(actions, 0, () => {
+      const postKPI = getAIKPIReport(gs, gs.currentPlayer);
+      this._pushLog(`AI P${gs.currentPlayer}: post-action ${postKPI.summary}`);
       // All done — dismiss status bar and end AI's turn
       try { overlay.destroy(); } catch(e){}
       try { lbl.destroy();     } catch(e){}
+      try { kpiLbl.destroy();  } catch(e){}
       this._onSubmit();
     });
   }
