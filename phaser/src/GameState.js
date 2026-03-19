@@ -657,6 +657,23 @@ export function createGameState(scenario = 'default') {
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
   }
 
+  // Spawn one starting Supply Truck per team (near HQ) if not already present.
+  const START_NBRS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+  for (const p of [1,2]) {
+    const hasTruck = state.units.some(u => Number(u.owner) === p && u.type === 'SUPPLY_TRUCK');
+    if (hasTruck) continue;
+    const hq = state.buildings.find(b => Number(b.owner) === p && b.type === 'HQ');
+    if (!hq) continue;
+
+    let spawnQ = hq.q, spawnR = hq.r;
+    for (const [dq, dr] of START_NBRS) {
+      const nq = hq.q + dq, nr = hq.r + dr;
+      const occupied = state.units.some(u => u.q === nq && u.r === nr && !u.embarked);
+      if (!occupied) { spawnQ = nq; spawnR = nr; break; }
+    }
+    state.units.push(createUnit('SUPPLY_TRUCK', p, spawnQ, spawnR));
+  }
+
   // Ensure non-economy buildings start with a dirt road on the same hex.
   for (const b of state.buildings) {
     if (ROAD_TYPES.has(b.type)) continue;

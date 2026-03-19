@@ -186,6 +186,13 @@ function getPhaseWeights(turn = 1) {
   return { economy: 0.95, logistics: 1.05, recon: 0.9, research: 1.05, combat: 1.3, raiding: 1.25 };
 }
 
+function getRoadFloor(turn = 1) {
+  if (turn <= 5) return 2;
+  if (turn <= 10) return 5;
+  if (turn <= 15) return 8;
+  return 12;
+}
+
 export function getAIKPIReport(gs, player) {
   const opening = getOpeningMilestones(gs, player);
   const units = gs.units.filter(u => u.owner === player && !u.embarked);
@@ -442,6 +449,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   const aiCtx = { deceptionTurn, resourceTargets, unitObjective, phaseWeights };
   const opening = getOpeningMilestones(gs, player);
+  const roadFloor = getRoadFloor(gs.turn || 1);
 
   // Simulated AI economy spend during planning so we don't overcommit.
   const resSim = {
@@ -487,9 +495,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     unit._aiOrigQ = unit.q; unit._aiOrigR = unit.r;
 
     // A) Attack from current position
+    const unitInSupply = mySupply?.has?.(`${unit.q},${unit.r}`);
     const preMoveTargets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
     const preMoveTarget  = chooseBestTarget(gs, unit, preMoveTargets);
-    const canRiskAttack = (unit.outOfSupply || 0) < 2 || (preMoveTarget && (preMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
+    const canRiskAttack = !!unitInSupply || ((unit.outOfSupply || 0) < 2 && preMoveTarget && (preMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
     const preTrade = preMoveTarget ? estimateAttackCommitScore(gs, unit, preMoveTarget) : -999;
     const preThreshold = getUnitRole(unit.type) === 'recon' ? 2 : 0;
     if (preMoveTarget && canRiskAttack && preTrade >= preThreshold) {
@@ -570,7 +579,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       if (!unit._aiPlannedAttack) {
         const postMoveTargets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
         const postMoveTarget  = chooseBestTarget(gs, unit, postMoveTargets);
-        const canRiskPostAttack = (unit.outOfSupply || 0) < 2 || (postMoveTarget && (postMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
+        const postInSupply = mySupply?.has?.(`${unit.q},${unit.r}`);
+        const canRiskPostAttack = !!postInSupply || ((unit.outOfSupply || 0) < 2 && postMoveTarget && (postMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
         const postTrade = postMoveTarget ? estimateAttackCommitScore(gs, unit, postMoveTarget) : -999;
         const postThreshold = getUnitRole(unit.type) === 'recon' ? 2 : 0;
         if (postMoveTarget && canRiskPostAttack && postTrade >= postThreshold) {
@@ -622,6 +632,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           const myArmorWorks = gs.buildings.filter(b => b.owner === player && b.type === 'ARMOR_WORKS' && !b.underConstruction).length;
           const myAdvAirfield = gs.buildings.filter(b => b.owner === player && b.type === 'ADV_AIRFIELD' && !b.underConstruction).length;
           const myNavalDockyard = gs.buildings.filter(b => b.owner === player && b.type === 'NAVAL_DOCKYARD' && !b.underConstruction).length;
+          const roadDeficit = Math.max(0, roadFloor - myRoads);
+
+          // Hard logistics floor: if roads are behind schedule, force road laying first.
+          if (roadDeficit > 0 && !hasRoad && maybeBuild('ROAD')) continue;
 
           // Priority 1: exploit local resources (always do this first)
           const wood = gs.players[player].wood || 0;
@@ -665,7 +679,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             }
             // Road: infrastructure, priority rises when units are out of supply.
             const unsupplied = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0).length;
-            if (!hasRoad && gs.turn >= 3 && myRoads < 20) needs.push({ type: 'ROAD', score: (8 - myRoads * 0.2 + unsupplied * 6.0 + d.roads * 5) * phaseWeights.logistics });
+            if (!hasRoad && gs.turn >= 3 && myRoads < 20) needs.push({ type: 'ROAD', score: (8 - myRoads * 0.2 + unsupplied * 6.0 + d.roads * 5 + roadDeficit * 4) * phaseWeights.logistics });
             // Science Lab: research, cap at 2
             if (myLabs < 2 && gs.turn >= 2) needs.push({ type: 'SCIENCE_LAB', score: (8 - myLabs * 4 + d.labs * 6) * phaseWeights.research });
             // Factory: components, cap at 2
@@ -829,7 +843,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     // Opening milestone controller (T1–T12): ensure baseline macro tools come online.
     if (opening.turn <= 12) {
       const enforce = [];
-      const macroDeficit = opening.deficits.roads + opening.deficits.mines + opening.deficits.pumps + opening.deficits.farms + opening.deficits.labs + opening.deficits.factories;
+      const roadsNow = gs.buildings.filter(bb => bb.owner === player && bb.type === 'ROAD').length;
+      const roadDeficit = Math.max(0, roadFloor - roadsNow);
+      const macroDeficit = opening.deficits.roads + opening.deficits.mines + opening.deficits.pumps + opening.deficits.farms + opening.deficits.labs + opening.deficits.factories + roadDeficit;
       if (macroDeficit > 0 && sorted.includes('ENGINEER')) enforce.push('ENGINEER');
       if (opening.deficits.supplyTrucks > 0 && sorted.includes('SUPPLY_TRUCK')) enforce.push('SUPPLY_TRUCK');
       if (enforce.length > 0) {
