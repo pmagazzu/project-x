@@ -24,7 +24,7 @@ const SCENARIOS = [
     key:   'ai_vs_ai_island_medium',
     label: 'AI VS AI · ISLAND (MEDIUM)',
     icon:  '🤖',
-    sub:   '40×40 islands profile · both players AI',
+    sub:   '40×40 single island profile · both players AI',
     color: 0x1b3248,
     hoverColor: 0x2a5678,
   },
@@ -141,7 +141,7 @@ export class MenuScene extends Phaser.Scene {
             aiP1: true,
             aiP2: true,
             aiStrategy: 'balanced',
-            procLandProfile: 'islands',
+            procLandProfile: 'continent',
             procQuickStart: true,
           });
           return;
