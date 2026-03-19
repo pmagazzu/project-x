@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.56';
+export const GAME_VERSION = 'v1.4.57';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -142,6 +142,8 @@ export class GameScene extends Phaser.Scene {
     this.procLandProfile = data.procLandProfile || 'continent';
     this.procQuickStart  = (data.procQuickStart !== undefined) ? !!data.procQuickStart : true;
     this.debugNoFog      = !!data.debugNoFog || this.scenario === 'mortar_test' || this.scenario === 'coastal_battery_test';
+    this._mapBuilderMode = !!data.mapBuilder;
+    this._customMapData = data.customMap || null;
     // Map sizes per scenario
     const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, random: 40, air_test: 20, mortar_test: 20, coastal_battery_test: 20, custom: data.customSize || 40, default: 25 };
     this.mapSize   = MAP_SIZES[this.scenario] || MAP_SIZE;
@@ -256,13 +258,92 @@ export class GameScene extends Phaser.Scene {
     ]);
     this.scale.on('resize', (gs) => this.uiCamera.setSize(gs.width, gs.height));
 
-    // For random maps: place spawns + resources after terrain is generated
-    if (this.scenario === 'random' || this.scenario === 'custom') this._placeProcSpawns(this.mapSeed);
+    // For random/custom maps: place spawns + resources after terrain is generated unless builder/custom-map overrides.
+    if (this._customMapData) {
+      this._applyCustomMapData(this._customMapData);
+      const hasCoreState = (this.gameState.units?.length || 0) > 0 || (this.gameState.buildings?.length || 0) > 0;
+      if (!hasCoreState && !this._mapBuilderMode) this._placeProcSpawns(this.mapSeed);
+    } else if (!this._mapBuilderMode && (this.scenario === 'random' || this.scenario === 'custom')) {
+      this._placeProcSpawns(this.mapSeed);
+    }
 
     this._setupInput();
+    if (this._mapBuilderMode) this._initMapBuilder();
     this._drawStaticLayers();
     this._freezeFog(); // lock fog for P1's first planning phase
     this._refresh();
+  }
+
+  _applyCustomMapData(mapData) {
+    if (!mapData) return;
+    if (Number(mapData.mapSize) && Number(mapData.mapSize) === Number(this.mapSize)) {
+      if (mapData.terrain && typeof mapData.terrain === 'object') this.terrain = { ...mapData.terrain };
+      if (mapData.resourceHexes && typeof mapData.resourceHexes === 'object') this.gameState.resourceHexes = { ...mapData.resourceHexes };
+      if (Array.isArray(mapData.buildings)) this.gameState.buildings = mapData.buildings.map(b => ({ ...b }));
+      if (Array.isArray(mapData.units)) this.gameState.units = mapData.units.map(u => ({ ...u }));
+    }
+  }
+
+  _initMapBuilder() {
+    this._builder = {
+      mode: 'terrain',
+      terrainType: 0,
+      resourceType: 'IRON',
+      hud: null,
+    };
+    this._builder.hud = this.add.text(10, 46, '', {
+      font: '11px monospace', fill: '#cfe8cf', backgroundColor: '#0d1a0d', padding: { x: 8, y: 6 }
+    }).setScrollFactor(0).setDepth(250);
+    this._addToUI([this._builder.hud]);
+    this._updateBuilderHud();
+  }
+
+  _updateBuilderHud() {
+    if (!this._mapBuilderMode || !this._builder?.hud) return;
+    const mode = this._builder.mode;
+    const tName = TERRAIN_LABELS[this._builder.terrainType] || 'Plains';
+    const rName = this._builder.resourceType;
+    this._builder.hud.setText(
+      `MAP BUILDER (MVP)\n` +
+      `Mode: ${mode.toUpperCase()}  |  Terrain: ${tName}  |  Resource: ${rName}\n` +
+      `Keys: T=terrain R=resource X=erase  [1-8]=terrain  I=import  O=export  P=playtest`
+    );
+  }
+
+  _builderPaint(q, r) {
+    const key = `${q},${r}`;
+    if (!isValid(q, r, this.mapSize)) return;
+    if (this._builder.mode === 'terrain') {
+      this.terrain[key] = this._builder.terrainType;
+      delete this.gameState.resourceHexes[key];
+    } else if (this._builder.mode === 'resource') {
+      this.gameState.resourceHexes[key] = { type: this._builder.resourceType };
+    } else if (this._builder.mode === 'erase') {
+      delete this.gameState.resourceHexes[key];
+    }
+    this._drawStaticLayers();
+    this._refresh();
+  }
+
+  _exportCustomMapJson() {
+    const payload = {
+      mapSize: this.mapSize,
+      terrain: this.terrain,
+      resourceHexes: this.gameState.resourceHexes,
+    };
+    return JSON.stringify(payload);
+  }
+
+  _importCustomMapJson(raw) {
+    try {
+      const data = JSON.parse(raw);
+      this._applyCustomMapData(data);
+      this._drawStaticLayers();
+      this._refresh();
+      this._pushLog('Map JSON imported.');
+    } catch (e) {
+      this._pushLog(`Import failed: ${e?.message || e}`);
+    }
   }
 
   // ── Terrain ──────────────────────────────────────────────────────────────
@@ -3412,8 +3493,34 @@ export class GameScene extends Phaser.Scene {
       if (ev.code === 'BracketLeft') queueZoomStep(false);
       else if (ev.code === 'BracketRight') queueZoomStep(true);
     });
+    if (this._mapBuilderMode) {
+      this.input.keyboard.on('keydown-T', () => { if (!this._builder) return; this._builder.mode = 'terrain'; this._updateBuilderHud(); });
+      this.input.keyboard.on('keydown-R', () => { if (!this._builder) return; this._builder.mode = 'resource'; this._updateBuilderHud(); });
+      this.input.keyboard.on('keydown-X', () => { if (!this._builder) return; this._builder.mode = 'erase'; this._updateBuilderHud(); });
+      this.input.keyboard.on('keydown-I', () => {
+        const raw = window.prompt('Paste map JSON');
+        if (raw) this._importCustomMapJson(raw);
+      });
+      this.input.keyboard.on('keydown-O', () => {
+        const txt = this._exportCustomMapJson();
+        if (navigator?.clipboard?.writeText) navigator.clipboard.writeText(txt).catch(() => {});
+        window.prompt('Map JSON (copied if browser allows):', txt);
+      });
+      this.input.keyboard.on('keydown-P', () => {
+        const customMap = JSON.parse(this._exportCustomMapJson());
+        this.scene.start('GameScene', { scenario: 'custom', customSize: this.mapSize, aiP2: this._aiP2, aiStrategy: 'balanced', customMap });
+      });
+      this.input.keyboard.on('keydown', (ev) => {
+        const n = Number(ev.key);
+        if (Number.isInteger(n) && n >= 1 && n <= 8) {
+          this._builder.terrainType = n - 1;
+          this._updateBuilderHud();
+        }
+      });
+    }
+
     this.input.keyboard.on('keydown-ESC',   () => { if (this._nameModalOpen) return; if (!this._endTurnPending) this._toggleSettings(); });
-    this.input.keyboard.on('keydown-X',     () => { if (this._nameModalOpen) return; this._confirmEndTurn(); });
+    this.input.keyboard.on('keydown-X',     () => { if (this._nameModalOpen || this._mapBuilderMode) return; this._confirmEndTurn(); });
     this.input.keyboard.on('keydown-M',     () => {
       if (this._nameModalOpen) return;
       if (!this.selectedUnit || Number(this.selectedUnit.owner) !== Number(this.gameState.currentPlayer)) return;
@@ -4662,6 +4769,10 @@ export class GameScene extends Phaser.Scene {
 
   // ── Click handling ────────────────────────────────────────────────────────
   _onHexClick(q, r) {
+    if (this._mapBuilderMode) {
+      this._builderPaint(q, r);
+      return;
+    }
     const gs = this.gameState;
     let clickedUnit     = unitAt(gs, q, r);
     let clickedBuilding = buildingAt(gs, q, r);
@@ -5140,6 +5251,11 @@ export class GameScene extends Phaser.Scene {
   // Right-click: own unit => unit menu. Else deselect/cancel by default.
   // Shift+RMB on a tile with a selected friendly unit => quick move-order menu.
   _onHexRightClick(q, r, shiftRmb = false) {
+    if (this._mapBuilderMode) {
+      this._builder.mode = this._builder.mode === 'terrain' ? 'resource' : this._builder.mode === 'resource' ? 'erase' : 'terrain';
+      this._updateBuilderHud();
+      return;
+    }
     // Cancel special modes on right-click
     if (this.mode === 'road_dest') { this._cancelRoadDestMode(); return; }
     if (this.mode === 'move_order') { this._cancelMoveOrderMode(); return; }

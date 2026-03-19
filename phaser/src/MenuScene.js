@@ -12,6 +12,15 @@ const SCENARIOS = [
     customSize: true,
   },
   {
+    key:   'map_builder',
+    label: 'MAP BUILDER (MVP)',
+    icon:  '🛠',
+    sub:   'Paint terrain/resources · export/import JSON · quick playtest',
+    color: 0x1f3b2a,
+    hoverColor: 0x2f6a45,
+    customSize: true,
+  },
+  {
     key:   'mortar_test',
     label: 'MORTAR TEST',
     icon:  '△',
@@ -265,10 +274,20 @@ export class MenuScene extends Phaser.Scene {
         tsub.setStyle({ fill: '#445544' });
       });
       tbg.on('pointerdown', () => {
-        // Step 2: proc generation options (land profile + quick start)
         created.forEach(o => o.destroy());
         closeBtn.destroy();
         topLine.destroy();
+        if (scenarioKey === 'map_builder') {
+          this.scene.start('GameScene', {
+            scenario: 'custom',
+            customSize: tier.size,
+            aiP2: false,
+            aiStrategy: 'balanced',
+            mapBuilder: true,
+          });
+          return;
+        }
+        // Step 2: proc generation options (land profile + quick start)
         this._showProcOptions(scenarioKey, tier.size);
       });
 
