@@ -195,6 +195,7 @@ function getRoadFloor(turn = 1) {
 
 export function getAIKPIReport(gs, player) {
   const opening = getOpeningMilestones(gs, player);
+  const roadFloor = getRoadFloor(gs.turn || 1);
   const units = gs.units.filter(u => u.owner === player && !u.embarked);
   const totalUnits = units.length;
   const combatUnits = units.filter(u => {
@@ -210,7 +211,8 @@ export function getAIKPIReport(gs, player) {
   const maxCluster = unitClusters.length > 0 ? Math.max(...unitClusters) + 1 : 0;
 
   const d = opening.deficits;
-  const macroDeficit = d.roads + d.mines + d.pumps + d.farms + d.labs + d.factories + d.barracks;
+  const roadDeficit = Math.max(0, roadFloor - opening.counts.roads);
+  const macroDeficit = d.roads + d.mines + d.pumps + d.farms + d.labs + d.factories + d.barracks + roadDeficit;
 
   let health = 'GOOD';
   if (macroDeficit >= 6 || unsupplied >= Math.max(3, Math.floor(totalUnits * 0.3)) || maxCluster >= 10) health = 'POOR';
@@ -222,8 +224,8 @@ export function getAIKPIReport(gs, player) {
     counts: opening.counts,
     desired: opening.desired,
     deficits: opening.deficits,
-    totals: { totalUnits, combatUnits, engineers, unsupplied, maxCluster },
-    summary: `KPI T${opening.turn} ${health} | roads ${opening.counts.roads}/${opening.desired.roads} mine ${opening.counts.mines}/${opening.desired.mines} oil ${opening.counts.pumps}/${opening.desired.pumps} farm ${opening.counts.farms}/${opening.desired.farms} lab ${opening.counts.labs}/${opening.desired.labs} fac ${opening.counts.factories}/${opening.desired.factories} | units ${combatUnits}/${totalUnits} eng ${engineers} unsup ${unsupplied} cluster ${maxCluster}`
+    totals: { totalUnits, combatUnits, engineers, unsupplied, maxCluster, roadDeficit },
+    summary: `KPI T${opening.turn} ${health} | roads ${opening.counts.roads}/${roadFloor} (def ${roadDeficit}) mine ${opening.counts.mines}/${opening.desired.mines} oil ${opening.counts.pumps}/${opening.desired.pumps} farm ${opening.counts.farms}/${opening.desired.farms} lab ${opening.counts.labs}/${opening.desired.labs} fac ${opening.counts.factories}/${opening.desired.factories} | units ${combatUnits}/${totalUnits} eng ${engineers} unsup ${unsupplied} cluster ${maxCluster}`
   };
 }
 
@@ -320,6 +322,7 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
       else if ((ttype === 0 || ttype === 6 || ttype === 7) && food < 8) buildValue = 8; // farm potential
       score += buildValue * phase.economy;
       if (!hasRoad && gs.turn >= 3) score += 5 * phase.logistics; // infra bias
+      if ((ctx.roadDeficit || 0) > 0 && !hasRoad) score += 14 + (ctx.roadDeficit * 3); // hard pull to road-capable tiles when behind network targets
       if (q === unit.q && r === unit.r && buildValue > 0) score += 14; // prefer building now vs wandering
     }
 
@@ -447,9 +450,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     }
   }
 
-  const aiCtx = { deceptionTurn, resourceTargets, unitObjective, phaseWeights };
   const opening = getOpeningMilestones(gs, player);
   const roadFloor = getRoadFloor(gs.turn || 1);
+  const roadsNow = gs.buildings.filter(bb => bb.owner === player && bb.type === 'ROAD').length;
+  const roadDeficitGlobal = Math.max(0, roadFloor - roadsNow);
+  const aiCtx = { deceptionTurn, resourceTargets, unitObjective, phaseWeights, roadDeficit: roadDeficitGlobal };
 
   // Simulated AI economy spend during planning so we don't overcommit.
   const resSim = {
@@ -498,7 +503,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const unitInSupply = mySupply?.has?.(`${unit.q},${unit.r}`);
     const preMoveTargets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
     const preMoveTarget  = chooseBestTarget(gs, unit, preMoveTargets);
-    const canRiskAttack = !!unitInSupply || ((unit.outOfSupply || 0) < 2 && preMoveTarget && (preMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
+    const canRiskAttack = !!unitInSupply || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && preMoveTarget && (preMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
     const preTrade = preMoveTarget ? estimateAttackCommitScore(gs, unit, preMoveTarget) : -999;
     const preThreshold = getUnitRole(unit.type) === 'recon' ? 2 : 0;
     if (preMoveTarget && canRiskAttack && preTrade >= preThreshold) {
@@ -580,7 +585,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const postMoveTargets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
         const postMoveTarget  = chooseBestTarget(gs, unit, postMoveTargets);
         const postInSupply = mySupply?.has?.(`${unit.q},${unit.r}`);
-        const canRiskPostAttack = !!postInSupply || ((unit.outOfSupply || 0) < 2 && postMoveTarget && (postMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
+        const canRiskPostAttack = !!postInSupply || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && postMoveTarget && (postMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
         const postTrade = postMoveTarget ? estimateAttackCommitScore(gs, unit, postMoveTarget) : -999;
         const postThreshold = getUnitRole(unit.type) === 'recon' ? 2 : 0;
         if (postMoveTarget && canRiskPostAttack && postTrade >= postThreshold) {
@@ -772,6 +777,24 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const plannedCount = {};
   for (const u of gs.units.filter(u => u.owner === player && !u.embarked)) {
     plannedCount[u.type] = (plannedCount[u.type] || 0) + 1;
+  }
+
+  // Hard network engineer reserve when road network is behind schedule.
+  if (roadDeficitGlobal >= 2) {
+    const myEngNow = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked).length;
+    const queuedEngNow = actions.filter(a => a.type === 'recruit' && a.unitType === 'ENGINEER').length;
+    if ((myEngNow + queuedEngNow) < 3) {
+      const eb = myBuildings.find(bb => (BUILDING_TYPES[bb.type]?.canRecruit || []).includes('ENGINEER') && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player));
+      if (eb) {
+        const c = UNIT_TYPES['ENGINEER']?.cost || {};
+        const f = getRecruitFoodCost('ENGINEER');
+        if (resSim.iron >= (c.iron||0) && resSim.oil >= (c.oil||0) && resSim.wood >= (c.wood||0) && resSim.food >= f && resSim.components >= (c.components||0)) {
+          actions.push({ type: 'recruit', buildingId: eb.id, unitType: 'ENGINEER' });
+          resSim.iron -= (c.iron||0); resSim.oil -= (c.oil||0); resSim.wood -= (c.wood||0); resSim.food -= f; resSim.components -= (c.components||0);
+          plannedCount['ENGINEER'] = (plannedCount['ENGINEER'] || 0) + 1;
+        }
+      }
+    }
   }
 
   // Logistics emergency recruit pass (before normal priorities)
