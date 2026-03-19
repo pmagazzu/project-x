@@ -679,6 +679,17 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           return true;
         };
 
+        // Always allow ROAD consideration even if a non-road building exists on this tile.
+        // Roads are intended to coexist with buildings and form supply corridors.
+        const roadsNowForEng = gs.buildings.filter(b => b.owner === player && b.type === 'ROAD').length;
+        const roadDeficitForEng = Math.max(0, roadFloor - roadsNowForEng);
+        if (!hasRoad && gs.turn >= 3) {
+          const unsupplied = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0).length;
+          const roadUtilityHere = scoreRoadUtility(gs, player, unit.q, unit.r);
+          const roadScoreNow = (8 - roadsNowForEng * 0.2 + unsupplied * 6.0 + opening.deficits.roads * 5 + roadDeficitForEng * 2 + Math.max(0, roadUtilityHere) * 0.6) * phaseWeights.logistics;
+          if ((roadDeficitForEng >= 2 || roadScoreNow >= 18) && maybeBuild('ROAD')) continue;
+        }
+
         if (!hasNonRoadBuilding) {
           // Count existing economy buildings for balance checks
           const myMines  = gs.buildings.filter(b => b.owner === player && b.type === 'MINE').length;
