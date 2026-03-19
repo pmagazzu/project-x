@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.68';
+export const GAME_VERSION = 'v1.4.69';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -251,17 +251,19 @@ export class GameScene extends Phaser.Scene {
     cam.setBounds(bounds.minX - padding - sw0 * 0.5, bounds.minY - padding - sh0 * 0.5,
                   rtW + sw0, rtH + sh0);
     cam.ignore(this._uiLayer);
+    cam.roundPixels = true;
 
     // Fixed UI camera — zoom=1, no scroll, ignores all world graphics
     const sw = this.scale.width, sh = this.scale.height;
     this.uiCamera = this.cameras.add(0, 0, sw, sh).setName('ui').setScroll(0, 0).setZoom(1);
     this.uiCamera.transparent = true; // transparent background — must not cover world
+    this.uiCamera.roundPixels = true;
     this.uiCamera.ignore([
       this.terrainGfx, this.terrainArtLayer, this.mountainPeakLayer, this.terrainArtRT, this.terrainRT,
       this.roadGfx, this.supplyGfx,
       this.highlightGfx, this.farmTileLayer, this.buildingGfx, this.unitGfx, this.fogRT,
     ]);
-    this.scale.on('resize', (gs) => this.uiCamera.setSize(gs.width, gs.height));
+    this.scale.on('resize', (gs) => this._onResize(gs));
 
     // For random/custom maps: place spawns + resources after terrain is generated unless builder/custom-map overrides.
     if (this._customMapData) {
@@ -454,6 +456,39 @@ export class GameScene extends Phaser.Scene {
     }
 
     return { ok: true };
+  }
+
+  _onResize(gs) {
+    const w = gs.width, h = gs.height;
+    this.uiCamera?.setSize(w, h);
+
+    // Top bar relayout
+    this.topBarBg?.setPosition(w/2, 37).setSize(w, 74);
+    this.topBarDivider?.setPosition(w/2, 37).setSize(w, 1);
+    this.topBarAccent?.setPosition(w/2, 74).setSize(w, 1);
+    this.turnLbl?.setPosition(w/2, 8);
+    this.versionTag?.setPosition(w - 110, 8);
+    this.btnSupply?.setPosition(w - 500, 42);
+    this.btnResearch?.setPosition(w - 414, 42);
+    this.btnDesigner?.setPosition(w - 328, 42);
+    this.btnTrade?.setPosition(w - 242, 42);
+    this.btnSettings?.setPosition(w - 140, 42);
+    this.btnSubmit?.setPosition(w - 8, 42);
+    this.turnBadge?.setPosition(w - 8, 8);
+
+    // Bottom panel relayout
+    const panH = 132;
+    this.unitPanel?.setPosition(200, h - panH/2);
+    this.actionBg?.setPosition(w - 200, h - panH/2);
+    this.unitNameTxt?.setPosition(10, h - panH + 6);
+    this.unitStatsTxt?.setPosition(10, h - panH + 28);
+    this.unitStatusTxt?.setPosition(10, h - panH + 68);
+
+    // Rebuild open research panel to fit new width/height.
+    if (this._researchOpen) {
+      this._closeResearch();
+      this._toggleResearch();
+    }
   }
 
   // ── Terrain ──────────────────────────────────────────────────────────────
@@ -2459,8 +2494,8 @@ export class GameScene extends Phaser.Scene {
     // Two-row top bar to prevent overlaps as features grow.
     this.topBarBg = this.add.rectangle(w/2, 37, w, 74, 0x0a0a0a, 0.96)
       .setScrollFactor(0).setDepth(D);
-    this.add.rectangle(w/2, 37, w, 1, 0x1f2f1f, 1).setScrollFactor(0).setDepth(D + 1); // row divider
-    this.add.rectangle(w/2, 74, w, 1, 0x2a4a2a, 1).setScrollFactor(0).setDepth(D + 1); // bottom accent
+    this.topBarDivider = this.add.rectangle(w/2, 37, w, 1, 0x1f2f1f, 1).setScrollFactor(0).setDepth(D + 1); // row divider
+    this.topBarAccent = this.add.rectangle(w/2, 74, w, 1, 0x2a4a2a, 1).setScrollFactor(0).setDepth(D + 1); // bottom accent
 
     // Row 1: nav + state
     this.btnMenu = this._makeBtn(10, 8, '← MENU', 0x222222, () => this.scene.start('MenuScene'), D);
@@ -2468,8 +2503,8 @@ export class GameScene extends Phaser.Scene {
     this.turnLbl = this._makeLabel(w/2, 8, 'Turn 1 | Player 1 | PLANNING', D, true);
 
     // Version tag
-    this.add.text(w - 92, 10, GAME_VERSION, {
-      font: '10px monospace', fill: '#334455'
+    this.versionTag = this.add.text(w - 110, 8, GAME_VERSION, {
+      font: '11px monospace', fill: '#5a6f8a'
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(D);
 
     // Row 2: resources (left) + actions (right)
@@ -2497,17 +2532,17 @@ export class GameScene extends Phaser.Scene {
 
   _makeLabel(x, y, text, depth, center = false) {
     return this.add.text(x, y, text, {
-      font: '12px monospace', fill: '#ccddcc',
-      backgroundColor: '#141814', padding: { x: 6, y: 5 }
+      font: '13px monospace', fill: '#d8ead8',
+      backgroundColor: '#141814', padding: { x: 8, y: 6 }, stroke: '#081008', strokeThickness: 1
     }).setOrigin(center ? 0.5 : 0, 0).setScrollFactor(0).setDepth(depth);
   }
 
   _makeBtn(x, y, label, color, cb, depth = 100, origin = 'left') {
     const ox = origin === 'right' ? 1 : 0;
     const btn = this.add.text(x, y, label, {
-      font: 'bold 13px monospace', fill: '#ffffff',
+      font: 'bold 14px monospace', fill: '#ffffff',
       backgroundColor: `#${color.toString(16).padStart(6,'0')}`,
-      padding: { x: 10, y: 6 }
+      padding: { x: 12, y: 8 }, stroke: '#111111', strokeThickness: 1
     }).setOrigin(ox, 0).setScrollFactor(0).setDepth(depth).setInteractive({ useHandCursor: true });
     btn.on('pointerdown', cb);
     btn.on('pointerover', () => btn.setAlpha(0.8));
@@ -2590,9 +2625,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   _makeActionBtn(x, y, label, color, cb) {
-    const w = 118, h = 42;
+    const w = 126, h = 46;
     const btn = this.add.text(x, y, label, {
-      font: 'bold 13px monospace', fill: '#ffffff',
+      font: 'bold 14px monospace', fill: '#ffffff',
       backgroundColor: `#${color.toString(16).padStart(6,'0')}`,
       padding: { x: 0, y: 0 }, fixedWidth: w, fixedHeight: h, align: 'center'
     }).setScrollFactor(0).setDepth(101).setInteractive({ useHandCursor: true });
@@ -4773,7 +4808,10 @@ export class GameScene extends Phaser.Scene {
       const byTier = {};
       for (const t of branchTechs) { (byTier[t.tier] = byTier[t.tier] || []).push(t); }
       const tiers   = Object.keys(byTier).map(Number).sort((a,b) => a-b);
-      const nodeW   = 196, nodeH = 76, tierGapY = 52, nodeGapX = 12;
+      const maxRow  = Math.max(1, ...Object.values(byTier).map(r => r.length));
+      const nodeGapX = 10;
+      const nodeW   = Math.max(136, Math.min(196, Math.floor((panW - 36 - (maxRow - 1) * nodeGapX) / maxRow)));
+      const nodeH = 82, tierGapY = 52;
       const treeTop = tabY + 28;
       const nodePos = {};
 
