@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.65';
+export const GAME_VERSION = 'v1.4.66';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -143,6 +143,8 @@ export class GameScene extends Phaser.Scene {
     this.procQuickStart  = (data.procQuickStart !== undefined) ? !!data.procQuickStart : true;
     this.debugNoFog      = !!data.debugNoFog || this.scenario === 'mortar_test' || this.scenario === 'coastal_battery_test';
     this._mapBuilderMode = !!data.mapBuilder;
+    this._aiViewerMode = !!data.aiViewerMode;
+    this._aiAutoplayPaused = false;
     if (this._mapBuilderMode) this.debugNoFog = true;
     this._customMapData = data.customMap || null;
     // Map sizes per scenario
@@ -279,7 +281,7 @@ export class GameScene extends Phaser.Scene {
     // Auto-start if current player is AI (supports AI vs AI autoplay starts)
     if (this.aiPlayers.has(this.gameState.currentPlayer)) {
       this.time.delayedCall(120, () => {
-        if (this.aiPlayers.has(this.gameState.currentPlayer)) this._runAITurn();
+        if (!this._aiAutoplayPaused && this.aiPlayers.has(this.gameState.currentPlayer)) this._runAITurn();
       });
     }
   }
@@ -3701,6 +3703,14 @@ export class GameScene extends Phaser.Scene {
     // Supply overlay hotkey intentionally disabled (was keydown-S). Use UI button only.
     this.input.keyboard.on('keydown-SPACE', () => {
       if (this._nameModalOpen) return;
+      if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+        this._aiAutoplayPaused = !this._aiAutoplayPaused;
+        this._pushLog(this._aiAutoplayPaused ? 'AI autoplay paused.' : 'AI autoplay resumed.');
+        if (!this._aiAutoplayPaused && this.aiPlayers.has(this.gameState.currentPlayer)) {
+          this._runAITurn();
+        }
+        return;
+      }
       const now = performance.now();
       if (this._spaceGuardUntil && now < this._spaceGuardUntil) return;
       if (this._splashDismiss) {
@@ -6174,7 +6184,11 @@ export class GameScene extends Phaser.Scene {
 
     // If the next player is AI-controlled, skip the pass screen and run AI automatically
     if (this.aiPlayers.has(gs.currentPlayer)) {
-      this._runAITurn();
+      if (this._aiAutoplayPaused) {
+        this._pushLog('AI autoplay paused. Press SPACE to resume.');
+      } else {
+        this._runAITurn();
+      }
     } else {
       this._showPassScreen(`Player ${gs.currentPlayer}'s turn — take the controls`);
     }
