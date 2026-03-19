@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.71';
+export const GAME_VERSION = 'v1.4.72';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -6034,7 +6034,11 @@ export class GameScene extends Phaser.Scene {
     const canBtn=this.add.text(cx+80,btnY,'  CANCEL  ',{font:'bold 13px monospace',fill:'#aaaaaa',backgroundColor:'#1a1a2a',padding:{x:16,y:8}}).setOrigin(0.5,0.5).setScrollFactor(0).setDepth(D+2).setInteractive({useHandCursor:true});
     this._addToUI([...objs,atkBtn,canBtn]);
 
-    const cleanup=()=>[...objs,atkBtn,canBtn].forEach(o=>{try{o.destroy();}catch(e){}});
+    let autoCloseTimer = null;
+    const cleanup=()=>{
+      if (autoCloseTimer) { try { autoCloseTimer.remove(false); } catch(e){} autoCloseTimer = null; }
+      [...objs,atkBtn,canBtn].forEach(o=>{try{o.destroy();}catch(e){}});
+    };
     atkBtn.on('pointerdown',()=>{
       this._contextMenuClicked=true;
       // Short on-card strike animation before resolve
@@ -6047,6 +6051,12 @@ export class GameScene extends Phaser.Scene {
       this.time.delayedCall(120, () => { cleanup(); this._doImmediateAttack(attacker,target.id,blindFire); });
     });
     canBtn.on('pointerdown',()=>{ this._contextMenuClicked=true; cleanup(); this._refresh(); });
+
+    // Spectator QoL: in AI-vs-AI viewer mode, auto-close preview card after 2s.
+    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+      autoCloseTimer = this.time.delayedCall(2000, () => { cleanup(); this._refresh(); });
+    }
+
     atkBtn.on('pointerover',()=>atkBtn.setStyle({fill:'#ffdddd'}));
     atkBtn.on('pointerout', ()=>atkBtn.setStyle({fill:'#ffffff'}));
   }
