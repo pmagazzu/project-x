@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.59';
+export const GAME_VERSION = 'v1.4.60';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -301,6 +301,11 @@ export class GameScene extends Phaser.Scene {
       mode: 'terrain',
       terrainType: 2, // default to mountain so first paint is visibly obvious
       resourceType: 'IRON',
+      owner: 1,
+      buildingTypes: ['HQ','BARRACKS','NAVAL_YARD','AIRFIELD','MINE','OIL_PUMP','ROAD'],
+      unitTypes: ['ENGINEER','INFANTRY','RECON','MORTAR','TANK','PATROL_BOAT','SUPPLY_TRUCK','SUPPLY_SHIP'],
+      buildingIdx: 0,
+      unitIdx: 0,
       hud: null,
       banner: null,
     };
@@ -311,7 +316,7 @@ export class GameScene extends Phaser.Scene {
       font: '11px monospace', fill: '#cfe8cf', backgroundColor: '#0d1a0d', padding: { x: 8, y: 6 }
     }).setScrollFactor(0).setDepth(250);
     this._addToUI([this._builder.hud, this._builder.banner]);
-    this._pushLog('Map Builder: click to paint. T terrain, R resource, X erase, 1-8 terrain, O export, I import, P playtest.');
+    this._pushLog('Map Builder: click to paint. T terrain, R resource, B building, U unit, X erase. 1/2 owner. [ ] cycle type. O export, I import, P playtest.');
     this._updateBuilderHud();
   }
 
@@ -320,10 +325,12 @@ export class GameScene extends Phaser.Scene {
     const mode = this._builder.mode;
     const tName = TERRAIN_LABELS[this._builder.terrainType] || 'Plains';
     const rName = this._builder.resourceType;
+    const bType = this._builder.buildingTypes[this._builder.buildingIdx];
+    const uType = this._builder.unitTypes[this._builder.unitIdx];
     this._builder.hud.setText(
-      `MAP BUILDER (MVP)\n` +
-      `Mode: ${mode.toUpperCase()}  |  Terrain: ${tName}  |  Resource: ${rName}\n` +
-      `Keys: T=terrain R=resource X=erase  [1-8]=terrain  I=import  O=export  P=playtest`
+      `MAP BUILDER (PHASE B)\n` +
+      `Mode:${mode.toUpperCase()} Owner:P${this._builder.owner} Terrain:${tName} Resource:${rName} Building:${bType} Unit:${uType}\n` +
+      `Keys: T/R/B/U modes · X erase · Q/E owner · [ ] cycle B/U · 1-8 terrain · I import · O export · P playtest`
     );
   }
 
@@ -335,8 +342,18 @@ export class GameScene extends Phaser.Scene {
       delete this.gameState.resourceHexes[key];
     } else if (this._builder.mode === 'resource') {
       this.gameState.resourceHexes[key] = { type: this._builder.resourceType };
+    } else if (this._builder.mode === 'building') {
+      const bType = this._builder.buildingTypes[this._builder.buildingIdx];
+      this.gameState.buildings = this.gameState.buildings.filter(b => !(b.q === q && b.r === r));
+      this.gameState.buildings.push(createBuilding(bType, this._builder.owner, q, r));
+    } else if (this._builder.mode === 'unit') {
+      const uType = this._builder.unitTypes[this._builder.unitIdx];
+      this.gameState.units = this.gameState.units.filter(u => !(u.q === q && u.r === r));
+      this.gameState.units.push(createUnit(uType, this._builder.owner, q, r));
     } else if (this._builder.mode === 'erase') {
       delete this.gameState.resourceHexes[key];
+      this.gameState.buildings = this.gameState.buildings.filter(b => !(b.q === q && b.r === r));
+      this.gameState.units = this.gameState.units.filter(u => !(u.q === q && u.r === r));
     }
     this._drawStaticLayers();
     this._refresh();
@@ -347,6 +364,8 @@ export class GameScene extends Phaser.Scene {
       mapSize: this.mapSize,
       terrain: this.terrain,
       resourceHexes: this.gameState.resourceHexes,
+      buildings: this.gameState.buildings,
+      units: this.gameState.units,
     };
     return JSON.stringify(payload);
   }
@@ -361,6 +380,13 @@ export class GameScene extends Phaser.Scene {
     } catch (e) {
       this._pushLog(`Import failed: ${e?.message || e}`);
     }
+  }
+
+  _validateBuilderMap() {
+    const hq1 = this.gameState.buildings.some(b => b.type === 'HQ' && Number(b.owner) === 1);
+    const hq2 = this.gameState.buildings.some(b => b.type === 'HQ' && Number(b.owner) === 2);
+    if (!hq1 || !hq2) return { ok: false, reason: 'Map needs HQ for both P1 and P2.' };
+    return { ok: true };
   }
 
   // ── Terrain ──────────────────────────────────────────────────────────────
@@ -3506,14 +3532,18 @@ export class GameScene extends Phaser.Scene {
 
     // Keyboard zoom increments: [ = out, ] = in
     this.input.keyboard.on('keydown', (ev) => {
-      if (this._nameModalOpen) return;
+      if (this._nameModalOpen || this._mapBuilderMode) return;
       if (ev.code === 'BracketLeft') queueZoomStep(false);
       else if (ev.code === 'BracketRight') queueZoomStep(true);
     });
     if (this._mapBuilderMode) {
       this.input.keyboard.on('keydown-T', () => { if (!this._builder) return; this._builder.mode = 'terrain'; this._updateBuilderHud(); });
       this.input.keyboard.on('keydown-R', () => { if (!this._builder) return; this._builder.mode = 'resource'; this._updateBuilderHud(); });
+      this.input.keyboard.on('keydown-B', () => { if (!this._builder) return; this._builder.mode = 'building'; this._updateBuilderHud(); });
+      this.input.keyboard.on('keydown-U', () => { if (!this._builder) return; this._builder.mode = 'unit'; this._updateBuilderHud(); });
       this.input.keyboard.on('keydown-X', () => { if (!this._builder) return; this._builder.mode = 'erase'; this._updateBuilderHud(); });
+      this.input.keyboard.on('keydown-Q', () => { if (!this._builder) return; this._builder.owner = 1; this._updateBuilderHud(); });
+      this.input.keyboard.on('keydown-E', () => { if (!this._builder) return; this._builder.owner = 2; this._updateBuilderHud(); });
       this.input.keyboard.on('keydown-I', () => {
         const raw = window.prompt('Paste map JSON');
         if (raw) this._importCustomMapJson(raw);
@@ -3524,13 +3554,28 @@ export class GameScene extends Phaser.Scene {
         window.prompt('Map JSON (copied if browser allows):', txt);
       });
       this.input.keyboard.on('keydown-P', () => {
+        const valid = this._validateBuilderMap();
+        if (!valid.ok) { this._pushLog(`Builder validate failed: ${valid.reason}`); return; }
         const customMap = JSON.parse(this._exportCustomMapJson());
         this.scene.start('GameScene', { scenario: 'custom', customSize: this.mapSize, aiP2: this._aiP2, aiStrategy: 'balanced', customMap });
       });
       this.input.keyboard.on('keydown', (ev) => {
+        if (!this._builder) return;
         const n = Number(ev.key);
         if (Number.isInteger(n) && n >= 1 && n <= 8) {
           this._builder.terrainType = n - 1;
+          this._updateBuilderHud();
+          return;
+        }
+        if (ev.code === 'BracketLeft') {
+          if (this._builder.mode === 'building') this._builder.buildingIdx = (this._builder.buildingIdx - 1 + this._builder.buildingTypes.length) % this._builder.buildingTypes.length;
+          if (this._builder.mode === 'unit') this._builder.unitIdx = (this._builder.unitIdx - 1 + this._builder.unitTypes.length) % this._builder.unitTypes.length;
+          this._updateBuilderHud();
+          return;
+        }
+        if (ev.code === 'BracketRight') {
+          if (this._builder.mode === 'building') this._builder.buildingIdx = (this._builder.buildingIdx + 1) % this._builder.buildingTypes.length;
+          if (this._builder.mode === 'unit') this._builder.unitIdx = (this._builder.unitIdx + 1) % this._builder.unitTypes.length;
           this._updateBuilderHud();
         }
       });
@@ -5269,7 +5314,9 @@ export class GameScene extends Phaser.Scene {
   // Shift+RMB on a tile with a selected friendly unit => quick move-order menu.
   _onHexRightClick(q, r, shiftRmb = false) {
     if (this._mapBuilderMode) {
-      this._builder.mode = this._builder.mode === 'terrain' ? 'resource' : this._builder.mode === 'resource' ? 'erase' : 'terrain';
+      const seq = ['terrain','resource','building','unit','erase'];
+      const idx = seq.indexOf(this._builder.mode);
+      this._builder.mode = seq[(idx + 1) % seq.length];
       this._updateBuilderHud();
       return;
     }
