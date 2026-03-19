@@ -25,7 +25,7 @@ export const AI_STRATEGIES = {
   aggressive: {
     label:         'Aggressive',
     recruitPrio:   ['TANK','INFANTRY','MORTAR','ARTILLERY','ANTI_TANK','SUPPLY_TRUCK','HALFTRACK'],
-    navalPrio:     ['DESTROYER','MTB','CRUISER_LT','PATROL_BOAT','SUPPLY_SHIP'],
+    navalPrio:     ['SUPPLY_SHIP','DESTROYER','MTB','CRUISER_LT','PATROL_BOAT'],
     airPrio:       ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE'],
     attackBonus:   20,   // extra score for attack-after-move
     captureBonus:  20,   // bonus for moving toward HQ or flag position
@@ -35,7 +35,7 @@ export const AI_STRATEGIES = {
   defensive: {
     label:         'Defensive',
     recruitPrio:   ['ANTI_TANK','ARTILLERY','INFANTRY','MORTAR','MEDIC','SUPPLY_TRUCK'],
-    navalPrio:     ['COASTAL_BATTERY','DESTROYER','PATROL_BOAT','SUPPLY_SHIP'],
+    navalPrio:     ['SUPPLY_SHIP','COASTAL_BATTERY','DESTROYER','PATROL_BOAT'],
     airPrio:       ['BIPLANE_FIGHTER','OBS_PLANE','LIGHT_BOMBER'],
     attackBonus:   0,
     captureBonus:  40,
@@ -45,7 +45,7 @@ export const AI_STRATEGIES = {
   balanced: {
     label:         'Balanced',
     recruitPrio:   ['INFANTRY','ANTI_TANK','TANK','ARTILLERY','MORTAR','SUPPLY_TRUCK','HALFTRACK'],
-    navalPrio:     ['DESTROYER','PATROL_BOAT','MTB','SUPPLY_SHIP','TRANSPORT_SM'],
+    navalPrio:     ['SUPPLY_SHIP','DESTROYER','PATROL_BOAT','MTB','TRANSPORT_SM'],
     airPrio:       ['BIPLANE_FIGHTER','OBS_PLANE','LIGHT_BOMBER'],
     attackBonus:   10,
     captureBonus:  30,
@@ -55,7 +55,7 @@ export const AI_STRATEGIES = {
   adaptive: {
     label:         'Adaptive',
     recruitPrio:   ['INFANTRY','ANTI_TANK','TANK','ARTILLERY','MORTAR','HALFTRACK','SUPPLY_TRUCK'],
-    navalPrio:     ['DESTROYER','PATROL_BOAT','SUPPLY_SHIP','MTB','TRANSPORT_SM'],
+    navalPrio:     ['SUPPLY_SHIP','DESTROYER','PATROL_BOAT','MTB','TRANSPORT_SM'],
     airPrio:       ['BIPLANE_FIGHTER','OBS_PLANE','LIGHT_BOMBER'],
     attackBonus:   12,
     captureBonus:  34,
@@ -775,7 +775,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       }
     }
   }
-  if (unsuppliedNavalNow >= 2) {
+  if (unsuppliedNavalNow >= 1) {
     const b = myBuildings.find(bb => (BUILDING_TYPES[bb.type]?.canRecruit || []).includes('SUPPLY_SHIP') && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player));
     if (b) {
       const c = UNIT_TYPES['SUPPLY_SHIP']?.cost || {};
@@ -820,7 +820,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       sorted.splice(sorted.indexOf('SUPPLY_TRUCK'), 1);
       sorted.unshift('SUPPLY_TRUCK');
     }
-    if (unsuppliedNaval >= 2 && sorted.includes('SUPPLY_SHIP')) {
+    if (unsuppliedNaval >= 1 && sorted.includes('SUPPLY_SHIP')) {
       sorted.splice(sorted.indexOf('SUPPLY_SHIP'), 1);
       sorted.unshift('SUPPLY_SHIP');
     }
