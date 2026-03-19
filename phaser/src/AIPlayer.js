@@ -503,8 +503,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const unitInSupply = mySupply?.has?.(`${unit.q},${unit.r}`);
     const preMoveTargets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
     const preMoveTarget  = chooseBestTarget(gs, unit, preMoveTargets);
-    const canRiskAttack = !!unitInSupply || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && preMoveTarget && (preMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
     const preTrade = preMoveTarget ? estimateAttackCommitScore(gs, unit, preMoveTarget) : -999;
+    const frontlineCommit = (gs.turn || 1) >= 10 && preMoveTarget && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 3 && preTrade >= 0;
+    const canRiskAttack = !!unitInSupply || frontlineCommit || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && preMoveTarget && (preMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
     const preThreshold = getUnitRole(unit.type) === 'recon' ? 2 : 0;
     if (preMoveTarget && canRiskAttack && preTrade >= preThreshold) {
       actions.push({
@@ -585,8 +586,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const postMoveTargets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
         const postMoveTarget  = chooseBestTarget(gs, unit, postMoveTargets);
         const postInSupply = mySupply?.has?.(`${unit.q},${unit.r}`);
-        const canRiskPostAttack = !!postInSupply || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && postMoveTarget && (postMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
         const postTrade = postMoveTarget ? estimateAttackCommitScore(gs, unit, postMoveTarget) : -999;
+        const frontlineCommitPost = (gs.turn || 1) >= 10 && postMoveTarget && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 3 && postTrade >= 0;
+        const canRiskPostAttack = !!postInSupply || frontlineCommitPost || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && postMoveTarget && (postMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
         const postThreshold = getUnitRole(unit.type) === 'recon' ? 2 : 0;
         if (postMoveTarget && canRiskPostAttack && postTrade >= postThreshold) {
           actions.push({
