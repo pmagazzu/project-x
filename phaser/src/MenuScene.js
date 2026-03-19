@@ -21,6 +21,14 @@ const SCENARIOS = [
     customSize: true,
   },
   {
+    key:   'ai_vs_ai_island_medium',
+    label: 'AI VS AI · ISLAND (MEDIUM)',
+    icon:  '🤖',
+    sub:   '40×40 islands profile · both players AI',
+    color: 0x1b3248,
+    hoverColor: 0x2a5678,
+  },
+  {
     key:   'mortar_test',
     label: 'MORTAR TEST',
     icon:  '△',
@@ -126,6 +134,18 @@ export class MenuScene extends Phaser.Scene {
         sub.setStyle({ fill: '#556650' });
       });
       bg.on('pointerdown', () => {
+        if (sc.key === 'ai_vs_ai_island_medium') {
+          this.scene.start('GameScene', {
+            scenario: 'custom',
+            customSize: 40,
+            aiP1: true,
+            aiP2: true,
+            aiStrategy: 'balanced',
+            procLandProfile: 'islands',
+            procQuickStart: true,
+          });
+          return;
+        }
         if (sc.customSize) {
           this._showSizePicker(sc.key);
         } else {

@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.63';
+export const GAME_VERSION = 'v1.4.64';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -149,7 +149,9 @@ export class GameScene extends Phaser.Scene {
     const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, random: 40, air_test: 20, mortar_test: 20, coastal_battery_test: 20, custom: data.customSize || 40, default: 25 };
     this.mapSize   = MAP_SIZES[this.scenario] || MAP_SIZE;
     // AI players: set of player numbers controlled by AI
-    this.aiPlayers  = new Set(data.aiP2 ? [2] : []);
+    this.aiPlayers  = new Set();
+    if (data.aiP1) this.aiPlayers.add(1);
+    if (data.aiP2) this.aiPlayers.add(2);
     // AI strategy
     this.aiStrategy = data.aiStrategy || 'balanced';
     // Random map uses a unique seed each game
@@ -273,6 +275,13 @@ export class GameScene extends Phaser.Scene {
     this._drawStaticLayers();
     this._freezeFog(); // lock fog for P1's first planning phase
     this._refresh();
+
+    // Auto-start if current player is AI (supports AI vs AI autoplay starts)
+    if (this.aiPlayers.has(this.gameState.currentPlayer)) {
+      this.time.delayedCall(120, () => {
+        if (this.aiPlayers.has(this.gameState.currentPlayer)) this._runAITurn();
+      });
+    }
   }
 
   _applyCustomMapData(mapData) {
