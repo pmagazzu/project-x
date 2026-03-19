@@ -193,6 +193,51 @@ function getRoadFloor(turn = 1) {
   return 12;
 }
 
+function scoreRoadUtility(gs, player, q, r) {
+  const key = `${q},${r}`;
+  const hasRoad = !!roadAt(gs, q, r);
+  if (hasRoad) return -999;
+
+  const myHQs = gs.buildings.filter(b => b.type === 'HQ' && Number(b.owner) === Number(player));
+  const enemyHQs = gs.buildings.filter(b => b.type === 'HQ' && Number(b.owner) !== Number(player));
+  const myUnits = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked);
+  const myCombat = myUnits.filter(u => {
+    const d = UNIT_TYPES[u.type] || {};
+    return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
+  });
+
+  // Resource value: roads to unworked resources are high utility.
+  const res = gs.resourceHexes?.[key];
+  let resourceScore = 0;
+  if (res) {
+    const worked = gs.buildings.some(b => b.q === q && b.r === r && (b.type === 'MINE' || b.type === 'OIL_PUMP') && Number(b.owner) === Number(player));
+    if (!worked) resourceScore += (res.type === 'OIL' ? 20 : 16);
+  }
+
+  // Front utility: closer to combat envelope and enemy HQ avenues.
+  let frontScore = 0;
+  if (myCombat.length > 0) {
+    const dCombat = Math.min(...myCombat.map(u => hexDistance(q, r, u.q, u.r)));
+    frontScore += Math.max(0, 10 - dCombat * 1.4);
+  }
+  if (enemyHQs.length > 0) {
+    const dEnemyHQ = Math.min(...enemyHQs.map(h => hexDistance(q, r, h.q, h.r)));
+    frontScore += Math.max(0, 8 - dEnemyHQ * 0.45);
+  }
+
+  // Network value: prefer extending from existing road graph and HQ outward.
+  const roadNeighbors = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]
+    .map(([dq,dr]) => roadAt(gs, q + dq, r + dr))
+    .filter(Boolean).length;
+  let networkScore = roadNeighbors * 7;
+  if (myHQs.length > 0) {
+    const dHQ = Math.min(...myHQs.map(h => hexDistance(q, r, h.q, h.r)));
+    networkScore += Math.max(0, 9 - dHQ * 0.7);
+  }
+
+  return resourceScore + frontScore + networkScore;
+}
+
 export function getAIKPIReport(gs, player) {
   const opening = getOpeningMilestones(gs, player);
   const roadFloor = getRoadFloor(gs.turn || 1);
@@ -322,7 +367,9 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
       else if ((ttype === 0 || ttype === 6 || ttype === 7) && food < 8) buildValue = 8; // farm potential
       score += buildValue * phase.economy;
       if (!hasRoad && gs.turn >= 3) score += 5 * phase.logistics; // infra bias
-      if ((ctx.roadDeficit || 0) > 0 && !hasRoad) score += 14 + (ctx.roadDeficit * 3); // hard pull to road-capable tiles when behind network targets
+      const roadUtility = scoreRoadUtility(gs, unit.owner, q, r);
+      if (!hasRoad) score += Math.max(0, roadUtility * 0.45) * phase.logistics;
+      if ((ctx.roadDeficit || 0) > 0 && !hasRoad) score += 10 + (ctx.roadDeficit * 2); // soft guardrail while still utility-driven
       if (q === unit.q && r === unit.r && buildValue > 0) score += 14; // prefer building now vs wandering
     }
 
@@ -641,8 +688,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           const myNavalDockyard = gs.buildings.filter(b => b.owner === player && b.type === 'NAVAL_DOCKYARD' && !b.underConstruction).length;
           const roadDeficit = Math.max(0, roadFloor - myRoads);
 
-          // Hard logistics floor: if roads are behind schedule, force road laying first.
-          if (roadDeficit > 0 && !hasRoad && maybeBuild('ROAD')) continue;
+          // Utility-first logistics: only hard-force roads when deficit is severe.
+          const roadUtilityHere = scoreRoadUtility(gs, player, unit.q, unit.r);
+          if (roadDeficit >= 4 && !hasRoad && roadUtilityHere >= 14 && maybeBuild('ROAD')) continue;
 
           // Priority 1: exploit local resources (always do this first)
           const wood = gs.players[player].wood || 0;
@@ -686,7 +734,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             }
             // Road: infrastructure, priority rises when units are out of supply.
             const unsupplied = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0).length;
-            if (!hasRoad && gs.turn >= 3 && myRoads < 20) needs.push({ type: 'ROAD', score: (8 - myRoads * 0.2 + unsupplied * 6.0 + d.roads * 5 + roadDeficit * 4) * phaseWeights.logistics });
+            if (!hasRoad && gs.turn >= 3 && myRoads < 20) {
+              const roadUtilityHere = scoreRoadUtility(gs, player, unit.q, unit.r);
+              needs.push({ type: 'ROAD', score: (8 - myRoads * 0.2 + unsupplied * 6.0 + d.roads * 5 + roadDeficit * 2 + Math.max(0, roadUtilityHere) * 0.5) * phaseWeights.logistics });
+            }
             // Science Lab: research, cap at 2
             if (myLabs < 2 && gs.turn >= 2) needs.push({ type: 'SCIENCE_LAB', score: (8 - myLabs * 4 + d.labs * 6) * phaseWeights.research });
             // Factory: components, cap at 2
