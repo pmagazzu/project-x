@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.57';
+export const GAME_VERSION = 'v1.4.58';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -287,14 +287,19 @@ export class GameScene extends Phaser.Scene {
   _initMapBuilder() {
     this._builder = {
       mode: 'terrain',
-      terrainType: 0,
+      terrainType: 2, // default to mountain so first paint is visibly obvious
       resourceType: 'IRON',
       hud: null,
+      banner: null,
     };
+    this._builder.banner = this.add.text(this.scale.width / 2, 18, 'MAP BUILDER ACTIVE', {
+      font: 'bold 14px monospace', fill: '#99ff99', backgroundColor: '#102810', padding: { x: 10, y: 6 }
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(260);
     this._builder.hud = this.add.text(10, 46, '', {
       font: '11px monospace', fill: '#cfe8cf', backgroundColor: '#0d1a0d', padding: { x: 8, y: 6 }
     }).setScrollFactor(0).setDepth(250);
-    this._addToUI([this._builder.hud]);
+    this._addToUI([this._builder.hud, this._builder.banner]);
+    this._pushLog('Map Builder: click to paint. T terrain, R resource, X erase, 1-8 terrain, O export, I import, P playtest.');
     this._updateBuilderHud();
   }
 
