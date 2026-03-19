@@ -1868,7 +1868,12 @@ export function resolveEndOfTurn(state, terrain) {
     for (let i = 0; i < steps && i < path.length; i++) {
       const nq = path[i].q, nr = path[i].r;
       const blocker = state.units.find(u => u.q === nq && u.r === nr && u.id !== unit.id && !u.embarked);
-      if (blocker) break; // stalled this step, try again next turn
+      if (blocker) {
+        // Auto-move parity with manual movement: pass THROUGH friendlies, but never END on occupied.
+        const isFriendly = Number(blocker.owner) === Number(player);
+        const isFinalStepThisTurn = (i === steps - 1) || (i === path.length - 1) || (nq === order.destQ && nr === order.destR);
+        if (!isFriendly || isFinalStepThisTurn) break; // enemy blocks, or friendly occupies intended end tile
+      }
       unit.q = nq; unit.r = nr;
       unit.dugIn = false;
       if (nq === order.destQ && nr === order.destR) {
