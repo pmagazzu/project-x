@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.51';
+export const GAME_VERSION = 'v1.4.52';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -3396,6 +3396,22 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard.enableGlobalCapture();
     this.wasd = this.input.keyboard.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT');
     this._shiftKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
+
+    const queueZoomStep = (zoomIn) => {
+      const step = 1.10;
+      const factor = zoomIn ? step : (1 / step);
+      if (this._zoomTarget === undefined) this._zoomTarget = cam.zoom;
+      this._zoomTarget = Phaser.Math.Clamp(this._zoomTarget * factor, 0.2, 4.0);
+      this._zoomPointer = { x: this.scale.width / 2, y: this.scale.height / 2 };
+      this._zoomLastInputAt = performance.now();
+    };
+
+    // Keyboard zoom increments: [ = out, ] = in
+    this.input.keyboard.on('keydown', (ev) => {
+      if (this._nameModalOpen) return;
+      if (ev.code === 'BracketLeft') queueZoomStep(false);
+      else if (ev.code === 'BracketRight') queueZoomStep(true);
+    });
     this.input.keyboard.on('keydown-ESC',   () => { if (this._nameModalOpen) return; if (!this._endTurnPending) this._toggleSettings(); });
     this.input.keyboard.on('keydown-X',     () => { if (this._nameModalOpen) return; this._confirmEndTurn(); });
     this.input.keyboard.on('keydown-M',     () => {
