@@ -356,7 +356,11 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   const inSupply = mySupply?.has?.(`${q},${r}`);
   if (!inSupply) {
     const emergencyPush = nearestEnemy <= 2;
-    score -= emergencyPush ? 4 : 18;
+    score -= emergencyPush ? 8 : 26;
+    if ((unit.outOfSupply || 0) >= 2) score -= 10;
+  } else if ((unit.outOfSupply || 0) > 0) {
+    // Recovery bias: nudge unsupplied units back onto the network.
+    score += 8;
   }
 
   // Phase 2 anti-blob: penalize over-clustering unless already in close contact.
@@ -472,7 +476,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     // A) Attack from current position
     const preMoveTargets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
     const preMoveTarget  = chooseBestTarget(gs, unit, preMoveTargets);
-    const canRiskAttack = (unit.outOfSupply || 0) < 2 || (preMoveTarget && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
+    const canRiskAttack = (unit.outOfSupply || 0) < 2 || (preMoveTarget && (preMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
     const preTrade = preMoveTarget ? estimateAttackCommitScore(gs, unit, preMoveTarget) : -999;
     const preThreshold = getUnitRole(unit.type) === 'recon' ? 2 : 0;
     if (preMoveTarget && canRiskAttack && preTrade >= preThreshold) {
@@ -553,7 +557,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       if (!unit._aiPlannedAttack) {
         const postMoveTargets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
         const postMoveTarget  = chooseBestTarget(gs, unit, postMoveTargets);
-        const canRiskPostAttack = (unit.outOfSupply || 0) < 2 || (postMoveTarget && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
+        const canRiskPostAttack = (unit.outOfSupply || 0) < 2 || (postMoveTarget && (postMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
         const postTrade = postMoveTarget ? estimateAttackCommitScore(gs, unit, postMoveTarget) : -999;
         const postThreshold = getUnitRole(unit.type) === 'recon' ? 2 : 0;
         if (postMoveTarget && canRiskPostAttack && postTrade >= postThreshold) {
@@ -648,7 +652,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             }
             // Road: infrastructure, priority rises when units are out of supply.
             const unsupplied = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0).length;
-            if (!hasRoad && gs.turn >= 3 && myRoads < 20) needs.push({ type: 'ROAD', score: 8 - myRoads * 0.2 + unsupplied * 4.0 + d.roads * 5 });
+            if (!hasRoad && gs.turn >= 3 && myRoads < 20) needs.push({ type: 'ROAD', score: 8 - myRoads * 0.2 + unsupplied * 6.0 + d.roads * 5 });
             // Science Lab: research, cap at 2
             if (myLabs < 2 && gs.turn >= 2) needs.push({ type: 'SCIENCE_LAB', score: 8 - myLabs * 4 + d.labs * 6 });
             // Factory: components, cap at 2
@@ -746,7 +750,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   // Logistics emergency recruit pass (before normal priorities)
   const unsuppliedGroundNow = gs.units.filter(u => u.owner === player && !u.embarked && !NAVAL_UNITS.has(u.type) && (u.outOfSupply || 0) > 0).length;
   const unsuppliedNavalNow = gs.units.filter(u => u.owner === player && !u.embarked && NAVAL_UNITS.has(u.type) && (u.outOfSupply || 0) > 0).length;
-  if (unsuppliedGroundNow >= 3) {
+  if (unsuppliedGroundNow >= 2) {
     const b = myBuildings.find(bb => (BUILDING_TYPES[bb.type]?.canRecruit || []).includes('SUPPLY_TRUCK') && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player));
     if (b) {
       const c = UNIT_TYPES['SUPPLY_TRUCK']?.cost || {};
@@ -790,7 +794,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     // Logistics override: when supply is strained, prioritize supply units.
     const unsuppliedGround = gs.units.filter(u => u.owner === player && !u.embarked && !NAVAL_UNITS.has(u.type) && (u.outOfSupply || 0) > 0).length;
     const unsuppliedNaval = gs.units.filter(u => u.owner === player && !u.embarked && NAVAL_UNITS.has(u.type) && (u.outOfSupply || 0) > 0).length;
-    if (unsuppliedGround >= 3 && sorted.includes('SUPPLY_TRUCK')) {
+    if (unsuppliedGround >= 2 && sorted.includes('SUPPLY_TRUCK')) {
       sorted.splice(sorted.indexOf('SUPPLY_TRUCK'), 1);
       sorted.unshift('SUPPLY_TRUCK');
     }
