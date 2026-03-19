@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.60';
+export const GAME_VERSION = 'v1.4.61';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -308,6 +308,9 @@ export class GameScene extends Phaser.Scene {
       unitIdx: 0,
       hud: null,
       banner: null,
+      lastPaintKey: null,
+      history: [],
+      future: [],
     };
     this._builder.banner = this.add.text(this.scale.width / 2, 18, 'MAP BUILDER ACTIVE', {
       font: 'bold 14px monospace', fill: '#99ff99', backgroundColor: '#102810', padding: { x: 10, y: 6 }
@@ -316,7 +319,7 @@ export class GameScene extends Phaser.Scene {
       font: '11px monospace', fill: '#cfe8cf', backgroundColor: '#0d1a0d', padding: { x: 8, y: 6 }
     }).setScrollFactor(0).setDepth(250);
     this._addToUI([this._builder.hud, this._builder.banner]);
-    this._pushLog('Map Builder: click to paint. T terrain, R resource, B building, U unit, X erase. 1/2 owner. [ ] cycle type. O export, I import, P playtest.');
+    this._pushLog('Map Builder: click/drag to paint. T terrain, R resource, B building, U unit, X erase. Q/E owner. [ ] cycle type. Z undo, Y redo, V validate, O export, I import, P playtest.');
     this._updateBuilderHud();
   }
 
@@ -328,15 +331,44 @@ export class GameScene extends Phaser.Scene {
     const bType = this._builder.buildingTypes[this._builder.buildingIdx];
     const uType = this._builder.unitTypes[this._builder.unitIdx];
     this._builder.hud.setText(
-      `MAP BUILDER (PHASE B)\n` +
+      `MAP BUILDER (PHASE C)\n` +
       `Mode:${mode.toUpperCase()} Owner:P${this._builder.owner} Terrain:${tName} Resource:${rName} Building:${bType} Unit:${uType}\n` +
-      `Keys: T/R/B/U modes · X erase · Q/E owner · [ ] cycle B/U · 1-8 terrain · I import · O export · P playtest`
+      `Keys: T/R/B/U · X erase · Q/E owner · [ ] cycle B/U · 1-8 terrain · Z undo · Y redo · V validate · I/O · P playtest`
     );
+  }
+
+  _builderSnapshot() {
+    return {
+      terrain: { ...this.terrain },
+      resourceHexes: { ...this.gameState.resourceHexes },
+      buildings: this.gameState.buildings.map(b => ({ ...b })),
+      units: this.gameState.units.map(u => ({ ...u })),
+    };
+  }
+
+  _builderPushHistory() {
+    if (!this._builder) return;
+    this._builder.history.push(this._builderSnapshot());
+    if (this._builder.history.length > 120) this._builder.history.shift();
+    this._builder.future = [];
+  }
+
+  _builderApplySnapshot(snap) {
+    if (!snap) return;
+    this.terrain = { ...snap.terrain };
+    this.gameState.resourceHexes = { ...snap.resourceHexes };
+    this.gameState.buildings = snap.buildings.map(b => ({ ...b }));
+    this.gameState.units = snap.units.map(u => ({ ...u }));
+    this._drawStaticLayers();
+    this._refresh();
   }
 
   _builderPaint(q, r) {
     const key = `${q},${r}`;
     if (!isValid(q, r, this.mapSize)) return;
+    if (this._builder.lastPaintKey === `${this._builder.mode}:${key}`) return;
+    this._builder.lastPaintKey = `${this._builder.mode}:${key}`;
+    this._builderPushHistory();
     if (this._builder.mode === 'terrain') {
       this.terrain[key] = this._builder.terrainType;
       delete this.gameState.resourceHexes[key];
@@ -386,6 +418,28 @@ export class GameScene extends Phaser.Scene {
     const hq1 = this.gameState.buildings.some(b => b.type === 'HQ' && Number(b.owner) === 1);
     const hq2 = this.gameState.buildings.some(b => b.type === 'HQ' && Number(b.owner) === 2);
     if (!hq1 || !hq2) return { ok: false, reason: 'Map needs HQ for both P1 and P2.' };
+
+    for (const u of this.gameState.units) {
+      const tt = this.terrain?.[`${u.q},${u.r}`] ?? 0;
+      if (!canEnterTerrain(u.type, tt)) {
+        return { ok: false, reason: `${UNIT_TYPES[u.type]?.name || u.type} at (${u.q},${u.r}) is on invalid terrain.` };
+      }
+    }
+
+    const p1Res = this.gameState.resourceHexes ? Object.keys(this.gameState.resourceHexes).filter(k => {
+      const [q, r] = k.split(',').map(Number);
+      const hq = this.gameState.buildings.find(b => b.type === 'HQ' && Number(b.owner) === 1);
+      return hq ? hexDistance(hq.q, hq.r, q, r) <= 10 : false;
+    }).length : 0;
+    const p2Res = this.gameState.resourceHexes ? Object.keys(this.gameState.resourceHexes).filter(k => {
+      const [q, r] = k.split(',').map(Number);
+      const hq = this.gameState.buildings.find(b => b.type === 'HQ' && Number(b.owner) === 2);
+      return hq ? hexDistance(hq.q, hq.r, q, r) <= 10 : false;
+    }).length : 0;
+    if (Math.abs(p1Res - p2Res) > 3) {
+      return { ok: false, reason: `Resource fairness warning too high near HQs (P1:${p1Res}, P2:${p2Res}).` };
+    }
+
     return { ok: true };
   }
 
@@ -3455,10 +3509,16 @@ export class GameScene extends Phaser.Scene {
 
     this.input.on('pointermove', (ptr) => {
       if (ptr.isDown && ptr.button === 0) {
-        const dx = ptr.x - this._dragStart.x, dy = ptr.y - this._dragStart.y;
-        if (Math.abs(dx) > 4 || Math.abs(dy) > 4) this._isDragging = true;
-        if (this._isDragging) {
-          cam.setScroll(this._dragStartScroll.x - dx/cam.zoom, this._dragStartScroll.y - dy/cam.zoom);
+        if (this._mapBuilderMode) {
+          const world = cam.getWorldPoint(ptr.x, ptr.y);
+          const hex = worldToHex(world.x, world.y);
+          if (isValid(hex.q, hex.r, this.mapSize)) this._builderPaint(hex.q, hex.r);
+        } else {
+          const dx = ptr.x - this._dragStart.x, dy = ptr.y - this._dragStart.y;
+          if (Math.abs(dx) > 4 || Math.abs(dy) > 4) this._isDragging = true;
+          if (this._isDragging) {
+            cam.setScroll(this._dragStartScroll.x - dx/cam.zoom, this._dragStartScroll.y - dy/cam.zoom);
+          }
         }
       } else {
         const world = cam.getWorldPoint(ptr.x, ptr.y);
@@ -3501,6 +3561,7 @@ export class GameScene extends Phaser.Scene {
         }
       }
       this._isDragging = false;
+      if (this._mapBuilderMode && this._builder) this._builder.lastPaintKey = null;
     });
 
     // Suppress browser context menu so right-click works in-game
@@ -3552,6 +3613,24 @@ export class GameScene extends Phaser.Scene {
         const txt = this._exportCustomMapJson();
         if (navigator?.clipboard?.writeText) navigator.clipboard.writeText(txt).catch(() => {});
         window.prompt('Map JSON (copied if browser allows):', txt);
+      });
+      this.input.keyboard.on('keydown-Z', () => {
+        if (!this._builder?.history?.length) return;
+        this._builder.future.push(this._builderSnapshot());
+        const prev = this._builder.history.pop();
+        this._builderApplySnapshot(prev);
+      });
+      this.input.keyboard.on('keydown-Y', () => {
+        if (!this._builder?.future?.length) return;
+        this._builder.history.push(this._builderSnapshot());
+        const next = this._builder.future.pop();
+        this._builderApplySnapshot(next);
+      });
+      this.input.keyboard.on('keydown-V', () => {
+        const valid = this._validateBuilderMap();
+        const msg = valid.ok ? 'Builder validation OK.' : `Builder validation failed: ${valid.reason}`;
+        this._pushLog(msg);
+        if (!valid.ok) window.alert(msg);
       });
       this.input.keyboard.on('keydown-P', () => {
         const valid = this._validateBuilderMap();
