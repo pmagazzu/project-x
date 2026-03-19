@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.69';
+export const GAME_VERSION = 'v1.4.70';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -6254,7 +6254,10 @@ export class GameScene extends Phaser.Scene {
     // Plan all actions (does NOT execute — pure data)
     const actions = planAITurn(gs, this.terrain, this.mapSize, this.aiStrategy);
     const aiCounts = actions.reduce((acc, a) => { acc[a.type] = (acc[a.type] || 0) + 1; return acc; }, {});
+    const roadsBuiltThisTurn = actions.filter(a => a.type === 'build' && a.buildingType === 'ROAD').length;
+    const engineersQueued = actions.filter(a => a.type === 'recruit' && a.unitType === 'ENGINEER').length;
     this._pushLog(`AI P${gs.currentPlayer}: ${actions.length} actions (move:${aiCounts.move||0} atk:${aiCounts.attack||0} build:${aiCounts.build||0} recruit:${aiCounts.recruit||0} design:${aiCounts.design||0})`);
+    this._pushLog(`AI P${gs.currentPlayer}: roadsPlanned=${roadsBuiltThisTurn} engQueued=${engineersQueued}`);
     this._pushLog(`AI P${gs.currentPlayer}: ${preKPI.summary}`);
 
     // Execute actions sequentially with delays and visual feedback

@@ -370,6 +370,7 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
       const roadUtility = scoreRoadUtility(gs, unit.owner, q, r);
       if (!hasRoad) score += Math.max(0, roadUtility * 0.45) * phase.logistics;
       if ((ctx.roadDeficit || 0) > 0 && !hasRoad) score += 10 + (ctx.roadDeficit * 2); // soft guardrail while still utility-driven
+      if (ctx.roadCaptainId && unit.id === ctx.roadCaptainId && !hasRoad) score += 18 + Math.max(0, roadUtility * 0.35);
       if (q === unit.q && r === unit.r && buildValue > 0) score += 14; // prefer building now vs wandering
     }
 
@@ -501,7 +502,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const roadFloor = getRoadFloor(gs.turn || 1);
   const roadsNow = gs.buildings.filter(bb => bb.owner === player && bb.type === 'ROAD').length;
   const roadDeficitGlobal = Math.max(0, roadFloor - roadsNow);
-  const aiCtx = { deceptionTurn, resourceTargets, unitObjective, phaseWeights, roadDeficit: roadDeficitGlobal };
+  const myEngineersNow = gs.units.filter(u => u.owner === player && !u.embarked && u.type === 'ENGINEER');
+  const roadCaptainId = myEngineersNow.length > 0 ? myEngineersNow.sort((a,b) => a.id - b.id)[0].id : null;
+  const aiCtx = { deceptionTurn, resourceTargets, unitObjective, phaseWeights, roadDeficit: roadDeficitGlobal, roadCaptainId };
 
   // Simulated AI economy spend during planning so we don't overcommit.
   const resSim = {
@@ -527,6 +530,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   // Clone unit list so we can track "virtual" positions for multi-step planning
   // (Simple approach: plan each unit independently with live state)
+  let plannedRoadBuilds = 0;
+
   const unitIds = gs.units
     .filter(u => u.owner === player && !u.embarked)
     .sort((a, b) => {
@@ -669,6 +674,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           const cost = BUILDING_TYPES[buildingType]?.buildCost || {};
           if (!canAfford(cost)) return false;
           actions.push({ type: 'build', unitId: unit.id, buildingType });
+          if (buildingType === 'ROAD') plannedRoadBuilds += 1;
           spend(cost);
           return true;
         };
@@ -987,6 +993,21 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         resSim.food -= foodCost;
         resSim.components -= (cost.components || 0);
         break;
+      }
+    }
+  }
+
+  // Road quota: when behind network targets, ensure at least one road build is planned this turn when possible.
+  if (roadDeficitGlobal > 0 && plannedRoadBuilds === 0) {
+    const roadEng = gs.units
+      .filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked && !u.constructing)
+      .find(u => !roadAt(gs, u.q, u.r));
+    if (roadEng) {
+      const rcost = BUILDING_TYPES['ROAD']?.buildCost || {};
+      if (canAfford(rcost)) {
+        actions.push({ type: 'build', unitId: roadEng.id, buildingType: 'ROAD' });
+        spend(rcost);
+        plannedRoadBuilds += 1;
       }
     }
   }
