@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.61';
+export const GAME_VERSION = 'v1.4.62';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -300,6 +300,8 @@ export class GameScene extends Phaser.Scene {
     this._builder = {
       mode: 'terrain',
       terrainType: 2, // default to mountain so first paint is visibly obvious
+      resourceTypes: ['IRON','OIL'],
+      resourceIdx: 0,
       resourceType: 'IRON',
       owner: 1,
       buildingTypes: ['HQ','BARRACKS','NAVAL_YARD','AIRFIELD','MINE','OIL_PUMP','ROAD'],
@@ -333,7 +335,7 @@ export class GameScene extends Phaser.Scene {
     this._builder.hud.setText(
       `MAP BUILDER (PHASE C)\n` +
       `Mode:${mode.toUpperCase()} Owner:P${this._builder.owner} Terrain:${tName} Resource:${rName} Building:${bType} Unit:${uType}\n` +
-      `Keys: T/R/B/U · X erase · Q/E owner · [ ] cycle B/U · 1-8 terrain · Z undo · Y redo · V validate · I/O · P playtest`
+      `Keys: T/R/B/U · X erase · Q/E owner · [ ] cycle B/U/R · 1-8 terrain · Z undo · Y redo · V validate · I/O · P playtest`
     );
   }
 
@@ -3649,12 +3651,20 @@ export class GameScene extends Phaser.Scene {
         if (ev.code === 'BracketLeft') {
           if (this._builder.mode === 'building') this._builder.buildingIdx = (this._builder.buildingIdx - 1 + this._builder.buildingTypes.length) % this._builder.buildingTypes.length;
           if (this._builder.mode === 'unit') this._builder.unitIdx = (this._builder.unitIdx - 1 + this._builder.unitTypes.length) % this._builder.unitTypes.length;
+          if (this._builder.mode === 'resource') {
+            this._builder.resourceIdx = (this._builder.resourceIdx - 1 + this._builder.resourceTypes.length) % this._builder.resourceTypes.length;
+            this._builder.resourceType = this._builder.resourceTypes[this._builder.resourceIdx];
+          }
           this._updateBuilderHud();
           return;
         }
         if (ev.code === 'BracketRight') {
           if (this._builder.mode === 'building') this._builder.buildingIdx = (this._builder.buildingIdx + 1) % this._builder.buildingTypes.length;
           if (this._builder.mode === 'unit') this._builder.unitIdx = (this._builder.unitIdx + 1) % this._builder.unitTypes.length;
+          if (this._builder.mode === 'resource') {
+            this._builder.resourceIdx = (this._builder.resourceIdx + 1) % this._builder.resourceTypes.length;
+            this._builder.resourceType = this._builder.resourceTypes[this._builder.resourceIdx];
+          }
           this._updateBuilderHud();
         }
       });
