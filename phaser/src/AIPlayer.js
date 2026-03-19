@@ -175,6 +175,17 @@ function getOpeningMilestones(gs, player) {
   };
 }
 
+function getPhaseWeights(turn = 1) {
+  // Multi-objective AI doctrine: supply/econ + recon early, balanced mid, decisive combat late.
+  if (turn <= 8) {
+    return { economy: 1.35, logistics: 1.45, recon: 1.25, research: 1.1, combat: 0.8, raiding: 0.75 };
+  }
+  if (turn <= 16) {
+    return { economy: 1.15, logistics: 1.25, recon: 1.1, research: 1.2, combat: 1.0, raiding: 1.0 };
+  }
+  return { economy: 0.95, logistics: 1.05, recon: 0.9, research: 1.05, combat: 1.3, raiding: 1.25 };
+}
+
 export function getAIKPIReport(gs, player) {
   const opening = getOpeningMilestones(gs, player);
   const units = gs.units.filter(u => u.owner === player && !u.embarked);
@@ -212,6 +223,7 @@ export function getAIKPIReport(gs, player) {
 function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx = {}) {
   const cfg = AI_STRATEGIES[strat] ?? AI_STRATEGIES.balanced;
   const role = getUnitRole(unit.type);
+  const phase = ctx.phaseWeights || getPhaseWeights(gs.turn || 1);
   let score = 0;
 
   const nearestEnemy = enemies.length > 0 ? Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r))) : 99;
@@ -220,7 +232,7 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   if (unit.type !== 'ENGINEER' && role !== 'support') {
     const attackable = getAttackableHexes(gs, unit, q, r, null);
     if (attackable.length > 0) {
-      score += (cfg.attackBonus + 10) + attackable.length * 3;
+      score += ((cfg.attackBonus + 10) + attackable.length * 3) * phase.combat;
       for (const h of attackable) {
         const t = gs.units.find(u => u.q === h.q && u.r === h.r && u.owner !== unit.owner);
         if (t && t.health <= 1) score += 25; // kill-shot bonus
@@ -234,8 +246,8 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
       if (cfg.retreatToHQ) {
         if (nearestEnemy > currentDist) score += cfg.captureBonus;
       } else {
-        if (nearestEnemy < currentDist) score += cfg.attackBonus + 5;
-        score += Math.max(0, 8 - nearestEnemy);
+        if (nearestEnemy < currentDist) score += (cfg.attackBonus + 5) * phase.combat;
+        score += Math.max(0, 8 - nearestEnemy) * phase.combat;
       }
     }
   }
@@ -259,8 +271,8 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   if (obj && role !== 'engineer' && role !== 'support') {
     const dNew = hexDistance(q, r, obj.q, obj.r);
     const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
-    if (dNew < dCur) score += 9;
-    if (dNew <= 2) score += 4;
+    if (dNew < dCur) score += 9 * phase.combat;
+    if (dNew <= 2) score += 4 * phase.combat;
   }
 
   // Defensive: reward moving toward own HQ
@@ -299,8 +311,8 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
       else if (resHex?.type === 'OIL') buildValue = 22;
       else if ((ttype === 1 || ttype === 7) && wood < 6) buildValue = 11; // lumber potential when wood-tight
       else if ((ttype === 0 || ttype === 6 || ttype === 7) && food < 8) buildValue = 8; // farm potential
-      score += buildValue;
-      if (!hasRoad && gs.turn >= 3) score += 5; // infra bias
+      score += buildValue * phase.economy;
+      if (!hasRoad && gs.turn >= 3) score += 5 * phase.logistics; // infra bias
       if (q === unit.q && r === unit.r && buildValue > 0) score += 14; // prefer building now vs wandering
     }
 
@@ -346,7 +358,7 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   if (ctx.resourceTargets?.length) {
     const rd = Math.min(...ctx.resourceTargets.map(t => hexDistance(q, r, t.q, t.r)));
     const curRd = Math.min(...ctx.resourceTargets.map(t => hexDistance(unit.q, unit.r, t.q, t.r)));
-    if (rd < curRd) score += (role === 'recon' ? 8 : role === 'assault' ? 6 : 3);
+    if (rd < curRd) score += (role === 'recon' ? 8 * phase.recon : role === 'assault' ? 6 * phase.combat : 3 * phase.economy);
   }
 
   // Easier paths: value roads for maneuver units.
@@ -356,8 +368,8 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   const inSupply = mySupply?.has?.(`${q},${r}`);
   if (!inSupply) {
     const emergencyPush = nearestEnemy <= 2;
-    score -= emergencyPush ? 8 : 26;
-    if ((unit.outOfSupply || 0) >= 2) score -= 10;
+    score -= emergencyPush ? (8 * phase.logistics) : (26 * phase.logistics);
+    if ((unit.outOfSupply || 0) >= 2) score -= 10 * phase.logistics;
   } else if ((unit.outOfSupply || 0) > 0) {
     // Recovery bias: nudge unsupplied units back onto the network.
     score += 8;
@@ -385,6 +397,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const getEnemies = () => gs.units.filter(u => u.owner !== player && !u.embarked);
   const getMyHQs   = () => gs.buildings.filter(b => b.owner === player && b.type === 'HQ');
   const mySupply   = computeSupply(gs, player, terrain, mapSize);
+  const phaseWeights = getPhaseWeights(gs.turn || 1);
   const deceptionTurn = Math.random() < 0.18;
   const resourceTargets = Object.entries(gs.resourceHexes || {})
     .map(([k, v]) => ({ k, q: Number(k.split(',')[0]), r: Number(k.split(',')[1]), type: v?.type }))
@@ -427,7 +440,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     }
   }
 
-  const aiCtx = { deceptionTurn, resourceTargets, unitObjective };
+  const aiCtx = { deceptionTurn, resourceTargets, unitObjective, phaseWeights };
   const opening = getOpeningMilestones(gs, player);
 
   // Simulated AI economy spend during planning so we don't overcommit.
@@ -645,36 +658,36 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             const needs = [];
             const d = opening.deficits;
             // Farms: need food for upkeep, cap at 4
-            if (onPlains && myFarms < 4 && food < 10) needs.push({ type: 'FARM', score: (myFarms < 1 ? 20 : 12) - myFarms * 3 - food * 0.5 + d.farms * 6 });
+            if (onPlains && myFarms < 4 && food < 10) needs.push({ type: 'FARM', score: ((myFarms < 1 ? 20 : 12) - myFarms * 3 - food * 0.5 + d.farms * 6) * phaseWeights.economy });
             // Lumber: only when wood-starved, hard cap by broader economy size
             if (onForest && !resHex && myLumber < maxLumber && wood < 6) {
-              needs.push({ type: 'LUMBER_CAMP', score: (myLumber < 1 ? 11 : 6) - myLumber * 4 - wood * 0.8 + d.lumber * 4 });
+              needs.push({ type: 'LUMBER_CAMP', score: ((myLumber < 1 ? 11 : 6) - myLumber * 4 - wood * 0.8 + d.lumber * 4) * phaseWeights.economy });
             }
             // Road: infrastructure, priority rises when units are out of supply.
             const unsupplied = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0).length;
-            if (!hasRoad && gs.turn >= 3 && myRoads < 20) needs.push({ type: 'ROAD', score: 8 - myRoads * 0.2 + unsupplied * 6.0 + d.roads * 5 });
+            if (!hasRoad && gs.turn >= 3 && myRoads < 20) needs.push({ type: 'ROAD', score: (8 - myRoads * 0.2 + unsupplied * 6.0 + d.roads * 5) * phaseWeights.logistics });
             // Science Lab: research, cap at 2
-            if (myLabs < 2 && gs.turn >= 2) needs.push({ type: 'SCIENCE_LAB', score: 8 - myLabs * 4 + d.labs * 6 });
+            if (myLabs < 2 && gs.turn >= 2) needs.push({ type: 'SCIENCE_LAB', score: (8 - myLabs * 4 + d.labs * 6) * phaseWeights.research });
             // Factory: components, cap at 2
-            if (myFactories < 2 && gs.turn >= 5) needs.push({ type: 'FACTORY', score: 6 - myFactories * 3 + d.factories * 7 });
+            if (myFactories < 2 && gs.turn >= 5) needs.push({ type: 'FACTORY', score: (6 - myFactories * 3 + d.factories * 7) * phaseWeights.economy });
 
             // Military production baseline: don't stall on only T0 infantry/recon.
             const myBarracks = gs.buildings.filter(bb => bb.owner === player && bb.type === 'BARRACKS' && !bb.underConstruction).length;
             const myAirfield = gs.buildings.filter(bb => bb.owner === player && bb.type === 'AIRFIELD' && !bb.underConstruction).length;
             const myHarbor = gs.buildings.filter(bb => bb.owner === player && ['HARBOR','NAVAL_YARD','SHIPYARD','DRY_DOCK','NAVAL_BASE'].includes(bb.type) && !bb.underConstruction).length;
-            if (gs.turn >= 4 && myBarracks < 2) needs.push({ type: 'BARRACKS', score: 7.5 - myBarracks * 2.5 + d.barracks * 6 });
-            if (gs.turn >= 8 && myAirfield < 1) needs.push({ type: 'AIRFIELD', score: 6.4 });
-            if (gs.turn >= 10 && myHarbor < 1) needs.push({ type: 'HARBOR', score: 5.8 });
+            if (gs.turn >= 4 && myBarracks < 2) needs.push({ type: 'BARRACKS', score: (7.5 - myBarracks * 2.5 + d.barracks * 6) * phaseWeights.combat });
+            if (gs.turn >= 8 && myAirfield < 1) needs.push({ type: 'AIRFIELD', score: 6.4 * phaseWeights.combat });
+            if (gs.turn >= 10 && myHarbor < 1) needs.push({ type: 'HARBOR', score: 5.8 * phaseWeights.logistics });
 
             // Tier-2 production chain: once components economy exists, unlock higher-tier unit buildings.
             const comp = resSim.components || 0;
             const canPushTier2 = gs.turn >= 9 && (myFactories >= 1 || comp >= 3);
             if (canPushTier2) {
-              if (myAdvBarracks < 1) needs.push({ type: 'ADV_BARRACKS', score: 8 });
-              if (myArmorWorks < 1)  needs.push({ type: 'ARMOR_WORKS', score: 8.5 });
-              if (myAdvAirfield < 1) needs.push({ type: 'ADV_AIRFIELD', score: 7.5 });
+              if (myAdvBarracks < 1) needs.push({ type: 'ADV_BARRACKS', score: 8 * phaseWeights.combat });
+              if (myArmorWorks < 1)  needs.push({ type: 'ARMOR_WORKS', score: 8.5 * phaseWeights.combat });
+              if (myAdvAirfield < 1) needs.push({ type: 'ADV_AIRFIELD', score: 7.5 * phaseWeights.combat });
               if (myNavalDockyard < 1 && (gs.buildings.some(bb => bb.owner === player && ['HARBOR','NAVAL_YARD','DRY_DOCK','NAVAL_BASE'].includes(bb.type)))) {
-                needs.push({ type: 'NAVAL_DOCKYARD', score: 7.2 });
+                needs.push({ type: 'NAVAL_DOCKYARD', score: 7.2 * phaseWeights.logistics });
               }
             }
 
@@ -709,7 +722,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   // --- Phase 1b: Register simple custom designs (occasionally) ---
   const existingDesigns = gs.designs?.[player] || [];
   const myLabsCount = gs.buildings.filter(b => b.owner === player && b.type === 'SCIENCE_LAB' && !b.underConstruction).length;
-  const designChance = Math.min(0.72, 0.22 + myLabsCount * 0.10 + Math.max(0, gs.turn - 6) * 0.01);
+  const designChance = Math.min(0.72, (0.22 + myLabsCount * 0.10 + Math.max(0, gs.turn - 6) * 0.01) * phaseWeights.research);
   if (existingDesigns.length < MAX_DESIGNS_PER_PLAYER && gs.turn >= 3 && Math.random() < designChance) {
     // Pick a simple design: chassis + one affordable module
     const AI_DESIGN_RECIPES = [
@@ -786,9 +799,18 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const isNaval = ['HARBOR','SHIPYARD','DRYDOCK'].includes(b.type);
     const isAir   = b.type === 'AIRFIELD';
     const prio    = isNaval ? cfg.navalPrio : isAir ? cfg.airPrio : cfg.recruitPrio;
+    const recruitRoleScore = (unitType) => {
+      const role = getUnitRole(unitType);
+      if (unitType === 'SUPPLY_TRUCK' || unitType === 'SUPPLY_SHIP' || unitType === 'ENGINEER') return 18 * phaseWeights.logistics;
+      if (role === 'recon') return 10 * phaseWeights.recon;
+      if (role === 'indirect' || role === 'assault' || role === 'line') return 9 * phaseWeights.combat;
+      return 0;
+    };
     const sorted  = [...bType.canRecruit].sort((a, b2) => {
       const ai = prio.indexOf(a), bi = prio.indexOf(b2);
-      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+      const baseDelta = (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+      const phaseDelta = recruitRoleScore(b2) - recruitRoleScore(a);
+      return baseDelta + phaseDelta * 0.1;
     });
 
     // Logistics override: when supply is strained, prioritize supply units.
