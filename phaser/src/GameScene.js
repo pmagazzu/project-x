@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.77';
+export const GAME_VERSION = 'v1.4.78';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -487,6 +487,8 @@ export class GameScene extends Phaser.Scene {
       const eng = units.filter(u => u.type === 'ENGINEER').length;
       const uns = units.filter(u => (u.outOfSupply || 0) > 0).length;
       const roads = gs.buildings.filter(b => Number(b.owner) === p && b.type === 'ROAD').length;
+      const roadsVisible = gs.buildings.filter(b => Number(b.owner) === p && b.type === 'ROAD')
+        .filter(r => !gs.buildings.some(b => Number(b.owner) === p && !ROAD_TYPES.has(b.type) && b.q === r.q && b.r === r.r)).length;
       const mines = gs.buildings.filter(b => Number(b.owner) === p && b.type === 'MINE').length;
       const oils = gs.buildings.filter(b => Number(b.owner) === p && b.type === 'OIL_PUMP').length;
       const farms = gs.buildings.filter(b => Number(b.owner) === p && b.type === 'FARM').length;
@@ -495,7 +497,7 @@ export class GameScene extends Phaser.Scene {
       const netFood = ((inc.food || 0) - (upk.food || 0)).toFixed(1);
       return `P${p}  Rsrc ⚙${Math.floor(pl.iron||0)} 🛢${Math.floor(pl.oil||0)} 🪵${Math.floor(pl.wood||0)} 🍞${Math.floor(pl.food||0)}\n` +
              `    Net  ⚙${netIron} 🛢${netOil} 🍞${netFood} | Units ${units.length} (combat ${combat}, eng ${eng}, uns ${uns})\n` +
-             `    Infra roads ${roads} mine ${mines} oil ${oils} farm ${farms}`;
+             `    Infra roads ${roads} (corridor ${roadsVisible}) mine ${mines} oil ${oils} farm ${farms}`;
     };
 
     const paused = this._aiAutoplayPaused ? 'PAUSED' : 'RUNNING';
@@ -6413,6 +6415,9 @@ export class GameScene extends Phaser.Scene {
           this.input.on('pointerup', dismiss);
           this.input.keyboard?.once('keydown-SPACE', dismiss);
         });
+        if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+          this.time.delayedCall(2000, () => { if (!done) dismiss(); });
+        }
       } else {
         this._pushLog('AI attack resolved with no combat log entry');
         this.time.delayedCall(200, next);
