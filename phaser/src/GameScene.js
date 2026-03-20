@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.74';
+export const GAME_VERSION = 'v1.4.75';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -465,8 +465,8 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     const w = this.scale.width;
-    const bg = this.add.rectangle(w - 170, 112, 320, 66, 0x0b1118, 0.92).setScrollFactor(0).setDepth(210).setStrokeStyle(1, 0x335577);
-    const txt = this.add.text(w - 320, 84, '', { font: '12px monospace', fill: '#cfe0ff' }).setScrollFactor(0).setDepth(211);
+    const bg = this.add.rectangle(w - 230, 164, 460, 170, 0x0b1118, 0.94).setScrollFactor(0).setDepth(210).setStrokeStyle(1, 0x335577);
+    const txt = this.add.text(w - 450, 86, '', { font: '11px monospace', fill: '#cfe0ff' }).setScrollFactor(0).setDepth(211);
     this._specStatsObjs = [bg, txt];
     this._specStatsText = txt;
     this._updateSpectatorStats();
@@ -475,11 +475,33 @@ export class GameScene extends Phaser.Scene {
   _updateSpectatorStats() {
     if (!this._specStatsText) return;
     const gs = this.gameState;
-    const p1 = gs.players?.[1] || {};
-    const p2 = gs.players?.[2] || {};
+    const pLine = (p) => {
+      const pl = gs.players?.[p] || {};
+      const inc = calcIncome(gs, p);
+      const upk = calcUpkeep(gs, p);
+      const units = gs.units.filter(u => Number(u.owner) === p && !u.embarked);
+      const combat = units.filter(u => {
+        const d = UNIT_TYPES[u.type] || {};
+        return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
+      }).length;
+      const eng = units.filter(u => u.type === 'ENGINEER').length;
+      const uns = units.filter(u => (u.outOfSupply || 0) > 0).length;
+      const roads = gs.buildings.filter(b => Number(b.owner) === p && b.type === 'ROAD').length;
+      const mines = gs.buildings.filter(b => Number(b.owner) === p && b.type === 'MINE').length;
+      const oils = gs.buildings.filter(b => Number(b.owner) === p && b.type === 'OIL_PUMP').length;
+      const farms = gs.buildings.filter(b => Number(b.owner) === p && b.type === 'FARM').length;
+      const netIron = (inc.iron - upk.iron).toFixed(1);
+      const netOil = (inc.oil - upk.oil).toFixed(1);
+      const netFood = ((inc.food || 0) - (upk.food || 0)).toFixed(1);
+      return `P${p}  Rsrc ⚙${Math.floor(pl.iron||0)} 🛢${Math.floor(pl.oil||0)} 🪵${Math.floor(pl.wood||0)} 🍞${Math.floor(pl.food||0)}\n` +
+             `    Net  ⚙${netIron} 🛢${netOil} 🍞${netFood} | Units ${units.length} (combat ${combat}, eng ${eng}, uns ${uns})\n` +
+             `    Infra roads ${roads} mine ${mines} oil ${oils} farm ${farms}`;
+    };
+
+    const paused = this._aiAutoplayPaused ? 'PAUSED' : 'RUNNING';
     this._specStatsText.setText(
-      `P1 ⚙${Math.floor(p1.iron||0)} 🛢${Math.floor(p1.oil||0)} 🪵${Math.floor(p1.wood||0)} 🍞${Math.floor(p1.food||0)}\n` +
-      `P2 ⚙${Math.floor(p2.iron||0)} 🛢${Math.floor(p2.oil||0)} 🪵${Math.floor(p2.wood||0)} 🍞${Math.floor(p2.food||0)}`
+      `AI VS AI DEBUG  |  Turn ${gs.turn}  |  Current P${gs.currentPlayer}  |  ${paused}\n` +
+      `${pLine(1)}\n\n${pLine(2)}`
     );
   }
 
@@ -512,8 +534,8 @@ export class GameScene extends Phaser.Scene {
     this.unitStatusTxt?.setPosition(10, h - panH + 68);
 
     if (this._specStatsObjs?.length) {
-      this._specStatsObjs[0]?.setPosition(w - 170, 112);
-      this._specStatsText?.setPosition(w - 320, 84);
+      this._specStatsObjs[0]?.setPosition(w - 230, 164);
+      this._specStatsText?.setPosition(w - 450, 86);
     }
 
     // Rebuild open research panel to fit new width/height.
