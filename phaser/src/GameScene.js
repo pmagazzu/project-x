@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.78';
+export const GAME_VERSION = 'v1.4.79';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -489,6 +489,7 @@ export class GameScene extends Phaser.Scene {
       const roads = gs.buildings.filter(b => Number(b.owner) === p && b.type === 'ROAD').length;
       const roadsVisible = gs.buildings.filter(b => Number(b.owner) === p && b.type === 'ROAD')
         .filter(r => !gs.buildings.some(b => Number(b.owner) === p && !ROAD_TYPES.has(b.type) && b.q === r.q && b.r === r.r)).length;
+      const telem = this._aiTelemetry?.[p] || { roadsPlanned: 0, roadsAttempted: 0, roadsSucceeded: 0, blocked: {} };
       const mines = gs.buildings.filter(b => Number(b.owner) === p && b.type === 'MINE').length;
       const oils = gs.buildings.filter(b => Number(b.owner) === p && b.type === 'OIL_PUMP').length;
       const farms = gs.buildings.filter(b => Number(b.owner) === p && b.type === 'FARM').length;
@@ -497,7 +498,8 @@ export class GameScene extends Phaser.Scene {
       const netFood = ((inc.food || 0) - (upk.food || 0)).toFixed(1);
       return `P${p}  Rsrc ⚙${Math.floor(pl.iron||0)} 🛢${Math.floor(pl.oil||0)} 🪵${Math.floor(pl.wood||0)} 🍞${Math.floor(pl.food||0)}\n` +
              `    Net  ⚙${netIron} 🛢${netOil} 🍞${netFood} | Units ${units.length} (combat ${combat}, eng ${eng}, uns ${uns})\n` +
-             `    Infra roads ${roads} (corridor ${roadsVisible}) mine ${mines} oil ${oils} farm ${farms}`;
+             `    Infra roads ${roads} (corridor ${roadsVisible}) mine ${mines} oil ${oils} farm ${farms}\n` +
+             `    RoadDbg plan ${telem.roadsPlanned||0} try ${telem.roadsAttempted||0} ok ${telem.roadsSucceeded||0} blkOcc ${telem.blocked?.occupied||0} blkWood ${telem.blocked?.noWood||0}`;
     };
 
     const paused = this._aiAutoplayPaused ? 'PAUSED' : 'RUNNING';
@@ -6339,6 +6341,14 @@ export class GameScene extends Phaser.Scene {
     const aiCounts = actions.reduce((acc, a) => { acc[a.type] = (acc[a.type] || 0) + 1; return acc; }, {});
     const roadsBuiltThisTurn = actions.filter(a => a.type === 'build' && a.buildingType === 'ROAD').length;
     const engineersQueued = actions.filter(a => a.type === 'recruit' && a.unitType === 'ENGINEER').length;
+    this._aiTelemetry = this._aiTelemetry || {};
+    this._aiTelemetry[gs.currentPlayer] = {
+      turn: gs.turn,
+      roadsPlanned: roadsBuiltThisTurn,
+      roadsAttempted: 0,
+      roadsSucceeded: 0,
+      blocked: { occupied: 0, noWood: 0, alreadyRoad: 0, invalidBuilder: 0 },
+    };
     this._pushLog(`AI P${gs.currentPlayer}: ${actions.length} actions (move:${aiCounts.move||0} atk:${aiCounts.attack||0} build:${aiCounts.build||0} recruit:${aiCounts.recruit||0} design:${aiCounts.design||0})`);
     this._pushLog(`AI P${gs.currentPlayer}: roadsPlanned=${roadsBuiltThisTurn} engQueued=${engineersQueued}`);
     this._pushLog(`AI P${gs.currentPlayer}: ${preKPI.summary}`);
@@ -6440,9 +6450,15 @@ export class GameScene extends Phaser.Scene {
     } else if (action.type === 'build') {
       const unit = gs.units.find(u => u.id === action.unitId);
       const p = gs.currentPlayer;
-      if (!unit || unit.owner !== p || !UNIT_TYPES[unit.type]?.canBuild) { next(); return; }
-
       const bType = action.buildingType;
+      const telem = this._aiTelemetry?.[p];
+      const roadAttempt = bType === 'ROAD';
+      if (roadAttempt && telem) telem.roadsAttempted += 1;
+      if (!unit || unit.owner !== p || !UNIT_TYPES[unit.type]?.canBuild) {
+        if (roadAttempt && telem) telem.blocked.invalidBuilder += 1;
+        next(); return;
+      }
+
       const cost = BUILDING_TYPES[bType]?.buildCost || {};
       const pl = gs.players[p];
 
@@ -6450,13 +6466,15 @@ export class GameScene extends Phaser.Scene {
       const onRoad = !!roadAt(gs, unit.q, unit.r);
       const hasNonRoadBuilding = !!(buildingAt(gs, unit.q, unit.r) && !onRoad);
       if (bType === 'ROAD') {
-        if (onRoad) { next(); return; }
+        if (onRoad) { if (telem) telem.blocked.alreadyRoad += 1; next(); return; }
+        if (hasNonRoadBuilding) { if (telem) telem.blocked.occupied += 1; next(); return; }
       } else if (hasNonRoadBuilding) {
         next(); return;
       }
 
       if ((pl.iron || 0) < (cost.iron || 0) || (pl.oil || 0) < (cost.oil || 0) ||
           (pl.wood || 0) < (cost.wood || 0) || (pl.components || 0) < (cost.components || 0)) {
+        if (roadAttempt && telem) telem.blocked.noWood += 1;
         next(); return;
       }
 
@@ -6467,6 +6485,7 @@ export class GameScene extends Phaser.Scene {
 
       if (bType === 'ROAD') {
         gs.buildings.push(createBuilding('ROAD', p, unit.q, unit.r));
+        if (telem) telem.roadsSucceeded += 1;
         this._redrawRoads();
       } else {
         const def = BUILDING_TYPES[bType] || {};
