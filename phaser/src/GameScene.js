@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.79';
+export const GAME_VERSION = 'v1.4.80';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -6325,16 +6325,20 @@ export class GameScene extends Phaser.Scene {
     const stratLabel = AI_STRATEGIES[this.aiStrategy]?.label || 'Balanced';
 
     // Status bar (replaces pass screen for AI turn)
-    const overlay = this.add.rectangle(w/2, 34, w, 68, 0x1a1200, 0.92)
-      .setScrollFactor(0).setDepth(200);
-    const lbl = this.add.text(w/2, 20, `⚙  AI Player ${gs.currentPlayer} — ${stratLabel} — acting…`, {
-      font: 'bold 14px monospace', fill: '#ffcc44',
-    }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(201);
     const preKPI = getAIKPIReport(gs, gs.currentPlayer);
-    const kpiLbl = this.add.text(w/2, 44, preKPI.summary, {
-      font: '12px monospace', fill: preKPI.health === 'POOR' ? '#ff6666' : (preKPI.health === 'WARN' ? '#ffcc66' : '#99ff99'),
-    }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(201);
-    this._addToUI([overlay, lbl, kpiLbl]);
+    let overlay = null, lbl = null, kpiLbl = null;
+    const spectatorMode = this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2);
+    if (!spectatorMode) {
+      overlay = this.add.rectangle(w/2, 34, w, 68, 0x1a1200, 0.92)
+        .setScrollFactor(0).setDepth(200);
+      lbl = this.add.text(w/2, 20, `⚙  AI Player ${gs.currentPlayer} — ${stratLabel} — acting…`, {
+        font: 'bold 14px monospace', fill: '#ffcc44',
+      }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(201);
+      kpiLbl = this.add.text(w/2, 44, preKPI.summary, {
+        font: '12px monospace', fill: preKPI.health === 'POOR' ? '#ff6666' : (preKPI.health === 'WARN' ? '#ffcc66' : '#99ff99'),
+      }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(201);
+      this._addToUI([overlay, lbl, kpiLbl]);
+    }
 
     // Plan all actions (does NOT execute — pure data)
     const actions = planAITurn(gs, this.terrain, this.mapSize, this.aiStrategy);
