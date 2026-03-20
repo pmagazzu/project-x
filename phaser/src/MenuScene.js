@@ -147,6 +147,7 @@ export class MenuScene extends Phaser.Scene {
             aiViewerMode: true,
             autoStopTurn: 20,
             aiLabExport: true,
+            startSupplyTruck: true,
           });
           return;
         }

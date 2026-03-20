@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.84';
+export const GAME_VERSION = 'v1.4.85';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -147,6 +147,7 @@ export class GameScene extends Phaser.Scene {
     this._aiAutoplayPaused = false;
     this._autoStopTurn = Number(data.autoStopTurn) || 0;
     this._aiLabExport = !!data.aiLabExport;
+    this._startSupplyTruck = !!data.startSupplyTruck;
     this._aiLabTurns = [];
     if (this._mapBuilderMode) this.debugNoFog = true;
     this._customMapData = data.customMap || null;
@@ -6391,7 +6392,16 @@ export class GameScene extends Phaser.Scene {
           farms: gs.buildings.filter(b => Number(b.owner) === p && b.type === 'FARM').length,
         };
       };
-      this._aiLabTurns.push({ turn: gs.turn, currentPlayer: gs.currentPlayer, p1: snapPlayer(1), p2: snapPlayer(2) });
+      this._aiLabTurns.push({
+        turn: gs.turn,
+        currentPlayer: gs.currentPlayer,
+        p1: snapPlayer(1),
+        p2: snapPlayer(2),
+        telemetry: {
+          p1: this._aiTelemetry?.[1] || null,
+          p2: this._aiTelemetry?.[2] || null,
+        }
+      });
     }
 
     const winner = checkWinner(gs);
@@ -7895,6 +7905,12 @@ export class GameScene extends Phaser.Scene {
       if (eng1) gs.units.push(createUnit('ENGINEER', player, eng1.q, eng1.r));
       const eng2 = findFreeNear(hq.q, hq.r, 3);
       if (eng2) gs.units.push(createUnit('ENGINEER', player, eng2.q, eng2.r));
+
+      // Optional AI-lab helper: start with one supply truck near HQ for early logistics stability.
+      if (this._startSupplyTruck) {
+        const t = findFreeNear(hq.q, hq.r, 4);
+        if (t) gs.units.push(createUnit('SUPPLY_TRUCK', player, t.q, t.r));
+      }
     };
 
     placeSpawns(1, p1, p2);
