@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.89';
+export const GAME_VERSION = 'v1.4.90';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -6523,7 +6523,19 @@ export class GameScene extends Phaser.Scene {
     if (index >= actions.length) { onDone(); return; }
 
     const action = actions[index];
-    const next   = () => this._executeAIActions(actions, index + 1, onDone);
+    let advanced = false;
+    const next = () => {
+      if (advanced) return;
+      advanced = true;
+      try { clearTimeout(stepWatchdog); } catch(e){}
+      this._executeAIActions(actions, index + 1, onDone);
+    };
+    const stepWatchdog = setTimeout(() => {
+      if (!advanced) {
+        this._pushLog(`AI action watchdog: forcing next (${action.type})`);
+        next();
+      }
+    }, 4500);
     const gs     = this.gameState;
 
     if (action.type === 'move') {
