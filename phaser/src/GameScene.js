@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.80';
+export const GAME_VERSION = 'v1.4.81';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -145,6 +145,9 @@ export class GameScene extends Phaser.Scene {
     this._mapBuilderMode = !!data.mapBuilder;
     this._aiViewerMode = !!data.aiViewerMode;
     this._aiAutoplayPaused = false;
+    this._autoStopTurn = Number(data.autoStopTurn) || 0;
+    this._aiLabExport = !!data.aiLabExport;
+    this._aiLabTurns = [];
     if (this._mapBuilderMode) this.debugNoFog = true;
     this._customMapData = data.customMap || null;
     // Map sizes per scenario
@@ -6281,12 +6284,81 @@ export class GameScene extends Phaser.Scene {
     if (this._etcEscCb) { this.input.keyboard.off('keydown-ESC', this._etcEscCb); this._etcEscCb = null; }
   }
 
+  _forceAIRoadIfNeeded(player) {
+    const gs = this.gameState;
+    const roadsNow = gs.buildings.filter(b => Number(b.owner) === Number(player) && b.type === 'ROAD').length;
+    const turn = gs.turn || 1;
+    const roadFloor = turn <= 5 ? 2 : turn <= 10 ? 5 : turn <= 15 ? 8 : 12;
+    if (roadsNow >= roadFloor) return false;
+
+    const pl = gs.players[player] || {};
+    const roadCost = BUILDING_TYPES['ROAD']?.buildCost || { wood: 1 };
+    if ((pl.wood || 0) < (roadCost.wood || 1)) return false;
+
+    const engineers = gs.units.filter(u => Number(u.owner) === Number(player) && u.type === 'ENGINEER' && !u.embarked && !u.constructing);
+    for (const e of engineers) {
+      const onRoad = !!roadAt(gs, e.q, e.r);
+      const b = buildingAt(gs, e.q, e.r);
+      const hasNonRoadBuilding = !!(b && !ROAD_TYPES.has(b.type));
+      if (!onRoad && !hasNonRoadBuilding) {
+        gs.players[player].wood -= (roadCost.wood || 1);
+        gs.buildings.push(createBuilding('ROAD', player, e.q, e.r));
+        return true;
+      }
+    }
+    return false;
+  }
+
+  _showAILabExport() {
+    const gs = this.gameState;
+    const payload = {
+      version: GAME_VERSION,
+      turn: gs.turn,
+      mapSize: this.mapSize,
+      scenario: this.scenario,
+      aiStrategy: this.aiStrategy,
+      turns: this._aiLabTurns,
+      final: {
+        players: gs.players,
+        units: gs.units,
+        buildings: gs.buildings,
+        resourceHexes: gs.resourceHexes,
+      },
+      log: this._log || [],
+    };
+    const txt = JSON.stringify(payload, null, 2);
+
+    const w = this.scale.width, h = this.scale.height;
+    const bg = this.add.rectangle(w/2, h/2, 560, 180, 0x0d1118, 0.96).setScrollFactor(0).setDepth(220).setStrokeStyle(2, 0x446688);
+    const title = this.add.text(w/2, h/2 - 56, 'AI LAB RUN COMPLETE (TURN 20)', { font: 'bold 16px monospace', fill: '#d0e6ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(221);
+    const sub = this.add.text(w/2, h/2 - 24, 'Download JSON report for AI tuning', { font: '12px monospace', fill: '#8fb1d6' }).setOrigin(0.5).setScrollFactor(0).setDepth(221);
+    const dl = this.add.text(w/2, h/2 + 18, '[ DOWNLOAD REPORT ]', { font: 'bold 13px monospace', fill: '#ffffff', backgroundColor: '#2a4a6a', padding: {x: 12, y: 8} }).setOrigin(0.5).setScrollFactor(0).setDepth(221).setInteractive({ useHandCursor: true });
+    const close = this.add.text(w/2, h/2 + 56, '[ CLOSE ]', { font: '12px monospace', fill: '#bbbbbb', backgroundColor: '#222222', padding: {x: 10, y: 6} }).setOrigin(0.5).setScrollFactor(0).setDepth(221).setInteractive({ useHandCursor: true });
+    this._addToUI([bg, title, sub, dl, close]);
+
+    dl.on('pointerdown', () => {
+      const blob = new Blob([txt], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `attrition-ai-lab-turn${gs.turn}-${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+    const cleanup = () => [bg, title, sub, dl, close].forEach(o => { try { o.destroy(); } catch(e){} });
+    close.on('pointerdown', cleanup);
+  }
+
   _onSubmit() {
     this._hideEndTurnConfirm();
     // IGOUGO: end this player's turn (captures/income/spawns), then pass
     const gs = this.gameState;
     this._hideRecruitPanel();
     this._clearSelection();
+    // Emergency fallback: if AI is behind roads, force one visible road placement when possible.
+    if (this.aiPlayers.has(gs.currentPlayer)) this._forceAIRoadIfNeeded(gs.currentPlayer);
     gs._mapSize = this.mapSize;
     const events = resolveEndOfTurn(gs, this.terrain);
 
@@ -6297,11 +6369,38 @@ export class GameScene extends Phaser.Scene {
       this._showResearchToast(researchEvents);
     }
 
+    // Capture turn snapshot for AI lab runs
+    if (this._aiLabExport) {
+      const snapPlayer = (p) => {
+        const pl = gs.players?.[p] || {};
+        const units = gs.units.filter(u => Number(u.owner) === p && !u.embarked);
+        return {
+          resources: { iron: pl.iron||0, oil: pl.oil||0, wood: pl.wood||0, food: pl.food||0, components: pl.components||0 },
+          units: units.length,
+          unsupplied: units.filter(u => (u.outOfSupply || 0) > 0).length,
+          roads: gs.buildings.filter(b => Number(b.owner) === p && b.type === 'ROAD').length,
+          mines: gs.buildings.filter(b => Number(b.owner) === p && b.type === 'MINE').length,
+          oils: gs.buildings.filter(b => Number(b.owner) === p && b.type === 'OIL_PUMP').length,
+          farms: gs.buildings.filter(b => Number(b.owner) === p && b.type === 'FARM').length,
+        };
+      };
+      this._aiLabTurns.push({ turn: gs.turn, p1: snapPlayer(1), p2: snapPlayer(2) });
+    }
+
     const winner = checkWinner(gs);
     if (winner) {
       this._showResolution([], winner);
       return;
     }
+
+    // Auto-stop harness runs at configured turn cap.
+    if (this._autoStopTurn > 0 && gs.turn >= this._autoStopTurn) {
+      this._aiAutoplayPaused = true;
+      this._refresh();
+      if (this._aiLabExport) this._showAILabExport();
+      return;
+    }
+
     this._freezeFog();
     this._refresh();
 
