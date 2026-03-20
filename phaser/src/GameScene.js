@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.86';
+export const GAME_VERSION = 'v1.4.87';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -4352,6 +4352,14 @@ export class GameScene extends Phaser.Scene {
       objs.push(sb);
     });
 
+    const dlBtn = this.add.text(w/2, h/2 + panelH/2 - 66, '[ DOWNLOAD JSON REPORT ]', {
+      font: 'bold 12px monospace', fill: '#ffffff', backgroundColor: '#2a4a6a', padding: { x: 12, y: 6 }
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
+    dlBtn.on('pointerdown', () => this._downloadRunJson('manual'));
+    dlBtn.on('pointerover', () => dlBtn.setAlpha(0.8));
+    dlBtn.on('pointerout',  () => dlBtn.setAlpha(1.0));
+    objs.push(dlBtn);
+
     const closeBtn = this.add.text(w/2, h/2 + panelH/2 - 26, '[ CLOSE ]', {
       font: 'bold 13px monospace', fill: '#ffffff', backgroundColor: '#444444', padding: { x: 14, y: 7 }
     }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
@@ -6317,9 +6325,10 @@ export class GameScene extends Phaser.Scene {
     return false;
   }
 
-  _showAILabExport() {
+  _buildRunPayload(reason = 'manual') {
     const gs = this.gameState;
-    const payload = {
+    return {
+      reason,
       version: GAME_VERSION,
       turn: gs.turn,
       mapSize: this.mapSize,
@@ -6332,9 +6341,27 @@ export class GameScene extends Phaser.Scene {
         buildings: gs.buildings,
         resourceHexes: gs.resourceHexes,
       },
+      telemetry: this._aiTelemetry || {},
       log: this._log || [],
     };
+  }
+
+  _downloadRunJson(reason = 'manual') {
+    const payload = this._buildRunPayload(reason);
     const txt = JSON.stringify(payload, null, 2);
+    const blob = new Blob([txt], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `attrition-run-${reason}-turn${this.gameState.turn}-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  _showAILabExport() {
+    const gs = this.gameState;
 
     const w = this.scale.width, h = this.scale.height;
     const bg = this.add.rectangle(w/2, h/2, 560, 180, 0x0d1118, 0.96).setScrollFactor(0).setDepth(220).setStrokeStyle(2, 0x446688);
@@ -6344,17 +6371,7 @@ export class GameScene extends Phaser.Scene {
     const close = this.add.text(w/2, h/2 + 56, '[ CLOSE ]', { font: '12px monospace', fill: '#bbbbbb', backgroundColor: '#222222', padding: {x: 10, y: 6} }).setOrigin(0.5).setScrollFactor(0).setDepth(221).setInteractive({ useHandCursor: true });
     this._addToUI([bg, title, sub, dl, close]);
 
-    dl.on('pointerdown', () => {
-      const blob = new Blob([txt], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `attrition-ai-lab-turn${gs.turn}-${Date.now()}.json`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    });
+    dl.on('pointerdown', () => this._downloadRunJson('ai-lab-auto-stop'));
     const cleanup = () => [bg, title, sub, dl, close].forEach(o => { try { o.destroy(); } catch(e){} });
     close.on('pointerdown', cleanup);
   }
