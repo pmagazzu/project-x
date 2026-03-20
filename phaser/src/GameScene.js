@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.72';
+export const GAME_VERSION = 'v1.4.73';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -1037,11 +1037,12 @@ export class GameScene extends Phaser.Scene {
     const roadMap = new Map(); // key -> { tier, building }
     const curP = Number(gs.currentPlayer) || 1;
     const discovered = this._discovered?.[curP] || new Set();
+    const showAllRoads = !!this.debugNoFog;
     for (const b of gs.buildings) {
       if (b.type === 'ROAD' || b.type === 'CONCRETE_ROAD' || b.type === 'RAILWAY') {
         const key = `${b.q},${b.r}`;
         const isOwn = Number(b.owner) === curP;
-        if (!isOwn && !discovered.has(key)) continue;
+        if (!showAllRoads && !isOwn && !discovered.has(key)) continue;
         const tier = b.type === 'RAILWAY' ? 2 : b.type === 'CONCRETE_ROAD' ? 1 : 0;
         roadMap.set(key, { tier, b });
       }

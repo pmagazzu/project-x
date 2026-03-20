@@ -448,8 +448,9 @@ export function createGameState(scenario = 'default') {
 
   if (scenario === 'random' || scenario === 'custom') {
     // Terrain + spawns placed procedurally by GameScene after terrain gen
-    state.players[1].iron = 20; state.players[1].oil = 6; state.players[1].food = 10;
-    state.players[2].iron = 20; state.players[2].oil = 6; state.players[2].food = 10;
+    // Give starter wood so early road networking can begin before first lumber cycle.
+    state.players[1].iron = 20; state.players[1].oil = 6; state.players[1].wood = 6; state.players[1].food = 10;
+    state.players[2].iron = 20; state.players[2].oil = 6; state.players[2].wood = 6; state.players[2].food = 10;
 
   } else if (scenario === 'scout') {
     // Two engineers each, far apart — explore and build
