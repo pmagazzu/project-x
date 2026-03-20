@@ -1499,11 +1499,14 @@ export function resolveTurn(state, terrain) {
 
     unit.q = nq; unit.r = nr; unit.moved = true;
 
-    // Build road on the new hex if none exists
-    if (!roadAt(state, nq, nr)) {
+    // Build road on the new hex if none exists and terrain allows (no mountains)
+    const ttype = terrain?.[`${nq},${nr}`] ?? 0;
+    if (!roadAt(state, nq, nr) && ttype !== 2) {
       state.buildings.push({ id: _autoRoadNextId(), type: 'ROAD', q: nq, r: nr, owner });
       state.players[owner].iron -= 1;
       events.push(`Engineer (P${owner}) auto-builds road at (${nq},${nr})`);
+    } else if (ttype === 2) {
+      events.push(`Engineer (P${owner}) cannot road mountain at (${nq},${nr})`);
     } else {
       events.push(`Engineer (P${owner}) advances along existing road at (${nq},${nr})`);
     }
@@ -1943,10 +1946,13 @@ export function resolveEndOfTurn(state, terrain) {
       continue; // keep order
     }
     unit.q = nq; unit.r = nr; unit.moved = true;
-    if (!roadAt(state, nq, nr)) {
+    const ttype = terrain?.[`${nq},${nr}`] ?? 0;
+    if (!roadAt(state, nq, nr) && ttype !== 2) {
       state.buildings.push({ id: _autoRoadNextId(), type: 'ROAD', q: nq, r: nr, owner: player });
       state.players[player].iron -= 1;
       events.push(`Engineer (P${player}) auto-builds road at (${nq},${nr})`);
+    } else if (ttype === 2) {
+      events.push(`Engineer (P${player}) cannot road mountain at (${nq},${nr})`);
     } else {
       events.push(`Engineer (P${player}) advances along road at (${nq},${nr})`);
     }

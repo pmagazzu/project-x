@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.82';
+export const GAME_VERSION = 'v1.4.83';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -5756,6 +5756,7 @@ export class GameScene extends Phaser.Scene {
     const u  = this.selectedUnit;
     const p  = gs.currentPlayer;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
+    if (!this._canPlaceRoadAt(u.q, u.r)) return;
     if (roadAt(gs, u.q, u.r)) return;
     const cost = BUILDING_TYPES[roadType]?.buildCost || { iron:0, oil:0, wood:1 };
     const pl = gs.players[p];
@@ -6284,6 +6285,12 @@ export class GameScene extends Phaser.Scene {
     if (this._etcEscCb) { this.input.keyboard.off('keydown-ESC', this._etcEscCb); this._etcEscCb = null; }
   }
 
+  _canPlaceRoadAt(q, r) {
+    const tt = this.terrain?.[`${q},${r}`] ?? 0;
+    // No roads on mountains.
+    return tt !== 2;
+  }
+
   _forceAIRoadIfNeeded(player) {
     const gs = this.gameState;
     const roadsNow = gs.buildings.filter(b => Number(b.owner) === Number(player) && b.type === 'ROAD').length;
@@ -6300,7 +6307,7 @@ export class GameScene extends Phaser.Scene {
       const onRoad = !!roadAt(gs, e.q, e.r);
       const b = buildingAt(gs, e.q, e.r);
       const hasNonRoadBuilding = !!(b && !ROAD_TYPES.has(b.type));
-      if (!onRoad && !hasNonRoadBuilding) {
+      if (!onRoad && !hasNonRoadBuilding && this._canPlaceRoadAt(e.q, e.r)) {
         gs.players[player].wood -= (roadCost.wood || 1);
         gs.buildings.push(createBuilding('ROAD', player, e.q, e.r));
         return true;
@@ -6582,6 +6589,7 @@ export class GameScene extends Phaser.Scene {
       const onRoad = !!roadAt(gs, unit.q, unit.r);
       const hasNonRoadBuilding = !!(buildingAt(gs, unit.q, unit.r) && !onRoad);
       if (bType === 'ROAD') {
+        if (!this._canPlaceRoadAt(unit.q, unit.r)) { if (telem) telem.blocked.occupied += 1; next(); return; }
         if (onRoad) { if (telem) telem.blocked.alreadyRoad += 1; next(); return; }
         if (hasNonRoadBuilding) { if (telem) telem.blocked.occupied += 1; next(); return; }
       } else if (hasNonRoadBuilding) {
