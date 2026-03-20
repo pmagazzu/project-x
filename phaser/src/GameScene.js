@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.73';
+export const GAME_VERSION = 'v1.4.74';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -458,6 +458,31 @@ export class GameScene extends Phaser.Scene {
     return { ok: true };
   }
 
+  _toggleSpectatorStats() {
+    if (this._specStatsObjs) {
+      this._specStatsObjs.forEach(o => { try { o.destroy(); } catch(e){} });
+      this._specStatsObjs = null;
+      return;
+    }
+    const w = this.scale.width;
+    const bg = this.add.rectangle(w - 170, 112, 320, 66, 0x0b1118, 0.92).setScrollFactor(0).setDepth(210).setStrokeStyle(1, 0x335577);
+    const txt = this.add.text(w - 320, 84, '', { font: '12px monospace', fill: '#cfe0ff' }).setScrollFactor(0).setDepth(211);
+    this._specStatsObjs = [bg, txt];
+    this._specStatsText = txt;
+    this._updateSpectatorStats();
+  }
+
+  _updateSpectatorStats() {
+    if (!this._specStatsText) return;
+    const gs = this.gameState;
+    const p1 = gs.players?.[1] || {};
+    const p2 = gs.players?.[2] || {};
+    this._specStatsText.setText(
+      `P1 ⚙${Math.floor(p1.iron||0)} 🛢${Math.floor(p1.oil||0)} 🪵${Math.floor(p1.wood||0)} 🍞${Math.floor(p1.food||0)}\n` +
+      `P2 ⚙${Math.floor(p2.iron||0)} 🛢${Math.floor(p2.oil||0)} 🪵${Math.floor(p2.wood||0)} 🍞${Math.floor(p2.food||0)}`
+    );
+  }
+
   _onResize(gs) {
     const w = gs.width, h = gs.height;
     this.uiCamera?.setSize(w, h);
@@ -468,6 +493,8 @@ export class GameScene extends Phaser.Scene {
     this.topBarAccent?.setPosition(w/2, 74).setSize(w, 1);
     this.turnLbl?.setPosition(w/2, 8);
     this.versionTag?.setPosition(w - 110, 8);
+    this.btnPauseAI?.setPosition(w - 610, 8);
+    this.btnStatsAI?.setPosition(w - 700, 8);
     this.btnSupply?.setPosition(w - 500, 42);
     this.btnResearch?.setPosition(w - 414, 42);
     this.btnDesigner?.setPosition(w - 328, 42);
@@ -483,6 +510,11 @@ export class GameScene extends Phaser.Scene {
     this.unitNameTxt?.setPosition(10, h - panH + 6);
     this.unitStatsTxt?.setPosition(10, h - panH + 28);
     this.unitStatusTxt?.setPosition(10, h - panH + 68);
+
+    if (this._specStatsObjs?.length) {
+      this._specStatsObjs[0]?.setPosition(w - 170, 112);
+      this._specStatsText?.setPosition(w - 320, 84);
+    }
 
     // Rebuild open research panel to fit new width/height.
     if (this._researchOpen) {
@@ -1154,6 +1186,7 @@ export class GameScene extends Phaser.Scene {
     this._drawSupplyOverlay();
     this._updateTopBar();
     this._updateBottomPanel();
+    this._updateSpectatorStats();
     this.btnSubmit?.setVisible(true);
   }
 
@@ -2523,6 +2556,15 @@ export class GameScene extends Phaser.Scene {
     this.btnTrade    = this._makeBtn(w - 242, 42, '💱 TRADE', 0x3a2a11, () => this._toggleTrade(), D, 'right');
     this.btnSettings = this._makeBtn(w - 140, 42, '⚙ SET',   0x222244, () => this._toggleSettings(), D, 'right');
     this.btnSubmit   = this._makeBtn(w - 8,   42, 'END TURN',0x1a5c1a, () => this._confirmEndTurn(), D, 'right');
+    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+      this.btnPauseAI = this._makeBtn(w - 610, 8, '⏸ AI', 0x3a2a11, () => {
+        this._aiAutoplayPaused = !this._aiAutoplayPaused;
+        this._pushLog(this._aiAutoplayPaused ? 'AI autoplay paused.' : 'AI autoplay resumed.');
+        if (!this._aiAutoplayPaused && this.aiPlayers.has(this.gameState.currentPlayer)) this._runAITurn();
+        this._updateTopBar();
+      }, D, 'right');
+      this.btnStatsAI = this._makeBtn(w - 700, 8, '📈 STATS', 0x1f2f44, () => this._toggleSpectatorStats(), D, 'right');
+    }
 
     // Explicit turn counter badge (high visibility)
     this.turnBadge = this.add.text(w - 8, 8, 'TURN 1', {
@@ -2598,6 +2640,7 @@ export class GameScene extends Phaser.Scene {
 
     this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  ${modeStr}`);
     this.turnBadge?.setText(`TURN ${gs.turn}`);
+    if (this.btnPauseAI) this.btnPauseAI.setText(this._aiAutoplayPaused ? '▶ AI' : '⏸ AI');
   }
 
   // ── Bottom panel ──────────────────────────────────────────────────────────

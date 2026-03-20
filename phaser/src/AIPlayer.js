@@ -385,6 +385,14 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
       const dCur = Math.min(...unworked.map(t => hexDistance(unit.q, unit.r, t.q, t.r)));
       if (dNew < dCur) score += 14;
     }
+
+    // Road expansion behavior: when behind targets, step off existing roads to extend network.
+    if ((ctx.roadDeficit || 0) > 0) {
+      const curOnRoad = !!roadAt(gs, unit.q, unit.r);
+      const dstOnRoad = !!roadAt(gs, q, r);
+      if (curOnRoad && !dstOnRoad) score += 12;
+      if (curOnRoad && dstOnRoad && q === unit.q && r === unit.r) score -= 10;
+    }
   }
 
   // Unit-role doctrine improvements
