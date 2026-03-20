@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.85';
+export const GAME_VERSION = 'v1.4.86';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -503,7 +503,7 @@ export class GameScene extends Phaser.Scene {
       return `P${p}  Rsrc ⚙${Math.floor(pl.iron||0)} 🛢${Math.floor(pl.oil||0)} 🪵${Math.floor(pl.wood||0)} 🍞${Math.floor(pl.food||0)}\n` +
              `    Net  ⚙${netIron} 🛢${netOil} 🍞${netFood} | Units ${units.length} (combat ${combat}, eng ${eng}, uns ${uns})\n` +
              `    Infra roads ${roads} (corridor ${roadsVisible}) mine ${mines} oil ${oils} farm ${farms}\n` +
-             `    RoadDbg plan ${telem.roadsPlanned||0} try ${telem.roadsAttempted||0} ok ${telem.roadsSucceeded||0} blkOcc ${telem.blocked?.occupied||0} blkWood ${telem.blocked?.noWood||0}`;
+             `    RoadDbg def ${telem.roadDeficit||0} plan ${telem.roadsPlanned||0} try ${telem.roadsAttempted||0} ok ${telem.roadsSucceeded||0} blkOcc ${telem.blocked?.occupied||0} blkWood ${telem.blocked?.noWood||0} why ${telem.plannerReason||'n/a'}`;
     };
 
     const paused = this._aiAutoplayPaused ? 'PAUSED' : 'RUNNING';
@@ -6462,11 +6462,15 @@ export class GameScene extends Phaser.Scene {
     const roadsBuiltThisTurn = actions.filter(a => a.type === 'build' && a.buildingType === 'ROAD').length;
     const engineersQueued = actions.filter(a => a.type === 'recruit' && a.unitType === 'ENGINEER').length;
     this._aiTelemetry = this._aiTelemetry || {};
+    const roadsNow = gs.buildings.filter(b => Number(b.owner) === Number(gs.currentPlayer) && b.type === 'ROAD').length;
+    const roadFloor = (gs.turn <= 5) ? 2 : (gs.turn <= 10) ? 5 : (gs.turn <= 15) ? 8 : 12;
     this._aiTelemetry[gs.currentPlayer] = {
       turn: gs.turn,
+      roadDeficit: Math.max(0, roadFloor - roadsNow),
       roadsPlanned: roadsBuiltThisTurn,
       roadsAttempted: 0,
       roadsSucceeded: 0,
+      plannerReason: roadsBuiltThisTurn > 0 ? 'planned' : (roadsNow >= roadFloor ? 'floor_met' : 'no_viable_plan'),
       blocked: { occupied: 0, noWood: 0, alreadyRoad: 0, invalidBuilder: 0 },
     };
     this._pushLog(`AI P${gs.currentPlayer}: ${actions.length} actions (move:${aiCounts.move||0} atk:${aiCounts.attack||0} build:${aiCounts.build||0} recruit:${aiCounts.recruit||0} design:${aiCounts.design||0})`);

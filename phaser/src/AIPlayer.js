@@ -1036,19 +1036,38 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   // Road quota: when behind network targets, ensure at least one road build is planned this turn when possible.
   if (roadDeficitGlobal > 0 && plannedRoadBuilds === 0) {
-    const roadEng = gs.units
-      .filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked && !u.constructing)
-      .find(u => {
-        if (roadAt(gs, u.q, u.r)) return false;
-        const b = buildingAt(gs, u.q, u.r);
-        return !b || ROAD_TYPES.has(b.type);
-      });
-    if (roadEng) {
-      const rcost = BUILDING_TYPES['ROAD']?.buildCost || {};
-      if (canAfford(rcost)) {
-        actions.push({ type: 'build', unitId: roadEng.id, buildingType: 'ROAD' });
+    const roadableHere = (q, r) => {
+      const t = terrain?.[`${q},${r}`] ?? 0;
+      if (t === 2) return false; // no roads on mountains
+      if (roadAt(gs, q, r)) return false;
+      const b = buildingAt(gs, q, r);
+      return !b || ROAD_TYPES.has(b.type);
+    };
+
+    const rcost = BUILDING_TYPES['ROAD']?.buildCost || {};
+    const engineers = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked && !u.constructing);
+    for (const eng of engineers) {
+      if (!canAfford(rcost)) break;
+
+      // Case A: already on a valid roadable tile
+      if (roadableHere(eng.q, eng.r)) {
+        actions.push({ type: 'build', unitId: eng.id, buildingType: 'ROAD' });
         spend(rcost);
         plannedRoadBuilds += 1;
+        break;
+      }
+
+      // Case B: move to a nearby roadable tile this turn, then build road there.
+      const reachable = getReachableHexes(gs, terrain, mapSize, eng, eng.q, eng.r) || [];
+      const cand = reachable
+        .filter(h => roadableHere(h.q, h.r))
+        .sort((a, b) => scoreRoadUtility(gs, player, b.q, b.r) - scoreRoadUtility(gs, player, a.q, a.r))[0];
+      if (cand) {
+        actions.push({ type: 'move', unitId: eng.id, fromQ: eng.q, fromR: eng.r, toQ: cand.q, toR: cand.r });
+        actions.push({ type: 'build', unitId: eng.id, buildingType: 'ROAD' });
+        spend(rcost);
+        plannedRoadBuilds += 1;
+        break;
       }
     }
   }
