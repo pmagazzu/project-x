@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.76';
+export const GAME_VERSION = 'v1.4.77';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -6783,7 +6783,9 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0.5).setScrollFactor(0).setDepth(205);
       this._addToUI([hint]);
 
+      let autoTimer = null;
       const done = () => {
+        if (autoTimer) { try { autoTimer.remove(false); } catch (e) {} autoTimer = null; }
         try { hint.destroy(); } catch (e) {}
         this.input.keyboard.off('keydown-SPACE', onSpace);
         this.input.off('pointerdown', onClick);
@@ -6793,6 +6795,11 @@ export class GameScene extends Phaser.Scene {
       const onClick = () => done();
       this.input.keyboard.once('keydown-SPACE', onSpace);
       this.input.once('pointerdown', onClick);
+
+      // AI-vs-AI spectator mode: auto-advance combat cards after ~2s.
+      if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+        autoTimer = this.time.delayedCall(2000, () => done());
+      }
     });
   }
 

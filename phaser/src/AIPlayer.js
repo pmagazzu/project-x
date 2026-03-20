@@ -17,6 +17,7 @@ import {
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, computeDesignStats,
   getReachableHexes, getAttackableHexes, hexDistance, buildingAt, roadAt, computeSupply, getRecruitFoodCost,
+  ROAD_TYPES,
 } from './GameState.js';
 
 // ── Strategy definitions ───────────────────────────────────────────────────
@@ -1025,7 +1026,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   if (roadDeficitGlobal > 0 && plannedRoadBuilds === 0) {
     const roadEng = gs.units
       .filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked && !u.constructing)
-      .find(u => !roadAt(gs, u.q, u.r));
+      .find(u => {
+        if (roadAt(gs, u.q, u.r)) return false;
+        const b = buildingAt(gs, u.q, u.r);
+        return !b || ROAD_TYPES.has(b.type);
+      });
     if (roadEng) {
       const rcost = BUILDING_TYPES['ROAD']?.buildCost || {};
       if (canAfford(rcost)) {
