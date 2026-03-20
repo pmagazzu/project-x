@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.81';
+export const GAME_VERSION = 'v1.4.82';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -6457,15 +6457,28 @@ export class GameScene extends Phaser.Scene {
     this._pushLog(`AI P${gs.currentPlayer}: ${preKPI.summary}`);
 
     // Execute actions sequentially with delays and visual feedback
-    this._executeAIActions(actions, 0, () => {
+    let aiTurnDone = false;
+    const finishAITurn = () => {
+      if (aiTurnDone) return;
+      aiTurnDone = true;
       const postKPI = getAIKPIReport(gs, gs.currentPlayer);
       this._pushLog(`AI P${gs.currentPlayer}: post-action ${postKPI.summary}`);
       // All done — dismiss status bar and end AI's turn
-      try { overlay.destroy(); } catch(e){}
-      try { lbl.destroy();     } catch(e){}
-      try { kpiLbl.destroy();  } catch(e){}
+      try { overlay?.destroy(); } catch(e){}
+      try { lbl?.destroy();     } catch(e){}
+      try { kpiLbl?.destroy();  } catch(e){}
       this._onSubmit();
+    };
+
+    // Freeze guard: never let AI turn hang indefinitely.
+    this.time.delayedCall(12000, () => {
+      if (!aiTurnDone) {
+        this._pushLog(`AI P${gs.currentPlayer}: watchdog timeout, forcing turn submit`);
+        finishAITurn();
+      }
     });
+
+    this._executeAIActions(actions, 0, finishAITurn);
   }
 
   _executeAIActions(actions, index, onDone) {
