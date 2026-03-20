@@ -897,14 +897,19 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     }
   }
   if (unsuppliedNavalNow >= 1) {
-    const b = myBuildings.find(bb => (BUILDING_TYPES[bb.type]?.canRecruit || []).includes('SUPPLY_SHIP') && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player));
-    if (b) {
-      const c = UNIT_TYPES['SUPPLY_SHIP']?.cost || {};
-      const f = getRecruitFoodCost('SUPPLY_SHIP');
-      if (resSim.iron >= (c.iron||0) && resSim.oil >= (c.oil||0) && resSim.wood >= (c.wood||0) && resSim.food >= f && resSim.components >= (c.components||0)) {
-        actions.push({ type: 'recruit', buildingId: b.id, unitType: 'SUPPLY_SHIP' });
-        resSim.iron -= (c.iron||0); resSim.oil -= (c.oil||0); resSim.wood -= (c.wood||0); resSim.food -= f; resSim.components -= (c.components||0);
-        plannedCount['SUPPLY_SHIP'] = (plannedCount['SUPPLY_SHIP'] || 0) + 1;
+    const myShipsNow = gs.units.filter(u => u.owner === player && u.type === 'SUPPLY_SHIP').length;
+    const navalCombatNow = gs.units.filter(u => u.owner === player && NAVAL_UNITS.has(u.type) && u.type !== 'SUPPLY_SHIP').length;
+    const shipCapNow = Math.max(1, Math.min(4, Math.ceil(navalCombatNow / 5)));
+    if (myShipsNow < shipCapNow) {
+      const b = myBuildings.find(bb => (BUILDING_TYPES[bb.type]?.canRecruit || []).includes('SUPPLY_SHIP') && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player));
+      if (b) {
+        const c = UNIT_TYPES['SUPPLY_SHIP']?.cost || {};
+        const f = getRecruitFoodCost('SUPPLY_SHIP');
+        if (resSim.iron >= (c.iron||0) && resSim.oil >= (c.oil||0) && resSim.wood >= (c.wood||0) && resSim.food >= f && resSim.components >= (c.components||0)) {
+          actions.push({ type: 'recruit', buildingId: b.id, unitType: 'SUPPLY_SHIP' });
+          resSim.iron -= (c.iron||0); resSim.oil -= (c.oil||0); resSim.wood -= (c.wood||0); resSim.food -= f; resSim.components -= (c.components||0);
+          plannedCount['SUPPLY_SHIP'] = (plannedCount['SUPPLY_SHIP'] || 0) + 1;
+        }
       }
     }
   }
@@ -988,6 +993,13 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       if (unitType === 'SUPPLY_TRUCK') {
         const myTrucks = gs.units.filter(u => u.owner === player && u.type === 'SUPPLY_TRUCK').length;
         if (myTrucks >= 3) continue;
+      }
+      if (unitType === 'SUPPLY_SHIP') {
+        const myShips = gs.units.filter(u => u.owner === player && u.type === 'SUPPLY_SHIP').length;
+        const navalCombat = gs.units.filter(u => u.owner === player && NAVAL_UNITS.has(u.type) && u.type !== 'SUPPLY_SHIP').length;
+        const unsNaval = gs.units.filter(u => u.owner === player && NAVAL_UNITS.has(u.type) && u.type !== 'SUPPLY_SHIP' && (u.outOfSupply || 0) > 0).length;
+        const cap = Math.max(1, Math.min(4, Math.ceil(navalCombat / 5)));
+        if (myShips >= cap && unsNaval <= 1) continue;
       }
 
       // Composition guards: avoid overstacking one cheap chassis.

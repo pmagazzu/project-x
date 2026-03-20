@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.83';
+export const GAME_VERSION = 'v1.4.84';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -6391,7 +6391,7 @@ export class GameScene extends Phaser.Scene {
           farms: gs.buildings.filter(b => Number(b.owner) === p && b.type === 'FARM').length,
         };
       };
-      this._aiLabTurns.push({ turn: gs.turn, p1: snapPlayer(1), p2: snapPlayer(2) });
+      this._aiLabTurns.push({ turn: gs.turn, currentPlayer: gs.currentPlayer, p1: snapPlayer(1), p2: snapPlayer(2) });
     }
 
     const winner = checkWinner(gs);
@@ -6587,12 +6587,12 @@ export class GameScene extends Phaser.Scene {
 
       // Placement validity similar to player build flow.
       const onRoad = !!roadAt(gs, unit.q, unit.r);
-      const hasNonRoadBuilding = !!(buildingAt(gs, unit.q, unit.r) && !onRoad);
+      const anyNonRoadBuilding = gs.buildings.some(b => b.q === unit.q && b.r === unit.r && !ROAD_TYPES.has(b.type));
       if (bType === 'ROAD') {
         if (!this._canPlaceRoadAt(unit.q, unit.r)) { if (telem) telem.blocked.occupied += 1; next(); return; }
         if (onRoad) { if (telem) telem.blocked.alreadyRoad += 1; next(); return; }
-        if (hasNonRoadBuilding) { if (telem) telem.blocked.occupied += 1; next(); return; }
-      } else if (hasNonRoadBuilding) {
+        if (anyNonRoadBuilding) { if (telem) telem.blocked.occupied += 1; next(); return; }
+      } else if (anyNonRoadBuilding) {
         next(); return;
       }
 
