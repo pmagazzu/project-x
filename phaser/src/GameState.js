@@ -65,7 +65,7 @@ export const UNIT_TYPES = {
   MONOPLANE_FIGHTER:{ name:'Monoplane Fighter',move:10, attack:4, health:4, range:2, cost:{iron:5,oil:3,components:1}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:6, soft_attack:5, hard_attack:3, pierce:3, armor:2, defense:0, evasion:14, accuracy:8,  buildTime:2, air:true, antiAir:true,  fuelMax:8,  unlockedBy:'monoplane_fighter' },
   DIVE_BOMBER:      { name:'Dive Bomber',      move:7,  attack:5, health:3, range:1, cost:{iron:6,oil:3,components:1}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:8, hard_attack:7, pierce:5, armor:1, defense:0, evasion:4,  accuracy:12, buildTime:3, air:true, antiAir:false, fuelMax:5,  unlockedBy:'dive_bomber' },
   HEAVY_BOMBER:     { name:'Heavy Bomber',     move:5,  attack:6, health:5, range:1, cost:{iron:9,oil:5,components:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:12,hard_attack:8, pierce:4, armor:2, defense:0, evasion:2,  accuracy:5,  buildTime:5, air:true, antiAir:false, fuelMax:4,  unlockedBy:'heavy_bomber' },
-  MEDIUM_TANK:      { name:'Medium Tank',      move:3,  attack:4, health:8, range:3, cost:{iron:7,oil:3,components:1}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:3, hard_attack:6, pierce:7, armor:8, defense:2, evasion:3,  accuracy:5,  buildTime:4, unlockedBy:'medium_tank' },
+  MEDIUM_TANK:      { name:'Medium Tank',      move:3,  attack:4, health:8, range:2, cost:{iron:7,oil:3,components:1}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:3, hard_attack:6, pierce:7, armor:8, defense:2, evasion:3,  accuracy:5,  buildTime:4, unlockedBy:'medium_tank' },
   SPG:              { name:'Self-Prop. Gun',   move:2,  attack:5, health:5, range:6, cost:{iron:7,oil:3,components:1}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:7, hard_attack:4, pierce:4, armor:4, defense:1, evasion:1,  accuracy:8,  buildTime:4, unlockedBy:'self_propelled_gun' },
   ARMORED_CAR:      { name:'Armored Car',      move:5,  attack:2, health:3, range:2, cost:{iron:4,oil:2}, shape:'car',      canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:3, hard_attack:1, pierce:2, armor:2, defense:0, evasion:8,  accuracy:5,  buildTime:2, unlockedBy:'armored_car' },
   ASSAULT_INFANTRY: { name:'Assault Infantry', move:2,  attack:3, health:3, range:1, cost:{iron:3,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:5, hard_attack:2, pierce:2, armor:2, defense:2, evasion:0,  accuracy:0,  buildTime:2, unlockedBy:'assault_infantry' },
@@ -812,6 +812,8 @@ export const HILL_SIGHT_BONUS = 2;
 
 // ── Pathfinding (Dijkstra for terrain costs) ───────────────────────────────
 export function getReachableHexes(state, unit, terrain, mapSize) {
+  // Indirect-fire teams (mortar/artillery) cannot move after firing.
+  if (unit.attacked && INDIRECT_FIRE.has(unit.type)) return [];
   // Use remaining movement budget if tracked, otherwise full move allowance
   const maxMove = unit.movesLeft ?? UNIT_TYPES[unit.type].move;
   const dist  = new Map();
