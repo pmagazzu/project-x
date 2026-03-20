@@ -18,7 +18,7 @@ export const UNIT_TYPES = {
   //                                                                                                                                                                                          buildTime = turns to produce
   // range in hexes (1 hex ≈ 250m)
   INFANTRY:  { name:'Infantry',  move:2, attack:2, health:3, range:1, cost:{iron:2,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:3, hard_attack:1, pierce:1, armor:1, defense:1, evasion:0,  accuracy:0,  buildTime:1 },
-  TANK:      { name:'Tank',      move:4, attack:3, health:6, range:3, cost:{iron:4,oil:2}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:2, hard_attack:4, pierce:5, armor:6, defense:2, evasion:5,  accuracy:5,  buildTime:3 },
+  TANK:      { name:'Tank',      move:4, attack:3, health:6, range:2, cost:{iron:4,oil:2}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:2, hard_attack:4, pierce:5, armor:6, defense:2, evasion:5,  accuracy:5,  buildTime:3 },
   ARTILLERY: { name:'Artillery', move:1, attack:4, health:2, range:8, cost:{iron:3,oil:2}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:5, hard_attack:3, pierce:3, armor:1, defense:0, evasion:0,  accuracy:5,  buildTime:2 },
   ENGINEER:  { name:'Engineer',  move:2, attack:1, health:2, range:1, cost:{iron:3,oil:0}, shape:'diamond',  canDigIn:false, canBuild:true,  canHeal:false, sight:2, soft_attack:1, hard_attack:0, pierce:1, armor:1, defense:0, evasion:0,  accuracy:-5, buildTime:1 },
   RECON:     { name:'Recon',     move:4, attack:1, health:2, range:1, cost:{iron:3,oil:1}, shape:'star',     canDigIn:false, canBuild:false, canHeal:false, sight:6, soft_attack:2, hard_attack:0, pierce:1, armor:1, defense:0, evasion:15, accuracy:5,  buildTime:1 },
@@ -925,13 +925,19 @@ function hexLine(q1, r1, q2, r2) {
 }
 
 // Returns true if there is an unobstructed LOS between two hexes.
-// Intermediate hexes (not the source or target) that are forest or mountain block LOS.
+// Intermediate hexes (not source/target):
+// - forest (1) and mountain (2) always block LOS
+// - hill (3) blocks LOS unless attacker or target stands on a hill (elevation advantage)
 export function hasLOS(fromQ, fromR, toQ, toR, terrain) {
   if (!terrain) return true;
+  const srcT = terrain[`${fromQ},${fromR}`] ?? 0;
+  const dstT = terrain[`${toQ},${toR}`] ?? 0;
+  const elevated = (srcT === 3) || (dstT === 3);
   const line = hexLine(fromQ, fromR, toQ, toR);
   for (let i = 1; i < line.length - 1; i++) {
     const t = terrain[`${line[i].q},${line[i].r}`] ?? 0;
-    if (t === 1 || t === 2) return false; // forest (1) or mountain (2) blocks
+    if (t === 1 || t === 2) return false;
+    if (t === 3 && !elevated) return false;
   }
   return true;
 }
