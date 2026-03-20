@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.75';
+export const GAME_VERSION = 'v1.4.76';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -6208,6 +6208,11 @@ export class GameScene extends Phaser.Scene {
         this.input.on('pointerup', dismiss);
         this.input.keyboard?.once('keydown-SPACE', dismiss);
       });
+      if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+        this.time.delayedCall(2000, () => {
+          if (this._splashDismiss === dismiss) dismiss();
+        });
+      }
     } else {
       this._pushLog('Attack resolved with no combat log entry (unexpected)');
     }

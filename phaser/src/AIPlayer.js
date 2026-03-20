@@ -680,6 +680,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
         const maybeBuild = (buildingType) => {
           const cost = BUILDING_TYPES[buildingType]?.buildCost || {};
+          // Keep a tiny wood reserve for roads when behind logistics targets.
+          if (buildingType !== 'ROAD' && roadDeficitGlobal > 0) {
+            const woodAfter = resSim.wood - (cost.wood || 0);
+            if (woodAfter < 1) return false;
+          }
           if (!canAfford(cost)) return false;
           actions.push({ type: 'build', unitId: unit.id, buildingType });
           if (buildingType === 'ROAD') plannedRoadBuilds += 1;
