@@ -19,6 +19,7 @@ import {
   getReachableHexes, getAttackableHexes, hexDistance, buildingAt, roadAt, computeSupply, getRecruitFoodCost,
   ROAD_TYPES,
 } from './GameState.js';
+import { TECH_TREE } from './ResearchData.js';
 
 // ── Strategy definitions ───────────────────────────────────────────────────
 
@@ -784,11 +785,17 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
             // Military production baseline: don't stall on only T0 infantry/recon.
             const myBarracks = gs.buildings.filter(bb => bb.owner === player && bb.type === 'BARRACKS' && !bb.underConstruction).length;
-            const myAirfield = gs.buildings.filter(bb => bb.owner === player && bb.type === 'AIRFIELD' && !bb.underConstruction).length;
+            const myVehicleDepot = gs.buildings.filter(bb => bb.owner === player && bb.type === 'VEHICLE_DEPOT' && !bb.underConstruction).length;
+            const myAirfield = gs.buildings.filter(bb => bb.owner === player && ['AIRFIELD','ADV_AIRFIELD'].includes(bb.type) && !bb.underConstruction).length;
             const myHarbor = gs.buildings.filter(bb => bb.owner === player && ['HARBOR','NAVAL_YARD','SHIPYARD','DRY_DOCK','NAVAL_BASE'].includes(bb.type) && !bb.underConstruction).length;
+            const myBunkers = gs.buildings.filter(bb => bb.owner === player && bb.type === 'BUNKER' && !bb.underConstruction).length;
+            const nearbyEnemies = getEnemies().filter(e => hexDistance(e.q, e.r, unit.q, unit.r) <= 3).length;
             if (gs.turn >= 4 && myBarracks < 2) needs.push({ type: 'BARRACKS', score: (7.5 - myBarracks * 2.5 + d.barracks * 6) * phaseWeights.combat });
-            if (gs.turn >= 8 && myAirfield < 1) needs.push({ type: 'AIRFIELD', score: 6.4 * phaseWeights.combat });
-            if (gs.turn >= 10 && myHarbor < 1) needs.push({ type: 'HARBOR', score: 5.8 * phaseWeights.logistics });
+            if (gs.turn >= 7 && myVehicleDepot < 1) needs.push({ type: 'VEHICLE_DEPOT', score: 8.2 * phaseWeights.combat });
+            if (gs.turn >= 12 && myVehicleDepot < 2) needs.push({ type: 'VEHICLE_DEPOT', score: 6.2 * phaseWeights.combat });
+            if (gs.turn >= 10 && myAirfield < 1) needs.push({ type: 'AIRFIELD', score: 7.0 * phaseWeights.combat });
+            if (gs.turn >= 10 && myHarbor < 1) needs.push({ type: 'NAVAL_YARD', score: 5.8 * phaseWeights.logistics });
+            if ((gs.turn >= 12 && nearbyEnemies >= 2) && myBunkers < 2) needs.push({ type: 'BUNKER', score: (8.4 + nearbyEnemies) * phaseWeights.combat });
 
             // Tier-2 production chain: once components economy exists, unlock higher-tier unit buildings.
             const comp = resSim.components || 0;
@@ -857,6 +864,43 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         actions.push({ type: 'design', chassis: pick.chassis, modules: pick.modules, name: pick.name });
         spend(regCost);
       }
+    }
+  }
+
+  // --- Phase 1c: Queue research when labs are online and queue is empty ---
+  const pState = gs.players[player] || {};
+  pState.research = pState.research || { queue: [], unlocked: [], slots: 1 };
+  const resState = pState.research;
+  const labsOnline = gs.buildings.filter(b => b.owner === player && b.type === 'SCIENCE_LAB' && !b.underConstruction).length;
+  const queueCap = Math.max(1, resState.slots || 1);
+  if (labsOnline > 0 && (resState.queue?.length || 0) < queueCap) {
+    const techTree = gs._techTree || TECH_TREE || {};
+    const unlocked = new Set(resState.unlocked || []);
+    const queued = new Set((resState.queue || []).map(q => q.techId));
+    const prereqsMet = (tech) => (tech.prereqs || []).every(p => unlocked.has(p));
+    const myVehicleDepots = gs.buildings.filter(b => b.owner === player && b.type === 'VEHICLE_DEPOT' && !b.underConstruction).length;
+    const myAirfields = gs.buildings.filter(b => b.owner === player && ['AIRFIELD','ADV_AIRFIELD'].includes(b.type) && !b.underConstruction).length;
+    const unsupNow = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0).length;
+
+    const choices = Object.values(techTree)
+      .filter(t => t && t.id && !unlocked.has(t.id) && !queued.has(t.id) && prereqsMet(t));
+
+    if (choices.length > 0) {
+      const rank = (t) => {
+        let s = 0;
+        if (t.branch === 'industrial') s += 9;
+        if (t.branch === 'science') s += 5;
+        if (t.branch === 'engineering') s += 2 + Math.min(5, unsupNow);
+        if (t.branch === 'vehicles') s += myVehicleDepots > 0 ? 7 : 4;
+        if (t.branch === 'air') s += myAirfields > 0 ? 7 : 3;
+        if (t.kind === 'economy') s += 4;
+        if (t.kind === 'research') s += 3;
+        s -= (t.tier || 0) * 1.5;
+        s -= (t.cost || 0) * 0.08;
+        return s;
+      };
+      choices.sort((a, b) => rank(b) - rank(a));
+      actions.push({ type: 'research_queue', techId: choices[0].id });
     }
   }
 
@@ -930,8 +974,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     if (alreadyQueued) continue;
 
     // Build priority list from strategy, filtered to what this building can recruit
-    const isNaval = ['HARBOR','SHIPYARD','DRYDOCK'].includes(b.type);
-    const isAir   = b.type === 'AIRFIELD';
+    const isNaval = ['HARBOR','NAVAL_YARD','SHIPYARD','DRYDOCK','DRY_DOCK','NAVAL_BASE','NAVAL_DOCKYARD'].includes(b.type);
+    const isAir   = ['AIRFIELD','ADV_AIRFIELD'].includes(b.type);
     const prio    = isNaval ? cfg.navalPrio : isAir ? cfg.airPrio : cfg.recruitPrio;
     const recruitRoleScore = (unitType) => {
       const role = getUnitRole(unitType);

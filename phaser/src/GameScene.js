@@ -6726,6 +6726,20 @@ export class GameScene extends Phaser.Scene {
       if (result.ok) this._updateTopBar();
       next();
 
+    } else if (action.type === 'research_queue') {
+      const pl = gs.players?.[gs.currentPlayer];
+      if (pl) {
+        pl.research = pl.research || { queue: [], unlocked: [], slots: 1 };
+        const q = pl.research.queue || (pl.research.queue = []);
+        const unlocked = new Set(pl.research.unlocked || []);
+        const alreadyQueued = q.some(it => it.techId === action.techId);
+        if (!alreadyQueued && !unlocked.has(action.techId)) {
+          q.push({ techId: action.techId, rpSpent: 0 });
+          this._pushLog(`AI P${gs.currentPlayer}: queued research ${action.techId}`);
+        }
+      }
+      next();
+
     } else {
       next();
     }
