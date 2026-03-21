@@ -1050,7 +1050,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const myShips = gs.units.filter(u => u.owner === player && u.type === 'SUPPLY_SHIP').length;
         const navalCombat = gs.units.filter(u => u.owner === player && NAVAL_UNITS.has(u.type) && u.type !== 'SUPPLY_SHIP').length;
         const unsNaval = gs.units.filter(u => u.owner === player && NAVAL_UNITS.has(u.type) && u.type !== 'SUPPLY_SHIP' && (u.outOfSupply || 0) > 0).length;
-        const cap = Math.max(1, Math.min(4, Math.ceil(navalCombat / 5)));
+        const cap = Math.max(1, Math.min(3, Math.ceil(navalCombat / 6)));
         if (myShips >= cap && unsNaval <= 1) continue;
       }
 
@@ -1058,6 +1058,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const lineTypes = ['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD','LMG_TEAM','HMG_TEAM'];
       if (gs.turn >= 12 && hasAdvancedOption && (unitType === 'INFANTRY' || unitType === 'RECON')) {
         // Late-game: strongly de-prioritize pure T0 fillers when advanced options exist at this building.
+        continue;
+      }
+      const hasVehicleDepotBuilt = gs.buildings.some(bb => bb.owner === player && bb.type === 'VEHICLE_DEPOT' && !bb.underConstruction);
+      if (gs.turn >= 14 && hasVehicleDepotBuilt && b.type === 'BARRACKS' && (unitType === 'INFANTRY' || unitType === 'RECON')) {
         continue;
       }
       const totalCombat = Math.max(1, Object.entries(plannedCount)

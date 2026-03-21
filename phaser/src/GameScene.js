@@ -144,6 +144,7 @@ export class GameScene extends Phaser.Scene {
     this.debugNoFog      = !!data.debugNoFog || this.scenario === 'mortar_test' || this.scenario === 'coastal_battery_test';
     this._mapBuilderMode = !!data.mapBuilder;
     this._aiViewerMode = !!data.aiViewerMode;
+    this._aiSimSpeed = Math.max(1, Number(data.aiSimSpeed) || 1); // 1=normal,2=fast,4=turbo
     this._aiAutoplayPaused = false;
     this._aiTurnInProgress = false;
     this._aiLastProgressAt = Date.now();
@@ -233,6 +234,17 @@ export class GameScene extends Phaser.Scene {
     this._createTopBar();
     this._createBottomPanel();
     this._createRecruitPanel();
+    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+      const labelFor = (s) => s >= 4 ? 'TURBO' : (s >= 2 ? 'FAST' : 'NORMAL');
+      this._aiSpeedBtn = this.add.text(this.scale.width - 12, 54, `[AI SPEED: ${labelFor(this._aiSimSpeed)}]`, {
+        font: 'bold 11px monospace', fill: '#88ffcc', backgroundColor: '#102018', padding: { x: 8, y: 5 }
+      }).setOrigin(1, 0).setScrollFactor(0).setDepth(210).setInteractive({ useHandCursor: true });
+      this._aiSpeedBtn.on('pointerdown', () => {
+        this._aiSimSpeed = this._aiSimSpeed >= 4 ? 1 : (this._aiSimSpeed >= 2 ? 4 : 2);
+        this._aiSpeedBtn.setText(`[AI SPEED: ${labelFor(this._aiSimSpeed)}]`);
+      });
+      this._addToUI([this._aiSpeedBtn]);
+    }
 
     // Move all scroll-factor-0 objects created so far into _uiLayer
     // (catches top bar, bottom panel, buttons, etc. without touching each line)
@@ -4463,6 +4475,11 @@ export class GameScene extends Phaser.Scene {
       (net.iron < 0 || net.oil < 0 || net.food < 0) ? 0x2a1717 : 0x17241a);
     y += cardH + 16;
 
+    objs.push(this.add.text(left, y, `UPKEEP / TURN:  ⚙-${upkeep.iron.toFixed(2)}  🛢-${upkeep.oil.toFixed(2)}  🍞-${upkeep.food.toFixed(2)}`, {
+      font:'10px monospace', fill:'#ffccaa'
+    }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
+    y += 16;
+
     // Left: buildings summary (concise)
     const myBuildings = gs.buildings.filter(b => Number(b.owner) === Number(p) && !ROAD_TYPES.has(b.type));
     const countByType = {};
@@ -6553,7 +6570,7 @@ export class GameScene extends Phaser.Scene {
     };
 
     // Freeze guard: never let AI turn hang indefinitely.
-    this.time.delayedCall(12000, () => {
+    this.time.delayedCall(this._simMs(12000), () => {
       if (!aiTurnDone) {
         this._pushLog(`AI P${gs.currentPlayer}: watchdog timeout, forcing turn submit`);
         finishAITurn();
@@ -6579,7 +6596,7 @@ export class GameScene extends Phaser.Scene {
         this._pushLog(`AI action watchdog: forcing next (${action.type})`);
         next();
       }
-    }, 4500);
+    }, this._simMs(4500));
     const gs     = this.gameState;
 
     try {
@@ -6601,7 +6618,7 @@ export class GameScene extends Phaser.Scene {
       };
       this._refresh();
       // Wait for slide to finish + small gap
-      this.time.delayedCall(350, next);
+      this.time.delayedCall(this._simMs(350), next);
 
     } else if (action.type === 'attack') {
       const attacker = gs.units.find(u => u.id === action.attackerId);
@@ -6637,8 +6654,9 @@ export class GameScene extends Phaser.Scene {
           this.input.keyboard?.once('keydown-SPACE', dismiss);
         });
         if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
-          this.time.delayedCall(2000, () => { if (!done) dismiss(); });
+          this.time.delayedCall(this._simMs(900), () => { if (!done) dismiss(); });
         }
+        this.time.delayedCall(this._simMs(2500), () => { if (!done) dismiss(); });
       } else {
         this._pushLog('AI attack resolved with no combat log entry');
         this.time.delayedCall(200, next);
@@ -6912,12 +6930,19 @@ export class GameScene extends Phaser.Scene {
     return lbl;
   }
 
-  _wait(ms) { return new Promise(r => this.time.delayedCall(ms, r)); }
+  _simMs(ms) {
+    if (this._aiViewerMode && this.aiPlayers?.has?.(1) && this.aiPlayers?.has?.(2)) {
+      return Math.max(20, Math.floor(ms / Math.max(1, this._aiSimSpeed || 1)));
+    }
+    return ms;
+  }
+
+  _wait(ms) { return new Promise(r => this.time.delayedCall(this._simMs(ms), r)); }
 
   _showCombatCard(entry, idx, total) {
     const objs = [];
     const sw = this.scale.width, sh = this.scale.height;
-    const cx = sw * 0.5, cy = sh * 0.5;
+    const cx = sw * 0.5, cy = sh * 0.60;
     const D = 206;
 
     const GLYPH = { INFANTRY:'●', ENGINEER:'◆', RECON:'✶', TANK:'■', ARTILLERY:'▲',
@@ -6928,7 +6953,7 @@ export class GameScene extends Phaser.Scene {
     const g = t => GLYPH[t] || '◌';
 
     const PC = [null, 0x3366cc, 0xcc3333];
-    const SCALE = 1.45;
+    const SCALE = 1.0;
     const mk = (txt, x, y, col='#d0dde8', sz=12, bold=false, ox=0.5, oy=0.5, wrapW=null) => {
       const style = { font:`${bold?'bold ':''}${Math.max(10, Math.round(sz*SCALE))}px monospace`, fill:col };
       if (wrapW) style.wordWrap = { width: wrapW };
@@ -6941,7 +6966,7 @@ export class GameScene extends Phaser.Scene {
       objs.push(r); return r;
     };
 
-    const cW = Math.min(1160, sw - 18), cH = Math.min(680, sh - 20);
+    const cW = Math.min(900, sw - 24), cH = Math.min(520, sh - 44);
     const cX = cx, cY = cy;
     box(cx, cy, sw, sh, 0x000000, 0.62);
     box(cX, cY, cW, cH, 0x0b0e14, 0.985, 0x2e3d50);
@@ -7011,6 +7036,7 @@ export class GameScene extends Phaser.Scene {
 
     const modParts = [];
     if (entry.openPlainMod) modParts.push(`open+${entry.openPlainMod}`);
+    if (entry.exposedMod) modParts.push(`EXPOSED(road)+${entry.exposedMod}`);
     if (entry.flankMod) modParts.push(`flank+${entry.flankMod}`);
     if (entry.attackerSupplyPenalty) modParts.push(`atkOOS-${entry.attackerSupplyPenalty*3}`);
     if (entry.defenderSupplyPenalty) modParts.push(`defOOS+${entry.defenderSupplyPenalty*3}`);
@@ -7052,7 +7078,7 @@ export class GameScene extends Phaser.Scene {
 
       // AI-vs-AI spectator mode: auto-advance combat cards after ~2s.
       if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
-        autoTimer = this.time.delayedCall(2000, () => done());
+        autoTimer = this.time.delayedCall(this._simMs(900), () => done());
       }
     });
   }

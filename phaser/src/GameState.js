@@ -386,7 +386,7 @@ export const UNIT_UPKEEP = {
 
 // Compute total upkeep for all of a player's units
 export function calcUpkeep(state, player) {
-  const UPKEEP_SCALE = 0.5; // global balance knob (50% upkeep)
+  const UPKEEP_SCALE = 0.6; // global balance knob (60% upkeep; +20% from prior)
   let food = 0, iron = 0, oil = 0;
   for (const unit of state.units) {
     if (unit.owner !== player || unit.embarked) continue;
@@ -1324,6 +1324,9 @@ export function resolveTurn(state, terrain) {
     const onFort = !!state.buildings.find(b => (b.type === 'BUNKER' || b.type === 'TRENCH' || b.type === 'SANDBAG') && b.q === target.q && b.r === target.r && b.owner === target.owner);
     const openPlainMod = (openPlains && INF_LIKE.has(target.type) && !target.dugIn && !onFort) ? 6 : 0;
     score += openPlainMod;
+    const onRoad = !!state.buildings.find(b => ROAD_TYPES.has(b.type) && b.q === target.q && b.r === target.r);
+    const exposedMod = (onRoad && !onFort && !target.dugIn) ? 8 : 0;
+    score += exposedMod;
 
     // Submarine shallow-water debuff: exposed, can't dive → -10 evasion in combat
     const subShallowPenalty = (target.type === 'SUBMARINE' && ttype === 4) ? 10 : 0;
@@ -1410,7 +1413,7 @@ export function resolveTurn(state, terrain) {
       targetName: tDef.name,   targetOwner: target.owner,
       isArmored, baseAttack, pierce: aDef.pierce, armor: tDef.armor, pierceRatio,
       accuracy: aDef.accuracy, evasion: tDef.evasion,
-      terrainMod, openPlainMod, dugInMod, bunkerMod, flankMod, roll, blindFirePenalty,
+      terrainMod, openPlainMod, exposedMod, dugInMod, bunkerMod, flankMod, roll, blindFirePenalty,
       attackerSupplyPenalty: atkSupplyPen.attackPenalty || 0,
       defenderSupplyPenalty: defSupplyPen.attackPenalty || 0,
       infantryRangePenalty: infantryRangePenalty || 0,
@@ -1721,6 +1724,9 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   const onFort = !!state.buildings.find(b => (b.type === 'BUNKER' || b.type === 'TRENCH' || b.type === 'SANDBAG') && b.q === target.q && b.r === target.r && b.owner === target.owner);
   const openPlainMod = (openPlains && INF_LIKE.has(target.type) && !target.dugIn && !onFort) ? 6 : 0;
   score += openPlainMod;
+  const onRoad = !!state.buildings.find(b => ROAD_TYPES.has(b.type) && b.q === target.q && b.r === target.r);
+  const exposedMod = (onRoad && !onFort && !target.dugIn) ? 8 : 0;
+  score += exposedMod;
   const subShallowPenalty = (target.type === 'SUBMARINE' && ttype === 4) ? 10 : 0;
   score += subShallowPenalty;
   let dugInMod = 0;
@@ -1788,7 +1794,7 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
     targetHPBefore: target.health + dmg,
     isArmored, baseAttack, pierce: aDef.pierce, armor: tDef.armor, pierceRatio,
     accuracy: aDef.accuracy, evasion: tDef.evasion,
-    terrainMod, openPlainMod, dugInMod, bunkerMod, flankMod: 0, roll, blindFirePenalty,
+    terrainMod, openPlainMod, exposedMod, dugInMod, bunkerMod, flankMod: 0, roll, blindFirePenalty,
     attackerSupplyPenalty: atkSupplyPen.attackPenalty || 0,
     defenderSupplyPenalty: defSupplyPen.attackPenalty || 0,
     infantryRangePenalty: infantryRangePenalty || 0,
@@ -2276,28 +2282,33 @@ export function computeSupply(state, player, mapSize) {
   const _isValid = (q, r) => q >= 0 && r >= 0 && q < ms && r < ms;
 
   const floodFill = (sq, sr, radius) => {
-    // BFS — roads cost 0, other hexes cost 1
-    const queue = [{ q: sq, r: sr, rem: radius }];
-    const visited = new Map(); // key -> best rem seen
-    visited.set(`${sq},${sr}`, radius);
+    // BFS — roads cost 0, other hexes cost 1. Road chaining is capped (max 2 road hops).
+    const ROAD_CHAIN_LIMIT = 2;
+    const queue = [{ q: sq, r: sr, rem: radius, roadChain: 0 }];
+    const visited = new Map(); // key -> best rem seen for chain-state
+    visited.set(`${sq},${sr},0`, radius);
     while (queue.length > 0) {
-      const { q, r, rem } = queue.shift();
+      const { q, r, rem, roadChain } = queue.shift();
       supplied.add(`${q},${r}`);
       if (rem <= 0) continue;
       for (const [dq, dr] of HEX_NEIGHBORS) {
         const nq = q + dq, nr = r + dr;
         if (!_isValid(nq, nr)) continue;
-        const key = `${nq},${nr}`;
         const fromRoad = isRoadHex(q, r);
         const toRoad = isRoadHex(nq, nr);
-        // Roads still help, but with moderated entry tax after tuning pass.
+        let nextRoadChain = 0;
+        if (toRoad) {
+          nextRoadChain = fromRoad ? (roadChain + 1) : 1;
+          if (nextRoadChain > ROAD_CHAIN_LIMIT) continue;
+        }
         // entering a road from non-road consumes 3 range; continuing on roads is free.
         const stepCost = toRoad ? (fromRoad ? 0 : 3) : 1;
         const nextRem = rem - stepCost;
+        const key = `${nq},${nr},${nextRoadChain}`;
         const prevBest = visited.get(key) ?? -1;
         if (nextRem > prevBest) {
           visited.set(key, nextRem);
-          queue.push({ q: nq, r: nr, rem: nextRem });
+          queue.push({ q: nq, r: nr, rem: nextRem, roadChain: nextRoadChain });
         }
       }
     }
