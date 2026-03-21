@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.100';
+export const GAME_VERSION = 'v1.4.101';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -6450,8 +6450,9 @@ export class GameScene extends Phaser.Scene {
           farms: gs.buildings.filter(b => Number(b.owner) === p && b.type === 'FARM').length,
         };
       };
+      const snapTurn = this._autoStopTurn > 0 ? Math.min(gs.turn, this._autoStopTurn) : gs.turn;
       this._aiLabTurns.push({
-        turn: gs.turn,
+        turn: snapTurn,
         currentPlayer: gs.currentPlayer,
         p1: snapPlayer(1),
         p2: snapPlayer(2),
@@ -6470,10 +6471,11 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Auto-stop harness runs at configured turn cap.
-    if (this._autoStopTurn > 0 && gs.turn >= this._autoStopTurn) {
+    const effectiveTurn = this._autoStopTurn > 0 ? Math.min(gs.turn, this._autoStopTurn) : gs.turn;
+    if (this._autoStopTurn > 0 && effectiveTurn >= this._autoStopTurn) {
       this._aiAutoplayPaused = true;
       this._refresh();
-      if (this._aiLabExport) this._showAILabExport();
+      if (this._aiLabExport) this._showAILabExport('ai-lab-auto-stop', `AI LAB RUN COMPLETE (AUTO-STOP · TURN ${this._autoStopTurn})`);
       return;
     }
 

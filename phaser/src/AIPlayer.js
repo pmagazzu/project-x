@@ -823,9 +823,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
               const pressure = getEnemies().filter(e => hexDistance(e.q, e.r, unit.q, unit.r) <= 4).length;
               needs.push({ type: 'SUPPLY_DEPOT', score: (10 + unsupplied * 1.8 + pressure * 2.0 + Math.floor(frontlineSpan / 3) + roadDeficit * 1.2 - mySupplyDepots * 2) * phaseWeights.logistics });
             }
-            const myWarehouses = gs.buildings.filter(bb => bb.owner === player && bb.type === 'SUPPLY_WAREHOUSE' && !bb.underConstruction).length;
-            if (gs.turn >= 12 && myWarehouses < 3 && (unsupplied >= 4 || frontlineSpan >= 12)) {
-              needs.push({ type: 'SUPPLY_WAREHOUSE', score: (9 + unsupplied * 1.6 + Math.floor(frontlineSpan / 4) - myWarehouses * 2) * phaseWeights.logistics });
+            const warehousesEarly = gs.buildings.filter(bb => bb.owner === player && bb.type === 'SUPPLY_WAREHOUSE' && !bb.underConstruction).length;
+            if (gs.turn >= 12 && warehousesEarly < 3 && (unsupplied >= 4 || frontlineSpan >= 12)) {
+              needs.push({ type: 'SUPPLY_WAREHOUSE', score: (9 + unsupplied * 1.6 + Math.floor(frontlineSpan / 4) - warehousesEarly * 2) * phaseWeights.logistics });
             }
             // Science Lab: research, cap at 2
             if (myLabs < 2 && gs.turn >= 2) needs.push({ type: 'SCIENCE_LAB', score: (8 - myLabs * 4 + d.labs * 6) * phaseWeights.research });
@@ -838,6 +838,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             const myAirfield = gs.buildings.filter(bb => bb.owner === player && ['AIRFIELD','ADV_AIRFIELD'].includes(bb.type) && !bb.underConstruction).length;
             const myHarbor = gs.buildings.filter(bb => bb.owner === player && ['HARBOR','NAVAL_YARD','SHIPYARD','DRY_DOCK','NAVAL_BASE'].includes(bb.type) && !bb.underConstruction).length;
             const myBunkers = gs.buildings.filter(bb => bb.owner === player && bb.type === 'BUNKER' && !bb.underConstruction).length;
+            const myWarehouses = gs.buildings.filter(bb => bb.owner === player && bb.type === 'SUPPLY_WAREHOUSE' && !bb.underConstruction).length;
             const nearbyEnemies = getEnemies().filter(e => hexDistance(e.q, e.r, unit.q, unit.r) <= 3).length;
             if (gs.turn >= 4 && myBarracks < 2) needs.push({ type: 'BARRACKS', score: (7.5 - myBarracks * 2.5 + d.barracks * 6) * phaseWeights.combat });
             if (gs.turn >= 7 && myVehicleDepot < 1) needs.push({ type: 'VEHICLE_DEPOT', score: 8.2 * phaseWeights.combat });
@@ -845,6 +846,12 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             if (gs.turn >= 10 && myAirfield < 1) needs.push({ type: 'AIRFIELD', score: 7.0 * phaseWeights.combat });
             if (gs.turn >= 10 && myHarbor < 1) needs.push({ type: 'NAVAL_YARD', score: 5.8 * phaseWeights.logistics });
             if ((gs.turn >= 12 && nearbyEnemies >= 2) && myBunkers < 2) needs.push({ type: 'BUNKER', score: (8.4 + nearbyEnemies) * phaseWeights.combat });
+            // FOB expansion package: forward logistics + fallback defensive node + extra barracks.
+            if (gs.turn >= 18 && (frontlineSpan >= 12 || roadDeficit >= 2)) {
+              if (myWarehouses < 3) needs.push({ type: 'SUPPLY_WAREHOUSE', score: (10 + Math.floor(frontlineSpan / 3) + unsupplied * 1.2 - myWarehouses * 2) * phaseWeights.logistics });
+              if (myBunkers < 4) needs.push({ type: 'BUNKER', score: (7.5 + Math.floor(frontlineSpan / 5) - myBunkers) * phaseWeights.combat });
+              if (myBarracks < 3) needs.push({ type: 'BARRACKS', score: (7.2 + Math.floor(frontlineSpan / 6) - myBarracks) * phaseWeights.combat });
+            }
 
             // Tier-2 production chain: once components economy exists, unlock higher-tier unit buildings.
             const comp = resSim.components || 0;
@@ -1109,10 +1116,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const totals = plannedTotals();
       if (logisticsEmergency && !logisticsCriticalRecruits.has(unitType)) continue;
       if (logisticsPressure && (UNIT_TYPES[unitType]?.cost?.oil || 0) >= 2 && !logisticsCriticalRecruits.has(unitType)) continue;
-      const desiredVehicleMin = (gs.turn >= 18) ? Math.max(2, Math.floor(totals.combat * 0.20)) : 0;
-      const desiredAirMin = (gs.turn >= 22) ? Math.max(1, Math.floor(totals.combat * 0.12)) : 0;
-      const desiredIndirectMin = (gs.turn >= 16) ? Math.max(2, Math.floor(totals.combat * 0.15)) : 0;
-      const supportCap = (gs.turn >= 16) ? 0.28 : 0.34;
+      const compStock = resSim.components || 0;
+      const desiredVehicleMin = (gs.turn >= 16) ? Math.max(3, Math.floor(totals.combat * (compStock >= 4 ? 0.30 : 0.24))) : 0;
+      const desiredAirMin = (gs.turn >= 20) ? Math.max(2, Math.floor(totals.combat * (compStock >= 4 ? 0.18 : 0.14))) : 0;
+      const desiredIndirectMin = (gs.turn >= 14) ? Math.max(2, Math.floor(totals.combat * 0.18)) : 0;
+      const supportCap = (gs.turn >= 16) ? 0.24 : 0.30;
 
       // Doctrine quotas: force missing categories online by phase.
       if (desiredVehicleMin > 0 && totals.vehicles < desiredVehicleMin && buildingCanRecruitAny(VEHICLE_TYPES) && !VEHICLE_TYPES.has(unitType)) continue;
@@ -1149,8 +1157,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const myShips = gs.units.filter(u => u.owner === player && u.type === 'SUPPLY_SHIP').length;
         const navalCombat = gs.units.filter(u => u.owner === player && NAVAL_UNITS.has(u.type) && u.type !== 'SUPPLY_SHIP').length;
         const unsNaval = gs.units.filter(u => u.owner === player && NAVAL_UNITS.has(u.type) && u.type !== 'SUPPLY_SHIP' && (u.outOfSupply || 0) > 0).length;
-        const cap = Math.max(1, Math.min(3, Math.ceil(navalCombat / 6)));
-        if (myShips >= cap && unsNaval <= 1) continue;
+        const cap = Math.max(1, Math.min(2, Math.ceil(navalCombat / 8)));
+        if (myShips >= cap && unsNaval <= 2) continue;
       }
 
       // Composition guards: avoid overstacking one cheap chassis.
@@ -1158,6 +1166,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       if (gs.turn >= 12 && hasAdvancedOption && (unitType === 'INFANTRY' || unitType === 'RECON')) {
         // Late-game: strongly de-prioritize pure T0 fillers when advanced options exist at this building.
         continue;
+      }
+      if (unitType === 'RECON') {
+        const myRecon = plannedCount['RECON'] || 0;
+        const reconCap = gs.turn >= 20 ? 3 : 4;
+        if (myRecon >= reconCap) continue;
       }
       const hasVehicleDepotBuilt = gs.buildings.some(bb => bb.owner === player && bb.type === 'VEHICLE_DEPOT' && !bb.underConstruction);
       if (gs.turn >= 14 && hasVehicleDepotBuilt && b.type === 'BARRACKS' && (unitType === 'INFANTRY' || unitType === 'RECON')) {
