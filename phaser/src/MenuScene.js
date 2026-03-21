@@ -38,9 +38,9 @@ const SCENARIOS = [
   },
   {
     key:   'ai_vs_ai_island_large_80',
-    label: 'AI VS AI · ISLAND LARGE (80T)',
+    label: 'AI VS AI · ISLAND HUGE (80T)',
     icon:  '🤖',
-    sub:   '60×60 single island profile · both players AI (80 turns)',
+    sub:   '90×90 single island profile · both players AI (80 turns)',
     color: 0x22445f,
     hoverColor: 0x3a79a8,
   },
@@ -152,7 +152,7 @@ export class MenuScene extends Phaser.Scene {
       bg.on('pointerdown', () => {
         if (sc.key === 'ai_vs_ai_island_medium' || sc.key === 'ai_vs_ai_island_medium_40' || sc.key === 'ai_vs_ai_island_large_80') {
           const autoStopTurn = sc.key === 'ai_vs_ai_island_medium_40' ? 40 : (sc.key === 'ai_vs_ai_island_large_80' ? 80 : 20);
-          const customSize = sc.key === 'ai_vs_ai_island_large_80' ? 60 : 40;
+          const customSize = sc.key === 'ai_vs_ai_island_large_80' ? 90 : 40;
           this.scene.start('GameScene', {
             scenario: 'custom',
             customSize,

@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.97';
+export const GAME_VERSION = 'v1.4.98';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -6396,18 +6396,21 @@ export class GameScene extends Phaser.Scene {
     URL.revokeObjectURL(url);
   }
 
-  _showAILabExport() {
+  _showAILabExport(reason = 'ai-lab-auto-stop', titleText = null) {
     const gs = this.gameState;
 
     const w = this.scale.width, h = this.scale.height;
-    const bg = this.add.rectangle(w/2, h/2, 560, 180, 0x0d1118, 0.96).setScrollFactor(0).setDepth(220).setStrokeStyle(2, 0x446688);
-    const title = this.add.text(w/2, h/2 - 56, 'AI LAB RUN COMPLETE (TURN 20)', { font: 'bold 16px monospace', fill: '#d0e6ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(221);
-    const sub = this.add.text(w/2, h/2 - 24, 'Download JSON report for AI tuning', { font: '12px monospace', fill: '#8fb1d6' }).setOrigin(0.5).setScrollFactor(0).setDepth(221);
-    const dl = this.add.text(w/2, h/2 + 18, '[ DOWNLOAD REPORT ]', { font: 'bold 13px monospace', fill: '#ffffff', backgroundColor: '#2a4a6a', padding: {x: 12, y: 8} }).setOrigin(0.5).setScrollFactor(0).setDepth(221).setInteractive({ useHandCursor: true });
-    const close = this.add.text(w/2, h/2 + 56, '[ CLOSE ]', { font: '12px monospace', fill: '#bbbbbb', backgroundColor: '#222222', padding: {x: 10, y: 6} }).setOrigin(0.5).setScrollFactor(0).setDepth(221).setInteractive({ useHandCursor: true });
+    const bg = this.add.rectangle(w/2, h/2, 600, 196, 0x0d1118, 0.96).setScrollFactor(0).setDepth(220).setStrokeStyle(2, 0x446688);
+    const defaultTitle = reason === 'game-end'
+      ? `AI LAB RUN COMPLETE (GAME ENDED · TURN ${gs.turn})`
+      : `AI LAB RUN COMPLETE (AUTO-STOP · TURN ${gs.turn})`;
+    const title = this.add.text(w/2, h/2 - 62, titleText || defaultTitle, { font: 'bold 16px monospace', fill: '#d0e6ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(221);
+    const sub = this.add.text(w/2, h/2 - 28, 'Download JSON report now, or close and continue.', { font: '12px monospace', fill: '#8fb1d6' }).setOrigin(0.5).setScrollFactor(0).setDepth(221);
+    const dl = this.add.text(w/2, h/2 + 14, '[ DOWNLOAD REPORT ]', { font: 'bold 13px monospace', fill: '#ffffff', backgroundColor: '#2a4a6a', padding: {x: 12, y: 8} }).setOrigin(0.5).setScrollFactor(0).setDepth(221).setInteractive({ useHandCursor: true });
+    const close = this.add.text(w/2, h/2 + 58, '[ CLOSE ]', { font: '12px monospace', fill: '#bbbbbb', backgroundColor: '#222222', padding: {x: 10, y: 6} }).setOrigin(0.5).setScrollFactor(0).setDepth(221).setInteractive({ useHandCursor: true });
     this._addToUI([bg, title, sub, dl, close]);
 
-    dl.on('pointerdown', () => this._downloadRunJson('ai-lab-auto-stop'));
+    dl.on('pointerdown', () => this._downloadRunJson(reason));
     const cleanup = () => [bg, title, sub, dl, close].forEach(o => { try { o.destroy(); } catch(e){} });
     close.on('pointerdown', cleanup);
   }
@@ -6461,6 +6464,7 @@ export class GameScene extends Phaser.Scene {
     const winner = checkWinner(gs);
     if (winner) {
       this._showResolution([], winner);
+      if (this._aiLabExport) this._showAILabExport('game-end');
       return;
     }
 
@@ -6967,7 +6971,7 @@ export class GameScene extends Phaser.Scene {
   _showCombatCard(entry, idx, total) {
     const objs = [];
     const sw = this.scale.width, sh = this.scale.height;
-    const cx = sw * 0.5, cy = sh * 0.60;
+    const cx = sw * 0.5, cy = sh * 0.78;
     const D = 206;
 
     const GLYPH = { INFANTRY:'●', ENGINEER:'◆', RECON:'✶', TANK:'■', ARTILLERY:'▲',
@@ -6991,9 +6995,9 @@ export class GameScene extends Phaser.Scene {
       objs.push(r); return r;
     };
 
-    const cW = Math.min(900, sw - 24), cH = Math.min(520, sh - 44);
-    const cX = cx, cY = cy;
-    box(cx, cy, sw, sh, 0x000000, 0.62);
+    const cW = Math.min(900, sw - 24), cH = Math.min(420, sh - 120);
+    const cX = cx, cY = Math.min(cy, sh - (cH/2) - 10);
+    box(cx, cy, sw, sh, 0x000000, 0.28);
     box(cX, cY, cW, cH, 0x0b0e14, 0.985, 0x2e3d50);
 
     // Header
