@@ -234,6 +234,36 @@ function getLaneForR(r, mapSize) {
   return 'south';
 }
 
+function summarizeUnsuppliedClusters(gs, player) {
+  const units = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0);
+  const keyOf = (u) => `${u.q},${u.r}`;
+  const byKey = new Map(units.map(u => [keyOf(u), u]));
+  const seen = new Set();
+  const dirs = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+  const sizes = [];
+  for (const u of units) {
+    const k = keyOf(u);
+    if (seen.has(k)) continue;
+    let size = 0;
+    const stack = [u];
+    while (stack.length) {
+      const cur = stack.pop();
+      const ck = keyOf(cur);
+      if (seen.has(ck)) continue;
+      seen.add(ck);
+      size += 1;
+      for (const [dq, dr] of dirs) {
+        const nk = `${cur.q + dq},${cur.r + dr}`;
+        const n = byKey.get(nk);
+        if (n && !seen.has(nk)) stack.push(n);
+      }
+    }
+    sizes.push(size);
+  }
+  sizes.sort((a, b) => b - a);
+  return { count: sizes.length, largest: sizes[0] || 0, sizes: sizes.slice(0, 6) };
+}
+
 function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits, enemyHQs) {
   gs._aiStrategicMemory = gs._aiStrategicMemory || {};
   const prev = gs._aiStrategicMemory[player] || {};
@@ -645,6 +675,40 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     strategic,
     mapSize,
   };
+
+  const aiDebug = {
+    strategicPhase: strategic?.phase || null,
+    primaryLane: strategic?.primaryLane || null,
+    secondaryLane: strategic?.secondaryLane || null,
+    laneCenters: strategic?.laneCenters || null,
+    roadDeficitGlobal,
+    logisticsPressure,
+    logisticsEmergency,
+    corridorPlan: {
+      laneTargets: strategic ? [strategic.primaryLane, strategic.secondaryLane].filter(Boolean) : [],
+      expectedSegments: Math.max(0, Math.floor((dynamicRoadTarget - roadsNow) * 0.8)),
+      completedSegments: 0,
+    },
+    engineerAssignments: { road: 0, fob: 0, resource: 0, reroute: 0, other: 0 },
+    engineersStalled: 0,
+    recruitMix: { tier0: 0, tier1plus: 0, support: 0, naval: 0, air: 0 },
+    forceSplit: { assigned: { north: 0, center: 0, south: 0 }, current: { north: 0, center: 0, south: 0 } },
+    centerBiasScore: 0,
+    unsuppliedClusters: summarizeUnsuppliedClusters(gs, player),
+  };
+
+  // Strategic force-split diagnostics.
+  for (const u of myCombatUnits) {
+    const curLane = getLaneForR(u.r, mapSize);
+    aiDebug.forceSplit.current[curLane] = (aiDebug.forceSplit.current[curLane] || 0) + 1;
+    const obj = unitObjective[u.id];
+    if (obj) {
+      const tgtLane = getLaneForR(obj.r, mapSize);
+      aiDebug.forceSplit.assigned[tgtLane] = (aiDebug.forceSplit.assigned[tgtLane] || 0) + 1;
+    }
+  }
+  const totalCombat = Math.max(1, myCombatUnits.length);
+  aiDebug.centerBiasScore = Number(((aiDebug.forceSplit.current.center || 0) / totalCombat).toFixed(3));
 
   // Simulated AI economy spend during planning so we don't overcommit.
   const resSim = {
@@ -1486,6 +1550,64 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       .sort((a, b) => scoreRoadUtility(gs, player, b.q, b.r) - scoreRoadUtility(gs, player, a.q, a.r))[0];
     if (cand) actions.push({ type: 'move', unitId: eng.id, fromQ: eng.q, fromR: eng.r, toQ: cand.q, toR: cand.r });
   }
+
+  // Phase-1 instrumentation payload (no behavior change expected from this block).
+  const unitById = new Map(gs.units.map(u => [u.id, u]));
+  for (const a of actions) {
+    if (a.type === 'build' && a.unitId != null) {
+      const u = unitById.get(a.unitId);
+      if (u?.type === 'ENGINEER') {
+        if (a.buildingType === 'ROAD') aiDebug.engineerAssignments.road += 1;
+        else if (a.buildingType === 'SUPPLY_DEPOT' || a.buildingType === 'SUPPLY_WAREHOUSE') aiDebug.engineerAssignments.fob += 1;
+        else if (a.buildingType === 'MINE' || a.buildingType === 'OIL_PUMP' || a.buildingType === 'FARM' || a.buildingType === 'LUMBER_CAMP') aiDebug.engineerAssignments.resource += 1;
+        else aiDebug.engineerAssignments.other += 1;
+      }
+    }
+    if (a.type === 'move' && a.unitId != null) {
+      const u = unitById.get(a.unitId);
+      if (u?.type === 'ENGINEER') aiDebug.engineerAssignments.reroute += 1;
+    }
+    if (a.type === 'recruit') {
+      const t = a.unitType;
+      if (NAVAL_UNITS.has(t)) aiDebug.recruitMix.naval += 1;
+      if (AIR_UNITS.has(t)) aiDebug.recruitMix.air += 1;
+      const role = getUnitRole(t);
+      if (role === 'support' || t === 'ENGINEER') aiDebug.recruitMix.support += 1;
+      const tier = UNIT_TYPES[t]?.tier || 0;
+      if (tier <= 0) aiDebug.recruitMix.tier0 += 1;
+      else aiDebug.recruitMix.tier1plus += 1;
+    }
+  }
+
+  aiDebug.engineersStalled = idleEngineers.length;
+  aiDebug.corridorPlan.completedSegments = actions.filter(a => a.type === 'build' && a.buildingType === 'ROAD').length;
+  aiDebug.unsuppliedClusters = summarizeUnsuppliedClusters(gs, player);
+
+  // compact map/front summary for AI-lab JSON
+  const myCombatNow = gs.units.filter(u => u.owner === player && !u.embarked).filter(u => {
+    const d = UNIT_TYPES[u.type] || {};
+    return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
+  });
+  const enemyCombatNow = gs.units.filter(u => u.owner !== player && !u.embarked).filter(u => {
+    const d = UNIT_TYPES[u.type] || {};
+    return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
+  });
+  const centroid = (arr) => arr.length ? {
+    q: Number((arr.reduce((s, u) => s + u.q, 0) / arr.length).toFixed(2)),
+    r: Number((arr.reduce((s, u) => s + u.r, 0) / arr.length).toFixed(2)),
+  } : null;
+  aiDebug.mapSummary = {
+    myCombatCentroid: centroid(myCombatNow),
+    enemyCombatCentroid: centroid(enemyCombatNow),
+    lanePressure: {
+      north: (aiDebug.forceSplit.current.north || 0) - enemyCombatNow.filter(u => getLaneForR(u.r, mapSize) === 'north').length,
+      center: (aiDebug.forceSplit.current.center || 0) - enemyCombatNow.filter(u => getLaneForR(u.r, mapSize) === 'center').length,
+      south: (aiDebug.forceSplit.current.south || 0) - enemyCombatNow.filter(u => getLaneForR(u.r, mapSize) === 'south').length,
+    },
+  };
+
+  gs._aiDebug = gs._aiDebug || {};
+  gs._aiDebug[player] = aiDebug;
 
   return actions;
 }
