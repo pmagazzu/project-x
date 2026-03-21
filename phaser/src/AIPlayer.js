@@ -556,6 +556,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     if (!unit || unit.owner !== player || unit.embarked) continue;
     if (unit.fuel !== undefined && unit.fuel <= 0) continue; // no fuel
     if (unit.constructing) continue; // never abandon active construction
+    const unitDef = UNIT_TYPES[unit.type];
+    if (!unitDef) continue; // custom/invalid type guard
 
     // Snapshot original position so we can restore after planning
     unit._aiOrigQ = unit.q; unit._aiOrigR = unit.r;
@@ -604,7 +606,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
       // Temporarily restore full budget for reachable calc
       const savedMovesLeft = unit.movesLeft;
-      unit.movesLeft = UNIT_TYPES[unit.type].move;
+      unit.movesLeft = unitDef.move ?? unit.movesLeft ?? 1;
       const reachable = unit.moved ? [] : getReachableHexes(gs, unit, terrain, mapSize);
       unit.movesLeft  = savedMovesLeft;
 
@@ -722,6 +724,12 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           // Utility-first logistics: only hard-force roads when deficit is severe.
           const roadUtilityHere = scoreRoadUtility(gs, player, unit.q, unit.r);
           if (roadDeficit >= 4 && !hasRoad && roadUtilityHere >= 14 && maybeBuild('ROAD')) continue;
+
+          // Macro floor nudges: if we're stockpiling, force missing core econ/tech pieces online.
+          const onPlainsMacro = (ttype === 0 || ttype === 6 || ttype === 7);
+          if (gs.turn >= 10 && myFarms < 2 && onPlainsMacro && maybeBuild('FARM')) continue;
+          if (gs.turn >= 12 && myLabs < 1 && maybeBuild('SCIENCE_LAB')) continue;
+          if (gs.turn >= 16 && myFactories < 1 && maybeBuild('FACTORY')) continue;
 
           // Priority 1: exploit local resources (always do this first)
           const wood = gs.players[player].wood || 0;
@@ -1058,7 +1066,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       }
 
       // Case B: move to a nearby roadable tile this turn, then build road there.
-      const reachable = getReachableHexes(gs, terrain, mapSize, eng, eng.q, eng.r) || [];
+      const reachable = getReachableHexes(gs, eng, terrain, mapSize) || [];
       const cand = reachable
         .filter(h => roadableHere(h.q, h.r))
         .sort((a, b) => scoreRoadUtility(gs, player, b.q, b.r) - scoreRoadUtility(gs, player, a.q, a.r))[0];

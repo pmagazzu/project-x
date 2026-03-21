@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.92';
+export const GAME_VERSION = 'v1.4.93';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -6502,6 +6502,16 @@ export class GameScene extends Phaser.Scene {
       actions = planAITurn(gs, this.terrain, this.mapSize, this.aiStrategy);
     } catch (e) {
       this._pushLog(`AI planner crash: ${e?.message || e}`);
+      this._aiTelemetry = this._aiTelemetry || {};
+      this._aiTelemetry[gs.currentPlayer] = {
+        turn: gs.turn,
+        roadDeficit: 0,
+        roadsPlanned: 0,
+        roadsAttempted: 0,
+        roadsSucceeded: 0,
+        plannerReason: 'planner_crash',
+        blocked: { occupied: 0, noWood: 0, alreadyRoad: 0, invalidBuilder: 0 },
+      };
       this._aiTurnInProgress = false;
       this._aiLastProgressAt = Date.now();
       this._onSubmit();
