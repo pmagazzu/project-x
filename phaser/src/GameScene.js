@@ -6494,6 +6494,10 @@ export class GameScene extends Phaser.Scene {
     this._aiTurnInProgress = true;
     this._aiLastProgressAt = Date.now();
     const gs  = this.gameState;
+    const preUnitsByOwner = {
+      1: gs.units.filter(u => Number(u.owner) === 1).length,
+      2: gs.units.filter(u => Number(u.owner) === 2).length,
+    };
     const w   = this.scale.width, h = this.scale.height;
     const stratLabel = AI_STRATEGIES[this.aiStrategy]?.label || 'Balanced';
 
@@ -6562,6 +6566,16 @@ export class GameScene extends Phaser.Scene {
       this._aiLastProgressAt = Date.now();
       const postKPI = getAIKPIReport(gs, gs.currentPlayer);
       this._pushLog(`AI P${gs.currentPlayer}: post-action ${postKPI.summary}`);
+      const postUnitsByOwner = {
+        1: gs.units.filter(u => Number(u.owner) === 1).length,
+        2: gs.units.filter(u => Number(u.owner) === 2).length,
+      };
+      for (const p of [1, 2]) {
+        const delta = postUnitsByOwner[p] - (preUnitsByOwner[p] || 0);
+        if (delta <= -8) {
+          this._pushLog(`⚠ MASS LOSS P${p}: ${preUnitsByOwner[p]} -> ${postUnitsByOwner[p]} (Δ${delta}) on AI P${gs.currentPlayer} turn`);
+        }
+      }
       // All done — dismiss status bar and end AI's turn
       try { overlay?.destroy(); } catch(e){}
       try { lbl?.destroy();     } catch(e){}

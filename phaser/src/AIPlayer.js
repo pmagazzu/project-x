@@ -778,6 +778,12 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
               const roadUtilityHere = scoreRoadUtility(gs, player, unit.q, unit.r);
               needs.push({ type: 'ROAD', score: (8 - myRoads * 0.2 + unsupplied * 6.0 + d.roads * 5 + roadDeficit * 2 + Math.max(0, roadUtilityHere) * 0.5) * phaseWeights.logistics });
             }
+            // Frontline supply nodes: build depots near pressure zones when OOS is high.
+            const mySupplyDepots = gs.buildings.filter(bb => bb.owner === player && bb.type === 'SUPPLY_DEPOT' && !bb.underConstruction).length;
+            if (gs.turn >= 10 && unsupplied >= 4 && mySupplyDepots < 3) {
+              const pressure = getEnemies().filter(e => hexDistance(e.q, e.r, unit.q, unit.r) <= 4).length;
+              needs.push({ type: 'SUPPLY_DEPOT', score: (8 + unsupplied * 1.5 + pressure * 2.2 - mySupplyDepots * 2) * phaseWeights.logistics });
+            }
             // Science Lab: research, cap at 2
             if (myLabs < 2 && gs.turn >= 2) needs.push({ type: 'SCIENCE_LAB', score: (8 - myLabs * 4 + d.labs * 6) * phaseWeights.research });
             // Factory: components, cap at 2
@@ -802,11 +808,16 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             const canPushTier2 = gs.turn >= 9 && (myFactories >= 1 || comp >= 3);
             if (canPushTier2) {
               if (myAdvBarracks < 1) needs.push({ type: 'ADV_BARRACKS', score: 8 * phaseWeights.combat });
-              if (myArmorWorks < 1)  needs.push({ type: 'ARMOR_WORKS', score: 8.5 * phaseWeights.combat });
+              if (myArmorWorks < 1)  needs.push({ type: 'ARMOR_WORKS', score: (9.0 + Math.min(3, comp * 0.4)) * phaseWeights.combat });
               if (myAdvAirfield < 1) needs.push({ type: 'ADV_AIRFIELD', score: 7.5 * phaseWeights.combat });
               if (myNavalDockyard < 1 && (gs.buildings.some(bb => bb.owner === player && ['HARBOR','NAVAL_YARD','DRY_DOCK','NAVAL_BASE'].includes(bb.type)))) {
                 needs.push({ type: 'NAVAL_DOCKYARD', score: 7.2 * phaseWeights.logistics });
               }
+            }
+            // Component sink doctrine: if components pile up, prioritize higher-tier war industry.
+            if (gs.turn >= 18 && comp >= 6) {
+              if (myArmorWorks < 1) needs.push({ type: 'ARMOR_WORKS', score: 11.5 * phaseWeights.combat });
+              if (myAdvAirfield < 1) needs.push({ type: 'ADV_AIRFIELD', score: 10.2 * phaseWeights.combat });
             }
 
             // Sort by score descending and try each
@@ -1008,6 +1019,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const phaseDelta = recruitRoleScore(b2) - recruitRoleScore(a);
       return baseDelta + phaseDelta * 0.1;
     });
+    // If components are available, prefer units that actually consume components.
+    if ((resSim.components || 0) >= 4) {
+      sorted.sort((a, b2) => ((UNIT_TYPES[b2]?.cost?.components || 0) - (UNIT_TYPES[a]?.cost?.components || 0)));
+    }
 
     // Logistics override: when supply is strained, prioritize supply units.
     const unsuppliedGround = gs.units.filter(u => u.owner === player && !u.embarked && !NAVAL_UNITS.has(u.type) && (u.outOfSupply || 0) > 0).length;
