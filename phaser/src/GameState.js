@@ -676,6 +676,22 @@ export function createGameState(scenario = 'default') {
     state.units.push(createUnit('SUPPLY_TRUCK', p, spawnQ, spawnR));
   }
 
+  // Ensure both teams start with one Vehicle Depot near HQ for faster land-force ramp.
+  for (const p of [1,2]) {
+    const hasDepot = state.buildings.some(b => Number(b.owner) === p && b.type === 'VEHICLE_DEPOT');
+    if (hasDepot) continue;
+    const hq = state.buildings.find(b => Number(b.owner) === p && b.type === 'HQ');
+    if (!hq) continue;
+
+    let dq = hq.q, dr = hq.r;
+    for (const [oq, or] of START_NBRS) {
+      const nq = hq.q + oq, nr = hq.r + or;
+      const occupiedByBuilding = state.buildings.some(b => b.q === nq && b.r === nr && !ROAD_TYPES.has(b.type));
+      if (!occupiedByBuilding) { dq = nq; dr = nr; break; }
+    }
+    state.buildings.push(createBuilding('VEHICLE_DEPOT', p, dq, dr));
+  }
+
   // Ensure non-economy buildings start with a dirt road on the same hex.
   for (const b of state.buildings) {
     if (ROAD_TYPES.has(b.type)) continue;

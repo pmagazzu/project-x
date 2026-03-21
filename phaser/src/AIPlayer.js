@@ -1233,8 +1233,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     }
   }
 
-  // Road quota: when behind network targets, ensure at least one road build is planned this turn when possible.
-  if (roadDeficitGlobal > 0 && plannedRoadBuilds === 0) {
+  // Road quota: when behind network targets (or when supply is already strained),
+  // ensure at least one road build is planned this turn when possible.
+  if ((roadDeficitGlobal > 0 || logisticsPressure) && plannedRoadBuilds === 0) {
     const roadableHere = (q, r) => {
       const t = terrain?.[`${q},${r}`] ?? 0;
       if (t === 2) return false; // no roads on mountains
@@ -1277,13 +1278,60 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     (a.type === 'recruit' && a.unitType === 'SUPPLY_TRUCK')
   ).length;
   if (logisticsPressure && logisticsPlanned === 0) {
-    const truckB = myBuildings.find(bb => (BUILDING_TYPES[bb.type]?.canRecruit || []).includes('SUPPLY_TRUCK') && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player) && !actions.some(a => a.type === 'recruit' && a.buildingId === bb.id));
-    if (truckB) {
-      const c = UNIT_TYPES['SUPPLY_TRUCK']?.cost || {};
-      const f = getRecruitFoodCost('SUPPLY_TRUCK');
-      if (resSim.iron >= (c.iron||0) && resSim.oil >= (c.oil||0) && resSim.wood >= (c.wood||0) && resSim.food >= f && resSim.components >= (c.components||0)) {
-        actions.push({ type: 'recruit', buildingId: truckB.id, unitType: 'SUPPLY_TRUCK' });
-        resSim.iron -= (c.iron||0); resSim.oil -= (c.oil||0); resSim.wood -= (c.wood||0); resSim.food -= f; resSim.components -= (c.components||0);
+    const canBuildHere = (q, r) => {
+      const b = buildingAt(gs, q, r);
+      return !b || ROAD_TYPES.has(b.type);
+    };
+
+    // 1) Try to place a forward depot/warehouse first when supply is strained.
+    const depotType = logisticsEmergency ? 'SUPPLY_WAREHOUSE' : 'SUPPLY_DEPOT';
+    const depotCost = BUILDING_TYPES[depotType]?.buildCost || {};
+    const idleEngs = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked && !u.constructing);
+    for (const eng of idleEngs) {
+      if (!canBuildHere(eng.q, eng.r)) continue;
+      if (!canAfford(depotCost)) break;
+      actions.push({ type: 'build', unitId: eng.id, buildingType: depotType });
+      spend(depotCost);
+      break;
+    }
+
+    // 2) If still nothing, force a road action from an engineer.
+    const logisticsPlanned2 = actions.filter(a =>
+      (a.type === 'build' && ['ROAD','SUPPLY_DEPOT','SUPPLY_WAREHOUSE'].includes(a.buildingType)) ||
+      (a.type === 'recruit' && a.unitType === 'SUPPLY_TRUCK')
+    ).length;
+    if (logisticsPlanned2 === 0) {
+      const rcost = BUILDING_TYPES['ROAD']?.buildCost || {};
+      const roadable = (q, r) => {
+        const t = terrain?.[`${q},${r}`] ?? 0;
+        if (t === 2) return false;
+        if (roadAt(gs, q, r)) return false;
+        return canBuildHere(q, r);
+      };
+      for (const eng of idleEngs) {
+        if (!canAfford(rcost)) break;
+        if (roadable(eng.q, eng.r)) {
+          actions.push({ type: 'build', unitId: eng.id, buildingType: 'ROAD' });
+          spend(rcost);
+          break;
+        }
+      }
+    }
+
+    // 3) Last fallback: queue truck.
+    const logisticsPlanned3 = actions.filter(a =>
+      (a.type === 'build' && ['ROAD','SUPPLY_DEPOT','SUPPLY_WAREHOUSE'].includes(a.buildingType)) ||
+      (a.type === 'recruit' && a.unitType === 'SUPPLY_TRUCK')
+    ).length;
+    if (logisticsPlanned3 === 0) {
+      const truckB = myBuildings.find(bb => (BUILDING_TYPES[bb.type]?.canRecruit || []).includes('SUPPLY_TRUCK') && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player) && !actions.some(a => a.type === 'recruit' && a.buildingId === bb.id));
+      if (truckB) {
+        const c = UNIT_TYPES['SUPPLY_TRUCK']?.cost || {};
+        const f = getRecruitFoodCost('SUPPLY_TRUCK');
+        if (resSim.iron >= (c.iron||0) && resSim.oil >= (c.oil||0) && resSim.wood >= (c.wood||0) && resSim.food >= f && resSim.components >= (c.components||0)) {
+          actions.push({ type: 'recruit', buildingId: truckB.id, unitType: 'SUPPLY_TRUCK' });
+          resSim.iron -= (c.iron||0); resSim.oil -= (c.oil||0); resSim.wood -= (c.wood||0); resSim.food -= f; resSim.components -= (c.components||0);
+        }
       }
     }
   }
