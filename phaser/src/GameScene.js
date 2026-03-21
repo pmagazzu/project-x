@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.90';
+export const GAME_VERSION = 'v1.4.91';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -145,6 +145,8 @@ export class GameScene extends Phaser.Scene {
     this._mapBuilderMode = !!data.mapBuilder;
     this._aiViewerMode = !!data.aiViewerMode;
     this._aiAutoplayPaused = false;
+    this._aiTurnInProgress = false;
+    this._aiLastProgressAt = Date.now();
     this._autoStopTurn = Number(data.autoStopTurn) || 0;
     this._aiLabExport = !!data.aiLabExport;
     this._startSupplyTruck = !!data.startSupplyTruck;
@@ -5046,6 +5048,17 @@ export class GameScene extends Phaser.Scene {
                    W.UP.isDown || W.DOWN.isDown || W.LEFT.isDown || W.RIGHT.isDown);
     if (moving && this._contextMenuObjs) this._hideContextMenu();
 
+    // AI autoplay self-heal: if AI-vs-AI is active and we're idle too long, kick next AI turn.
+    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2) && !this._aiAutoplayPaused) {
+      const now = Date.now();
+      const stalled = (now - (this._aiLastProgressAt || 0)) > 4000;
+      if (stalled && !this._aiTurnInProgress && !this._nameModalOpen && !this._settingsOpen && !this._endTurnPending && this.aiPlayers.has(this.gameState.currentPlayer)) {
+        this._pushLog(`AI autoplay self-heal: restarting P${this.gameState.currentPlayer} turn`);
+        this._aiLastProgressAt = now;
+        this._runAITurn();
+      }
+    }
+
     // Drive slide animation: redraw units every frame while slide is in progress
     if (this._slideState) {
       const { startTime, duration } = this._slideState;
@@ -6377,6 +6390,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   _onSubmit() {
+    this._aiLastProgressAt = Date.now();
     this._hideEndTurnConfirm();
     // IGOUGO: end this player's turn (captures/income/spawns), then pass
     const gs = this.gameState;
@@ -6453,6 +6467,9 @@ export class GameScene extends Phaser.Scene {
   // ── AI turn runner ────────────────────────────────────────────────────────
 
   _runAITurn() {
+    if (this._aiTurnInProgress) return;
+    this._aiTurnInProgress = true;
+    this._aiLastProgressAt = Date.now();
     const gs  = this.gameState;
     const w   = this.scale.width, h = this.scale.height;
     const stratLabel = AI_STRATEGIES[this.aiStrategy]?.label || 'Balanced';
@@ -6499,6 +6516,8 @@ export class GameScene extends Phaser.Scene {
     const finishAITurn = () => {
       if (aiTurnDone) return;
       aiTurnDone = true;
+      this._aiTurnInProgress = false;
+      this._aiLastProgressAt = Date.now();
       const postKPI = getAIKPIReport(gs, gs.currentPlayer);
       this._pushLog(`AI P${gs.currentPlayer}: post-action ${postKPI.summary}`);
       // All done — dismiss status bar and end AI's turn
