@@ -6540,7 +6540,12 @@ export class GameScene extends Phaser.Scene {
     }
     const aiCounts = actions.reduce((acc, a) => { acc[a.type] = (acc[a.type] || 0) + 1; return acc; }, {});
     const roadsBuiltThisTurn = actions.filter(a => a.type === 'build' && a.buildingType === 'ROAD').length;
+    const depotsBuiltThisTurn = actions.filter(a => a.type === 'build' && a.buildingType === 'SUPPLY_DEPOT').length;
     const engineersQueued = actions.filter(a => a.type === 'recruit' && a.unitType === 'ENGINEER').length;
+    const trucksQueued = actions.filter(a => a.type === 'recruit' && a.unitType === 'SUPPLY_TRUCK').length;
+    const myUnitsNow = gs.units.filter(u => Number(u.owner) === Number(gs.currentPlayer) && !u.embarked);
+    const unsuppliedNow = myUnitsNow.filter(u => (u.outOfSupply || 0) > 0).length;
+    const logisticsOverride = unsuppliedNow >= Math.max(2, Math.floor(myUnitsNow.length * 0.2));
     this._aiTelemetry = this._aiTelemetry || {};
     const roadsNow = gs.buildings.filter(b => Number(b.owner) === Number(gs.currentPlayer) && b.type === 'ROAD').length;
     const roadFloor = (gs.turn <= 5) ? 2 : (gs.turn <= 10) ? 5 : (gs.turn <= 15) ? 8 : 12;
@@ -6550,11 +6555,17 @@ export class GameScene extends Phaser.Scene {
       roadsPlanned: roadsBuiltThisTurn,
       roadsAttempted: 0,
       roadsSucceeded: 0,
-      plannerReason: roadsBuiltThisTurn > 0 ? 'planned' : (roadsNow >= roadFloor ? 'floor_met' : 'no_viable_plan'),
+      logisticsOverride,
+      unsuppliedNow,
+      depotsPlanned: depotsBuiltThisTurn,
+      trucksQueued,
+      plannerReason: logisticsOverride
+        ? (roadsBuiltThisTurn > 0 || depotsBuiltThisTurn > 0 || trucksQueued > 0 ? 'logistics_override' : 'logistics_pressure')
+        : (roadsBuiltThisTurn > 0 ? 'planned' : (roadsNow >= roadFloor ? 'floor_met' : 'no_viable_plan')),
       blocked: { occupied: 0, noWood: 0, alreadyRoad: 0, invalidBuilder: 0 },
     };
     this._pushLog(`AI P${gs.currentPlayer}: ${actions.length} actions (move:${aiCounts.move||0} atk:${aiCounts.attack||0} build:${aiCounts.build||0} recruit:${aiCounts.recruit||0} design:${aiCounts.design||0})`);
-    this._pushLog(`AI P${gs.currentPlayer}: roadsPlanned=${roadsBuiltThisTurn} engQueued=${engineersQueued}`);
+    this._pushLog(`AI P${gs.currentPlayer}: roadsPlanned=${roadsBuiltThisTurn} depotsPlanned=${depotsBuiltThisTurn} engQueued=${engineersQueued} trucksQueued=${trucksQueued} oos=${unsuppliedNow} override=${logisticsOverride ? 'Y' : 'N'}`);
     this._pushLog(`AI P${gs.currentPlayer}: ${preKPI.summary}`);
 
     // Execute actions sequentially with delays and visual feedback

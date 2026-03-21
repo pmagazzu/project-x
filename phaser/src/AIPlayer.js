@@ -195,6 +195,35 @@ function getRoadFloor(turn = 1) {
   return 12;
 }
 
+function getFrontlineDistanceEstimate(gs, player) {
+  const myHQs = gs.buildings.filter(b => b.type === 'HQ' && Number(b.owner) === Number(player));
+  const enemyUnits = gs.units.filter(u => Number(u.owner) !== Number(player) && !u.embarked);
+  const myCombat = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked)
+    .filter(u => {
+      const d = UNIT_TYPES[u.type] || {};
+      return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
+    });
+  if (!myHQs.length || !enemyUnits.length || !myCombat.length) return 0;
+
+  const cx = myCombat.reduce((s, u) => s + u.q, 0) / myCombat.length;
+  const cy = myCombat.reduce((s, u) => s + u.r, 0) / myCombat.length;
+  const nearestEnemy = enemyUnits.reduce((a, b) => hexDistance(cx, cy, a.q, a.r) <= hexDistance(cx, cy, b.q, b.r) ? a : b);
+  return Math.min(...myHQs.map(h => hexDistance(h.q, h.r, nearestEnemy.q, nearestEnemy.r)));
+}
+
+function getDynamicRoadTarget(gs, player) {
+  const base = getRoadFloor(gs.turn || 1);
+  const myUnits = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked);
+  const unsupplied = myUnits.filter(u => (u.outOfSupply || 0) > 0).length;
+  const frontlineDist = getFrontlineDistanceEstimate(gs, player);
+
+  const unitPressure = Math.ceil(myUnits.length / 6);
+  const supplyPressure = unsupplied >= 1 ? (1 + Math.ceil(unsupplied / 2)) : 0;
+  const spanPressure = Math.ceil(frontlineDist / 6);
+
+  return Math.max(base, Math.min(26, base + unitPressure + supplyPressure + spanPressure));
+}
+
 function scoreRoadUtility(gs, player, q, r) {
   const key = `${q},${r}`;
   const hasRoad = !!roadAt(gs, q, r);
@@ -510,11 +539,20 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   const opening = getOpeningMilestones(gs, player);
   const roadFloor = getRoadFloor(gs.turn || 1);
+  const dynamicRoadTarget = getDynamicRoadTarget(gs, player);
   const roadsNow = gs.buildings.filter(bb => bb.owner === player && bb.type === 'ROAD').length;
-  const roadDeficitGlobal = Math.max(0, roadFloor - roadsNow);
+  const roadDeficitGlobal = Math.max(0, dynamicRoadTarget - roadsNow);
+  const myUnitsNow = gs.units.filter(u => u.owner === player && !u.embarked);
+  const unsuppliedNow = myUnitsNow.filter(u => (u.outOfSupply || 0) > 0).length;
+  const logisticsPressure = unsuppliedNow >= Math.max(2, Math.floor(myUnitsNow.length * 0.2));
+  const logisticsEmergency = unsuppliedNow >= Math.max(3, Math.floor(myUnitsNow.length * 0.3));
   const myEngineersNow = gs.units.filter(u => u.owner === player && !u.embarked && u.type === 'ENGINEER');
   const roadCaptainId = myEngineersNow.length > 0 ? myEngineersNow.sort((a,b) => a.id - b.id)[0].id : null;
-  const aiCtx = { deceptionTurn, resourceTargets, unitObjective, phaseWeights, roadDeficit: roadDeficitGlobal, roadCaptainId };
+  const aiCtx = {
+    deceptionTurn, resourceTargets, unitObjective, phaseWeights,
+    roadDeficit: roadDeficitGlobal, roadCaptainId,
+    logisticsPressure, logisticsEmergency, dynamicRoadTarget,
+  };
 
   // Simulated AI economy spend during planning so we don't overcommit.
   const resSim = {
@@ -699,7 +737,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         // Always allow ROAD consideration even if a non-road building exists on this tile.
         // Roads are intended to coexist with buildings and form supply corridors.
         const roadsNowForEng = gs.buildings.filter(b => b.owner === player && b.type === 'ROAD').length;
-        const roadDeficitForEng = Math.max(0, roadFloor - roadsNowForEng);
+        const roadDeficitForEng = Math.max(0, dynamicRoadTarget - roadsNowForEng);
         if (!hasRoad && gs.turn >= 3) {
           const unsupplied = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0).length;
           const roadUtilityHere = scoreRoadUtility(gs, player, unit.q, unit.r);
@@ -720,7 +758,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           const myArmorWorks = gs.buildings.filter(b => b.owner === player && b.type === 'ARMOR_WORKS' && !b.underConstruction).length;
           const myAdvAirfield = gs.buildings.filter(b => b.owner === player && b.type === 'ADV_AIRFIELD' && !b.underConstruction).length;
           const myNavalDockyard = gs.buildings.filter(b => b.owner === player && b.type === 'NAVAL_DOCKYARD' && !b.underConstruction).length;
-          const roadDeficit = Math.max(0, roadFloor - myRoads);
+          const roadDeficit = Math.max(0, dynamicRoadTarget - myRoads);
 
           // Utility-first logistics: only hard-force roads when deficit is severe.
           const roadUtilityHere = scoreRoadUtility(gs, player, unit.q, unit.r);
@@ -778,11 +816,12 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
               const roadUtilityHere = scoreRoadUtility(gs, player, unit.q, unit.r);
               needs.push({ type: 'ROAD', score: (8 - myRoads * 0.2 + unsupplied * 6.0 + d.roads * 5 + roadDeficit * 2 + Math.max(0, roadUtilityHere) * 0.5) * phaseWeights.logistics });
             }
-            // Frontline supply nodes: build depots near pressure zones when OOS is high.
+            // Frontline supply nodes: build depots along corridor when OOS/high span pressure appears.
             const mySupplyDepots = gs.buildings.filter(bb => bb.owner === player && bb.type === 'SUPPLY_DEPOT' && !bb.underConstruction).length;
-            if (gs.turn >= 10 && unsupplied >= 4 && mySupplyDepots < 3) {
+            const frontlineSpan = getFrontlineDistanceEstimate(gs, player);
+            if (gs.turn >= 9 && mySupplyDepots < 4 && (unsupplied >= 3 || roadDeficit >= 3 || frontlineSpan >= 10)) {
               const pressure = getEnemies().filter(e => hexDistance(e.q, e.r, unit.q, unit.r) <= 4).length;
-              needs.push({ type: 'SUPPLY_DEPOT', score: (8 + unsupplied * 1.5 + pressure * 2.2 - mySupplyDepots * 2) * phaseWeights.logistics });
+              needs.push({ type: 'SUPPLY_DEPOT', score: (10 + unsupplied * 1.8 + pressure * 2.0 + Math.floor(frontlineSpan / 3) + roadDeficit * 1.2 - mySupplyDepots * 2) * phaseWeights.logistics });
             }
             // Science Lab: research, cap at 2
             if (myLabs < 2 && gs.turn >= 2) needs.push({ type: 'SCIENCE_LAB', score: (8 - myLabs * 4 + d.labs * 6) * phaseWeights.research });
@@ -1036,12 +1075,13 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       sorted.unshift('SUPPLY_SHIP');
     }
     const hasAdvancedOption = sorted.some(t => (UNIT_TYPES[t]?.tier || 0) >= 1 || !!UNIT_TYPES[t]?.unlockedBy);
+    const logisticsCriticalRecruits = new Set(['ENGINEER','SUPPLY_TRUCK','SUPPLY_SHIP','INFANTRY','RECON']);
 
     // Opening milestone controller (T1–T12): ensure baseline macro tools come online.
     if (opening.turn <= 12) {
       const enforce = [];
       const roadsNow = gs.buildings.filter(bb => bb.owner === player && bb.type === 'ROAD').length;
-      const roadDeficit = Math.max(0, roadFloor - roadsNow);
+      const roadDeficit = Math.max(0, dynamicRoadTarget - roadsNow);
       const macroDeficit = opening.deficits.roads + opening.deficits.mines + opening.deficits.pumps + opening.deficits.farms + opening.deficits.labs + opening.deficits.factories + roadDeficit;
       if (macroDeficit > 0 && sorted.includes('ENGINEER')) enforce.push('ENGINEER');
       if (opening.deficits.supplyTrucks > 0 && sorted.includes('SUPPLY_TRUCK')) enforce.push('SUPPLY_TRUCK');
@@ -1056,6 +1096,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const buildingCanRecruitAny = (set) => sorted.some(t => set.has(t));
     for (const unitType of sorted) {
       const totals = plannedTotals();
+      if (logisticsEmergency && !logisticsCriticalRecruits.has(unitType)) continue;
+      if (logisticsPressure && (UNIT_TYPES[unitType]?.cost?.oil || 0) >= 2 && !logisticsCriticalRecruits.has(unitType)) continue;
       const desiredVehicleMin = (gs.turn >= 18) ? Math.max(2, Math.floor(totals.combat * 0.20)) : 0;
       const desiredAirMin = (gs.turn >= 22) ? Math.max(1, Math.floor(totals.combat * 0.12)) : 0;
       const desiredIndirectMin = (gs.turn >= 16) ? Math.max(2, Math.floor(totals.combat * 0.15)) : 0;
