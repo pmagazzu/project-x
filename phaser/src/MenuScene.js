@@ -45,6 +45,14 @@ const SCENARIOS = [
     hoverColor: 0x3a79a8,
   },
   {
+    key:   'ai_vs_ai_island_extreme_120',
+    label: 'AI VS AI · ISLAND EXTREME (120T)',
+    icon:  '🤖',
+    sub:   '135×135 single island profile · both players AI (120 turns)',
+    color: 0x2a2f68,
+    hoverColor: 0x4a59b0,
+  },
+  {
     key:   'mortar_test',
     label: 'MORTAR TEST',
     icon:  '△',
@@ -150,9 +158,15 @@ export class MenuScene extends Phaser.Scene {
         sub.setStyle({ fill: '#556650' });
       });
       bg.on('pointerdown', () => {
-        if (sc.key === 'ai_vs_ai_island_medium' || sc.key === 'ai_vs_ai_island_medium_40' || sc.key === 'ai_vs_ai_island_large_80') {
-          const autoStopTurn = sc.key === 'ai_vs_ai_island_medium_40' ? 40 : (sc.key === 'ai_vs_ai_island_large_80' ? 80 : 20);
-          const customSize = sc.key === 'ai_vs_ai_island_large_80' ? 90 : 40;
+        if (sc.key === 'ai_vs_ai_island_medium' || sc.key === 'ai_vs_ai_island_medium_40' || sc.key === 'ai_vs_ai_island_large_80' || sc.key === 'ai_vs_ai_island_extreme_120') {
+          const autoStopTurn = sc.key === 'ai_vs_ai_island_medium_40'
+            ? 40
+            : (sc.key === 'ai_vs_ai_island_large_80'
+              ? 80
+              : (sc.key === 'ai_vs_ai_island_extreme_120' ? 120 : 20));
+          const customSize = sc.key === 'ai_vs_ai_island_large_80'
+            ? 90
+            : (sc.key === 'ai_vs_ai_island_extreme_120' ? 135 : 40);
           this.scene.start('GameScene', {
             scenario: 'custom',
             customSize,
