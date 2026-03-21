@@ -308,6 +308,19 @@ export function getAIKPIReport(gs, player) {
   };
 }
 
+function getEnemyThreatAt(gs, owner, q, r) {
+  const enemies = gs.units.filter(u => Number(u.owner) !== Number(owner) && !u.embarked);
+  let threat = 0;
+  for (const e of enemies) {
+    const def = UNIT_TYPES[e.type] || {};
+    const rng = Math.max(1, def.range || 1);
+    const d = hexDistance(q, r, e.q, e.r);
+    if (d <= rng) threat += 1;
+    if (d <= 1) threat += 2;
+  }
+  return threat;
+}
+
 function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx = {}) {
   const cfg = AI_STRATEGIES[strat] ?? AI_STRATEGIES.balanced;
   const role = getUnitRole(unit.type);
@@ -451,6 +464,18 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
       const nearFriend = Math.min(...friendlyCombat.map(f => hexDistance(q, r, f.q, f.r)));
       if (nearFriend <= 2) score += 8;
       if (nearFriend > 5) score -= 5;
+    }
+
+    // Supply trucks are fragile and should avoid leading pushes.
+    if (unit.type === 'SUPPLY_TRUCK') {
+      const threat = getEnemyThreatAt(gs, unit.owner, q, r);
+      if (threat > 0) score -= 30 + threat * 10;
+      if (nearestEnemy <= 4) score -= (5 - nearestEnemy) * 14;
+      if (!mySupply?.has?.(`${q},${r}`)) score -= 20;
+      if (friendlyCombat.length > 0) {
+        const nearFriend = Math.min(...friendlyCombat.map(f => hexDistance(q, r, f.q, f.r)));
+        if (nearFriend >= 1 && nearFriend <= 3) score += 10;
+      }
     }
   }
 
@@ -1154,7 +1179,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       }
       if (unitType === 'SUPPLY_TRUCK') {
         const myTrucks = gs.units.filter(u => u.owner === player && u.type === 'SUPPLY_TRUCK').length;
-        if (myTrucks >= 3) continue;
+        const frontlineSpan = getFrontlineDistanceEstimate(gs, player);
+        const truckCap = Math.max(3, Math.min(10, 3 + Math.floor(frontlineSpan / 8) + Math.floor(Math.max(0, unsuppliedGround) / 3)));
+        if (myTrucks >= truckCap) continue;
       }
       if (unitType === 'SUPPLY_SHIP') {
         const myShips = gs.units.filter(u => u.owner === player && u.type === 'SUPPLY_SHIP').length;
@@ -1315,6 +1342,30 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       if ((t === 0 || t === 6 || t === 7) && tryBuild('FARM')) break;
       if (gs.turn >= 6 && tryBuild('SCIENCE_LAB')) break;
     }
+  }
+
+  // Engineer utilization sweep: avoid idle engineers when valid logistics work exists.
+  const actedEngineerIds = new Set(actions.filter(a => a.unitId != null).map(a => a.unitId));
+  const idleEngineers = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked && !u.constructing && !actedEngineerIds.has(u.id));
+  const roadCostFinal = BUILDING_TYPES['ROAD']?.buildCost || { wood: 1 };
+  const roadableHereFinal = (q, r) => {
+    const t = terrain?.[`${q},${r}`] ?? 0;
+    if (t === 2) return false;
+    if (roadAt(gs, q, r)) return false;
+    const b = buildingAt(gs, q, r);
+    return !b || ROAD_TYPES.has(b.type);
+  };
+  for (const eng of idleEngineers) {
+    if (canAfford(roadCostFinal) && roadableHereFinal(eng.q, eng.r)) {
+      actions.push({ type: 'build', unitId: eng.id, buildingType: 'ROAD' });
+      spend(roadCostFinal);
+      continue;
+    }
+    const reachable = getReachableHexes(gs, eng, terrain, mapSize) || [];
+    const cand = reachable
+      .filter(h => roadableHereFinal(h.q, h.r))
+      .sort((a, b) => scoreRoadUtility(gs, player, b.q, b.r) - scoreRoadUtility(gs, player, a.q, a.r))[0];
+    if (cand) actions.push({ type: 'move', unitId: eng.id, fromQ: eng.q, fromR: eng.r, toQ: cand.q, toR: cand.r });
   }
 
   return actions;

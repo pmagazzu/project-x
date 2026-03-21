@@ -2313,8 +2313,9 @@ export function computeSupply(state, player, mapSize) {
   const isRoadHex = (q, r) => hqRoadConnected.has(`${q},${r}`);
 
   const floodFill = (sq, sr, radius) => {
-    // BFS — roads cost 0, other hexes cost 1. Road chaining is capped (max 2 road hops).
-    const ROAD_CHAIN_LIMIT = 2;
+    // BFS — roads cost 0, other hexes cost 1.
+    // Highways should genuinely project supply deep into theater (not just 2 hops).
+    const ROAD_CHAIN_LIMIT = 12;
     const queue = [{ q: sq, r: sr, rem: radius, roadChain: 0 }];
     const visited = new Map(); // key -> best rem seen for chain-state
     visited.set(`${sq},${sr},0`, radius);
@@ -2332,8 +2333,9 @@ export function computeSupply(state, player, mapSize) {
           nextRoadChain = fromRoad ? (roadChain + 1) : 1;
           if (nextRoadChain > ROAD_CHAIN_LIMIT) continue;
         }
-        // entering a road from non-road consumes 3 range; continuing on roads is free.
-        const stepCost = toRoad ? (fromRoad ? 0 : 3) : 1;
+        // entering a road from non-road consumes 1 range; continuing on roads is free.
+        // This makes road corridors materially better for long-distance logistics.
+        const stepCost = toRoad ? (fromRoad ? 0 : 1) : 1;
         const nextRem = rem - stepCost;
         const key = `${nq},${nr},${nextRoadChain}`;
         const prevBest = visited.get(key) ?? -1;
