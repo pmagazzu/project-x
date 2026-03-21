@@ -216,12 +216,15 @@ function getDynamicRoadTarget(gs, player) {
   const myUnits = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked);
   const unsupplied = myUnits.filter(u => (u.outOfSupply || 0) > 0).length;
   const frontlineDist = getFrontlineDistanceEstimate(gs, player);
+  const mapN = Number(gs._mapSize || 40);
 
   const unitPressure = Math.ceil(myUnits.length / 6);
   const supplyPressure = unsupplied >= 1 ? (1 + Math.ceil(unsupplied / 2)) : 0;
   const spanPressure = Math.ceil(frontlineDist / 6);
+  const mapPressure = Math.max(0, Math.ceil((mapN - 40) / 12));
+  const cap = Math.max(26, Math.floor(mapN * 0.75));
 
-  return Math.max(base, Math.min(26, base + unitPressure + supplyPressure + spanPressure));
+  return Math.max(base, Math.min(cap, base + unitPressure + supplyPressure + spanPressure + mapPressure));
 }
 
 function scoreRoadUtility(gs, player, q, r) {
@@ -1182,6 +1185,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const lineCount = lineTypes.reduce((s,t) => s + (plannedCount[t] || 0), 0);
       if (unitType === 'INFANTRY' && lineCount / totalCombat > 0.55) continue;
       if ((unitType === 'PATROL_BOAT' || unitType === 'MTB') && (plannedCount[unitType] || 0) >= 4) continue;
+      if (['LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG'].includes(unitType) && (plannedCount[unitType] || 0) >= 2) continue;
 
       const cost = UNIT_TYPES[unitType]?.cost || {};
       const foodCost = getRecruitFoodCost(unitType);
@@ -1237,6 +1241,48 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         plannedRoadBuilds += 1;
         break;
       }
+    }
+  }
+
+  // Hard logistics quota under pressure: ensure at least one concrete logistics action is scheduled.
+  const logisticsPlanned = actions.filter(a =>
+    (a.type === 'build' && ['ROAD','SUPPLY_DEPOT','SUPPLY_WAREHOUSE'].includes(a.buildingType)) ||
+    (a.type === 'recruit' && a.unitType === 'SUPPLY_TRUCK')
+  ).length;
+  if (logisticsPressure && logisticsPlanned === 0) {
+    const truckB = myBuildings.find(bb => (BUILDING_TYPES[bb.type]?.canRecruit || []).includes('SUPPLY_TRUCK') && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player) && !actions.some(a => a.type === 'recruit' && a.buildingId === bb.id));
+    if (truckB) {
+      const c = UNIT_TYPES['SUPPLY_TRUCK']?.cost || {};
+      const f = getRecruitFoodCost('SUPPLY_TRUCK');
+      if (resSim.iron >= (c.iron||0) && resSim.oil >= (c.oil||0) && resSim.wood >= (c.wood||0) && resSim.food >= f && resSim.components >= (c.components||0)) {
+        actions.push({ type: 'recruit', buildingId: truckB.id, unitType: 'SUPPLY_TRUCK' });
+        resSim.iron -= (c.iron||0); resSim.oil -= (c.oil||0); resSim.wood -= (c.wood||0); resSim.food -= f; resSim.components -= (c.components||0);
+      }
+    }
+  }
+
+  // Milestone lock-ins: force strategic infrastructure online by turn gates.
+  const builtCount = (types) => gs.buildings.filter(b => b.owner === player && !b.underConstruction && (Array.isArray(types) ? types.includes(b.type) : b.type === types)).length;
+  const milestoneNeeds = [];
+  if (gs.turn >= 20 && builtCount('SCIENCE_LAB') < 1) milestoneNeeds.push('SCIENCE_LAB');
+  if (gs.turn >= 30 && builtCount('FACTORY') < 1) milestoneNeeds.push('FACTORY');
+  if (gs.turn >= 40 && builtCount(['VEHICLE_DEPOT','AIRFIELD','ADV_AIRFIELD']) < 1) milestoneNeeds.push('VEHICLE_DEPOT');
+  if (milestoneNeeds.length > 0) {
+    const idleEngineers = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked && !u.constructing);
+    const canBuildHere = (q, r) => {
+      const b = buildingAt(gs, q, r);
+      return !b || ROAD_TYPES.has(b.type);
+    };
+    for (const eng of idleEngineers) {
+      for (const bt of milestoneNeeds) {
+        const c = BUILDING_TYPES[bt]?.buildCost || {};
+        if (!canBuildHere(eng.q, eng.r)) continue;
+        if (!canAfford(c)) continue;
+        actions.push({ type: 'build', unitId: eng.id, buildingType: bt });
+        spend(c);
+        break;
+      }
+      if (actions.some(a => a.type === 'build' && milestoneNeeds.includes(a.buildingType))) break;
     }
   }
 
