@@ -234,6 +234,32 @@ function getLaneForR(r, mapSize) {
   return 'south';
 }
 
+function initEngineerMemory(gs, player) {
+  gs._aiEngineerMemory = gs._aiEngineerMemory || {};
+  gs._aiEngineerMemory[player] = gs._aiEngineerMemory[player] || {};
+  return gs._aiEngineerMemory[player];
+}
+
+function pickEngineerTask(gs, player, engineer, strategic, mapSize) {
+  const key = `${engineer.q},${engineer.r}`;
+  const hasRoad = !!roadAt(gs, engineer.q, engineer.r);
+  const res = gs.resourceHexes?.[key];
+  if (res && !gs.buildings.some(b => b.q === engineer.q && b.r === engineer.r && (b.type === 'MINE' || b.type === 'OIL_PUMP') && b.owner === player)) {
+    return { type: 'resource', q: engineer.q, r: engineer.r };
+  }
+  if (!hasRoad) return { type: 'road', q: engineer.q, r: engineer.r };
+
+  const corridor = strategic?.objectives?.corridor || [];
+  if (corridor.length > 0) {
+    const target = corridor.reduce((a, b) => hexDistance(engineer.q, engineer.r, a.q, a.r) <= hexDistance(engineer.q, engineer.r, b.q, b.r) ? a : b);
+    return { type: 'corridor', q: target.q, r: target.r };
+  }
+
+  const enemyHQ = gs.buildings.filter(b => b.type === 'HQ' && b.owner !== player)[0];
+  if (enemyHQ) return { type: 'forward', q: enemyHQ.q, r: enemyHQ.r };
+  return { type: 'road', q: engineer.q, r: engineer.r };
+}
+
 function summarizeUnsuppliedClusters(gs, player) {
   const units = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0);
   const keyOf = (u) => `${u.q},${u.r}`;
@@ -732,6 +758,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     mapSize,
   };
 
+  const engineerMemory = initEngineerMemory(gs, player);
+
   const aiDebug = {
     strategicPhase: strategic?.phase || null,
     primaryLane: strategic?.primaryLane || null,
@@ -747,6 +775,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       completedSegments: 0,
     },
     engineerAssignments: { road: 0, fob: 0, resource: 0, reroute: 0, other: 0 },
+    engineerTaskLocks: 0,
     engineersStalled: 0,
     recruitMix: { tier0: 0, tier1plus: 0, support: 0, naval: 0, air: 0 },
     forceSplit: { assigned: { north: 0, center: 0, south: 0 }, current: { north: 0, center: 0, south: 0 } },
@@ -838,6 +867,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     if (!unit.moved) {
       // Engineers: if current hex is high-value build site, hold position to build.
       if (unit.type === 'ENGINEER') {
+        const mem = engineerMemory[unit.id] || {};
         const k = `${unit.q},${unit.r}`;
         const hasRoad = !!roadAt(gs, unit.q, unit.r);
         const hasNonRoadBuilding = !!(buildingAt(gs, unit.q, unit.r) && !hasRoad);
@@ -846,14 +876,25 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const me = gs.players[player] || {};
         const wood = me.wood || 0;
         const food = me.food || 0;
+
+        // Ensure task-lock memory exists and persists across turns.
+        if (!mem.task || (gs.turn - (mem.turnAssigned || 0)) >= 5) {
+          mem.task = pickEngineerTask(gs, player, unit, strategic, mapSize);
+          mem.turnAssigned = gs.turn || 1;
+          mem.stallTurns = 0;
+        }
+
+        const onTaskTarget = mem.task && unit.q === mem.task.q && unit.r === mem.task.r;
         const goodBuildTile = !hasNonRoadBuilding && (
           resHex?.type === 'IRON' || resHex?.type === 'OIL' ||
           ((ttype === 1 || ttype === 7) && wood < 6) ||
           ((ttype === 0 || ttype === 6 || ttype === 7) && food < 8)
         );
-        if (goodBuildTile) {
+        if (goodBuildTile || onTaskTarget) {
           unit.moved = true; // planning-only hold; restored later
         }
+
+        engineerMemory[unit.id] = mem;
       }
 
       // Temporarily restore full budget for reachable calc
@@ -868,7 +909,17 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
         let bestDest = null, bestScore = -Infinity;
         for (const hex of reachable) {
-          const s = scoreMove(gs, terrain, unit, hex.q, hex.r, strategy, enemies, myHQs, mySupply, aiCtx);
+          let s = scoreMove(gs, terrain, unit, hex.q, hex.r, strategy, enemies, myHQs, mySupply, aiCtx);
+          if (unit.type === 'ENGINEER') {
+            const mem = engineerMemory[unit.id];
+            const task = mem?.task;
+            if (task) {
+              const dNew = hexDistance(hex.q, hex.r, task.q, task.r);
+              const dCur = hexDistance(unit.q, unit.r, task.q, task.r);
+              if (dNew < dCur) s += 22;
+              if (dNew === 0) s += 12;
+            }
+          }
           if (s > bestScore) { bestScore = s; bestDest = hex; }
         }
 
@@ -1607,6 +1658,29 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       .sort((a, b) => scoreRoadUtility(gs, player, b.q, b.r) - scoreRoadUtility(gs, player, a.q, a.r))[0];
     if (cand) actions.push({ type: 'move', unitId: eng.id, fromQ: eng.q, fromR: eng.r, toQ: cand.q, toR: cand.r });
   }
+
+  // Engineer task-lock maintenance + anti-stall reroute.
+  for (const u of gs.units.filter(x => x.owner === player && x.type === 'ENGINEER' && !x.embarked)) {
+    const mem = engineerMemory[u.id] || {};
+    const lastPos = mem.lastPos || { q: u.q, r: u.r };
+    const movedThisPlan = actions.some(a => a.type === 'move' && a.unitId === u.id);
+    const builtThisPlan = actions.some(a => a.type === 'build' && a.unitId === u.id);
+
+    if (!movedThisPlan && !builtThisPlan && lastPos.q === u.q && lastPos.r === u.r) mem.stallTurns = (mem.stallTurns || 0) + 1;
+    else mem.stallTurns = 0;
+
+    if ((mem.stallTurns || 0) >= 2) {
+      mem.task = pickEngineerTask(gs, player, u, strategic, mapSize);
+      mem.turnAssigned = gs.turn || 1;
+      mem.stallTurns = 0;
+      aiDebug.engineersStalled += 1;
+    }
+
+    mem.lastPos = { q: u.q, r: u.r };
+    engineerMemory[u.id] = mem;
+  }
+
+  aiDebug.engineerTaskLocks = Object.values(engineerMemory).filter(m => !!m?.task).length;
 
   // Phase-1 instrumentation payload (no behavior change expected from this block).
   const unitById = new Map(gs.units.map(u => [u.id, u]));
