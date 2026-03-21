@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.91';
+export const GAME_VERSION = 'v1.4.92';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -5051,7 +5051,13 @@ export class GameScene extends Phaser.Scene {
     // AI autoplay self-heal: if AI-vs-AI is active and we're idle too long, kick next AI turn.
     if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2) && !this._aiAutoplayPaused) {
       const now = Date.now();
-      const stalled = (now - (this._aiLastProgressAt || 0)) > 4000;
+      const idleMs = now - (this._aiLastProgressAt || 0);
+      const stalled = idleMs > 4000;
+      // Hard recovery if in-progress flag gets stuck.
+      if (this._aiTurnInProgress && idleMs > 9000) {
+        this._pushLog('AI autoplay hard-recover: stale in-progress flag cleared');
+        this._aiTurnInProgress = false;
+      }
       if (stalled && !this._aiTurnInProgress && !this._nameModalOpen && !this._settingsOpen && !this._endTurnPending && this.aiPlayers.has(this.gameState.currentPlayer)) {
         this._pushLog(`AI autoplay self-heal: restarting P${this.gameState.currentPlayer} turn`);
         this._aiLastProgressAt = now;
@@ -6491,7 +6497,16 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Plan all actions (does NOT execute — pure data)
-    const actions = planAITurn(gs, this.terrain, this.mapSize, this.aiStrategy);
+    let actions = [];
+    try {
+      actions = planAITurn(gs, this.terrain, this.mapSize, this.aiStrategy);
+    } catch (e) {
+      this._pushLog(`AI planner crash: ${e?.message || e}`);
+      this._aiTurnInProgress = false;
+      this._aiLastProgressAt = Date.now();
+      this._onSubmit();
+      return;
+    }
     const aiCounts = actions.reduce((acc, a) => { acc[a.type] = (acc[a.type] || 0) + 1; return acc; }, {});
     const roadsBuiltThisTurn = actions.filter(a => a.type === 'build' && a.buildingType === 'ROAD').length;
     const engineersQueued = actions.filter(a => a.type === 'recruit' && a.unitType === 'ENGINEER').length;
@@ -6557,6 +6572,7 @@ export class GameScene extends Phaser.Scene {
     }, 4500);
     const gs     = this.gameState;
 
+    try {
     if (action.type === 'move') {
       const unit = gs.units.find(u => u.id === action.unitId);
       if (!unit) { next(); return; }
@@ -6701,6 +6717,10 @@ export class GameScene extends Phaser.Scene {
       next();
 
     } else {
+      next();
+    }
+    } catch (e) {
+      this._pushLog(`AI action crash (${action?.type || 'unknown'}): ${e?.message || e}`);
       next();
     }
   }
