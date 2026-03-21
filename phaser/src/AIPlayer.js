@@ -227,6 +227,57 @@ function getDynamicRoadTarget(gs, player) {
   return Math.max(base, Math.min(cap, base + unitPressure + supplyPressure + spanPressure + mapPressure));
 }
 
+function getLaneForR(r, mapSize) {
+  const third = Math.max(1, Math.floor(mapSize / 3));
+  if (r < third) return 'north';
+  if (r < third * 2) return 'center';
+  return 'south';
+}
+
+function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits, enemyHQs) {
+  gs._aiStrategicMemory = gs._aiStrategicMemory || {};
+  const prev = gs._aiStrategicMemory[player] || {};
+
+  const roadsNow = gs.buildings.filter(b => b.owner === player && b.type === 'ROAD').length;
+  const dynamicRoadTarget = getDynamicRoadTarget(gs, player);
+  const roadDeficit = Math.max(0, dynamicRoadTarget - roadsNow);
+  const myUnits = gs.units.filter(u => u.owner === player && !u.embarked);
+  const unsupplied = myUnits.filter(u => (u.outOfSupply || 0) > 0).length;
+
+  let phase = 'expand';
+  if ((gs.turn || 1) >= 16) phase = 'pressure';
+  if (roadDeficit >= 2 || unsupplied >= Math.max(2, Math.floor(myUnits.length * 0.2))) phase = 'stabilize';
+
+  const laneScore = { north: 0, center: 0, south: 0 };
+  for (const t of (resourceTargets || [])) laneScore[getLaneForR(t.r, mapSize)] += (t.type === 'OIL' ? 3.5 : 2.5);
+  for (const e of (enemyHQs || [])) laneScore[getLaneForR(e.r, mapSize)] += 4;
+
+  // discourage single-lane center blob in early/mid game.
+  if ((gs.turn || 1) < 30) laneScore.center -= 1.5;
+
+  const ranked = Object.entries(laneScore).sort((a, b) => b[1] - a[1]).map(([k]) => k);
+  const primaryLane = ranked[0] || 'center';
+  const secondaryLane = ranked[1] || (primaryLane === 'center' ? 'north' : 'center');
+
+  const laneCenterR = {
+    north: Math.max(2, Math.floor(mapSize * 0.18)),
+    center: Math.floor(mapSize * 0.5),
+    south: Math.min(mapSize - 3, Math.floor(mapSize * 0.82)),
+  };
+
+  // Persist strategic memory with low churn.
+  const stickyPrimary = prev.primaryLane && Math.random() < 0.75 ? prev.primaryLane : primaryLane;
+  const state = {
+    phase,
+    primaryLane: stickyPrimary,
+    secondaryLane,
+    laneCenters: laneCenterR,
+    turnUpdated: gs.turn || 1,
+  };
+  gs._aiStrategicMemory[player] = state;
+  return state;
+}
+
 function scoreRoadUtility(gs, player, q, r) {
   const key = `${q},${r}`;
   const hasRoad = !!roadAt(gs, q, r);
@@ -374,6 +425,15 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
     const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
     if (dNew < dCur) score += 9 * phase.combat;
     if (dNew <= 2) score += 4 * phase.combat;
+  }
+
+  // Strategic lane pressure from persistent planner memory.
+  if (ctx.strategic && role !== 'engineer' && role !== 'support') {
+    const laneNow = getLaneForR(r, ctx.mapSize || gs._mapSize || 40);
+    const laneCur = getLaneForR(unit.r, ctx.mapSize || gs._mapSize || 40);
+    if (laneNow === ctx.strategic.primaryLane && laneCur !== ctx.strategic.primaryLane) score += 5 * phase.combat;
+    if (laneNow === ctx.strategic.secondaryLane && laneCur !== ctx.strategic.secondaryLane) score += 2.5 * phase.combat;
+    if ((ctx.strategic.phase === 'expand' || ctx.strategic.phase === 'stabilize') && laneNow === 'center') score -= 2.5;
   }
 
   // Defensive: reward moving toward own HQ
@@ -532,7 +592,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     })
     .slice(0, 24);
 
-  // Phase 2: task-group split and objective assignment (main force + flank force)
+  // Strategic planner + memory-backed task-group objective assignment.
   const enemyHQs = gs.buildings.filter(b => b.type === 'HQ' && b.owner !== player);
   const myCombatUnits = gs.units.filter(u => u.owner === player && !u.embarked)
     .filter(u => {
@@ -540,17 +600,19 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const role = getUnitRole(u.type);
       return role !== 'engineer' && role !== 'support' && ((d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0);
     });
+  const strategic = buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits, enemyHQs);
   const unitObjective = {};
-  if (enemyHQs.length > 0 && myCombatUnits.length >= 8) {
-    // main objective = nearest enemy HQ to our army centroid
-    const cx = myCombatUnits.reduce((s, u) => s + u.q, 0) / myCombatUnits.length;
-    const cy = myCombatUnits.reduce((s, u) => s + u.r, 0) / myCombatUnits.length;
-    const mainObj = enemyHQs.reduce((a, b) => hexDistance(cx, cy, a.q, a.r) <= hexDistance(cx, cy, b.q, b.r) ? a : b);
+  if (enemyHQs.length > 0 && myCombatUnits.length >= 6) {
+    const centerEnemy = enemyHQs.reduce((a, b) => Math.abs(a.r - strategic.laneCenters.center) <= Math.abs(b.r - strategic.laneCenters.center) ? a : b);
+    const laneEnemy = enemyHQs.reduce((a, b) => Math.abs(a.r - strategic.laneCenters[strategic.primaryLane]) <= Math.abs(b.r - strategic.laneCenters[strategic.primaryLane]) ? a : b);
 
-    // flank objective = contested resource farthest from main objective, fallback enemy HQ
-    let flankObj = mainObj;
+    const mainObj = strategic.phase === 'pressure' ? laneEnemy : centerEnemy;
+    let flankObj = laneEnemy;
     if (resourceTargets.length > 0) {
-      flankObj = resourceTargets.reduce((a, b) => hexDistance(a.q, a.r, mainObj.q, mainObj.r) >= hexDistance(b.q, b.r, mainObj.q, mainObj.r) ? a : b);
+      const laneRes = resourceTargets.filter(t => getLaneForR(t.r, mapSize) === strategic.secondaryLane);
+      if (laneRes.length > 0) {
+        flankObj = laneRes.reduce((a, b) => hexDistance(a.q, a.r, mainObj.q, mainObj.r) >= hexDistance(b.q, b.r, mainObj.q, mainObj.r) ? a : b);
+      }
     }
 
     const sortedCombat = [...myCombatUnits].sort((a, b) => {
@@ -558,7 +620,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const pr = (r) => r === 'recon' ? 0 : r === 'assault' ? 1 : r === 'line' ? 2 : r === 'indirect' ? 3 : 4;
       return pr(ra) - pr(rb);
     });
-    const flankCount = Math.max(2, Math.floor(sortedCombat.length * 0.35));
+    const flankCount = Math.max(2, Math.floor(sortedCombat.length * 0.4));
     for (let i = 0; i < sortedCombat.length; i++) {
       const u = sortedCombat[i];
       unitObjective[u.id] = i < flankCount ? { q: flankObj.q, r: flankObj.r } : { q: mainObj.q, r: mainObj.r };
@@ -580,6 +642,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     deceptionTurn, resourceTargets, unitObjective, phaseWeights,
     roadDeficit: roadDeficitGlobal, roadCaptainId,
     logisticsPressure, logisticsEmergency, dynamicRoadTarget,
+    strategic,
+    mapSize,
   };
 
   // Simulated AI economy spend during planning so we don't overcommit.
@@ -1144,6 +1208,13 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const totals = plannedTotals();
       if (logisticsEmergency && !logisticsCriticalRecruits.has(unitType)) continue;
       if (logisticsPressure && (UNIT_TYPES[unitType]?.cost?.oil || 0) >= 2 && !logisticsCriticalRecruits.has(unitType)) continue;
+
+      // Strategic doctrine gate: during expand/stabilize, suppress tier-0 flood unless logistics-critical.
+      const strategicPhase = aiCtx?.strategic?.phase || 'expand';
+      const tier = UNIT_TYPES[unitType]?.tier || 0;
+      const isCoreTier0 = tier <= 0 && ['INFANTRY','RECON','MOTORCYCLE'].includes(unitType);
+      if ((strategicPhase === 'expand' || strategicPhase === 'stabilize') && isCoreTier0 && !logisticsCriticalRecruits.has(unitType)) continue;
+
       const compStock = resSim.components || 0;
       const desiredVehicleMin = (gs.turn >= 16) ? Math.max(3, Math.floor(totals.combat * (compStock >= 4 ? 0.30 : 0.24))) : 0;
       const desiredAirMin = (gs.turn >= 20) ? Math.max(2, Math.floor(totals.combat * (compStock >= 4 ? 0.18 : 0.14))) : 0;

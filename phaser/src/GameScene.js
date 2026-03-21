@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.105';
+export const GAME_VERSION = 'v1.4.106';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -6555,6 +6555,7 @@ export class GameScene extends Phaser.Scene {
     const unsuppliedNow = myUnitsNow.filter(u => (u.outOfSupply || 0) > 0).length;
     const engineersIdle = myUnitsNow.filter(u => u.type === 'ENGINEER' && !u.constructing && !engineerActionIds.has(u.id)).length;
     const logisticsOverride = unsuppliedNow >= Math.max(2, Math.floor(myUnitsNow.length * 0.2));
+    const strategicMem = gs._aiStrategicMemory?.[gs.currentPlayer] || null;
     this._aiTelemetry = this._aiTelemetry || {};
     const roadsNow = gs.buildings.filter(b => Number(b.owner) === Number(gs.currentPlayer) && b.type === 'ROAD').length;
     const roadFloor = (gs.turn <= 5) ? 2 : (gs.turn <= 10) ? 5 : (gs.turn <= 15) ? 8 : 12;
@@ -6569,6 +6570,9 @@ export class GameScene extends Phaser.Scene {
       depotsPlanned: depotsBuiltThisTurn,
       trucksQueued,
       engineersIdle,
+      strategicPhase: strategicMem?.phase || null,
+      primaryLane: strategicMem?.primaryLane || null,
+      secondaryLane: strategicMem?.secondaryLane || null,
       logisticsActionsTaken: roadsBuiltThisTurn + depotsBuiltThisTurn + trucksQueued,
       plannerReason: logisticsOverride
         ? (roadsBuiltThisTurn > 0 || depotsBuiltThisTurn > 0 || trucksQueued > 0 ? 'logistics_override' : 'logistics_pressure')
@@ -6576,7 +6580,7 @@ export class GameScene extends Phaser.Scene {
       blocked: { occupied: 0, noWood: 0, alreadyRoad: 0, invalidBuilder: 0 },
     };
     this._pushLog(`AI P${gs.currentPlayer}: ${actions.length} actions (move:${aiCounts.move||0} atk:${aiCounts.attack||0} build:${aiCounts.build||0} recruit:${aiCounts.recruit||0} design:${aiCounts.design||0})`);
-    this._pushLog(`AI P${gs.currentPlayer}: roadsPlanned=${roadsBuiltThisTurn} depotsPlanned=${depotsBuiltThisTurn} engQueued=${engineersQueued} engIdle=${engineersIdle} trucksQueued=${trucksQueued} oos=${unsuppliedNow} override=${logisticsOverride ? 'Y' : 'N'}`);
+    this._pushLog(`AI P${gs.currentPlayer}: roadsPlanned=${roadsBuiltThisTurn} depotsPlanned=${depotsBuiltThisTurn} engQueued=${engineersQueued} engIdle=${engineersIdle} trucksQueued=${trucksQueued} oos=${unsuppliedNow} override=${logisticsOverride ? 'Y' : 'N'} phase=${strategicMem?.phase||'n/a'} lane=${strategicMem?.primaryLane||'n/a'}/${strategicMem?.secondaryLane||'n/a'}`);
     this._pushLog(`AI P${gs.currentPlayer}: ${preKPI.summary}`);
 
     // Execute actions sequentially with delays and visual feedback
