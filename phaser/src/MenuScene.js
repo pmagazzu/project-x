@@ -24,9 +24,17 @@ const SCENARIOS = [
     key:   'ai_vs_ai_island_medium',
     label: 'AI VS AI · ISLAND (MEDIUM)',
     icon:  '🤖',
-    sub:   '40×40 single island profile · both players AI',
+    sub:   '40×40 single island profile · both players AI (20 turns)',
     color: 0x1b3248,
     hoverColor: 0x2a5678,
+  },
+  {
+    key:   'ai_vs_ai_island_medium_40',
+    label: 'AI VS AI · ISLAND DUPLICATE (40T)',
+    icon:  '🤖',
+    sub:   '40×40 single island profile · both players AI (40 turns)',
+    color: 0x1f3f5a,
+    hoverColor: 0x336a99,
   },
   {
     key:   'mortar_test',
@@ -134,7 +142,8 @@ export class MenuScene extends Phaser.Scene {
         sub.setStyle({ fill: '#556650' });
       });
       bg.on('pointerdown', () => {
-        if (sc.key === 'ai_vs_ai_island_medium') {
+        if (sc.key === 'ai_vs_ai_island_medium' || sc.key === 'ai_vs_ai_island_medium_40') {
+          const autoStopTurn = sc.key === 'ai_vs_ai_island_medium_40' ? 40 : 20;
           this.scene.start('GameScene', {
             scenario: 'custom',
             customSize: 40,
@@ -145,7 +154,7 @@ export class MenuScene extends Phaser.Scene {
             procQuickStart: true,
             debugNoFog: true,
             aiViewerMode: true,
-            autoStopTurn: 20,
+            autoStopTurn,
             aiLabExport: true,
             startSupplyTruck: true,
           });
