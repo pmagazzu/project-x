@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.104';
+export const GAME_VERSION = 'v1.4.105';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -7981,9 +7981,14 @@ export class GameScene extends Phaser.Scene {
         if (quickStart) gs.buildings.push(createBuilding('OIL_PUMP', player, oilHex.q, oilHex.r));
       }
 
-      // Barracks + Naval Yard still start prebuilt for baseline playability
+      // Barracks + Vehicle Depot + Naval Yard start prebuilt for baseline playability
       const barrHex = findFreeNear(hq.q, hq.r, 3);
       if (barrHex) gs.buildings.push(createBuilding('BARRACKS', player, barrHex.q, barrHex.r));
+
+      // Requested: guaranteed starting vehicle factory (Vehicle Depot) for both teams.
+      const vehHex = findFreeNear(hq.q, hq.r, 3);
+      if (vehHex) gs.buildings.push(createBuilding('VEHICLE_DEPOT', player, vehHex.q, vehHex.r));
+
       const coastHex = findCoastalNear(hq.q, hq.r, 10);
       if (coastHex) gs.buildings.push(createBuilding('NAVAL_YARD', player, coastHex.q, coastHex.r));
 
