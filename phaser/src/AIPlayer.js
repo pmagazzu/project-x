@@ -915,6 +915,24 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     plannedCount[u.type] = (plannedCount[u.type] || 0) + 1;
   }
 
+  const VEHICLE_TYPES = new Set(['TANK','MEDIUM_TANK','ARMORED_CAR','HALFTRACK','SPG','ARTILLERY','ANTI_TANK']);
+  const INDIRECT_TYPES = new Set(['ARTILLERY','MORTAR','SPG']);
+  const SUPPORT_TYPES = new Set(['ENGINEER','SUPPLY_TRUCK','SUPPLY_SHIP','MEDIC']);
+  const plannedTotals = () => {
+    const total = Object.values(plannedCount).reduce((s, n) => s + n, 0);
+    const combat = Object.entries(plannedCount)
+      .filter(([t]) => {
+        const d = UNIT_TYPES[t] || {};
+        return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
+      })
+      .reduce((s, [, n]) => s + n, 0);
+    const vehicles = Object.entries(plannedCount).filter(([t]) => VEHICLE_TYPES.has(t)).reduce((s, [, n]) => s + n, 0);
+    const air = Object.entries(plannedCount).filter(([t]) => AIR_UNITS.has(t)).reduce((s, [, n]) => s + n, 0);
+    const indirect = Object.entries(plannedCount).filter(([t]) => INDIRECT_TYPES.has(t)).reduce((s, [, n]) => s + n, 0);
+    const support = Object.entries(plannedCount).filter(([t]) => SUPPORT_TYPES.has(t)).reduce((s, [, n]) => s + n, 0);
+    return { total, combat, vehicles, air, indirect, support };
+  };
+
   // Hard network engineer reserve when road network is behind schedule.
   if (roadDeficitGlobal >= 2) {
     const myEngNow = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked).length;
@@ -1020,7 +1038,20 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       }
     }
 
+    const buildingCanRecruitAny = (set) => sorted.some(t => set.has(t));
     for (const unitType of sorted) {
+      const totals = plannedTotals();
+      const desiredVehicleMin = (gs.turn >= 18) ? Math.max(2, Math.floor(totals.combat * 0.20)) : 0;
+      const desiredAirMin = (gs.turn >= 22) ? Math.max(1, Math.floor(totals.combat * 0.12)) : 0;
+      const desiredIndirectMin = (gs.turn >= 16) ? Math.max(2, Math.floor(totals.combat * 0.15)) : 0;
+      const supportCap = (gs.turn >= 16) ? 0.28 : 0.34;
+
+      // Doctrine quotas: force missing categories online by phase.
+      if (desiredVehicleMin > 0 && totals.vehicles < desiredVehicleMin && buildingCanRecruitAny(VEHICLE_TYPES) && !VEHICLE_TYPES.has(unitType)) continue;
+      if (desiredAirMin > 0 && totals.air < desiredAirMin && buildingCanRecruitAny(AIR_UNITS) && !AIR_UNITS.has(unitType)) continue;
+      if (desiredIndirectMin > 0 && totals.indirect < desiredIndirectMin && buildingCanRecruitAny(INDIRECT_TYPES) && !INDIRECT_TYPES.has(unitType)) continue;
+      if ((totals.support / Math.max(1, totals.total)) > supportCap && SUPPORT_TYPES.has(unitType) && unitType !== 'SUPPLY_TRUCK' && unitType !== 'SUPPLY_SHIP') continue;
+
       // Anti-spam guardrails for support units
       if (unitType === 'ENGINEER') {
         const myEng = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER').length;
