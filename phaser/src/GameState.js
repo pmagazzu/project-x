@@ -2275,11 +2275,39 @@ export function computeSupply(state, player, mapSize) {
   const supplied = new Set();
   const ms = mapSize || state._mapSize || 25;
 
-  // Roads extend supply only when they are OWNED by the same player.
-  // This prevents stray/enemy roads from acting as free logistics relays.
-  const isRoadHex = (q, r) => state.buildings.some(b => ROAD_TYPES.has(b.type) && b.q === q && b.r === r && Number(b.owner) === Number(player));
-
+  // Roads extend supply only when they are OWNED by the same player AND connected to that player's HQ road network.
+  const isOwnedRoadHex = (q, r) => state.buildings.some(b => ROAD_TYPES.has(b.type) && b.q === q && b.r === r && Number(b.owner) === Number(player));
   const _isValid = (q, r) => q >= 0 && r >= 0 && q < ms && r < ms;
+
+  // Build a set of owned roads that are connected to HQ (seed = roads on/adjacent to HQ tiles).
+  const hqRoadConnected = new Set();
+  const myHQs = state.buildings.filter(b => b.type === 'HQ' && Number(b.owner) === Number(player));
+  const roadQueue = [];
+  for (const hq of myHQs) {
+    const seeds = [{ q: hq.q, r: hq.r }, ...HEX_NEIGHBORS.map(([dq, dr]) => ({ q: hq.q + dq, r: hq.r + dr }))];
+    for (const s of seeds) {
+      if (!_isValid(s.q, s.r)) continue;
+      if (!isOwnedRoadHex(s.q, s.r)) continue;
+      const k = `${s.q},${s.r}`;
+      if (hqRoadConnected.has(k)) continue;
+      hqRoadConnected.add(k);
+      roadQueue.push(s);
+    }
+  }
+  while (roadQueue.length > 0) {
+    const cur = roadQueue.shift();
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const nq = cur.q + dq, nr = cur.r + dr;
+      if (!_isValid(nq, nr)) continue;
+      if (!isOwnedRoadHex(nq, nr)) continue;
+      const nk = `${nq},${nr}`;
+      if (hqRoadConnected.has(nk)) continue;
+      hqRoadConnected.add(nk);
+      roadQueue.push({ q: nq, r: nr });
+    }
+  }
+
+  const isRoadHex = (q, r) => hqRoadConnected.has(`${q},${r}`);
 
   const floodFill = (sq, sr, radius) => {
     // BFS — roads cost 0, other hexes cost 1. Road chaining is capped (max 2 road hops).
