@@ -291,6 +291,7 @@ export const BUILDING_TYPES = {
   BARBED_WIRE:   { name: 'Barbed Wire',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0x888866, sight: 0, obstacle: true, infantryMoveCost: 1 },
   SANDBAG:       { name: 'Sandbag Post',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xc8aa66, sight: 0, defenseBonus: 2 },
   SUPPLY_DEPOT:  { name: 'Supply Depot',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 1, wood: 1 }, color: 0xddaa44, sight: 2, supplyRadius: 3, moveBonus: 1 },
+  SUPPLY_WAREHOUSE:{ name:'Supply Warehouse', ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, buildTurns:2, canRecruit:[], buildCost:{ iron:8, oil:2, wood:4 }, color:0xc9922a, sight:2, supplyRadius:4, moveBonus:1 },
   HARBOR:        { name: 'Harbor',         ironPerTurn: 1, oilPerTurn: 1, woodPerTurn: 0, buildTurns: 3, canRecruit: [],                         buildCost: { iron: 5, oil: 1, components: 1 }, color: 0x4488cc, sight: 2, repairsNaval: true },
   DRY_DOCK:      { name: 'Dry Dock',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: ['DESTROYER','CRUISER_LT','CRUISER_HV'],  buildCost: { iron:12, oil: 4, components: 2 }, color: 0x225588, sight: 2 },
   NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 4, canRecruit: ['BATTLESHIP','SUPPLY_SHIP'],             buildCost: { iron:16, oil: 6, components: 3 }, color: 0x113366, sight: 3 },
@@ -2266,6 +2267,7 @@ export const BUILDING_SUPPLY_RADIUS = {
   NAVAL_YARD:   3,
   DRY_DOCK:     2,
   NAVAL_BASE:   3,
+  SUPPLY_WAREHOUSE: 4,
 };
 
 // Returns a Set of "q,r" keys that are in supply for the given player.
@@ -2279,12 +2281,13 @@ export function computeSupply(state, player, mapSize) {
   const isOwnedRoadHex = (q, r) => state.buildings.some(b => ROAD_TYPES.has(b.type) && b.q === q && b.r === r && Number(b.owner) === Number(player));
   const _isValid = (q, r) => q >= 0 && r >= 0 && q < ms && r < ms;
 
-  // Build a set of owned roads that are connected to HQ (seed = roads on/adjacent to HQ tiles).
+  // Build a set of owned roads that are connected to HQ OR Supply Warehouse
+  // (warehouse acts as alternate logistics anchor for detached road networks).
   const hqRoadConnected = new Set();
-  const myHQs = state.buildings.filter(b => b.type === 'HQ' && Number(b.owner) === Number(player));
+  const myRoadAnchors = state.buildings.filter(b => Number(b.owner) === Number(player) && (b.type === 'HQ' || b.type === 'SUPPLY_WAREHOUSE'));
   const roadQueue = [];
-  for (const hq of myHQs) {
-    const seeds = [{ q: hq.q, r: hq.r }, ...HEX_NEIGHBORS.map(([dq, dr]) => ({ q: hq.q + dq, r: hq.r + dr }))];
+  for (const anchor of myRoadAnchors) {
+    const seeds = [{ q: anchor.q, r: anchor.r }, ...HEX_NEIGHBORS.map(([dq, dr]) => ({ q: anchor.q + dq, r: anchor.r + dr }))];
     for (const s of seeds) {
       if (!_isValid(s.q, s.r)) continue;
       if (!isOwnedRoadHex(s.q, s.r)) continue;
@@ -2355,6 +2358,41 @@ export function computeSupply(state, player, mapSize) {
     if (u.type !== 'SUPPLY_TRUCK' && u.type !== 'SUPPLY_SHIP') continue;
     const rad = UNIT_TYPES[u.type]?.supplyRadius || (u.type === 'SUPPLY_SHIP' ? 2 : 3);
     floodFill(u.q, u.r, rad);
+  }
+
+  // Naval buildings project supply across water by default (6 tiles).
+  const isWater = (q, r) => {
+    const t = state.terrain?.[`${q},${r}`] ?? 0;
+    return t === 4 || t === 5; // shallow/ocean
+  };
+  const waterFlood = (sq, sr, radius) => {
+    const queue = [{ q: sq, r: sr, rem: radius }];
+    const visited = new Map();
+    visited.set(`${sq},${sr}`, radius);
+    while (queue.length > 0) {
+      const { q, r, rem } = queue.shift();
+      supplied.add(`${q},${r}`);
+      if (rem <= 0) continue;
+      for (const [dq, dr] of HEX_NEIGHBORS) {
+        const nq = q + dq, nr = r + dr;
+        if (!_isValid(nq, nr) || !isWater(nq, nr)) continue;
+        const nextRem = rem - 1;
+        const key = `${nq},${nr}`;
+        const prevBest = visited.get(key) ?? -1;
+        if (nextRem > prevBest) {
+          visited.set(key, nextRem);
+          queue.push({ q: nq, r: nr, rem: nextRem });
+        }
+      }
+    }
+  };
+  const navalSupplySources = state.buildings.filter(b => Number(b.owner) === Number(player) && !b.underConstruction && ['HARBOR','NAVAL_YARD','DRY_DOCK','NAVAL_BASE','NAVAL_DOCKYARD'].includes(b.type));
+  for (const b of navalSupplySources) {
+    // seed from adjacent water tiles so coastal naval bases project over sea lanes.
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const nq = b.q + dq, nr = b.r + dr;
+      if (_isValid(nq, nr) && isWater(nq, nr)) waterFlood(nq, nr, 6);
+    }
   }
 
   return supplied;

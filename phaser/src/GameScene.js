@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.99';
+export const GAME_VERSION = 'v1.4.100';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -6363,10 +6363,11 @@ export class GameScene extends Phaser.Scene {
 
   _buildRunPayload(reason = 'manual') {
     const gs = this.gameState;
+    const outTurn = (reason === 'ai-lab-auto-stop' && this._autoStopTurn > 0) ? Math.min(gs.turn, this._autoStopTurn) : gs.turn;
     return {
       reason,
       version: GAME_VERSION,
-      turn: gs.turn,
+      turn: outTurn,
       mapSize: this.mapSize,
       scenario: this.scenario,
       aiStrategy: this.aiStrategy,
@@ -6563,6 +6564,7 @@ export class GameScene extends Phaser.Scene {
       unsuppliedNow,
       depotsPlanned: depotsBuiltThisTurn,
       trucksQueued,
+      logisticsActionsTaken: roadsBuiltThisTurn + depotsBuiltThisTurn + trucksQueued,
       plannerReason: logisticsOverride
         ? (roadsBuiltThisTurn > 0 || depotsBuiltThisTurn > 0 || trucksQueued > 0 ? 'logistics_override' : 'logistics_pressure')
         : (roadsBuiltThisTurn > 0 ? 'planned' : (roadsNow >= roadFloor ? 'floor_met' : 'no_viable_plan')),
@@ -6997,7 +6999,7 @@ export class GameScene extends Phaser.Scene {
 
     const cW = Math.min(900, sw - 24), cH = Math.min(420, sh - 120);
     const cX = cx, cY = Math.min(cy, sh - (cH/2) - 10);
-    box(cx, cy, sw, sh, 0x000000, 0.28);
+    // No screen-dim layer for combat card (less jarring; keep map fully visible).
     box(cX, cY, cW, cH, 0x0b0e14, 0.985, 0x2e3d50);
 
     // Header
