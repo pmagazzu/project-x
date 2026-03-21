@@ -273,21 +273,7 @@ function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits
   const roadDeficit = Math.max(0, dynamicRoadTarget - roadsNow);
   const myUnits = gs.units.filter(u => u.owner === player && !u.embarked);
   const unsupplied = myUnits.filter(u => (u.outOfSupply || 0) > 0).length;
-
-  let phase = 'expand';
-  if ((gs.turn || 1) >= 16) phase = 'pressure';
-  if (roadDeficit >= 2 || unsupplied >= Math.max(2, Math.floor(myUnits.length * 0.2))) phase = 'stabilize';
-
-  const laneScore = { north: 0, center: 0, south: 0 };
-  for (const t of (resourceTargets || [])) laneScore[getLaneForR(t.r, mapSize)] += (t.type === 'OIL' ? 3.5 : 2.5);
-  for (const e of (enemyHQs || [])) laneScore[getLaneForR(e.r, mapSize)] += 4;
-
-  // discourage single-lane center blob in early/mid game.
-  if ((gs.turn || 1) < 30) laneScore.center -= 1.5;
-
-  const ranked = Object.entries(laneScore).sort((a, b) => b[1] - a[1]).map(([k]) => k);
-  const primaryLane = ranked[0] || 'center';
-  const secondaryLane = ranked[1] || (primaryLane === 'center' ? 'north' : 'center');
+  const myHQ = gs.buildings.find(b => b.type === 'HQ' && b.owner === player);
 
   const laneCenterR = {
     north: Math.max(2, Math.floor(mapSize * 0.18)),
@@ -295,13 +281,81 @@ function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits
     south: Math.min(mapSize - 3, Math.floor(mapSize * 0.82)),
   };
 
-  // Persist strategic memory with low churn.
-  const stickyPrimary = prev.primaryLane && Math.random() < 0.75 ? prev.primaryLane : primaryLane;
+  // --- Phase decision with hysteresis ---
+  let desiredPhase = 'expand';
+  if ((gs.turn || 1) >= 18) desiredPhase = 'pressure';
+  if (roadDeficit >= 2 || unsupplied >= Math.max(2, Math.floor(myUnits.length * 0.2))) desiredPhase = 'stabilize';
+
+  const prevPhase = prev.phase || 'expand';
+  const prevPhaseTurns = prev.phaseTurns || 0;
+  let phase = desiredPhase;
+  // Require minimum dwell time unless conditions are severe.
+  const severe = roadDeficit >= 4 || unsupplied >= Math.max(4, Math.floor(myUnits.length * 0.33));
+  if (!severe && prevPhase !== desiredPhase && prevPhaseTurns < 3) phase = prevPhase;
+  const phaseTurns = phase === prevPhase ? (prevPhaseTurns + 1) : 1;
+
+  // --- Lane scoring with stickiness/hysteresis ---
+  const laneScore = { north: 0, center: 0, south: 0 };
+  for (const t of (resourceTargets || [])) laneScore[getLaneForR(t.r, mapSize)] += (t.type === 'OIL' ? 3.6 : 2.4);
+  for (const e of (enemyHQs || [])) laneScore[getLaneForR(e.r, mapSize)] += 4.2;
+
+  // discourage center-only bias early/mid unless pressure phase.
+  if ((gs.turn || 1) < 35 && phase !== 'pressure') laneScore.center -= 2.4;
+
+  // stickiness: keep lane if still competitive.
+  if (prev.primaryLane) laneScore[prev.primaryLane] += 2.2;
+  if (prev.secondaryLane) laneScore[prev.secondaryLane] += 1.0;
+
+  const ranked = Object.entries(laneScore).sort((a, b) => b[1] - a[1]).map(([k]) => k);
+  let primaryLane = ranked[0] || 'center';
+  const secondaryLane = ranked[1] || (primaryLane === 'center' ? 'north' : 'center');
+
+  if (prev.primaryLane && prev.primaryLane !== primaryLane) {
+    const prevScore = laneScore[prev.primaryLane] ?? -999;
+    const newScore = laneScore[primaryLane] ?? -999;
+    if ((newScore - prevScore) < 1.5) primaryLane = prev.primaryLane;
+  }
+
+  // --- Corridor objectives (HQ -> resource anchor -> forward anchor) ---
+  const laneResources = (resourceTargets || []).filter(t => getLaneForR(t.r, mapSize) === primaryLane);
+  const nearestToHQ = (arr) => {
+    if (!arr?.length || !myHQ) return null;
+    return arr.reduce((a, b) => hexDistance(myHQ.q, myHQ.r, a.q, a.r) <= hexDistance(myHQ.q, myHQ.r, b.q, b.r) ? a : b);
+  };
+  const resourceAnchor = nearestToHQ(laneResources) || nearestToHQ(resourceTargets || []);
+
+  const laneEnemyHQs = (enemyHQs || []).filter(h => getLaneForR(h.r, mapSize) === primaryLane);
+  const targetEnemyHQ = laneEnemyHQs[0] || (enemyHQs || [])[0] || null;
+
+  let forwardAnchor = null;
+  if (targetEnemyHQ && myHQ) {
+    // point 70% from HQ toward enemy HQ in primary lane row band
+    const fq = Math.round(myHQ.q + (targetEnemyHQ.q - myHQ.q) * 0.7);
+    const frRaw = Math.round(myHQ.r + (targetEnemyHQ.r - myHQ.r) * 0.7);
+    const fr = Math.round((frRaw + laneCenterR[primaryLane]) / 2);
+    forwardAnchor = { q: fq, r: Math.max(1, Math.min(mapSize - 2, fr)) };
+  }
+
+  const corridorObjectives = [
+    myHQ ? { q: myHQ.q, r: myHQ.r, type: 'hq' } : null,
+    resourceAnchor ? { q: resourceAnchor.q, r: resourceAnchor.r, type: 'resource' } : null,
+    forwardAnchor ? { q: forwardAnchor.q, r: forwardAnchor.r, type: 'forward' } : null,
+    targetEnemyHQ ? { q: targetEnemyHQ.q, r: targetEnemyHQ.r, type: 'enemy_hq' } : null,
+  ].filter(Boolean);
+
   const state = {
     phase,
-    primaryLane: stickyPrimary,
+    phaseTurns,
+    primaryLane,
     secondaryLane,
     laneCenters: laneCenterR,
+    laneScore,
+    metrics: { roadDeficit, unsupplied, roadsNow, dynamicRoadTarget },
+    objectives: {
+      main: targetEnemyHQ ? { q: targetEnemyHQ.q, r: targetEnemyHQ.r } : null,
+      flank: resourceAnchor ? { q: resourceAnchor.q, r: resourceAnchor.r } : null,
+      corridor: corridorObjectives,
+    },
     turnUpdated: gs.turn || 1,
   };
   gs._aiStrategicMemory[player] = state;
@@ -636,8 +690,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const centerEnemy = enemyHQs.reduce((a, b) => Math.abs(a.r - strategic.laneCenters.center) <= Math.abs(b.r - strategic.laneCenters.center) ? a : b);
     const laneEnemy = enemyHQs.reduce((a, b) => Math.abs(a.r - strategic.laneCenters[strategic.primaryLane]) <= Math.abs(b.r - strategic.laneCenters[strategic.primaryLane]) ? a : b);
 
-    const mainObj = strategic.phase === 'pressure' ? laneEnemy : centerEnemy;
-    let flankObj = laneEnemy;
+    const mainObj = strategic?.objectives?.main || (strategic.phase === 'pressure' ? laneEnemy : centerEnemy);
+    let flankObj = strategic?.objectives?.flank || laneEnemy;
     if (resourceTargets.length > 0) {
       const laneRes = resourceTargets.filter(t => getLaneForR(t.r, mapSize) === strategic.secondaryLane);
       if (laneRes.length > 0) {
@@ -650,7 +704,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const pr = (r) => r === 'recon' ? 0 : r === 'assault' ? 1 : r === 'line' ? 2 : r === 'indirect' ? 3 : 4;
       return pr(ra) - pr(rb);
     });
-    const flankCount = Math.max(2, Math.floor(sortedCombat.length * 0.4));
+
+    const phaseFlankShare = strategic.phase === 'pressure' ? 0.35 : (strategic.phase === 'stabilize' ? 0.45 : 0.5);
+    const flankCount = Math.max(2, Math.floor(sortedCombat.length * phaseFlankShare));
     for (let i = 0; i < sortedCombat.length; i++) {
       const u = sortedCombat[i];
       unitObjective[u.id] = i < flankCount ? { q: flankObj.q, r: flankObj.r } : { q: mainObj.q, r: mainObj.r };
@@ -686,6 +742,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     logisticsEmergency,
     corridorPlan: {
       laneTargets: strategic ? [strategic.primaryLane, strategic.secondaryLane].filter(Boolean) : [],
+      objectives: strategic?.objectives?.corridor || [],
       expectedSegments: Math.max(0, Math.floor((dynamicRoadTarget - roadsNow) * 0.8)),
       completedSegments: 0,
     },

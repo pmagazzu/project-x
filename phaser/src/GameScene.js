@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.108';
+export const GAME_VERSION = 'v1.4.109';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -6572,6 +6572,8 @@ export class GameScene extends Phaser.Scene {
       trucksQueued,
       engineersIdle,
       strategicPhase: aiDebug?.strategicPhase || strategicMem?.phase || null,
+      strategicPhaseTurns: strategicMem?.phaseTurns || null,
+      strategicLaneScore: strategicMem?.laneScore || null,
       primaryLane: aiDebug?.primaryLane || strategicMem?.primaryLane || null,
       secondaryLane: aiDebug?.secondaryLane || strategicMem?.secondaryLane || null,
       corridorPlan: aiDebug?.corridorPlan || null,
