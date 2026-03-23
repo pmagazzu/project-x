@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.110';
+export const GAME_VERSION = 'v1.4.111';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -6451,6 +6451,33 @@ export class GameScene extends Phaser.Scene {
         };
       };
       const snapTurn = this._autoStopTurn > 0 ? Math.min(gs.turn, this._autoStopTurn) : gs.turn;
+      const compactMapState = () => {
+        const byPlayer = (p) => {
+          const units = gs.units.filter(u => Number(u.owner) === p && !u.embarked);
+          const buildings = gs.buildings.filter(b => Number(b.owner) === p);
+          const combat = units.filter(u => {
+            const d = UNIT_TYPES[u.type] || {};
+            return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
+          });
+          const centroid = (arr) => arr.length ? {
+            q: Number((arr.reduce((s, x) => s + x.q, 0) / arr.length).toFixed(2)),
+            r: Number((arr.reduce((s, x) => s + x.r, 0) / arr.length).toFixed(2)),
+          } : null;
+          return {
+            hq: buildings.filter(b => b.type === 'HQ').map(b => ({ q: b.q, r: b.r })),
+            depots: buildings.filter(b => b.type === 'SUPPLY_DEPOT').map(b => ({ q: b.q, r: b.r })),
+            warehouses: buildings.filter(b => b.type === 'SUPPLY_WAREHOUSE').map(b => ({ q: b.q, r: b.r })),
+            vehicleDepots: buildings.filter(b => b.type === 'VEHICLE_DEPOT').map(b => ({ q: b.q, r: b.r })),
+            roads: buildings.filter(b => b.type === 'ROAD').map(b => ({ q: b.q, r: b.r })),
+            engineers: units.filter(u => u.type === 'ENGINEER').map(u => ({ id: u.id, q: u.q, r: u.r, oos: u.outOfSupply || 0 })),
+            supplyTrucks: units.filter(u => u.type === 'SUPPLY_TRUCK').map(u => ({ id: u.id, q: u.q, r: u.r, oos: u.outOfSupply || 0 })),
+            combatCentroid: centroid(combat),
+            unitCount: units.length,
+          };
+        };
+        return { p1: byPlayer(1), p2: byPlayer(2) };
+      };
+
       this._aiLabTurns.push({
         turn: snapTurn,
         currentPlayer: gs.currentPlayer,
@@ -6459,7 +6486,8 @@ export class GameScene extends Phaser.Scene {
         telemetry: {
           p1: this._aiTelemetry?.[1] || null,
           p2: this._aiTelemetry?.[2] || null,
-        }
+        },
+        mapState: compactMapState(),
       });
     }
 
