@@ -2166,13 +2166,24 @@ export function resolveEndOfTurn(state, terrain) {
       continue;
     }
 
-    // Naval endurance model: ships can operate off onboard stores for a few turns.
-    // Submarines have longer endurance.
+    // Naval endurance model: ships can operate off onboard stores for many turns.
     const isNaval = NAVAL_UNITS.has(unit.type);
-    const navalMax = unit.type === 'SUBMARINE' ? 8
-      : (unit.type === 'SUPPLY_SHIP' ? 6
-      : (unit.type === 'LANDING_CRAFT' || unit.type?.startsWith('TRANSPORT_') ? 3 : 4));
-    const navalRecharge = unit.type === 'SUBMARINE' ? 1 : 1;
+    const navalMax = unit.type === 'SUPPLY_SHIP' ? 99
+      : unit.type === 'SUBMARINE' ? 10
+      : unit.type === 'PATROL_BOAT' ? 6
+      : (unit.type === 'DESTROYER' || unit.type === 'DESTROYER_MK1') ? 7
+      : (unit.type === 'CRUISER_LT' || unit.type === 'CRUISER_HV') ? 8
+      : unit.type === 'BATTLESHIP' ? 10
+      : (unit.type === 'LANDING_CRAFT' || unit.type?.startsWith('TRANSPORT_')) ? 5
+      : 6;
+    const navalRecharge = unit.type === 'SUPPLY_SHIP' ? 99 : 1;
+
+    // Supply ships are floating logistics hubs and ignore network supply constraints.
+    if (unit.type === 'SUPPLY_SHIP') {
+      unit.outOfSupply = 0;
+      unit.navalSupply = navalMax;
+      continue;
+    }
 
     const key = `${unit.q},${unit.r}`;
     if (suppliedHexes.has(key)) {
