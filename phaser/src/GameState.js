@@ -2165,12 +2165,33 @@ export function resolveEndOfTurn(state, terrain) {
       unit.outOfSupply = 0;
       continue;
     }
+
+    // Naval endurance model: ships can operate off onboard stores for a few turns.
+    // Submarines have longer endurance.
+    const isNaval = NAVAL_UNITS.has(unit.type);
+    const navalMax = unit.type === 'SUBMARINE' ? 8
+      : (unit.type === 'SUPPLY_SHIP' ? 6
+      : (unit.type === 'LANDING_CRAFT' || unit.type?.startsWith('TRANSPORT_') ? 3 : 4));
+    const navalRecharge = unit.type === 'SUBMARINE' ? 1 : 1;
+
     const key = `${unit.q},${unit.r}`;
     if (suppliedHexes.has(key)) {
-      // In supply — clear penalty
+      // In supply — clear penalty and recharge naval endurance.
       if (unit.outOfSupply > 0) events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) resupplied`);
       unit.outOfSupply = 0;
+      if (isNaval) {
+        unit.navalSupply = Math.min(navalMax, (unit.navalSupply ?? navalMax) + navalRecharge);
+      }
     } else {
+      if (isNaval) {
+        unit.navalSupply = Math.max(0, (unit.navalSupply ?? navalMax) - 1);
+        if (unit.navalSupply > 0) {
+          // Still operating on onboard supply, no out-of-supply penalties yet.
+          unit.outOfSupply = 0;
+          continue;
+        }
+      }
+
       unit.outOfSupply = (unit.outOfSupply || 0) + 1;
       if (unit.outOfSupply === 1) events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) is OUT OF SUPPLY (-1 move, -1 attack)`);
       else if (unit.outOfSupply === 2) events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) unsupplied 2 turns (-2 move, -2 attack)`);
