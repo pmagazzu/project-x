@@ -221,26 +221,34 @@ export class MenuScene extends Phaser.Scene {
   }
 
   _drawArcadeWarBackground(w, h) {
-    // Base gradient bands
-    this.add.rectangle(w/2, h/2, w, h, 0x07090e, 1);
-    this.add.rectangle(w/2, h * 0.30, w, h * 0.45, 0x101823, 0.55);
-    this.add.rectangle(w/2, h * 0.78, w, h * 0.42, 0x0c140f, 0.68);
+    // Base gradient bands - Spring War Theme
+    // Spring green base with war accents
+    this.add.rectangle(w/2, h/2, w, h, 0x1a5d2d, 1); // Spring green base
+    this.add.rectangle(w/2, h * 0.30, w, h * 0.45, 0x2a8d4a, 0.55); // Light spring green
+    this.add.rectangle(w/2, h * 0.78, w, h * 0.42, 0x144520, 0.68); // Darker spring green
 
-    // Vignette corners
+    // Add subtle war elements (muted colors)
+    this.add.rectangle(w/2, h * 0.20, w, h * 0.10, 0x3a2a1a, 0.3); // Muted brown war accent
+    this.add.rectangle(w/2, h * 0.85, w, h * 0.10, 0x2a1a0a, 0.25); // Muted brown war accent
+
+    // Vignette corners with spring war theme
     const vg = this.add.graphics();
     vg.fillStyle(0x000000, 0.22);
     vg.fillRect(0, 0, w, h);
     vg.fillStyle(0x000000, 0.0);
     vg.fillRect(34, 34, w - 68, h - 68);
 
-    // Scanlines
+    // Scanlines with spring war theme
     const sl = this.add.graphics();
-    sl.lineStyle(1, 0x1a2a2a, 0.20);
+    sl.lineStyle(1, 0x2a5a2a, 0.20); // Spring green scanlines
     for (let y = 0; y < h; y += 3) {
       sl.beginPath(); sl.moveTo(0, y); sl.lineTo(w, y); sl.strokePath();
     }
 
-    // Tactical grid (subtle)
+    // Add spring elements (flowers and blossoms)
+    this._addSpringElements(w, h);
+
+    // Tactical grid (subtle) - spring war theme
     const grid = this.add.graphics();
     grid.lineStyle(1, 0x2a3a4a, 0.20);
     for (let x = 0; x < w; x += 44) { grid.beginPath(); grid.moveTo(x, 0); grid.lineTo(x, h); grid.strokePath(); }
@@ -486,5 +494,44 @@ export class MenuScene extends Phaser.Scene {
 
     rebuild();
     overlay.on('pointerdown', () => { created.forEach(o => o.destroy()); });
+  }
+
+  _addSpringElements(w, h) {
+    // Add subtle spring elements to the background
+    // Cherry blossoms (pink) and greenery (light green)
+    
+    // Add some cherry blossom particles
+    const blossomCount = Math.floor(w * h / 2000);
+    for (let i = 0; i < blossomCount; i++) {
+      const x = Math.random() * w;
+      const y = Math.random() * h;
+      const size = 2 + Math.random() * 4;
+      
+      // Cherry blossom (light pink)
+      this.add.circle(x, y, size, 0xffb6c1, 0.7);
+    }
+    
+    // Add some greenery elements
+    const greeneryCount = Math.floor(w * h / 5000);
+    for (let i = 0; i < greeneryCount; i++) {
+      const x = Math.random() * w;
+      const y = Math.random() * h;
+      const size = 3 + Math.random() * 6;
+      
+      // Light green leaves
+      this.add.circle(x, y, size, 0x228b22, 0.5);
+    }
+    
+    // Add some subtle war elements (muted colors to maintain spring theme)
+    // Add a few small military elements
+    const warElementCount = 3;
+    for (let i = 0; i < warElementCount; i++) {
+      const x = 50 + Math.random() * (w - 100);
+      const y = 50 + Math.random() * (h - 100);
+      const size = 8 + Math.random() * 12;
+      
+      // Subtle military elements (brownish war theme)
+      this.add.rectangle(x, y, size * 0.8, size * 0.3, 0x5d4037, 0.4);
+    }
   }
 }
