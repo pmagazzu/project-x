@@ -458,30 +458,51 @@ function scoreRoadUtility(gs, player, q, r) {
   }
 
   // ── Directional corridor bias ─────────────────────────────────────────────
-  // Roads closer to the enemy get a strong bonus proportional to how far they
-  // are toward the enemy relative to own HQ. This breaks the "cluster near HQ"
-  // pattern and pushes the road network toward the front.
+  // Reward hexes that are closer to the enemy HQ than own HQ.
+  // Uses enemy proximity (not HQ-relative q direction) so it works for both
+  // the left-side and right-side player.
   let corridorBias = 0;
   if (myHQs.length > 0 && enemyHQs.length > 0) {
     const myHQ = myHQs[0];
     const enemyHQ = enemyHQs[0];
     const totalDist = hexDistance(myHQ.q, myHQ.r, enemyHQ.q, enemyHQ.r);
+    const dToEnemy = hexDistance(q, r, enemyHQ.q, enemyHQ.r);
     const dFromMyHQ = hexDistance(myHQ.q, myHQ.r, q, r);
-    const dFromEnemyHQ = hexDistance(enemyHQ.q, enemyHQ.r, q, r);
-    // Progress ratio: 0 at own HQ, 1 at enemy HQ
+    // Progress: 0 at own HQ, 1 at enemy HQ — direction-agnostic
+    // Use the ratio of (dist from myHQ) / totalDist, capped at 1
     const progress = totalDist > 0 ? Math.min(1, dFromMyHQ / totalDist) : 0;
-    // Only reward if hex is actually on the near side of midpoint or beyond
+    // Proximity bonus: the closer to the enemy, the higher the score
+    // This is symmetric and correct for both P1 and P2
+    const proximityScore = totalDist > 0 ? Math.max(0, 1 - dToEnemy / totalDist) : 0;
     if (progress > 0.15) {
-      corridorBias = progress * 18;  // max +18 at enemy HQ, 0 near own HQ
+      corridorBias = proximityScore * 22; // max +22 right at enemy HQ
     }
-    // Penalize going backward (hexes closer to own HQ than current road extent)
+    // Spread bonus: reward hexes that are off the direct axis (web-like network)
+    // Compute lateral deviation from the direct HQ-to-enemy line
+    if (myHQ && enemyHQ && totalDist > 0) {
+      // Vector from myHQ to enemyHQ
+      const axisQ = (enemyHQ.q - myHQ.q) / totalDist;
+      const axisR = (enemyHQ.r - myHQ.r) / totalDist;
+      // Projection of (q - myHQ) onto axis
+      const dq = q - myHQ.q, dr = r - myHQ.r;
+      const proj = dq * axisQ + dr * axisR;
+      // Lateral distance from axis
+      const latQ = dq - proj * axisQ, latR = dr - proj * axisR;
+      const lateral = Math.sqrt(latQ * latQ + latR * latR);
+      // Only add spread bonus in the forward half of the map
+      if (progress > 0.2 && progress < 0.85) {
+        const spreadBonus = Math.min(6, lateral * 0.8); // reward up to ~7 hexes off-axis
+        corridorBias += spreadBonus;
+      }
+    }
+    // Penalize going behind the current road frontier
     const myRoads = gs.buildings.filter(b => b.owner === player && b.type === 'ROAD');
     if (myRoads.length > 0) {
       const maxProgress = Math.max(...myRoads.map(road => {
         const d = hexDistance(myHQ.q, myHQ.r, road.q, road.r);
         return totalDist > 0 ? d / totalDist : 0;
       }));
-      if (progress < maxProgress - 0.1) corridorBias -= 8; // penalize backtracking
+      if (progress < maxProgress - 0.15) corridorBias -= 10;
     }
   }
 
@@ -665,6 +686,23 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
       const dstOnRoad = !!roadAt(gs, q, r);
       if (curOnRoad && !dstOnRoad) score += 12;
       if (curOnRoad && dstOnRoad && q === unit.q && r === unit.r) score -= 10;
+      // Lateral spread nudge: reward hexes slightly off the direct HQ-to-enemy axis
+      // This produces a web-like road network instead of a single corridor line
+      const myHQForEng = gs.buildings.find(b => b.type === 'HQ' && b.owner === unit.owner);
+      const enemyHQForEng = gs.buildings.find(b => b.type === 'HQ' && b.owner !== unit.owner);
+      if (myHQForEng && enemyHQForEng) {
+        const totalD = hexDistance(myHQForEng.q, myHQForEng.r, enemyHQForEng.q, enemyHQForEng.r);
+        if (totalD > 0) {
+          const axQ = (enemyHQForEng.q - myHQForEng.q) / totalD;
+          const axR = (enemyHQForEng.r - myHQForEng.r) / totalD;
+          const dq = q - myHQForEng.q, dr = r - myHQForEng.r;
+          const proj = dq * axQ + dr * axR;
+          const latQ = dq - proj * axQ, latR = dr - proj * axR;
+          const lateral = Math.sqrt(latQ * latQ + latR * latR);
+          // Reward 2-6 hexes off-axis to build parallel branches
+          if (lateral >= 1.5 && lateral <= 6) score += Math.min(5, lateral * 0.9);
+        }
+      }
     }
   }
 
