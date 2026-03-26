@@ -221,64 +221,47 @@ export class MenuScene extends Phaser.Scene {
   }
 
   _drawArcadeWarBackground(w, h) {
-    // Base gradient bands - Spring War Theme
-    // Spring green base with war accents
-    this.add.rectangle(w/2, h/2, w, h, 0x1a5d2d, 1); // Spring green base
-    this.add.rectangle(w/2, h * 0.30, w, h * 0.45, 0x2a8d4a, 0.55); // Light spring green
-    this.add.rectangle(w/2, h * 0.78, w, h * 0.42, 0x144520, 0.68); // Darker spring green
+    // Base — near-black
+    this.add.rectangle(w/2, h/2, w, h, 0x0d0d0d, 1);
 
-    // Add subtle war elements (muted colors)
-    this.add.rectangle(w/2, h * 0.20, w, h * 0.10, 0x3a2a1a, 0.3); // Muted brown war accent
-    this.add.rectangle(w/2, h * 0.85, w, h * 0.10, 0x2a1a0a, 0.25); // Muted brown war accent
+    // Tiled pattern: alternating near-black cells with subtle warm-brown and gray tones
+    const bgGfx = this.add.graphics();
+    const tileW = 40, tileH = 40;
+    const cols = Math.ceil(w / tileW) + 1;
+    const rows = Math.ceil(h / tileH) + 1;
+    const palette = [0x111111, 0x131210, 0x141312, 0x111111, 0x161410, 0x121111];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const col = palette[(r * 3 + c * 7) % palette.length];
+        bgGfx.fillStyle(col, 1);
+        bgGfx.fillRect(c * tileW, r * tileH, tileW - 1, tileH - 1);
+      }
+    }
 
-    // Vignette corners with spring war theme
+    // Faint diagonal hatching
+    bgGfx.lineStyle(1, 0x242018, 0.35);
+    for (let x = -h; x < w + h; x += 20) {
+      bgGfx.beginPath();
+      bgGfx.moveTo(x, 0);
+      bgGfx.lineTo(x + h, h);
+      bgGfx.strokePath();
+    }
+
+    // Subtle horizontal scan lines
+    bgGfx.lineStyle(1, 0x0a0a0a, 0.6);
+    for (let y = 0; y < h; y += 6) {
+      bgGfx.beginPath();
+      bgGfx.moveTo(0, y);
+      bgGfx.lineTo(w, y);
+      bgGfx.strokePath();
+    }
+
+    // Soft vignette
     const vg = this.add.graphics();
-    vg.fillStyle(0x000000, 0.22);
+    vg.fillStyle(0x000000, 0.35);
     vg.fillRect(0, 0, w, h);
     vg.fillStyle(0x000000, 0.0);
-    vg.fillRect(34, 34, w - 68, h - 68);
-
-    // Scanlines with spring war theme
-    const sl = this.add.graphics();
-    sl.lineStyle(1, 0x2a5a2a, 0.20); // Spring green scanlines
-    for (let y = 0; y < h; y += 3) {
-      sl.beginPath(); sl.moveTo(0, y); sl.lineTo(w, y); sl.strokePath();
-    }
-
-    // Add spring elements (flowers and blossoms)
-    this._addSpringElements(w, h);
-
-    // Tactical grid (subtle) - spring war theme
-    const grid = this.add.graphics();
-    grid.lineStyle(1, 0x2a3a4a, 0.20);
-    for (let x = 0; x < w; x += 44) { grid.beginPath(); grid.moveTo(x, 0); grid.lineTo(x, h); grid.strokePath(); }
-    for (let y = 0; y < h; y += 44) { grid.beginPath(); grid.moveTo(0, y); grid.lineTo(w, y); grid.strokePath(); }
-
-    // Horizon glow
-    this.add.rectangle(w/2, h * 0.63, w * 0.9, 2, 0x8b2a2a, 0.35);
-
-    // War silhouettes (simple arcade-style)
-    const sil = this.add.graphics();
-    sil.fillStyle(0x0a0f14, 0.98);
-    // Tank left
-    sil.fillRect(44, h - 96, 140, 32);
-    sil.fillRect(72, h - 114, 76, 20);
-    sil.fillRect(130, h - 108, 56, 6);
-    for (const wx of [58, 90, 122, 154]) sil.fillCircle(wx, h - 64, 9);
-    // Artillery right
-    sil.fillRect(w - 220, h - 92, 120, 24);
-    sil.fillRect(w - 180, h - 120, 24, 30);
-    sil.fillRect(w - 176, h - 134, 84, 6);
-    for (const wx of [w - 208, w - 178, w - 148, w - 118]) sil.fillCircle(wx, h - 66, 8);
-
-    // Neon red warning blips
-    const blips = this.add.graphics();
-    blips.fillStyle(0xff4444, 0.55);
-    for (let i = 0; i < 18; i++) {
-      const x = 40 + (i * 63) % (w - 80);
-      const y = 26 + ((i * 41) % Math.floor(h * 0.42));
-      blips.fillCircle(x, y, (i % 3) + 1.5);
-    }
+    vg.fillRect(80, 60, w - 160, h - 120);
   }
 
   _showSizePicker(scenarioKey) {
