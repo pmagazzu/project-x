@@ -336,14 +336,14 @@ function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits
   // --- Phase decision with hysteresis ---
   let desiredPhase = 'expand';
   if ((gs.turn || 1) >= 18) desiredPhase = 'pressure';
-  if (roadDeficit >= 2 || unsupplied >= Math.max(2, Math.floor(myUnits.length * 0.2))) desiredPhase = 'stabilize';
+  if (roadDeficit >= 4 || unsupplied >= Math.max(3, Math.floor(myUnits.length * 0.25))) desiredPhase = 'stabilize';
 
   const prevPhase = prev.phase || 'expand';
   const prevPhaseTurns = prev.phaseTurns || 0;
   let phase = desiredPhase;
   // Require minimum dwell time unless conditions are severe.
   const severe = roadDeficit >= 4 || unsupplied >= Math.max(4, Math.floor(myUnits.length * 0.33));
-  if (!severe && prevPhase !== desiredPhase && prevPhaseTurns < 3) phase = prevPhase;
+  if (!severe && prevPhase !== desiredPhase && prevPhaseTurns < 2) phase = prevPhase;
   const phaseTurns = phase === prevPhase ? (prevPhaseTurns + 1) : 1;
 
   // --- Lane scoring with stickiness/hysteresis ---
@@ -451,12 +451,41 @@ function scoreRoadUtility(gs, player, q, r) {
     .map(([dq,dr]) => roadAt(gs, q + dq, r + dr))
     .filter(Boolean).length;
   let networkScore = roadNeighbors * 7;
+  // Reduced HQ proximity bonus — don't reward roads near own HQ as much
   if (myHQs.length > 0) {
     const dHQ = Math.min(...myHQs.map(h => hexDistance(q, r, h.q, h.r)));
-    networkScore += Math.max(0, 9 - dHQ * 0.7);
+    networkScore += Math.max(0, 5 - dHQ * 0.5); // was: 9 - dHQ * 0.7
   }
 
-  return resourceScore + frontScore + networkScore;
+  // ── Directional corridor bias ─────────────────────────────────────────────
+  // Roads closer to the enemy get a strong bonus proportional to how far they
+  // are toward the enemy relative to own HQ. This breaks the "cluster near HQ"
+  // pattern and pushes the road network toward the front.
+  let corridorBias = 0;
+  if (myHQs.length > 0 && enemyHQs.length > 0) {
+    const myHQ = myHQs[0];
+    const enemyHQ = enemyHQs[0];
+    const totalDist = hexDistance(myHQ.q, myHQ.r, enemyHQ.q, enemyHQ.r);
+    const dFromMyHQ = hexDistance(myHQ.q, myHQ.r, q, r);
+    const dFromEnemyHQ = hexDistance(enemyHQ.q, enemyHQ.r, q, r);
+    // Progress ratio: 0 at own HQ, 1 at enemy HQ
+    const progress = totalDist > 0 ? Math.min(1, dFromMyHQ / totalDist) : 0;
+    // Only reward if hex is actually on the near side of midpoint or beyond
+    if (progress > 0.15) {
+      corridorBias = progress * 18;  // max +18 at enemy HQ, 0 near own HQ
+    }
+    // Penalize going backward (hexes closer to own HQ than current road extent)
+    const myRoads = gs.buildings.filter(b => b.owner === player && b.type === 'ROAD');
+    if (myRoads.length > 0) {
+      const maxProgress = Math.max(...myRoads.map(road => {
+        const d = hexDistance(myHQ.q, myHQ.r, road.q, road.r);
+        return totalDist > 0 ? d / totalDist : 0;
+      }));
+      if (progress < maxProgress - 0.1) corridorBias -= 8; // penalize backtracking
+    }
+  }
+
+  return resourceScore + frontScore + networkScore + corridorBias;
 }
 
 export function getAIKPIReport(gs, player) {
