@@ -240,7 +240,7 @@ function initEngineerMemory(gs, player) {
   return gs._aiEngineerMemory[player];
 }
 
-function pickEngineerTask(gs, player, engineer, strategic, mapSize) {
+function pickEngineerTask(gs, player, engineer, strategic, mapSize, claimedTasks) {
   const key = `${engineer.q},${engineer.r}`;
   const hasRoad = !!roadAt(gs, engineer.q, engineer.r);
   const res = gs.resourceHexes?.[key];
@@ -249,10 +249,24 @@ function pickEngineerTask(gs, player, engineer, strategic, mapSize) {
   }
   if (!hasRoad) return { type: 'road', q: engineer.q, r: engineer.r };
 
+  // Push toward the most forward corridor objective (furthest from own HQ, not nearest to engineer).
+  // This drives engineers east/west toward the enemy rather than clustering near HQ.
   const corridor = strategic?.objectives?.corridor || [];
-  if (corridor.length > 0) {
-    const target = corridor.reduce((a, b) => hexDistance(engineer.q, engineer.r, a.q, a.r) <= hexDistance(engineer.q, engineer.r, b.q, b.r) ? a : b);
-    return { type: 'corridor', q: target.q, r: target.r };
+  const myHQ = gs.buildings.find(b => b.type === 'HQ' && b.owner === player);
+  if (corridor.length > 0 && myHQ) {
+    const forwardTargets = corridor
+      .filter(o => o.type !== 'hq')  // skip own HQ waypoint
+      .sort((a, b) => hexDistance(myHQ.q, myHQ.r, b.q, b.r) - hexDistance(myHQ.q, myHQ.r, a.q, a.r));
+    // Pick the furthest unclaimed target to deconflict engineers
+    for (const t of forwardTargets) {
+      const tk = `${t.q},${t.r}`;
+      if (!claimedTasks || !claimedTasks.has(tk)) {
+        if (claimedTasks) claimedTasks.add(tk);
+        return { type: 'corridor', q: t.q, r: t.r };
+      }
+    }
+    // All claimed — still go forward to avoid local clustering
+    if (forwardTargets.length > 0) return { type: 'corridor', q: forwardTargets[0].q, r: forwardTargets[0].r };
   }
 
   const enemyHQ = gs.buildings.filter(b => b.type === 'HQ' && b.owner !== player)[0];
@@ -288,6 +302,18 @@ function summarizeUnsuppliedClusters(gs, player) {
   }
   sizes.sort((a, b) => b - a);
   return { count: sizes.length, largest: sizes[0] || 0, sizes: sizes.slice(0, 6) };
+}
+
+function getFOBChainPoints(gs, player) {
+  const myHQ = gs.buildings.find(b => b.type === 'HQ' && b.owner === player);
+  const enemyHQ = gs.buildings.find(b => b.type === 'HQ' && b.owner !== player);
+  if (!myHQ || !enemyHQ) return [];
+  // Depot waypoints at 30%, 55%, and 75% of the HQ-to-HQ corridor
+  return [0.30, 0.55, 0.75].map(pct => ({
+    q: Math.round(myHQ.q + (enemyHQ.q - myHQ.q) * pct),
+    r: Math.round(myHQ.r + (enemyHQ.r - myHQ.r) * pct),
+    pct,
+  }));
 }
 
 function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits, enemyHQs) {
@@ -533,8 +559,9 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   if (obj && role !== 'engineer' && role !== 'support') {
     const dNew = hexDistance(q, r, obj.q, obj.r);
     const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
-    if (dNew < dCur) score += 9 * phase.combat;
-    if (dNew <= 2) score += 4 * phase.combat;
+    if (dNew < dCur) score += 18 * phase.combat;  // doubled — make assignments actually stick
+    if (dNew <= 4) score += 6 * phase.combat;
+    if (dNew <= 1) score += 10 * phase.combat;
   }
 
   // Strategic lane pressure from persistent planner memory.
@@ -759,6 +786,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   };
 
   const engineerMemory = initEngineerMemory(gs, player);
+  const claimedCorridorTasks = new Set(); // deconflict: each engineer targets a different waypoint
 
   const aiDebug = {
     strategicPhase: strategic?.phase || null,
@@ -879,7 +907,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
         // Ensure task-lock memory exists and persists across turns.
         if (!mem.task || (gs.turn - (mem.turnAssigned || 0)) >= 5) {
-          mem.task = pickEngineerTask(gs, player, unit, strategic, mapSize);
+          mem.task = pickEngineerTask(gs, player, unit, strategic, mapSize, claimedCorridorTasks);
           mem.turnAssigned = gs.turn || 1;
           mem.stallTurns = 0;
         }
@@ -916,8 +944,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             if (task) {
               const dNew = hexDistance(hex.q, hex.r, task.q, task.r);
               const dCur = hexDistance(unit.q, unit.r, task.q, task.r);
-              if (dNew < dCur) s += 22;
-              if (dNew === 0) s += 12;
+              if (dNew < dCur) s += 38;   // strong forward corridor pull
+              if (dNew <= 2) s += 14;
+              if (dNew === 0) s += 18;
             }
           }
           if (s > bestScore) { bestScore = s; bestDest = hex; }
@@ -1080,10 +1109,22 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
               const roadUtilityHere = scoreRoadUtility(gs, player, unit.q, unit.r);
               needs.push({ type: 'ROAD', score: (8 - myRoads * 0.2 + unsupplied * 6.0 + d.roads * 5 + roadDeficit * 2 + Math.max(0, roadUtilityHere) * 0.5) * phaseWeights.logistics });
             }
-            // Frontline supply nodes: build depots along corridor when OOS/high span pressure appears.
-            const mySupplyDepots = gs.buildings.filter(bb => bb.owner === player && bb.type === 'SUPPLY_DEPOT' && !bb.underConstruction).length;
+            // FOB chain: proactively place supply depots along the HQ→enemy corridor.
+            const mySupplyDepots = gs.buildings.filter(bb => bb.owner === player && (bb.type === 'SUPPLY_DEPOT' || bb.type === 'SUPPLY_WAREHOUSE') && !bb.underConstruction).length;
             const frontlineSpan = getFrontlineDistanceEstimate(gs, player);
-            if (gs.turn >= 9 && mySupplyDepots < 4 && (unsupplied >= 3 || roadDeficit >= 3 || frontlineSpan >= 10)) {
+            const fobPoints = getFOBChainPoints(gs, player);
+            // Check if this engineer is near any uncovered FOB waypoint
+            const nearFOB = gs.turn >= 8 && fobPoints.some(fob => {
+              const dist = hexDistance(unit.q, unit.r, fob.q, fob.r);
+              if (dist > 6) return false;
+              return !gs.buildings.some(b => b.owner === player &&
+                (b.type === 'SUPPLY_DEPOT' || b.type === 'SUPPLY_WAREHOUSE') &&
+                hexDistance(b.q, b.r, fob.q, fob.r) <= 4);
+            });
+            if (nearFOB) {
+              const pressure = getEnemies().filter(e => hexDistance(e.q, e.r, unit.q, unit.r) <= 4).length;
+              needs.push({ type: 'SUPPLY_DEPOT', score: (20 + pressure * 2.0 + Math.floor(frontlineSpan / 4) - mySupplyDepots * 1.5) * phaseWeights.logistics });
+            } else if (gs.turn >= 9 && mySupplyDepots < 4 && (unsupplied >= 3 || roadDeficit >= 3 || frontlineSpan >= 10)) {
               const pressure = getEnemies().filter(e => hexDistance(e.q, e.r, unit.q, unit.r) <= 4).length;
               needs.push({ type: 'SUPPLY_DEPOT', score: (10 + unsupplied * 1.8 + pressure * 2.0 + Math.floor(frontlineSpan / 3) + roadDeficit * 1.2 - mySupplyDepots * 2) * phaseWeights.logistics });
             }
@@ -1357,7 +1398,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       sorted.unshift('SUPPLY_SHIP');
     }
     const hasAdvancedOption = sorted.some(t => (UNIT_TYPES[t]?.tier || 0) >= 1 || !!UNIT_TYPES[t]?.unlockedBy);
-    const logisticsCriticalRecruits = new Set(['ENGINEER','SUPPLY_TRUCK','SUPPLY_SHIP','INFANTRY','RECON']);
+    const logisticsCriticalRecruits = new Set(['ENGINEER','SUPPLY_TRUCK','SUPPLY_SHIP']);
 
     // Opening milestone controller (T1–T12): ensure baseline macro tools come online.
     if (opening.turn <= 12) {
@@ -1632,6 +1673,32 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       if ((t === 1 || t === 7) && tryBuild('LUMBER_CAMP')) break;
       if ((t === 0 || t === 6 || t === 7) && tryBuild('FARM')) break;
       if (gs.turn >= 6 && tryBuild('SCIENCE_LAB')) break;
+    }
+  }
+
+  // Engineer FOB-advance pass: steer any idle engineer toward the nearest uncovered FOB point.
+  {
+    const actedPreFOB = new Set(actions.filter(a => a.unitId != null).map(a => a.unitId));
+    const fobPointsNow = getFOBChainPoints(gs, player);
+    const uncoveredFOBs = fobPointsNow.filter(fob =>
+      !gs.buildings.some(b => b.owner === player &&
+        (b.type === 'SUPPLY_DEPOT' || b.type === 'SUPPLY_WAREHOUSE') &&
+        hexDistance(b.q, b.r, fob.q, fob.r) <= 4)
+    );
+    if (uncoveredFOBs.length > 0) {
+      const fobEngs = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked && !u.constructing && !actedPreFOB.has(u.id));
+      for (const eng of fobEngs) {
+        const nearest = uncoveredFOBs.reduce((a, b) => hexDistance(eng.q, eng.r, a.q, a.r) <= hexDistance(eng.q, eng.r, b.q, b.r) ? a : b);
+        if (hexDistance(eng.q, eng.r, nearest.q, nearest.r) <= 2) continue; // already close, let build logic handle
+        const reachable = getReachableHexes(gs, eng, terrain, mapSize) || [];
+        const best = reachable
+          .filter(h => hexDistance(h.q, h.r, nearest.q, nearest.r) < hexDistance(eng.q, eng.r, nearest.q, nearest.r))
+          .sort((a, b) => hexDistance(a.q, a.r, nearest.q, nearest.r) - hexDistance(b.q, b.r, nearest.q, nearest.r))[0];
+        if (best) {
+          actions.push({ type: 'move', unitId: eng.id, fromQ: eng.q, fromR: eng.r, toQ: best.q, toR: best.r });
+          actedPreFOB.add(eng.id);
+        }
+      }
     }
   }
 
