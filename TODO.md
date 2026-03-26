@@ -19,7 +19,7 @@
 
 ### Features (requested)
 - [ ] **Patrol boat double-move**: Allow patrol boats a 2nd shorter move after first move, but negates attack for that turn
-- [ ] **Naval Yard tier 1 should unlock tier 1 Destroyer** — currently tier 1 destroyers can't be made/designed at Tier 1 Naval Yard
+- [x] **Naval Yard tier 1 should unlock tier 1 Destroyer** — currently tier 1 destroyers can't be made/designed at Tier 1 Naval Yard
 
 ---
 
