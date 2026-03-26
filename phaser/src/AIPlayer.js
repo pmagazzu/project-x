@@ -474,7 +474,7 @@ function scoreRoadUtility(gs, player, q, r) {
     // Proximity bonus: the closer to the enemy, the higher the score
     // This is symmetric and correct for both P1 and P2
     const proximityScore = totalDist > 0 ? Math.max(0, 1 - dToEnemy / totalDist) : 0;
-    if (progress > 0.15) {
+    if (progress > 0.02) {  // apply from very near own HQ so P2 (right-side) benefits too
       corridorBias = proximityScore * 22; // max +22 right at enemy HQ
     }
     // Spread bonus: reward hexes that are off the direct axis (web-like network)
@@ -623,6 +623,26 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
     if ((ctx.strategic.phase === 'expand' || ctx.strategic.phase === 'stabilize') && laneNow === 'center') score -= 2.5;
   }
 
+  // Phase 5: Lane band pull — reward moving into the r-band of the assigned objective.
+  // This is what makes force-split assignments actually execute (assigned → current match).
+  const obj5 = ctx.unitObjective?.[unit.id];
+  if (obj5 && role !== 'engineer' && role !== 'support') {
+    const mapSz = ctx.mapSize || gs._mapSize || 40;
+    const assignedLane = getLaneForR(obj5.r, mapSz);
+    const unitLane = getLaneForR(r, mapSz);
+    const inBand = unitLane === assignedLane;
+    // Strongly reward entering the assigned lane r-band, penalize being in wrong lane
+    if (inBand && unitLane !== 'center') score += 10 * phase.combat;
+    if (!inBand && unitLane === 'center' && assignedLane !== 'center') score -= 6 * phase.combat;
+    // Also reward lateral movement toward the assigned lane's r-center
+    const laneCenter = ctx.strategic?.laneCenters?.[assignedLane];
+    if (laneCenter !== undefined) {
+      const latNew = Math.abs(r - laneCenter);
+      const latCur = Math.abs(unit.r - laneCenter);
+      if (latNew < latCur) score += 5 * phase.combat;
+    }
+  }
+
   // Defensive: reward moving toward own HQ
   if (cfg.retreatToHQ && myHQs.length > 0) {
     const nearestHQ  = Math.min(...myHQs.map(b => hexDistance(q, r, b.q, b.r)));
@@ -640,6 +660,21 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
       const nearestHQ = Math.min(...myHQs.map(b => hexDistance(q, r, b.q, b.r)));
       const curHQDist = Math.min(...myHQs.map(b => hexDistance(unit.q, unit.r, b.q, b.r)));
       if (nearestHQ < curHQDist) score += 6;
+    }
+  }
+  // Phase 5: retreat logic — wounded units strongly prefer hexes near supply trucks
+  if (hpFrac <= 0.35 && role !== 'support' && role !== 'engineer') {
+    const myTrucks = gs.units.filter(u => u.owner === unit.owner && (u.type === 'SUPPLY_TRUCK' || u.type === 'SUPPLY_SHIP') && !u.embarked);
+    if (myTrucks.length > 0) {
+      const dToTruckNew = Math.min(...myTrucks.map(t => hexDistance(q, r, t.q, t.r)));
+      const dToTruckCur = Math.min(...myTrucks.map(t => hexDistance(unit.q, unit.r, t.q, t.r)));
+      if (dToTruckNew < dToTruckCur) score += 14; // strong pull toward supply
+      if (dToTruckNew <= 1) score += 8;            // bonus for being next to truck (healing/resupply)
+    }
+    // Wounded = avoid front hex; heavily penalize advancing toward enemy
+    if (enemies.length > 0) {
+      const nearEnemy = Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r)));
+      if (nearEnemy <= 2) score -= 20;
     }
   }
 
@@ -825,7 +860,26 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       return pr(ra) - pr(rb);
     });
 
-    const phaseFlankShare = strategic.phase === 'pressure' ? 0.35 : (strategic.phase === 'stabilize' ? 0.45 : 0.5);
+    // Phase 5: exploitation doctrine — if one side has centroid advantage in a lane, reinforce it
+    const myCenter = {
+      q: myCombatUnits.reduce((s, u) => s + u.q, 0) / Math.max(1, myCombatUnits.length),
+      r: myCombatUnits.reduce((s, u) => s + u.r, 0) / Math.max(1, myCombatUnits.length),
+    };
+    const enemyCenter = {
+      q: gs.units.filter(u => u.owner !== player && !u.embarked).reduce((s,u,_,a) => s + u.q/a.length, 0),
+      r: gs.units.filter(u => u.owner !== player && !u.embarked).reduce((s,u,_,a) => s + u.r/a.length, 0),
+    };
+    const myHQPos = gs.buildings.find(b => b.type === 'HQ' && b.owner === player);
+    const enemyHQPos = gs.buildings.find(b => b.type === 'HQ' && b.owner !== player);
+    // Winning = my centroid is closer to enemy HQ than enemy centroid is to mine
+    const winningNow = myHQPos && enemyHQPos && enemyCenter.q != null &&
+      hexDistance(myCenter.q, myCenter.r, enemyHQPos.q, enemyHQPos.r) <
+      hexDistance(enemyCenter.q, enemyCenter.r, myHQPos.q, myHQPos.r);
+    // In pressure phase with advantage: concentrate 65% on main push, 35% on flank containment
+    // Otherwise use the standard split
+    const phaseFlankShare = winningNow && strategic.phase === 'pressure' ? 0.25 :
+      strategic.phase === 'pressure' ? 0.35 :
+      strategic.phase === 'stabilize' ? 0.45 : 0.5;
     const flankCount = Math.max(2, Math.floor(sortedCombat.length * phaseFlankShare));
     for (let i = 0; i < sortedCombat.length; i++) {
       const u = sortedCombat[i];
@@ -944,7 +998,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const preMoveTarget  = chooseBestTarget(gs, unit, preMoveTargets);
     const preTrade = preMoveTarget ? estimateAttackCommitScore(gs, unit, preMoveTarget) : -999;
     const frontlineCommit = (gs.turn || 1) >= 10 && preMoveTarget && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 3 && preTrade >= 0;
-    const canRiskAttack = !!unitInSupply || frontlineCommit || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && preMoveTarget && (preMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
+    // Phase 5: commit threshold — require friendly nearby mass before engaging (anti-suicide-rush)
+    const nearbyFriendliesForCommit = gs.units.filter(u => u.owner === unit.owner && u.id !== unit.id && !u.embarked && hexDistance(u.q, u.r, unit.q, unit.r) <= 3).length;
+    const hasCommitMass = nearbyFriendliesForCommit >= 2 || (preMoveTarget && (preMoveTarget.health || 99) <= 1);
+    const canRiskAttack = (!!unitInSupply && hasCommitMass) || frontlineCommit || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && preMoveTarget && (preMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
     const preThreshold = getUnitRole(unit.type) === 'recon' ? 2 : 0;
     if (preMoveTarget && canRiskAttack && preTrade >= preThreshold) {
       actions.push({
@@ -1050,7 +1107,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const postInSupply = mySupply?.has?.(`${unit.q},${unit.r}`);
         const postTrade = postMoveTarget ? estimateAttackCommitScore(gs, unit, postMoveTarget) : -999;
         const frontlineCommitPost = (gs.turn || 1) >= 10 && postMoveTarget && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 3 && postTrade >= 0;
-        const canRiskPostAttack = !!postInSupply || frontlineCommitPost || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && postMoveTarget && (postMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
+        // Phase 5: commit threshold for post-move attacks
+        const nearbyFriendliesPost = gs.units.filter(u => u.owner === unit.owner && u.id !== unit.id && !u.embarked && hexDistance(u.q, u.r, unit.q, unit.r) <= 3).length;
+        const hasCommitMassPost = nearbyFriendliesPost >= 2 || (postMoveTarget && (postMoveTarget.health || 99) <= 1);
+        const canRiskPostAttack = (!!postInSupply && hasCommitMassPost) || frontlineCommitPost || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && postMoveTarget && (postMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
         const postThreshold = getUnitRole(unit.type) === 'recon' ? 2 : 0;
         if (postMoveTarget && canRiskPostAttack && postTrade >= postThreshold) {
           actions.push({
