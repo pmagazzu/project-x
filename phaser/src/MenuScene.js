@@ -33,8 +33,38 @@ export class MenuScene extends Phaser.Scene {
   create() {
     const w = this.scale.width, h = this.scale.height;
 
-    // Background
+    // Background — subtle earth-tone hatched pattern
     this.add.rectangle(w/2, h/2, w, h, 0x0d0d0d);
+
+    // Draw a subtle repeating cross-hatch / noise pattern in grays and browns
+    const bgGfx = this.add.graphics();
+    const tileW = 40, tileH = 40;
+    const cols = Math.ceil(w / tileW) + 1;
+    const rows = Math.ceil(h / tileH) + 1;
+    const palette = [0x1a1a1a, 0x222018, 0x1e1b16, 0x191919, 0x211f1a, 0x1c1a14];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const col = palette[(r * 3 + c * 7) % palette.length];
+        bgGfx.fillStyle(col, 1);
+        bgGfx.fillRect(c * tileW, r * tileH, tileW - 1, tileH - 1);
+      }
+    }
+    // Faint diagonal lines for texture
+    bgGfx.lineStyle(1, 0x2a2520, 0.3);
+    for (let x = -h; x < w + h; x += 18) {
+      bgGfx.beginPath();
+      bgGfx.moveTo(x, 0);
+      bgGfx.lineTo(x + h, h);
+      bgGfx.strokePath();
+    }
+    // Subtle horizontal bands to break it up
+    bgGfx.lineStyle(1, 0x111110, 0.5);
+    for (let y = 0; y < h; y += 8) {
+      bgGfx.beginPath();
+      bgGfx.moveTo(0, y);
+      bgGfx.lineTo(w, y);
+      bgGfx.strokePath();
+    }
 
     // Title
     this.add.text(w/2, 60, 'ATTRITION', {
