@@ -765,6 +765,23 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
       if (nearFriend > 5) score -= 5;
     }
 
+    // Supply Ship: escort fleet, stay near naval combat units.
+    if (unit.type === 'SUPPLY_SHIP') {
+      const navalCombatFriendly = gs.units.filter(u2 =>
+        u2.owner === unit.owner && NAVAL_UNITS.has(u2.type) &&
+        u2.type !== 'SUPPLY_SHIP' && !['LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG'].includes(u2.type)
+      );
+      if (navalCombatFriendly.length > 0) {
+        const cx = navalCombatFriendly.reduce((s, u2) => s + u2.q, 0) / navalCombatFriendly.length;
+        const cy = navalCombatFriendly.reduce((s, u2) => s + u2.r, 0) / navalCombatFriendly.length;
+        const dNewCentroid = Math.abs(q - cx) + Math.abs(r - cy);
+        const dCurCentroid = Math.abs(unit.q - cx) + Math.abs(unit.r - cy);
+        if (dNewCentroid < dCurCentroid) score += 10;
+        const nearestNaval = Math.min(...navalCombatFriendly.map(u2 => hexDistance(q, r, u2.q, u2.r)));
+        if (nearestNaval <= 3) score += 6;
+      }
+    }
+
     // Supply trucks are fragile and should avoid leading pushes.
     if (unit.type === 'SUPPLY_TRUCK') {
       const threat = getEnemyThreatAt(gs, unit.owner, q, r);
@@ -1303,6 +1320,29 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
               if (myAdvAirfield < 1) needs.push({ type: 'ADV_AIRFIELD', score: 10.2 * phaseWeights.combat });
             }
 
+            // Naval coastal defense doctrine
+            const DIRS_COASTAL = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+            const engTerrain = terrain[`${unit.q},${unit.r}`] ?? 0;
+            const isOnCoastal = (engTerrain === 4 || engTerrain === 5);
+            const isAdjacentCoastal = !isOnCoastal && DIRS_COASTAL.some(([dq, dr]) => {
+              const nt = terrain[`${unit.q + dq},${unit.r + dr}`] ?? 0;
+              return nt === 4 || nt === 5;
+            });
+            if ((isOnCoastal || isAdjacentCoastal) && gs.turn >= 12) {
+              const nearbyOwnCB = gs.units.filter(u2 => u2.owner === player && u2.type === 'COASTAL_BATTERY' && hexDistance(u2.q, u2.r, unit.q, unit.r) <= 5).length
+                + gs.buildings.filter(b2 => b2.owner === player && b2.type === 'COASTAL_BATTERY' && hexDistance(b2.q, b2.r, unit.q, unit.r) <= 5).length;
+              if (nearbyOwnCB === 0) {
+                needs.push({ type: 'COASTAL_BATTERY', score: 14 * phaseWeights.combat });
+              }
+              if (gs.turn >= 15) {
+                const nearbyOwnAA = gs.units.filter(u2 => u2.owner === player && u2.type === 'AA_EMPLACEMENT' && hexDistance(u2.q, u2.r, unit.q, unit.r) <= 5).length
+                  + gs.buildings.filter(b2 => b2.owner === player && b2.type === 'AA_EMPLACEMENT' && hexDistance(b2.q, b2.r, unit.q, unit.r) <= 5).length;
+                if (nearbyOwnAA === 0) {
+                  needs.push({ type: 'AA_EMPLACEMENT', score: 11 * phaseWeights.combat });
+                }
+              }
+            }
+
             // Sort by score descending and try each
             needs.sort((a, b) => b.score - a.score);
             let built = false;
@@ -1505,10 +1545,16 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       if (role === 'indirect' || role === 'assault' || role === 'line') return 9 * phaseWeights.combat;
       return 0;
     };
+    const hasWater = Object.values(terrain).some(t => t === 3 || t === 4 || t === 5);
     const sorted  = [...bType.canRecruit].sort((a, b2) => {
       const ai = prio.indexOf(a), bi = prio.indexOf(b2);
       const baseDelta = (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
-      const phaseDelta = recruitRoleScore(b2) - recruitRoleScore(a);
+      let phaseDeltaA = recruitRoleScore(a), phaseDeltaB2 = recruitRoleScore(b2);
+      if (isNaval && hasWater) {
+        if (cfg.navalPrio.includes(a)) phaseDeltaA += 5;
+        if (cfg.navalPrio.includes(b2)) phaseDeltaB2 += 5;
+      }
+      const phaseDelta = phaseDeltaB2 - phaseDeltaA;
       return baseDelta + phaseDelta * 0.1;
     });
     // If components are available, prefer units that actually consume components.

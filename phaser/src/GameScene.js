@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.120';
+export const GAME_VERSION = 'v1.4.121';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -1253,6 +1253,21 @@ export class GameScene extends Phaser.Scene {
       this.supplyGfx.fillPoints(verts, true);
       this.supplyGfx.lineStyle(1, 0x44ff88, 0.22);
       this.supplyGfx.strokePoints(verts, true);
+    }
+
+    // 2a) Supply Ship bubble: 1-hex ring around selected SUPPLY_SHIP
+    if (this.selectedUnit?.type === 'SUPPLY_SHIP') {
+      const NBR_SS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+      const sq = this.selectedUnit.q, sr = this.selectedUnit.r;
+      for (const [dq, dr] of NBR_SS) {
+        const hq = sq + dq, hr = sr + dr;
+        const { x: hx, y: hy } = hexToWorld(hq, hr);
+        const hverts = hexVertices(hx, hy);
+        this.supplyGfx.fillStyle(0x00aaff, 0.2);
+        this.supplyGfx.fillPoints(hverts, true);
+        this.supplyGfx.lineStyle(1.5, 0x00ccff, 0.6);
+        this.supplyGfx.strokePoints(hverts, true);
+      }
     }
 
     // 2) Outer boundary ring (only where supply meets non-supply)
@@ -2771,6 +2786,21 @@ export class GameScene extends Phaser.Scene {
         status += pa ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : '○ Can attack  ';
         if (u.dugIn) status += '🪖 Dug in  ';
         if (u.outOfSupply > 0) status += `⚠ OUT OF SUPPLY (${u.outOfSupply}t)`;
+        if (NAVAL_UNITS.has(u.type)) {
+          const navalMaxMap = {
+            PATROL_BOAT: 6, SUBMARINE: 10, DESTROYER: 7, DESTROYER_MK1: 7,
+            CRUISER_LT: 8, CRUISER_HV: 8, BATTLESHIP: 10,
+            LANDING_CRAFT: 5, TRANSPORT_SM: 5, TRANSPORT_MD: 5, TRANSPORT_LG: 5,
+          };
+          if (u.type === 'SUPPLY_SHIP') {
+            status += '  ⚓ Logistics Hub';
+          } else {
+            const navalMax = navalMaxMap[u.type] ?? 6;
+            const navalCur = u.navalSupply ?? navalMax;
+            const navalWarn = navalCur <= 2 ? '⚠ ' : '';
+            status += `  ⚓ Supply: ${navalWarn}${navalCur}/${navalMax} turns`;
+          }
+        }
       }
       // Contextual modifiers affecting this unit right now
       const ttype = this.terrain?.[`${u.q},${u.r}`] ?? 0;
