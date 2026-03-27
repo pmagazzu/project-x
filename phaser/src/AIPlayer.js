@@ -632,7 +632,7 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
     const unitLane = getLaneForR(r, mapSz);
     const inBand = unitLane === assignedLane;
     // Strongly reward entering the assigned lane r-band, penalize being in wrong lane
-    if (inBand && unitLane !== 'center') score += 10 * phase.combat;
+    if (inBand && unitLane !== 'center') score += 16 * phase.combat;
     if (!inBand && unitLane === 'center' && assignedLane !== 'center') score -= 6 * phase.combat;
     // Also reward lateral movement toward the assigned lane's r-center
     const laneCenter = ctx.strategic?.laneCenters?.[assignedLane];
@@ -1259,8 +1259,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             if (gs.turn >= 12 && warehousesEarly < 3 && (unsupplied >= 4 || frontlineSpan >= 12)) {
               needs.push({ type: 'SUPPLY_WAREHOUSE', score: (9 + unsupplied * 1.6 + Math.floor(frontlineSpan / 4) - warehousesEarly * 2) * phaseWeights.logistics });
             }
-            // Science Lab: research, cap at 2
-            if (myLabs < 2 && gs.turn >= 2) needs.push({ type: 'SCIENCE_LAB', score: (8 - myLabs * 4 + d.labs * 6) * phaseWeights.research });
+            // Science Lab: research, cap at 2 — high priority, force by turn 8
+            const labUrgency = gs.turn >= 8 && myLabs < 1 ? 30 : gs.turn >= 5 && myLabs < 1 ? 18 : 8;
+            if (myLabs < 2 && gs.turn >= 2) needs.push({ type: 'SCIENCE_LAB', score: (labUrgency - myLabs * 4 + d.labs * 6) * phaseWeights.research });
             // Factory: components, cap at 2
             if (myFactories < 2 && gs.turn >= 5) needs.push({ type: 'FACTORY', score: (6 - myFactories * 3 + d.factories * 7) * phaseWeights.economy });
 
@@ -1366,7 +1367,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const resState = pState.research;
   const labsOnline = gs.buildings.filter(b => b.owner === player && b.type === 'SCIENCE_LAB' && !b.underConstruction).length;
   const queueCap = Math.max(1, resState.slots || 1);
-  if (labsOnline > 0 && (resState.queue?.length || 0) < queueCap) {
+  // Phase 5: allow research queuing from turn 3 even without labs (queues for when lab comes online)
+  const canQueueResearch = labsOnline > 0 || (gs.turn >= 3 && gs.buildings.some(b => b.owner === player && b.type === 'SCIENCE_LAB' && b.underConstruction));
+  if (canQueueResearch && (resState.queue?.length || 0) < queueCap) {
     const techTree = gs._techTree || TECH_TREE || {};
     const unlocked = new Set(resState.unlocked || []);
     const queued = new Set((resState.queue || []).map(q => q.techId));
@@ -1593,6 +1596,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const frontlineSpan = getFrontlineDistanceEstimate(gs, player);
         const truckCap = Math.max(3, Math.min(10, 3 + Math.floor(frontlineSpan / 8) + Math.floor(Math.max(0, unsuppliedGround) / 3)));
         if (myTrucks >= truckCap) continue;
+        // Barracks gate: don't build 2nd+ truck until a barracks is online
+        if (myTrucks >= 1) {
+          const hasBarracks = gs.buildings.some(bb => bb.owner === player && (bb.type === 'BARRACKS' || bb.type === 'ADV_BARRACKS') && !bb.underConstruction);
+          if (!hasBarracks) continue;
+        }
       }
       if (unitType === 'SUPPLY_SHIP') {
         const myShips = gs.units.filter(u => u.owner === player && u.type === 'SUPPLY_SHIP').length;
@@ -1652,7 +1660,14 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       if (t === 2) return false; // no roads on mountains
       if (roadAt(gs, q, r)) return false;
       const b = buildingAt(gs, q, r);
-      return !b || ROAD_TYPES.has(b.type);
+      if (b && !ROAD_TYPES.has(b.type)) return false;
+      // Connectivity: only build roads adjacent to existing road network or HQ
+      const myHQsR = gs.buildings.filter(bb => bb.type === 'HQ' && bb.owner === player);
+      return [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]].some(([dq, dr]) => {
+        const nq = q + dq, nr = r + dr;
+        if (roadAt(gs, nq, nr)) return true;
+        return myHQsR.some(h => h.q === nq && h.r === nr);
+      });
     };
 
     const rcost = BUILDING_TYPES['ROAD']?.buildCost || {};
@@ -1838,7 +1853,15 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     if (t === 2) return false;
     if (roadAt(gs, q, r)) return false;
     const b = buildingAt(gs, q, r);
-    return !b || ROAD_TYPES.has(b.type);
+    if (b && !ROAD_TYPES.has(b.type)) return false;
+    // Connectivity: must be adjacent to existing road or HQ
+    const myHQsFinal = gs.buildings.filter(bb => bb.type === 'HQ' && bb.owner === player);
+    const hexNeighborsFinal = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+    return hexNeighborsFinal.some(([dq, dr]) => {
+      const nq = q + dq, nr = r + dr;
+      if (roadAt(gs, nq, nr)) return true;
+      return myHQsFinal.some(h => h.q === nq && h.r === nr);
+    });
   };
   for (const eng of idleEngineers) {
     if (canAfford(roadCostFinal) && roadableHereFinal(eng.q, eng.r)) {
