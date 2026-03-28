@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.122';
+export const GAME_VERSION = 'v1.4.123';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -7545,7 +7545,7 @@ export class GameScene extends Phaser.Scene {
       islands:        { scale: 0.090, sea: 0.56, edgeFalloff: 1.25, edgeStart: 0.55, islandAmp: 0.30, islandRad: 0.18, centers: [[0.18,0.24],[0.36,0.20],[0.55,0.26],[0.74,0.22],[0.80,0.40],[0.68,0.56],[0.48,0.66],[0.30,0.62],[0.16,0.52]] },
       large_islands:  { scale: 0.076, sea: 0.53, edgeFalloff: 1.15, edgeStart: 0.58, islandAmp: 0.36, islandRad: 0.24, centers: [[0.20,0.28],[0.50,0.24],[0.76,0.32],[0.30,0.66],[0.64,0.70]] },
       continent:      { scale: 0.045, sea: 0.36, edgeFalloff: 0.8, edgeStart: 0.70, islandAmp: 0.00, islandRad: 0.0, centers: [] },
-      two_continents: { scale: 0.055, sea: 0.39, edgeFalloff: 1.0, edgeStart: 0.63, islandAmp: 0.00, islandRad: 0.0, centers: [] },
+      two_continents: { scale: 0.045, sea: 0.34, edgeFalloff: 1.2, edgeStart: 0.60, islandAmp: 0.00, islandRad: 0.0, centers: [] },
       archipelago:    { scale: 0.115, sea: 0.52, edgeFalloff: 1.35, edgeStart: 0.50, islandAmp: 0.24, islandRad: 0.13, centers: [[0.18,0.22],[0.36,0.20],[0.54,0.26],[0.72,0.24],[0.82,0.36],[0.72,0.52],[0.54,0.58],[0.34,0.62],[0.18,0.56]] },
       landlocked:     { scale: 0.060, sea: -99, edgeFalloff: 0.0, edgeStart: 1.0, islandAmp: 0.0, islandRad: 0.0, centers: [] },
     }[landProfile] || { scale: 0.075, sea: 0.44, edgeFalloff: 1.2, edgeStart: 0.55, islandAmp: 0.0, islandRad: 0.0, centers: [] };
@@ -7684,13 +7684,14 @@ export class GameScene extends Phaser.Scene {
         if (landProfile === 'two_continents') {
           const center = ms * 0.5;
           const band = Math.abs(q - center) / ms;
-          // Carve ocean channel in the center band
-          if (band < 0.09) v -= (0.22 - band);
-          // Land bridge at the top (low r values): boost height near center-q at top 12% of map
-          const topFraction = r / ms; // 0 at top
-          if (topFraction < 0.12 && band < 0.07) {
-            const bridgeBoost = (0.12 - topFraction) * 2.8 * (1 - band / 0.07);
-            v += bridgeBoost;
+          // Carve wide ocean channel down the center (left-right split)
+          if (band < 0.15) v -= (0.35 * (1 - band / 0.15)); // strong central carve
+          // Land bridge at the TOP: narrow isthmus connecting the two continents
+          // r=0 is top edge; bridge is in the top 10% of map, centered at center-q
+          const topFraction = r / ms;
+          if (topFraction < 0.10 && band < 0.09) {
+            const bridgeBoost = (0.10 - topFraction) * 4.5 * (1 - band / 0.09);
+            v += bridgeBoost; // pushes land bridge above sea level
           }
         }
         h[`${q},${r}`] = v;
