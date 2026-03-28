@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.121';
+export const GAME_VERSION = 'v1.4.122';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -7680,11 +7680,18 @@ export class GameScene extends Phaser.Scene {
 
         v -= Math.max(0, edgeDist - PROFILE.edgeStart) * PROFILE.edgeFalloff;
 
-        // Two-continent profile: carve central ocean channel
+        // Two-continent profile: carve central ocean channel + land bridge at top
         if (landProfile === 'two_continents') {
           const center = ms * 0.5;
           const band = Math.abs(q - center) / ms;
+          // Carve ocean channel in the center band
           if (band < 0.09) v -= (0.22 - band);
+          // Land bridge at the top (low r values): boost height near center-q at top 12% of map
+          const topFraction = r / ms; // 0 at top
+          if (topFraction < 0.12 && band < 0.07) {
+            const bridgeBoost = (0.12 - topFraction) * 2.8 * (1 - band / 0.07);
+            v += bridgeBoost;
+          }
         }
         h[`${q},${r}`] = v;
       }

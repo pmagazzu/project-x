@@ -45,6 +45,14 @@ const SCENARIOS = [
     hoverColor: 0x3a79a8,
   },
   {
+    key:   'ai_vs_ai_two_continents',
+    label: 'AI VS AI · TWO CONTINENTS (250T)',
+    icon:  '🌍',
+    sub:   '135×135 · two continents · land bridge · naval + air + ground (250 turns)',
+    color: 0x1a3355,
+    hoverColor: 0x2a5588,
+  },
+  {
     key:   'ai_vs_ai_island_extreme_120',
     label: 'AI VS AI · ISLAND EXTREME (120T)',
     icon:  '🤖',
@@ -158,7 +166,19 @@ export class MenuScene extends Phaser.Scene {
         sub.setStyle({ fill: '#556650' });
       });
       bg.on('pointerdown', () => {
-        if (sc.key === 'ai_vs_ai_island_medium' || sc.key === 'ai_vs_ai_island_medium_40' || sc.key === 'ai_vs_ai_island_large_80' || sc.key === 'ai_vs_ai_island_extreme_120') {
+        if (sc.key === 'ai_vs_ai_two_continents') {
+          this.scene.start('GameScene', {
+            scenario: 'custom',
+            customSize: 135,
+            procLandProfile: 'two_continents',
+            aiP1: true,
+            aiP2: true,
+            aiStrategy: 'balanced',
+            aiLabExport: true,
+            autoStopTurn: 250,
+            aiViewerMode: true,
+          });
+        } else if (sc.key === 'ai_vs_ai_island_medium' || sc.key === 'ai_vs_ai_island_medium_40' || sc.key === 'ai_vs_ai_island_large_80' || sc.key === 'ai_vs_ai_island_extreme_120') {
           const autoStopTurn = sc.key === 'ai_vs_ai_island_medium_40'
             ? 40
             : (sc.key === 'ai_vs_ai_island_large_80'
