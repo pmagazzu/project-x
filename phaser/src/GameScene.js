@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.123';
+export const GAME_VERSION = 'v1.4.124';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -141,7 +141,7 @@ export class GameScene extends Phaser.Scene {
     this.scenario = data.scenario || 'default';
     this.procLandProfile = data.procLandProfile || 'continent';
     this.procQuickStart  = (data.procQuickStart !== undefined) ? !!data.procQuickStart : true;
-    this.debugNoFog      = !!data.debugNoFog || this.scenario === 'mortar_test' || this.scenario === 'coastal_battery_test';
+    this.debugNoFog      = !!data.debugNoFog || this.scenario === 'mortar_test' || this.scenario === 'coastal_battery_test' || (this.procLandProfile === 'two_continents');
     this._mapBuilderMode = !!data.mapBuilder;
     this._aiViewerMode = !!data.aiViewerMode;
     this._aiSimSpeed = Math.max(1, Number(data.aiSimSpeed) || 1); // 1=normal,2=fast,4=turbo
@@ -7454,7 +7454,11 @@ export class GameScene extends Phaser.Scene {
     } else if (this.scenario === 'naval') {
       this._genNavalTerrain(map, ms);
     } else if (this.scenario === 'random' || this.scenario === 'custom') {
-      this._genProcTerrain(map, ms, this.mapSeed, this.procLandProfile || 'islands');
+      if (this.procLandProfile === 'two_continents') {
+        this._genTwoContinentsTerrain(map, ms, this.mapSeed);
+      } else {
+        this._genProcTerrain(map, ms, this.mapSeed, this.procLandProfile || 'islands');
+      }
     } else {
       // Standard procedural terrain (scout / grand / default)
       const seed = this.scenario === 'grand' ? 99999 : 12345;
@@ -8300,6 +8304,139 @@ export class GameScene extends Phaser.Scene {
         }
       }
     }
+  }
+
+
+  _genTwoContinentsTerrain(map, ms, seed) {
+    // Fill everything with ocean to start
+    for (let q = 0; q < ms; q++)
+      for (let r = 0; r < ms; r++) map[`${q},${r}`] = 5; // deep ocean
+
+    const rng = this._seededRng(seed + 77777);
+    const rand = () => { const x = rng(); return x; };
+
+    // Helper: hex distance
+    const hexDist = (q1, r1, q2, r2) => (Math.abs(q1-q2) + Math.abs(r1-r2) + Math.abs((q1-q2)+(r1-r2))) / 2;
+
+    // Paint terrain on a hex with noise-based variety
+    const paintLand = (q, r, distFromEdge) => {
+      if (!isValid(q, r, ms)) return;
+      const existing = map[`${q},${r}`];
+      if (existing === 5 || existing === 4) { // only paint over water
+        if (distFromEdge <= 0) { map[`${q},${r}`] = 4; return; } // shallow coast
+        const n = rand();
+        if (distFromEdge <= 1) map[`${q},${r}`] = n < 0.6 ? 0 : 7;        // coast: plains/woods
+        else if (distFromEdge <= 3) map[`${q},${r}`] = n < 0.4 ? 0 : (n < 0.65 ? 7 : (n < 0.78 ? 1 : 3));
+        else if (distFromEdge <= 6) map[`${q},${r}`] = n < 0.3 ? 0 : (n < 0.55 ? 7 : (n < 0.75 ? 1 : (n < 0.88 ? 3 : 2)));
+        else map[`${q},${r}`] = n < 0.25 ? 0 : (n < 0.5 ? 7 : (n < 0.7 ? 1 : (n < 0.85 ? 3 : 2)));
+      }
+    };
+
+    // Paint a continent blob centered at (cq, cr) with given radius
+    // Use irregular shape by wobbling radius with noise
+    const paintContinent = (cq, cr, radius) => {
+      const shell = radius + 2;
+      for (let dq = -shell; dq <= shell; dq++) {
+        for (let dr = -shell; dr <= shell; dr++) {
+          const nq = cq+dq, nr = cr+dr;
+          if (!isValid(nq, nr, ms)) continue;
+          const d = hexDist(nq, nr, cq, cr);
+          // Wobble radius with noise for organic shape
+          const wobble = (rand() - 0.5) * 4;
+          const effectiveR = radius + wobble;
+          if (d <= effectiveR + 1) {
+            const fromEdge = Math.round(effectiveR - d);
+            paintLand(nq, nr, fromEdge);
+          }
+        }
+      }
+    };
+
+    // Two main continents: left (P1) and right (P2)
+    // Map is ms×ms. Continents are ~35% of width each, ocean channel ~30% in middle.
+    // Continent centers: left at q≈22%, right at q≈78%, both vertically centered
+    const cRadius = Math.floor(ms * 0.28); // continent radius ≈ 28% of map size
+    const leftCQ  = Math.floor(ms * 0.22);
+    const rightCQ = Math.floor(ms * 0.78);
+    const midR    = Math.floor(ms * 0.55); // slightly south of center for visual interest
+
+    paintContinent(leftCQ,  midR, cRadius);
+    paintContinent(rightCQ, midR, cRadius);
+
+    // Add a secondary lobe to each continent for irregular shape
+    paintContinent(leftCQ  + Math.floor(ms*0.06), midR - Math.floor(ms*0.15), Math.floor(cRadius * 0.65));
+    paintContinent(rightCQ - Math.floor(ms*0.06), midR + Math.floor(ms*0.12), Math.floor(cRadius * 0.60));
+
+    // Land bridge at the TOP connecting the two continents
+    // Narrow isthmus: 5-8 hex wide, at r≈5-15% of map height
+    const bridgeR   = Math.floor(ms * 0.06); // r row for bridge center
+    const bridgeCQ  = Math.floor(ms * 0.5);  // center column
+    const bridgeW   = Math.floor(ms * 0.10); // half-width of bridge in q
+    for (let bq = bridgeCQ - bridgeW; bq <= bridgeCQ + bridgeW; bq++) {
+      for (let br = 0; br <= Math.floor(ms * 0.14); br++) {
+        if (!isValid(bq, br, ms)) continue;
+        const distFromCenter = Math.abs(bq - bridgeCQ);
+        const distFromEdge   = bridgeW - distFromCenter;
+        paintLand(bq, br, Math.max(0, distFromEdge - 1));
+      }
+    }
+
+    // Connect bridge to left continent with a coastal arm going down-left
+    const armSteps = Math.floor(ms * 0.12);
+    for (let i = 0; i < armSteps; i++) {
+      const aq = bridgeCQ - bridgeW - i;
+      const ar = Math.floor(ms * 0.08) + Math.floor(i * 0.7);
+      if (!isValid(aq, ar, ms)) break;
+      for (let dq = -2; dq <= 2; dq++) {
+        for (let dr = -2; dr <= 2; dr++) {
+          if (!isValid(aq+dq, ar+dr, ms)) continue;
+          paintLand(aq+dq, ar+dr, 2 - Math.max(Math.abs(dq),Math.abs(dr)));
+        }
+      }
+    }
+
+    // Connect bridge to right continent with a coastal arm going down-right
+    for (let i = 0; i < armSteps; i++) {
+      const aq = bridgeCQ + bridgeW + i;
+      const ar = Math.floor(ms * 0.08) + Math.floor(i * 0.7);
+      if (!isValid(aq, ar, ms)) break;
+      for (let dq = -2; dq <= 2; dq++) {
+        for (let dr = -2; dr <= 2; dr++) {
+          if (!isValid(aq+dq, ar+dr, ms)) continue;
+          paintLand(aq+dq, ar+dr, 2 - Math.max(Math.abs(dq),Math.abs(dr)));
+        }
+      }
+    }
+
+    // Add shallow coastal water ring around all land
+    const dirs = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+    const snapshot = { ...map };
+    for (let q = 0; q < ms; q++) {
+      for (let r = 0; r < ms; r++) {
+        if (snapshot[`${q},${r}`] === 5) {
+          // If adjacent to land, make shallow
+          const adjLand = dirs.some(([dq,dr]) => {
+            const t = snapshot[`${q+dq},${r+dr}`];
+            return t !== undefined && t !== 5 && t !== 4;
+          });
+          if (adjLand) map[`${q},${r}`] = 4;
+        }
+      }
+    }
+
+    // Scatter some small neutral islands in the ocean channel
+    const channelCQ = Math.floor(ms * 0.5);
+    const islandPositions = [
+      { q: channelCQ, r: Math.floor(ms * 0.35) },
+      { q: channelCQ - Math.floor(ms*0.06), r: Math.floor(ms * 0.55) },
+      { q: channelCQ + Math.floor(ms*0.05), r: Math.floor(ms * 0.70) },
+    ];
+    for (const pos of islandPositions) {
+      const iRad = 3 + Math.floor(rand() * 4);
+      paintContinent(pos.q, pos.r, iRad);
+    }
+
+    // Resource placement is handled by _placeResources(), terrain is done.
   }
 
   _genNavalTerrain(map, ms) {
