@@ -37,8 +37,8 @@ export const UNIT_TYPES = {
   // capacity:{infantry,vehicle} = how many embarked units this transport holds
   //
   PATROL_BOAT:   { name:'Patrol Boat',    move:4, attack:2, health:2, range:2, cost:{iron:2,oil:1}, shape:'boat_sm',  canDigIn:false, canBuild:false, canHeal:false, sight:5,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:0, detection:1, naval_attack:1, soft_attack:2, hard_attack:1, pierce:2, armor:1, defense:0, evasion:5,  accuracy:0,  buildTime:1, canSprint:true, sprintMove:2 },
-  MTB:           { name:'Motor Torpedo Boat', move:5, attack:3, health:3, range:2, cost:{iron:3,oil:2}, shape:'mtb', canDigIn:false, canBuild:false, canHeal:false, sight:4, naval:true, canEnterShallow:true, canEnterSand:false, stealthy:2, detection:0, naval_attack:3, soft_attack:1, hard_attack:5, pierce:7, armor:1, defense:0, evasion:8, accuracy:5, buildTime:2, torpedoBonus:true },
-  SUBMARINE:     { name:'Submarine',      move:3, attack:3, health:4, range:3, cost:{iron:4,oil:2}, shape:'sub',      canDigIn:false, canBuild:false, canHeal:false, sight:3,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:5, detection:0, naval_attack:0, soft_attack:1, hard_attack:4, pierce:6, armor:2, defense:1, evasion:5, accuracy:5,  buildTime:3, noSurfaceRetaliation:true },
+  MTB:           { name:'Motor Torpedo Boat', move:5, attack:3, health:3, range:2, cost:{iron:3,oil:2}, shape:'mtb', canDigIn:false, canBuild:false, canHeal:false, sight:4, naval:true, canEnterShallow:true, canEnterSand:false, stealthy:2, detection:0, naval_attack:3, soft_attack:1, hard_attack:5, pierce:7, armor:1, defense:0, evasion:8, accuracy:5, buildTime:2, torpedoBonus:true, antiNavalOnly:true },
+  SUBMARINE:     { name:'Submarine',      move:3, attack:3, health:4, range:3, cost:{iron:4,oil:2}, shape:'sub',      canDigIn:false, canBuild:false, canHeal:false, sight:3,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:5, detection:0, naval_attack:0, soft_attack:1, hard_attack:4, pierce:6, armor:2, defense:1, evasion:5, accuracy:5,  buildTime:3, noSurfaceRetaliation:true, antiNavalOnly:true },
   DESTROYER:     { name:'Destroyer',      move:3, attack:3, health:5, range:3, cost:{iron:5,oil:2}, shape:'destroyer', canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:2, naval_attack:2, soft_attack:3, hard_attack:4, pierce:5, armor:2, defense:1, evasion:5,  accuracy:10, buildTime:3, antiSub:true },
   CRUISER_LT:    { name:'Light Cruiser',  move:3, attack:3, health:6, range:4, cost:{iron:6,oil:3}, shape:'cruiser',   canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:3, soft_attack:3, hard_attack:3, pierce:3, armor:3, defense:2, evasion:3,  accuracy:5,  buildTime:4 },
   CRUISER_HV:    { name:'Heavy Cruiser',  move:2, attack:4, health:8, range:5, cost:{iron:8,oil:4}, shape:'cruiser_hv',canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:5, soft_attack:4, hard_attack:4, pierce:4, armor:5, defense:2, evasion:1,  accuracy:5,  buildTime:5 },
@@ -902,6 +902,7 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
 // prevents revealing where enemies moved to before the turn resolves.
 export function getAttackableHexes(state, unit, fromQ, fromR, fog) {
   const range = ustat(unit, 'range', UNIT_TYPES[unit.type]?.range || 1);
+  const _unitDef = UNIT_TYPES[unit.type] || {};
   return state.units
     .filter(u => {
       if (u.owner === unit.owner || u.dead) return false;
@@ -910,6 +911,11 @@ export function getAttackableHexes(state, unit, fromQ, fromR, fog) {
       const dr = (u._origR !== undefined) ? u._origR : u.r;
       if (hexDistance(fromQ, fromR, dq, dr) > range) return false;
       if (fog && !fog.has(`${dq},${dr}`)) return false; // hidden in fog
+      // antiNavalOnly (torpedo) units can only target water hexes
+      if (_unitDef.antiNavalOnly) {
+        const tgt = state._terrain?.[`${dq},${dr}`] ?? 0;
+        if (tgt !== 4 && tgt !== 5) return false;
+      }
       // Direct-fire units require LOS for known-target attack mode.
       const indirect = INDIRECT_FIRE.has(unit.type);
       if (!indirect && state._terrain && !hasLOS(fromQ, fromR, dq, dr, state._terrain)) return false;
@@ -1657,6 +1663,14 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   const attacker = state.units.find(u => u.id === attackerId);
   const target   = state.units.find(u => u.id === targetId);
   if (!attacker || !target) return [];
+  // antiNavalOnly (torpedo) units cannot attack land targets
+  const _atkDef = UNIT_TYPES[attacker.type] || {};
+  if (_atkDef.antiNavalOnly) {
+    const _tgt = state._terrain?.[`${target.q},${target.r}`] ?? 0;
+    if (_tgt !== 4 && _tgt !== 5) {
+      return [`${_atkDef.name} cannot attack land targets (torpedoes only)`];
+    }
+  }
 
   const aDef = { ...UNIT_TYPES[attacker.type], ...attacker };
   const tDef = { ...UNIT_TYPES[target.type], ...target };
@@ -2176,7 +2190,26 @@ export function resolveEndOfTurn(state, terrain) {
       : unit.type === 'BATTLESHIP' ? 10
       : (unit.type === 'LANDING_CRAFT' || unit.type?.startsWith('TRANSPORT_')) ? 5
       : 6;
-    const navalRecharge = unit.type === 'SUPPLY_SHIP' ? 99 : 1;
+    // Building-proximity recharge for navalSupply
+    let navalRecharge = 0;
+    if (unit.type === 'SUPPLY_SHIP') {
+      navalRecharge = 99;
+    } else {
+      const _dirs6 = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+      const _navalRestockRates = { PORT:2, HARBOR:2, NAVAL_YARD:2, DRY_DOCK:3, NAVAL_BASE:4, NAVAL_DOCKYARD:5 };
+      // Adjacent supply ship
+      const _adjSupplyShip = state.units.some(u2 => u2.owner===unit.owner && u2.type==='SUPPLY_SHIP' &&
+        _dirs6.some(([dq,dr]) => u2.q===unit.q+dq && u2.r===unit.r+dr));
+      if (_adjSupplyShip) navalRecharge = Math.max(navalRecharge, 1);
+      // Adjacent naval buildings
+      for (const [btype, rate] of Object.entries(_navalRestockRates)) {
+        const _near = state.buildings.some(b => b.owner===unit.owner && b.type===btype && !b.underConstruction &&
+          ((Math.abs(b.q-unit.q)+Math.abs(b.r-unit.r)+Math.abs((b.q-unit.q)+(b.r-unit.r)))/2) <= 1);
+        if (_near) navalRecharge = Math.max(navalRecharge, rate);
+      }
+      // Baseline: in supply network = +1
+      if (suppliedHexes.has(`${unit.q},${unit.r}`)) navalRecharge = Math.max(navalRecharge, 1);
+    }
 
     // Supply ships are floating logistics hubs and ignore network supply constraints.
     if (unit.type === 'SUPPLY_SHIP') {

@@ -795,6 +795,68 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
     }
   }
 
+  // Naval doctrine scoring for combat naval units
+  if (NAVAL_UNITS.has(unit.type) && role !== 'support' && role !== 'engineer') {
+    const myNavalBuildings = gs.buildings.filter(b => b.owner === unit.owner &&
+      ['NAVAL_YARD','HARBOR','DRY_DOCK','NAVAL_BASE','NAVAL_DOCKYARD','PORT'].includes(b.type) && !b.underConstruction);
+    const enemyNaval = gs.units.filter(u => u.owner !== unit.owner && NAVAL_UNITS.has(u.type) && !u.embarked);
+    const enemySubs  = enemyNaval.filter(u => u.type === 'SUBMARINE');
+    const myNavalCombat = gs.units.filter(u => u.owner === unit.owner && NAVAL_UNITS.has(u.type) &&
+      u.type !== 'SUPPLY_SHIP' && !['LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG'].includes(u.type) && !u.embarked);
+    const turn = gs.turn || 1;
+
+    // Doctrine 1: Coastal Patrol — PATROL_BOATs and MTBs orbit own naval buildings 4-10 hexes out
+    if (unit.type === 'PATROL_BOAT' || unit.type === 'MTB') {
+      if (myNavalBuildings.length > 0) {
+        const nearestBase = myNavalBuildings.reduce((a,b) =>
+          hexDistance(q,r,a.q,a.r) <= hexDistance(q,r,b.q,b.r) ? a : b);
+        const dToBase = hexDistance(q, r, nearestBase.q, nearestBase.r);
+        if (dToBase >= 4 && dToBase <= 10) score += 8;
+        if (dToBase < 4) score -= 6;
+        if (dToBase > 12) score -= 10;
+      }
+      if (enemies.length > 0) {
+        const nearEnemy = Math.min(...enemies.map(e => hexDistance(q,r,e.q,e.r)));
+        if (nearEnemy <= 3) score += 12 * phase.combat;
+      }
+    }
+
+    // Doctrine 2: Anti-submarine — Destroyers hunt subs when enemy has 2+
+    if ((unit.type === 'DESTROYER' || unit.type === 'DESTROYER_MK1') && enemySubs.length >= 2) {
+      const nearestSub = enemySubs.reduce((a,b) => hexDistance(q,r,a.q,a.r) <= hexDistance(q,r,b.q,b.r) ? a : b);
+      const dNew = hexDistance(q, r, nearestSub.q, nearestSub.r);
+      const dCur = hexDistance(unit.q, unit.r, nearestSub.q, nearestSub.r);
+      if (dNew < dCur) score += 14 * phase.combat;
+      if (dNew <= 2) score += 8 * phase.combat;
+    }
+
+    // Doctrine 3: Raiding — light units probe enemy coastal infrastructure (turn 20+)
+    if (turn >= 20 && (unit.type === 'PATROL_BOAT' || unit.type === 'MTB') && myNavalCombat.length >= 4) {
+      const enemyBuildings = gs.buildings.filter(b => b.owner !== unit.owner && !['HQ'].includes(b.type) && !b.underConstruction);
+      if (enemyBuildings.length > 0) {
+        const nearest = enemyBuildings.reduce((a,b2) => hexDistance(q,r,a.q,a.r) <= hexDistance(q,r,b2.q,b2.r) ? a : b2);
+        const dNew = hexDistance(q, r, nearest.q, nearest.r);
+        const dCur = hexDistance(unit.q, unit.r, nearest.q, nearest.r);
+        if (dNew < dCur) score += 6 * phase.raiding;
+      }
+    }
+
+    // Doctrine 4: Fleet Dominance — mass ships and advance toward enemy fleet (turn 30+)
+    if (turn >= 30 && myNavalCombat.length >= 4 && unit.type !== 'PATROL_BOAT' && unit.type !== 'MTB') {
+      if (enemyNaval.length > 0) {
+        const enemyCenterQ = enemyNaval.reduce((s,u) => s + u.q, 0) / enemyNaval.length;
+        const enemyCenterR = enemyNaval.reduce((s,u) => s + u.r, 0) / enemyNaval.length;
+        const dNew = hexDistance(q, r, enemyCenterQ, enemyCenterR);
+        const dCur = hexDistance(unit.q, unit.r, enemyCenterQ, enemyCenterR);
+        if (dNew < dCur) score += 16 * phase.combat;
+        if (dNew <= 3) score += 12 * phase.combat;
+      }
+      // Anti-blob: spread ships
+      const nearbyFriendlyNaval = myNavalCombat.filter(u => u.id !== unit.id && hexDistance(q,r,u.q,u.r) <= 2).length;
+      if (nearbyFriendlyNaval >= 3) score -= nearbyFriendlyNaval * 4;
+    }
+  }
+
   // Map/resource awareness: prefer routes that pressure contested resources.
   if (ctx.resourceTargets?.length) {
     const rd = Math.min(...ctx.resourceTargets.map(t => hexDistance(q, r, t.q, t.r)));

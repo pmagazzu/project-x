@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.124';
+export const GAME_VERSION = 'v1.4.125';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -2476,11 +2476,23 @@ export class GameScene extends Phaser.Scene {
         const pipR = 4;
         const pipX = cx2 + pipR + 1;
         const pipY = cy2 + pipR + 1;
-        const pipCol = oos >= 3 ? 0xff2222 : oos >= 2 ? 0xff7700 : 0xffaa00;
+        // oos=1 → orange, oos=2 → dark orange, oos>=3 → red
+        const pipCol = oos >= 3 ? 0xff2222 : oos >= 2 ? 0xff5500 : 0xffaa00;
         this.unitGfx.fillStyle(pipCol, alpha);
         this.unitGfx.fillCircle(pipX, pipY, pipR);
         this.unitGfx.lineStyle(1, 0x000000, alpha * 0.5);
         this.unitGfx.strokeCircle(pipX, pipY, pipR);
+      }
+      // Naval low-reserves badge: blue dot when ship is running on onboard supply (not OOS yet)
+      if (NAVAL_UNITS.has(unit.type) && unit.type !== 'SUPPLY_SHIP' &&
+          unit.navalSupply !== undefined && unit.navalSupply <= 2 && (unit.outOfSupply || 0) === 0) {
+        const nPipR = 3;
+        const nPipX = cx2 + cW - nPipR - 1;  // bottom-right corner
+        const nPipY = cy2 + cH - nPipR - 1;
+        this.unitGfx.fillStyle(0x0088ff, alpha * 0.9);
+        this.unitGfx.fillCircle(nPipX, nPipY, nPipR);
+        this.unitGfx.lineStyle(1, 0x003366, alpha * 0.7);
+        this.unitGfx.strokeCircle(nPipX, nPipY, nPipR);
       }
 
       // Engineer busy indicator: small amber dot + wrench-arm lines in top-right corner of counter
