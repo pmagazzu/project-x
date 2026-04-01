@@ -2694,10 +2694,17 @@ export class GameScene extends Phaser.Scene {
 
     const sgn = (v) => v > 0 ? `+${v}` : `${v}`;
 
-    this.resIron.setText(`⚙ ${fmtRes(pl.iron)} ${sgn(netIron)}`);
-    this.resOil.setText(`🛢 ${fmtRes(pl.oil)} ${sgn(netOil)}`);
+    // Turns-to-zero for each resource (warn when ≤3 turns)
+    const _ttz = (stock, netPer) => (netPer >= 0 ? Infinity : Math.floor(stock / Math.abs(netPer)));
+    const ttzIron = _ttz(pl.iron, netIron);
+    const ttzOil  = _ttz(pl.oil,  netOil);
+    const ttzFood = _ttz(pl.food || 0, netFood);
+    const ttzSuffix = (ttz) => ttz <= 1 ? ' !!!' : ttz <= 3 ? ` (${ttz}t)` : '';
+
+    this.resIron.setText(`⚙ ${fmtRes(pl.iron)} ${sgn(netIron)}${ttzSuffix(ttzIron)}`);
+    this.resOil.setText(`🛢 ${fmtRes(pl.oil)} ${sgn(netOil)}${ttzSuffix(ttzOil)}`);
     this.resWood.setText(`🪵 ${fmtRes(pl.wood || 0)} ${sgn(netWood)}`);
-    this.resFood.setText(`🍞 ${fmtRes(pl.food || 0)} ${sgn(netFood)}`);
+    this.resFood.setText(`🍞 ${fmtRes(pl.food || 0)} ${sgn(netFood)}${ttzSuffix(ttzFood)}`);
     this.resGold.setText(`💰 ${fmtRes(pl.gold || 0)} ${sgn(netGold)}`);
     this.resComp.setText(`🧩 ${fmtRes(pl.components || 0)}`);
     // Research: show active tech name + % or "no lab"
@@ -2707,7 +2714,10 @@ export class GameScene extends Phaser.Scene {
     const rpPct = activeTech ? Math.floor(((activeRes.rpSpent || 0) / activeTech.cost) * 100) : 0;
     const rpLabel = inc.rp === 0 ? 'no lab' : activeTech ? `${activeTech.name.substring(0,12)} ${rpPct}%` : `idle (+${inc.rp}/t)`;
     this.resRp.setText(`⚗ ${rpLabel}`);
-    this.resFood.setStyle({ fill: unsupplied ? '#ff6644' : '#ccddcc' });
+    // Color coding: debt/unsupplied = red, imminent zero = orange, healthy = default
+    this.resFood.setStyle({ fill: unsupplied ? '#ff4422' : ttzFood <= 3 ? '#ffaa33' : '#ccddcc' });
+    this.resIron.setStyle({ fill: ttzIron <= 1 ? '#ff4422' : ttzIron <= 3 ? '#ffaa33' : '#ccddcc' });
+    this.resOil.setStyle({  fill: ttzOil  <= 1 ? '#ff4422' : ttzOil  <= 3 ? '#ffaa33' : '#ccddcc' });
 
     this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  ${modeStr}`);
     this.turnBadge?.setText(`TURN ${gs.turn}`);
@@ -4499,6 +4509,22 @@ export class GameScene extends Phaser.Scene {
     const right = px + 8;
     let y = py - panH/2 + 42;
 
+    // ── Turns-to-zero helper ──────────────────────────────────────────────
+    // Returns how many turns until a resource hits zero given net change per turn.
+    // Returns Infinity if net is positive or zero (won't run out).
+    const turnsToZero = (stock, netPerTurn) => {
+      if (netPerTurn >= 0) return Infinity;
+      return Math.floor(stock / Math.abs(netPerTurn));
+    };
+
+    const ttzIron = turnsToZero(pl.iron, net.iron);
+    const ttzOil  = turnsToZero(pl.oil,  net.oil);
+    const ttzFood = turnsToZero(pl.food || 0, net.food);
+
+    // Debt state: did we fail to pay upkeep last turn?
+    const debt = pl.upkeepDebt || { food: 0, iron: 0, oil: 0 };
+    const inDebt = debt.food > 0 || debt.iron > 0 || debt.oil > 0;
+
     // KPI cards
     const cardW = Math.floor((panW - 40) / 2);
     const cardH = 52;
@@ -4517,10 +4543,48 @@ export class GameScene extends Phaser.Scene {
       (net.iron < 0 || net.oil < 0 || net.food < 0) ? 0x2a1717 : 0x17241a);
     y += cardH + 16;
 
-    objs.push(this.add.text(left, y, `UPKEEP / TURN:  ⚙-${upkeep.iron.toFixed(2)}  🛢-${upkeep.oil.toFixed(2)}  🍞-${upkeep.food.toFixed(2)}`, {
-      font:'10px monospace', fill:'#ffccaa'
+    // ── Upkeep breakdown row ──────────────────────────────────────────────
+    const upkeepColor = inDebt ? '#ff5533' : '#ffccaa';
+    objs.push(this.add.text(left, y, `UPKEEP / TURN:  ⚙-${upkeep.iron.toFixed(2)}  🛢-${upkeep.oil.toFixed(2)}  🍞-${upkeep.food.toFixed(2)}${inDebt ? '  ⚠ DEBT ACTIVE' : ''}`, {
+      font:'bold 10px monospace', fill: upkeepColor
     }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
     y += 16;
+
+    // ── Turns-to-zero warnings ─────────────────────────────────────────────
+    const warnParts = [];
+    if (ttzIron !== Infinity) warnParts.push(`⚙ runs out in ${ttzIron}t`);
+    if (ttzOil  !== Infinity) warnParts.push(`🛢 runs out in ${ttzOil}t`);
+    if (ttzFood !== Infinity) warnParts.push(`🍞 runs out in ${ttzFood}t`);
+    const imminent = warnParts.some(() => {
+      const vals = [ttzIron, ttzOil, ttzFood].filter(v => v !== Infinity);
+      return vals.some(v => v <= 2);
+    });
+    const anyWarn = warnParts.length > 0;
+    if (anyWarn) {
+      const warnStr = `⚠  ${warnParts.join('   ')}`;
+      const warnClr = [ttzIron, ttzOil, ttzFood].some(v => v !== Infinity && v <= 2) ? '#ff4422' : '#ffcc33';
+      objs.push(this.add.text(left, y, warnStr, {
+        font:'bold 10px monospace', fill: warnClr
+      }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
+      y += 16;
+    }
+
+    // ── Desertion warning ─────────────────────────────────────────────────
+    // Units desert after 2 consecutive turns of upkeep debt. Show if at risk.
+    if (inDebt) {
+      const debtLines = [];
+      if (debt.food > 0) debtLines.push(`🍞 debt: ${debt.food}/2 turns`);
+      if (debt.iron > 0) debtLines.push(`⚙ debt: ${debt.iron}/2 turns`);
+      if (debt.oil  > 0) debtLines.push(`🛢 debt: ${debt.oil}/2 turns`);
+      const debtStr = `⚠ SUPPLY DEBT — units desert at 2 turns:  ${debtLines.join('  ')}`;
+      objs.push(this.add.text(left, y, debtStr, {
+        font:'bold 10px monospace', fill:'#ff4422',
+        backgroundColor: '#2a0a00', padding: { x: 6, y: 3 }
+      }).setOrigin(0,0).setScrollFactor(0).setDepth(D+1));
+      y += 20;
+    }
+
+    y += 4;
 
     // Left: buildings summary (concise)
     const myBuildings = gs.buildings.filter(b => Number(b.owner) === Number(p) && !ROAD_TYPES.has(b.type));
