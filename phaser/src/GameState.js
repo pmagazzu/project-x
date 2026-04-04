@@ -385,6 +385,29 @@ export const UNIT_UPKEEP = {
   SUPPLY_SHIP:      { food: 0.0, iron: 0.1, oil: 0.3 },
 };
 
+const BASE_SUPPLY_HEAL_PCT = 5;
+const OOS_HEALTH_LOSS_PCT = 10;
+const OOS_MIN_HEALTH_PCT = 25;
+
+function getSupplyHealPct(state, player) {
+  const unlocked = state.players?.[player]?.research?.unlocked || [];
+  const bonus = Array.isArray(unlocked)
+    ? unlocked.filter(id => String(id).startsWith('supply_medicine_')).length
+    : 0;
+  return BASE_SUPPLY_HEAL_PCT + bonus;
+}
+
+function applyPercentHealthDelta(unit, pct, direction = 'heal') {
+  const maxHp = Math.max(1, unit.maxHealth || unit.health || 1);
+  const delta = Math.max(0.01, +(maxHp * (pct / 100)).toFixed(2));
+  if (direction === 'harm') {
+    const floor = +(maxHp * (OOS_MIN_HEALTH_PCT / 100)).toFixed(2);
+    unit.health = Math.max(floor, +((unit.health || maxHp) - delta).toFixed(2));
+  } else {
+    unit.health = Math.min(maxHp, +((unit.health || maxHp) + delta).toFixed(2));
+  }
+}
+
 // Compute total upkeep for all of a player's units
 export function calcUpkeep(state, player) {
   const UPKEEP_SCALE = 0.6; // global balance knob (60% upkeep; +20% from prior)
@@ -2055,7 +2078,7 @@ export function resolveEndOfTurn(state, terrain) {
   const upkeep = calcUpkeep(state, player);
   const pl = state.players[player];
   if (!pl.upkeepDebt) pl.upkeepDebt = { food: 0, iron: 0, oil: 0 };
-  let unsuppliedCount = 0;
+  let economicShortage = false;
   // For each resource: deduct. If can't afford, accumulate debt.
   for (const res of ['food', 'iron', 'oil']) {
     const cost = upkeep[res];
@@ -2067,24 +2090,17 @@ export function resolveEndOfTurn(state, terrain) {
       // Can't fully pay — take what's available, mark debt
       pl[res] = 0;
       pl.upkeepDebt[res] = (pl.upkeepDebt[res] || 0) + 1;
-      unsuppliedCount++;
+      economicShortage = true;
     }
   }
-  // Apply unsupplied penalty to ALL current player's units
-  if (unsuppliedCount > 0) {
+  // Economic shortages should never delete the army.
+  if (economicShortage) {
     for (const unit of state.units.filter(u => u.owner === player)) {
       unit.unsupplied = (unit.unsupplied || 0) + 1;
-      // Two turns unsupplied = unit deserts
-      if (unit.unsupplied >= 2) {
-        events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) deserted — no supplies!`);
-        unit.health = 0; // mark for removal
-      } else {
-        events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) UNSUPPLIED (-move, -attack)`);
-      }
+      events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) suffers economic shortage (-move, -attack)`);
     }
-    state.units = state.units.filter(u => u.health > 0);
   } else {
-    // Clear unsupplied flags when resources are restored
+    // Clear economic unsupplied flags when resources are restored
     for (const unit of state.units.filter(u => u.owner === player)) {
       unit.unsupplied = 0;
     }
@@ -2173,6 +2189,7 @@ export function resolveEndOfTurn(state, terrain) {
 
   // ── Supply check ──────────────────────────────────────────────────────────
   const suppliedHexes = computeSupply(state, player, state._mapSize || 25);
+  const supplyHealPct = getSupplyHealPct(state, player);
   for (const unit of state.units.filter(u => u.owner === player && !u.embarked)) {
     // Recon upgrade: unit ignores supply needs entirely.
     if ((unit.ignoreSupply || 0) > 0) {
@@ -2215,6 +2232,7 @@ export function resolveEndOfTurn(state, terrain) {
     if (unit.type === 'SUPPLY_SHIP') {
       unit.outOfSupply = 0;
       unit.navalSupply = navalMax;
+      if (unit.health < unit.maxHealth) applyPercentHealthDelta(unit, supplyHealPct, 'heal');
       continue;
     }
 
@@ -2225,6 +2243,10 @@ export function resolveEndOfTurn(state, terrain) {
       unit.outOfSupply = 0;
       if (isNaval) {
         unit.navalSupply = Math.min(navalMax, (unit.navalSupply ?? navalMax) + navalRecharge);
+      }
+      if (unit.health < unit.maxHealth) {
+        applyPercentHealthDelta(unit, supplyHealPct, 'heal');
+        events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) healed in supply (+${supplyHealPct}% max HP)`);
       }
     } else {
       if (isNaval) {
@@ -2240,6 +2262,12 @@ export function resolveEndOfTurn(state, terrain) {
       if (unit.outOfSupply === 1) events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) is OUT OF SUPPLY (-1 move, -1 attack)`);
       else if (unit.outOfSupply === 2) events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) unsupplied 2 turns (-2 move, -2 attack)`);
       else events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) critically unsupplied`);
+      const before = unit.health;
+      applyPercentHealthDelta(unit, OOS_HEALTH_LOSS_PCT, 'harm');
+      if (unit.health < before) {
+        const floorPct = OOS_MIN_HEALTH_PCT;
+        events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) loses ${OOS_HEALTH_LOSS_PCT}% max HP from lack of supply (min ${floorPct}% HP)`);
+      }
       // Apply move penalty for this coming turn
       const pen = supplyPenalty(unit.outOfSupply);
       unit.movesLeft = Math.max(1, unit.movesLeft - pen.movePenalty);

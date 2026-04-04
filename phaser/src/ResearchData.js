@@ -667,6 +667,42 @@ export const TECH_TREE = {
     cost:60, prereqs:['dual_research'],
     effect:{ extraResearchSlots:1 },
   },
+
+  supply_medicine_1: {
+    id:'supply_medicine_1', branch:'science', tier:0, kind:'stat',
+    name:'Supply Medicine I',
+    desc:'Units in supply heal +1% max health per turn (base supply healing is 5%).',
+    cost:12, prereqs:[],
+    effect:{ supplyHealPctBonus:1 },
+  },
+  supply_medicine_2: {
+    id:'supply_medicine_2', branch:'science', tier:1, kind:'stat',
+    name:'Supply Medicine II',
+    desc:'Units in supply heal another +1% max health per turn.',
+    cost:24, prereqs:['supply_medicine_1'],
+    effect:{ supplyHealPctBonus:1 },
+  },
+  supply_medicine_3: {
+    id:'supply_medicine_3', branch:'science', tier:1, kind:'stat',
+    name:'Supply Medicine III',
+    desc:'Units in supply heal another +1% max health per turn.',
+    cost:48, prereqs:['supply_medicine_2'],
+    effect:{ supplyHealPctBonus:1 },
+  },
+  supply_medicine_4: {
+    id:'supply_medicine_4', branch:'science', tier:2, kind:'stat',
+    name:'Supply Medicine IV',
+    desc:'Units in supply heal another +1% max health per turn.',
+    cost:96, prereqs:['supply_medicine_3'],
+    effect:{ supplyHealPctBonus:1 },
+  },
+  supply_medicine_5: {
+    id:'supply_medicine_5', branch:'science', tier:2, kind:'stat',
+    name:'Supply Medicine V',
+    desc:'Units in supply heal another +1% max health per turn.',
+    cost:192, prereqs:['supply_medicine_4'],
+    effect:{ supplyHealPctBonus:1 },
+  },
 };
 
 // ── Utility functions ────────────────────────────────────────────────────────
@@ -694,6 +730,7 @@ export function computeTechBonuses(unlockedArr) {
     unlockedModules:       new Set(),
     globalTrainCostBonus:  {},
     globalResearchCostBonus: 0,
+    supplyHealPctBonus:    0,
   };
   for (const techId of unlockedSet) {
     const tech = TECH_TREE[techId];
@@ -717,6 +754,7 @@ export function computeTechBonuses(unlockedArr) {
     if (e.rpBonusPerLab)            bonuses.rpBonusPerLab           += e.rpBonusPerLab;
     if (e.extraResearchSlots)       bonuses.extraResearchSlots      += e.extraResearchSlots;
     if (e.globalResearchCostBonus)  bonuses.globalResearchCostBonus += e.globalResearchCostBonus;
+    if (e.supplyHealPctBonus)       bonuses.supplyHealPctBonus      += e.supplyHealPctBonus;
     if (e.unlockBuilding)           bonuses.unlockedBuildings.add(e.unlockBuilding);
     if (e.unlockChassis)            bonuses.unlockedChassis.add(e.unlockChassis);
     if (e.unlockModule)             bonuses.unlockedModules.add(e.unlockModule);
