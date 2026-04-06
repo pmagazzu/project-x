@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Phaser Game Playtest</title>
+    <meta charset="utf-8">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #1a1a1a;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        .container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        .info-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        .info-panel h2 {
+            margin-top: 0;
+            color: #4CAF50;
+        }
+        .instructions {
+            margin-top: 10px;
+        }
+        .instructions ul {
+            padding-left: 20px;
+        }
+        .instructions li {
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="info-panel">
+            <h2>Phaser Game Playtest</h2>
+            <p><strong>Version:</strong> 1.5</p>
+            <p><strong>Instructions:</strong></p>
+            <div class="instructions">
+                <ul>
+                    <li>WASD / Arrow Keys = pan the view</li>
+                    <li>Mouse Wheel = zoom in/out</li>
+                    <li>ESC = open settings menu</li>
+                    <li>Right-click = action menu</li>
+                    <li>Click on units to select them</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" crossorigin src="/assets/index-BxtD83QU.js"></script>
+    
+    <script>
+        // Simple script to ensure the game loads properly
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Phaser Game loaded successfully');
+            console.log('Version: 1.5');
+        });
+    </script>
+</body>
+</html>
