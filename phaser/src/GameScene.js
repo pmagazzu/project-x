@@ -1,19 +1,18 @@
-export const GAME_VERSION = 'v1.5.02';
+export const GAME_VERSION = 'v1.5.03';
 import Phaser from 'phaser';
 import {
   hexToWorld, worldToHex, hexVertices, isValid,
-  MAP_SIZE, HEX_SIZE, getMapBounds
+  MAP_SIZE, HEX_SIZE, ISO_SQUISH, getMapBounds
 } from './HexGrid.js';
 import { MenuScene } from './MenuScene.js';
-import { generateAllSprites, unitTextureKey, buildingTextureKey } from './SpriteGen.js';
 import {
   createGameState, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
-  findPath, resolveTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
+  findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, computeDesignStats,
-  NAVAL_UNITS, SHALLOW_UNITS, canEnterTerrain, getMoveAPPerHex, getActionAPCost, isStealthDetected
+  NAVAL_UNITS, SHALLOW_UNITS, canEnterTerrain, isStealthDetected
 } from './GameState.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -21,192 +20,88 @@ const TERRAIN        = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2, HILL: 3, SHALLOW: 4,
 const TERRAIN_LABELS = ['Plains','Forest','Mountain','Hill','Shallow Water','Ocean','Sand'];
 const TERRAIN_COLORS = {
   0: { fill: 0x8aaa55, stroke: 0x6a8a35 },  // plains
-  1: { fill: 0x1a4010, stroke: 0x0d2008 },  // forest
+  1: { fill: 0x1a4010, stroke: 0x0d2008 },  // dense forest
   2: { fill: 0x8a7a6a, stroke: 0x6a5a4a },  // mountain
   3: { fill: 0xb8a060, stroke: 0x9a8040 },  // hill
   4: { fill: 0x4499bb, stroke: 0x2277aa },  // shallow water
   5: { fill: 0x0d2a4a, stroke: 0x071a2e },  // ocean
   6: { fill: 0xd4b96a, stroke: 0xb09050 },  // sand/beach
+  7: { fill: 0x4a7030, stroke: 0x335020 },  // light woods
 };
 const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xaaddff;
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
 
-const ENABLE_USER_ART = false; // emergency off until art pipeline is validated
-
-const USER_ART = {
-  // buildings
-  hq: '/user_art/hq.png',
-  barracks: '/user_art/barracks.png',
-  vehicle_depot: '/user_art/vehicle_depot.png',
-  naval_yard: '/user_art/naval_yard.png',
-  harbor: '/user_art/harbor.png',
-  dry_dock: '/user_art/dry_dock.png',
-  naval_base: '/user_art/naval_base.png',
-  bunker: '/user_art/bunker.png',
-  obs_post: '/user_art/obs_post.png',
-  mine: '/user_art/mine.png',
-  oil_pump: '/user_art/oil_pump.png',
-
-  // units
-  infantry: '/user_art/infantry.png',
-  engineer: '/user_art/engineer.png',
-  recon: '/user_art/recon.png',
-  medic: '/user_art/medic.png',
-  mortar: '/user_art/mortar.png',
-  anti_tank: '/user_art/anti_tank.png',
-  tank: '/user_art/tank.png',
-  artillery: '/user_art/artillery.png',
-  patrol_boat: '/user_art/patrol_boat.png',
-  submarine: '/user_art/submarine.png',
-  destroyer_t1: '/user_art/destroyer_t1.png',
-  cruiser_light: '/user_art/cruiser_light.png',
-  cruiser_heavy: '/user_art/cruiser_heavy.png',
-  battleship: '/user_art/battleship.png',
-  landing_craft: '/user_art/landing_craft.png',
-  truck: '/user_art/truck.png',
-
-  // terrain
-  grass_tile: '/user_art/grass_tile.png',
-  forest_tile: '/user_art/forest_tile.png',
-  hill_tile: '/user_art/grass_hill.png',
-  grass_hill: '/user_art/grass_hill.png',
-  sand_tile: '/user_art/sand_tile.png',
-  sand_hill: '/user_art/sand_hill.png',
-  mountain_tile: '/user_art/mountain_tile.png',
-  water_shallow_tile: '/user_art/water_shallow_tile.png',
-  ocean_deep_tile: '/user_art/ocean_deep_tile.png',
+// Terrain type index → user_art filename key
+const TERRAIN_ART_KEYS = {
+  0: 'terrain_grass',
+  1: 'terrain_forest',
+  2: 'terrain_mountain',
+  3: 'terrain_hill',
+  4: 'terrain_shallow',
+  5: 'terrain_ocean',
+  6: 'terrain_sand',
+  7: 'terrain_lightwoods',
 };
+
+const TERRAIN_ART_FILES = {
+  terrain_grass:      'user_art/grass_tile.png',
+  terrain_forest:     'user_art/forest_tile.png',
+  terrain_mountain:   'user_art/mountain_tile.png',
+  terrain_hill:       'user_art/grass_hill.png',
+  terrain_shallow:    'user_art/water_shallow_tile.png',
+  terrain_ocean:      'user_art/ocean_deep_tile.png',
+  terrain_sand:       'user_art/sand_tile.png',
+  terrain_lightwoods: 'user_art/lightwoods_tile_01.png',
+};
+// Sand tile variants (10 randomized versions for map variety)
+const SAND_VARIANTS = 10;
+const SAND_VARIANT_FILES = Array.from({length:SAND_VARIANTS},(_,i)=>({key:`terrain_sand_${i+1}`,file:`user_art/sand_tile_${String(i+1).padStart(2,'0')}.png`}));
+// Grass tile variants
+const GRASS_VARIANTS = 10;
+const GRASS_VARIANT_FILES = Array.from({length:GRASS_VARIANTS},(_,i)=>({key:`terrain_grass_${i+1}`,file:`user_art/grass_tile_${String(i+1).padStart(2,'0')}.png`}));
+// Dense forest tile variants
+const FOREST_VARIANTS = 10;
+const FOREST_VARIANT_FILES = Array.from({length:FOREST_VARIANTS},(_,i)=>({key:`terrain_forest_${i+1}`,file:`user_art/forest_tile_${String(i+1).padStart(2,'0')}.png`}));
+// Ocean tile variants
+const OCEAN_VARIANTS = 10;
+const OCEAN_VARIANT_FILES = Array.from({length:OCEAN_VARIANTS},(_,i)=>({key:`terrain_ocean_${i+1}`,file:`user_art/ocean_tile_${String(i+1).padStart(2,'0')}.png`}));
+// Shallow water tile variants
+const SHALLOW_VARIANTS = 10;
+const SHALLOW_VARIANT_FILES = Array.from({length:SHALLOW_VARIANTS},(_,i)=>({key:`terrain_shallow_${i+1}`,file:`user_art/shallow_tile_${String(i+1).padStart(2,'0')}.png`}));
+// Light woods tile variants
+const LIGHTWOODS_VARIANTS = 10;
+const LIGHTWOODS_VARIANT_FILES = Array.from({length:LIGHTWOODS_VARIANTS},(_,i)=>({key:`terrain_lightwoods_${i+1}`,file:`user_art/lightwoods_tile_${String(i+1).padStart(2,'0')}.png`}));
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
 
   preload() {
-    if (!ENABLE_USER_ART) return;
-    for (const [k, p] of Object.entries(USER_ART)) {
-      this.load.image(`ua_${k}`, p);
+    // Load terrain tiles — missing files are silently skipped
+    for (const [key, file] of Object.entries(TERRAIN_ART_FILES)) {
+      this.load.image(key, file);
     }
-  }
-
-  _makeBgTransparent(srcKey, dstKey, threshold = 242) {
-    const srcTex = this.textures.get(srcKey);
-    if (!srcTex) return;
-    const src = srcTex.getSourceImage();
-    const w = src.width || src.naturalWidth;
-    const h = src.height || src.naturalHeight;
-    const cvs = this.textures.createCanvas(dstKey, w, h);
-    const ctx = cvs.getContext();
-    ctx.drawImage(src, 0, 0, w, h);
-    const img = ctx.getImageData(0, 0, w, h);
-    const d = img.data;
-
-    const idx = (x, y) => (y * w + x) * 4;
-    const q = (v) => Math.max(0, Math.min(255, Math.round(v / 16) * 16));
-    const keyOf = (r, g, b) => `${q(r)},${q(g)},${q(b)}`;
-
-    // 1) Collect border color palette (handles white/gray checker backgrounds)
-    const borderPalette = new Set();
-    for (let x = 0; x < w; x++) {
-      let i = idx(x, 0); borderPalette.add(keyOf(d[i], d[i + 1], d[i + 2]));
-      i = idx(x, h - 1); borderPalette.add(keyOf(d[i], d[i + 1], d[i + 2]));
+    // Load sand + grass tile variants
+    for (const {key, file} of SAND_VARIANT_FILES) {
+      this.load.image(key, file);
     }
-    for (let y = 0; y < h; y++) {
-      let i = idx(0, y); borderPalette.add(keyOf(d[i], d[i + 1], d[i + 2]));
-      i = idx(w - 1, y); borderPalette.add(keyOf(d[i], d[i + 1], d[i + 2]));
+    for (const {key, file} of GRASS_VARIANT_FILES) {
+      this.load.image(key, file);
     }
-
-    const isBg = (r, g, b) => {
-      // direct near-white key
-      if (r >= threshold && g >= threshold && b >= threshold) return true;
-      // border-palette key
-      return borderPalette.has(keyOf(r, g, b));
-    };
-
-    // 2) Flood-fill only border-connected background pixels to transparent
-    const seen = new Uint8Array(w * h);
-    const queue = [];
-    const tryPush = (x, y) => {
-      if (x < 0 || y < 0 || x >= w || y >= h) return;
-      const p = y * w + x;
-      if (seen[p]) return;
-      const i = idx(x, y);
-      if (d[i + 3] === 0) return;
-      if (!isBg(d[i], d[i + 1], d[i + 2])) return;
-      seen[p] = 1;
-      queue.push([x, y]);
-    };
-
-    for (let x = 0; x < w; x++) { tryPush(x, 0); tryPush(x, h - 1); }
-    for (let y = 0; y < h; y++) { tryPush(0, y); tryPush(w - 1, y); }
-
-    while (queue.length) {
-      const [x, y] = queue.pop();
-      const i = idx(x, y);
-      d[i + 3] = 0;
-      tryPush(x + 1, y); tryPush(x - 1, y); tryPush(x, y + 1); tryPush(x, y - 1);
+    for (const {key, file} of FOREST_VARIANT_FILES) {
+      this.load.image(key, file);
     }
-
-    ctx.putImageData(img, 0, 0);
-    cvs.refresh();
-  }
-
-  _applyUserArtOverrides() {
-    // preprocess white backgrounds into transparency
-    Object.keys(USER_ART).forEach(k => this._makeBgTransparent(`ua_${k}`, `ua_clean_${k}`));
-
-    const pick = (...keys) => {
-      for (const k of keys) {
-        if (k && this.textures.exists(k)) return k;
-      }
-      return null;
-    };
-
-    const repl = (targetKey, cleanKey) => {
-      if (!cleanKey || !this.textures.exists(cleanKey)) return;
-      if (this.textures.exists(targetKey)) this.textures.remove(targetKey);
-      const src = this.textures.get(cleanKey).getSourceImage();
-      this.textures.addImage(targetKey, src);
-    };
-
-    // Building overrides (all current building types)
-    const buildingMap = {
-      HQ: 'hq',
-      BARRACKS: 'barracks',
-      VEHICLE_DEPOT: 'vehicle_depot',
-      NAVAL_YARD: 'naval_yard',
-      HARBOR: 'harbor',
-      DRY_DOCK: 'dry_dock',
-      NAVAL_BASE: 'naval_base',
-      BUNKER: 'bunker',
-      OBS_POST: 'obs_post',
-      MINE: 'mine',
-      OIL_PUMP: 'oil_pump',
-    };
-    for (const [type, key] of Object.entries(buildingMap)) {
-      const clean = pick(`ua_clean_${key}`);
-      repl(buildingTextureKey(type, 1), clean);
-      repl(buildingTextureKey(type, 2), clean);
+    for (const {key, file} of OCEAN_VARIANT_FILES) {
+      this.load.image(key, file);
     }
-
-    // Unit overrides (all current unit classes)
-    const unitMap = {
-      INFANTRY: 'infantry', ENGINEER: 'engineer', RECON: 'recon', MEDIC: 'medic',
-      MORTAR: 'mortar', ANTI_TANK: 'anti_tank', TANK: 'tank', ARTILLERY: 'artillery',
-      PATROL_BOAT: 'patrol_boat', SUBMARINE: 'submarine', DESTROYER: 'destroyer_t1',
-      CRUISER_LT: 'cruiser_light', CRUISER_HV: 'cruiser_heavy', BATTLESHIP: 'battleship',
-      LANDING_CRAFT: 'landing_craft', TRANSPORT_SM: 'truck', TRANSPORT_MD: 'truck', TRANSPORT_LG: 'truck',
-      COASTAL_BATTERY: 'anti_tank',
-    };
-    for (const [type, key] of Object.entries(unitMap)) {
-      const clean = pick(`ua_clean_${key}`);
-      repl(unitTextureKey(type, 1), clean);
-      repl(unitTextureKey(type, 2), clean);
+    for (const {key, file} of SHALLOW_VARIANT_FILES) {
+      this.load.image(key, file);
     }
-
-    // Terrain tile art refs disabled until clean alpha exports are available.
-    // Current generator outputs still include artifact grids in many tiles.
-    this._tileOverride = null;
+    for (const {key, file} of LIGHTWOODS_VARIANT_FILES) {
+      this.load.image(key, file);
+    }
+    this.load.on('loaderror', () => {}); // suppress console errors for missing tiles
   }
 
   // Add game objects to the UI layer so the fixed uiCamera renders them
@@ -262,23 +157,17 @@ export class GameScene extends Phaser.Scene {
     // Terrain is drawn directly to a world Graphics object (avoids RT color-channel bugs).
     // For maps ≤50 tiles, this is fast enough. Grand map still uses RT for performance.
     this.terrainGfx = this.add.graphics().setDepth(0);
-    this._drawTerrainDirect();
-    // Keep terrainRT as a dummy object so existing camera ignore lists don't break
-    this.terrainRT = this.add.renderTexture(1, 1, 1, 1).setVisible(false);
+    // Layer for terrain art image objects (depth 2, world space, camera-managed)
+    this.terrainArtLayer = this.add.layer().setDepth(2);
+    // Keep terrainRT and terrainArtRT as dummy objects so camera ignore lists don't break
+    this.terrainRT    = this.add.renderTexture(1, 1, 1, 1).setVisible(false);
+    this.terrainArtRT = this.add.renderTexture(1, 1, 1, 1).setVisible(false);
 
-    // Generate sprite textures for units/buildings (runtime procedural atlas)
-    generateAllSprites(this, UNIT_TYPES, BUILDING_TYPES, PLAYER_COLORS);
-    // Override with user-provided art assets when available
-    if (ENABLE_USER_ART) this._applyUserArtOverrides();
-
-    // World graphics/layers (depth order)
-    this.roadGfx          = this.add.graphics().setDepth(5);
-    this.resourceGfx      = this.add.graphics().setDepth(8);
-    this.highlightGfx     = this.add.graphics().setDepth(10);
-    this.buildingSpriteLayer = this.add.layer().setDepth(14);
-    this.buildingGfx      = this.add.graphics().setDepth(15);
-    this.unitSpriteLayer  = this.add.layer().setDepth(19);
-    this.unitGfx          = this.add.graphics().setDepth(20);
+    // World graphics layers (depth order)
+    this.roadGfx      = this.add.graphics().setDepth(5);
+    this.highlightGfx = this.add.graphics().setDepth(10);
+    this.buildingGfx  = this.add.graphics().setDepth(15);
+    this.unitGfx      = this.add.graphics().setDepth(20);
     // Fog: RenderTexture instead of Graphics — handles large maps (120×120+) without vertex overflow
     this.fogRT = this.add.renderTexture(0, 0, rtW, rtH)
       .setOrigin(0, 0).setPosition(bounds.minX - padding, bounds.minY - padding).setDepth(30);
@@ -296,8 +185,9 @@ export class GameScene extends Phaser.Scene {
     // Move all scroll-factor-0 objects created so far into _uiLayer
     // (catches top bar, bottom panel, buttons, etc. without touching each line)
     const worldObjs = new Set([
-      this.terrainGfx, this.terrainTileLayer, this.terrainRT, this.roadGfx, this.resourceGfx,
-      this.highlightGfx, this.buildingSpriteLayer, this.buildingGfx, this.unitSpriteLayer, this.unitGfx, this.fogRT, this._uiLayer
+      this.terrainGfx, this.terrainArtLayer, this.terrainArtRT, this.terrainRT,
+      this.roadGfx,
+      this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT, this._uiLayer
     ]);
     for (const obj of [...this.children.list]) {
       if (!worldObjs.has(obj) && obj.scrollFactorX === 0) {
@@ -321,8 +211,9 @@ export class GameScene extends Phaser.Scene {
     this.uiCamera = this.cameras.add(0, 0, sw, sh).setName('ui').setScroll(0, 0).setZoom(1);
     this.uiCamera.transparent = true; // transparent background — must not cover world
     this.uiCamera.ignore([
-      this.terrainGfx, this.terrainTileLayer, this.terrainRT, this.roadGfx, this.resourceGfx,
-      this.highlightGfx, this.buildingSpriteLayer, this.buildingGfx, this.unitSpriteLayer, this.unitGfx, this.fogRT,
+      this.terrainGfx, this.terrainArtLayer, this.terrainArtRT, this.terrainRT,
+      this.roadGfx,
+      this.highlightGfx, this.buildingGfx, this.unitGfx, this.fogRT,
     ]);
     this.scale.on('resize', (gs) => this.uiCamera.setSize(gs.width, gs.height));
 
@@ -335,16 +226,200 @@ export class GameScene extends Phaser.Scene {
   // ── Terrain ──────────────────────────────────────────────────────────────
   _drawTerrainDirect() {
     this.terrainGfx.clear();
+    if (this.terrainArtLayer) this.terrainArtLayer.removeAll(true);
+
+    const artW = HEX_SIZE * 2;
+    const artH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH);
+
+    // Terrain art overlay — only enabled when tiles are properly formatted (transparent PNG, correct hex shape)
+    const ENABLE_TERRAIN_ART = true;
+    const hasAnyArt = ENABLE_TERRAIN_ART && Object.values(TERRAIN_ART_KEYS).some(k => this.textures.exists(k));
+
+    // Draw procedural terrain first
     for (let q = 0; q < this.mapSize; q++) {
       for (let r = 0; r < this.mapSize; r++) {
+        const ttype = this.terrain[`${q},${r}`] ?? 0;
         const { x, y } = hexToWorld(q, r);
-        this._drawHex(this.terrainGfx, x, y, this.terrain[`${q},${r}`] ?? 0, false, false);
+        this._drawHex(this.terrainGfx, x, y, ttype, false, false);
       }
+    }
+
+    // If any art tiles loaded, bake them into an OffscreenCanvas → single Phaser texture
+    if (hasAnyArt) {
+      this._bakeTerrainArt(artW, artH);
     }
   }
 
-  _drawTerrainTileSprites() {
-    // disabled: unstable with current external tile exports
+  _bakeTerrainArt(artW, artH) {
+    const bounds = getMapBounds(this.mapSize);
+    const padding = HEX_SIZE * 2;
+    const cw = Math.ceil(bounds.maxX - bounds.minX + padding * 2);
+    const ch = Math.ceil(bounds.maxY - bounds.minY + padding * 2);
+    const offX = bounds.minX - padding;
+    const offY = bounds.minY - padding;
+
+    // Create or reuse an OffscreenCanvas
+    const canvas = document.createElement('canvas');
+    canvas.width = cw; canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, cw, ch);
+
+    for (let q = 0; q < this.mapSize; q++) {
+      for (let r = 0; r < this.mapSize; r++) {
+        const ttype = this.terrain[`${q},${r}`] ?? 0;
+        // Pick variant tile deterministically by hex coords
+        let artKey = TERRAIN_ART_KEYS[ttype];
+        const _varHash = ((q * 1619 + r * 31337) ^ (q * 6791)) & 0xFFFFFF;
+        if (ttype === 6) { // sand
+          const varKey = `terrain_sand_${(_varHash % SAND_VARIANTS) + 1}`;
+          if (this.textures.exists(varKey)) artKey = varKey;
+        } else if (ttype === 1) { // dense forest
+          const varKey = `terrain_forest_${(_varHash % FOREST_VARIANTS) + 1}`;
+          if (this.textures.exists(varKey)) artKey = varKey;
+        } else if (ttype === 0) { // grass/plains
+          const varKey = `terrain_grass_${(_varHash % GRASS_VARIANTS) + 1}`;
+          if (this.textures.exists(varKey)) artKey = varKey;
+        } else if (ttype === 5) { // ocean
+          const varKey = `terrain_ocean_${(_varHash % OCEAN_VARIANTS) + 1}`;
+          if (this.textures.exists(varKey)) artKey = varKey;
+        } else if (ttype === 4) { // shallow water
+          const varKey = `terrain_shallow_${(_varHash % SHALLOW_VARIANTS) + 1}`;
+          if (this.textures.exists(varKey)) artKey = varKey;
+        } else if (ttype === 7) { // light woods
+          const varKey = `terrain_lightwoods_${(_varHash % LIGHTWOODS_VARIANTS) + 1}`;
+          if (this.textures.exists(varKey)) artKey = varKey;
+        }
+        if (!artKey || !this.textures.exists(artKey)) continue;
+        const srcImg = this.textures.get(artKey).getSourceImage();
+        if (!srcImg || !srcImg.width) continue;
+        const { x, y } = hexToWorld(q, r);
+        const dx = x - offX - artW / 2;
+        const dy = y - offY - artH / 2;
+
+        // Clip to flat-top hex shape so rectangular tiles don't bleed outside
+        ctx.save();
+        ctx.beginPath();
+        const vx = x - offX, vy = y - offY;
+        const hw = artW / 2, hh = artH / 2;
+        // Flat-top hex: 6 vertices at 0°,60°,120°,180°,240°,300° with isometric squish
+        for (let i = 0; i < 6; i++) {
+          const angle = (Math.PI / 180) * (60 * i);
+          const px = vx + hw * Math.cos(angle);
+          const py = vy + hh * Math.sin(angle);
+          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.clip();
+        ctx.drawImage(srcImg, dx, dy, artW, artH);
+        ctx.restore();
+      }
+    }
+
+    // Second pass: bake resource overlays on top — always visible under units/buildings
+    for (let q = 0; q < this.mapSize; q++) {
+      for (let r = 0; r < this.mapSize; r++) {
+        const res = this.gameState.resourceHexes[`${q},${r}`];
+        if (!res) continue;
+        const { x, y } = hexToWorld(q, r);
+        const vx = x - offX, vy = y - offY;
+        const hw = artW / 2, hh = artH / 2;
+        ctx.save();
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const angle = (Math.PI / 180) * (60 * i);
+          const px = vx + hw * Math.cos(angle), py = vy + hh * Math.sin(angle);
+          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.clip();
+        this._drawResourceOverlayCanvas(ctx, vx, vy, hw, hh, res.type);
+        ctx.restore();
+      }
+    }
+
+    // Register as Phaser texture (replace if already exists)
+    if (this.textures.exists('_terrain_art_baked')) {
+      this.textures.remove('_terrain_art_baked');
+    }
+    this.textures.addCanvas('_terrain_art_baked', canvas);
+
+    // Remove old baked image if exists
+    if (this._terrainArtImg) { try { this._terrainArtImg.destroy(); } catch(e){} }
+
+    // One image in world space at the map origin
+    this._terrainArtImg = this.add.image(offX, offY, '_terrain_art_baked')
+      .setOrigin(0, 0).setDepth(2);
+    if (this.terrainArtLayer) this.terrainArtLayer.add(this._terrainArtImg);
+  }
+
+  // Draw resource deposit overlay using canvas 2D API (baked into terrain texture)
+  _drawResourceOverlayCanvas(ctx, cx, cy, hw, hh, type) {
+    const s = hw * 0.55; // scale relative to hex half-width
+    if (type === 'OIL') {
+      // Spread dark oil seeps across the whole tile
+      const puddles = [[-hw*0.55,hh*0.15,hw*0.38],[hw*0.35,-hh*0.35,hw*0.30],[hw*0.55,hh*0.40,hw*0.25],
+                       [-hw*0.25,-hh*0.42,hw*0.28],[hw*0.05,hh*0.30,hw*0.33],[hw*0.42,-hh*0.05,hw*0.22],
+                       [-hw*0.65,hh*0.35,hw*0.22],[-hw*0.05,-hh*0.18,hw*0.28]];
+      for (const [ox, oy, r] of puddles) {
+        ctx.beginPath();
+        ctx.ellipse(cx+ox, cy+oy, r*1.55, r*0.85, 0, 0, Math.PI*2);
+        ctx.fillStyle = 'rgba(8,8,18,0.72)';
+        ctx.fill();
+      }
+      // Iridescent sheen
+      ctx.beginPath(); ctx.ellipse(cx-hw*0.38,cy+hh*0.12,hw*0.28,hh*0.14,0,0,Math.PI*2);
+      ctx.fillStyle = 'rgba(30,50,160,0.32)'; ctx.fill();
+      ctx.beginPath(); ctx.ellipse(cx+hw*0.22,cy-hh*0.10,hw*0.20,hh*0.10,0,0,Math.PI*2);
+      ctx.fillStyle = 'rgba(80,20,140,0.22)'; ctx.fill();
+
+    } else if (type === 'IRON') {
+      // Crack network spanning the tile
+      ctx.strokeStyle = 'rgba(120,120,136,0.72)';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(cx-hw*0.65,cy-hh*0.12); ctx.lineTo(cx-hw*0.12,cy+hh*0.20);
+      ctx.lineTo(cx+hw*0.52,cy-hh*0.28);
+      ctx.moveTo(cx-hw*0.12,cy+hh*0.20); ctx.lineTo(cx+hw*0.12,cy+hh*0.68);
+      ctx.moveTo(cx+hw*0.52,cy-hh*0.28); ctx.lineTo(cx+hw*0.78,cy+hh*0.12);
+      ctx.moveTo(cx-hw*0.38,cy-hh*0.52); ctx.lineTo(cx-hw*0.12,cy+hh*0.20);
+      ctx.stroke();
+      ctx.lineWidth = 1.0;
+      ctx.strokeStyle = 'rgba(160,160,160,0.50)';
+      ctx.beginPath();
+      ctx.moveTo(cx+hw*0.12,cy+hh*0.68); ctx.lineTo(cx+hw*0.38,cy+hh*0.82);
+      ctx.moveTo(cx-hw*0.38,cy-hh*0.52); ctx.lineTo(cx-hw*0.65,cy-hh*0.72);
+      ctx.stroke();
+      // Ore nodules at crack nodes
+      const nodes = [[-hw*0.65,-hh*0.12],[hw*0.52,-hh*0.28],[hw*0.12,hh*0.68],[-hw*0.38,-hh*0.52],[hw*0.78,hh*0.12]];
+      for (const [ox, oy] of nodes) {
+        const ns = hw*0.14;
+        ctx.beginPath();
+        ctx.moveTo(cx+ox,cy+oy-ns); ctx.lineTo(cx+ox-ns,cy+oy+ns*0.5); ctx.lineTo(cx+ox+ns,cy+oy+ns*0.5);
+        ctx.closePath(); ctx.fillStyle = 'rgba(62,62,72,0.85)'; ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(cx+ox,cy+oy-ns); ctx.lineTo(cx+ox,cy+oy); ctx.lineTo(cx+ox+ns,cy+oy+ns*0.5);
+        ctx.closePath(); ctx.fillStyle = 'rgba(170,170,200,0.55)'; ctx.fill();
+      }
+      // Metallic glint dots
+      ctx.fillStyle = 'rgba(200,200,220,0.65)';
+      for (const [ox,oy] of [[-hw*0.62,0],[hw*0.55,-hh*0.2],[hw*0.18,hh*0.72],[-hw*0.35,-hh*0.5],[hw*0.8,hh*0.15]]) {
+        ctx.beginPath(); ctx.arc(cx+ox, cy+oy, 1.8, 0, Math.PI*2); ctx.fill();
+      }
+
+    } else if (type === 'WOOD') {
+      // Stacked log cross-sections
+      const logs = [[-hw*0.45,hh*0.20,hw*0.28,hh*0.16],[hw*0.12,hh*0.32,hw*0.24,hh*0.14],
+                    [hw*0.50,-hh*0.12,hw*0.22,hh*0.13],[-hw*0.18,-hh*0.38,hw*0.20,hh*0.12],
+                    [hw*0.32,hh*0.50,hw*0.18,hh*0.11]];
+      for (const [ox,oy,rw,rh] of logs) {
+        ctx.beginPath(); ctx.ellipse(cx+ox,cy+oy,rw,rh,0,0,Math.PI*2);
+        ctx.fillStyle='rgba(78,42,14,0.80)'; ctx.fill();
+        ctx.beginPath(); ctx.ellipse(cx+ox,cy+oy-rh*0.3,rw*0.8,rh*0.5,0,0,Math.PI*2);
+        ctx.fillStyle='rgba(115,66,24,0.50)'; ctx.fill();
+        ctx.beginPath(); ctx.arc(cx+ox,cy+oy,rw*0.55,0,Math.PI*2);
+        ctx.strokeStyle='rgba(38,16,4,0.45)'; ctx.lineWidth=1; ctx.stroke();
+      }
+    }
   }
 
   // Legacy — kept for reference but no longer called (RT replaced by direct gfx)
@@ -356,110 +431,181 @@ export class GameScene extends Phaser.Scene {
     const strokeW = (isSelected || isHovered) ? 2.5 : 1;
     const verts = hexVertices(cx, cy);
 
-    // Isometric side/shadow slab (stronger tile readability)
-    if (!isHovered && !isSelected) {
-      const dy = HEX_SIZE * 0.14;
-      gfx.fillStyle(0x000000, 0.22);
-      gfx.beginPath();
-      gfx.moveTo(verts[2].x, verts[2].y);
-      gfx.lineTo(verts[3].x, verts[3].y);
-      gfx.lineTo(verts[3].x, verts[3].y + dy);
-      gfx.lineTo(verts[2].x, verts[2].y + dy);
-      gfx.closePath();
-      gfx.fillPath();
-      gfx.beginPath();
-      gfx.moveTo(verts[1].x, verts[1].y);
-      gfx.lineTo(verts[2].x, verts[2].y);
-      gfx.lineTo(verts[2].x, verts[2].y + dy);
-      gfx.lineTo(verts[1].x, verts[1].y + dy);
-      gfx.closePath();
-      gfx.fillPath();
-    }
-
-    // top face
+    // ── Base fill ──────────────────────────────────────────────────────────
     gfx.fillStyle(colors.fill);
     gfx.beginPath(); gfx.moveTo(verts[0].x, verts[0].y);
     for (let i = 1; i < verts.length; i++) gfx.lineTo(verts[i].x, verts[i].y);
     gfx.closePath(); gfx.fillPath();
 
-    // terrain-specific pixel texture overlays (all terrain types)
-    if (!isHovered && !isSelected) {
-      const pix = (count, c1, c2 = c1, a = 0.35) => {
-        for (let i = 0; i < count; i++) {
-          const ox = ((i * 17 + cx * 3) % 28) - 14;
-          const oy = ((i * 11 + cy * 5) % 20) - 10;
-          const col = (i % 2 === 0) ? c1 : c2;
-          gfx.fillStyle(col, a);
-          gfx.fillRect(cx + ox, cy + oy, 2, 2);
-        }
-      };
+    // ── Bevel: top-half highlight / bottom-half shadow (raised tile look) ──
+    if (!isSelected && !isHovered) {
+      // Inner highlight (top 3 edges: verts 0→1→2→3)
+      gfx.lineStyle(3, 0xffffff, 0.18);
+      gfx.beginPath();
+      gfx.moveTo(verts[4].x, verts[4].y);
+      gfx.lineTo(verts[5].x, verts[5].y);
+      gfx.lineTo(verts[0].x, verts[0].y);
+      gfx.lineTo(verts[1].x, verts[1].y);
+      gfx.lineTo(verts[2].x, verts[2].y);
+      gfx.strokePath();
+      // Inner shadow (bottom 3 edges: verts 2→3→4)
+      gfx.lineStyle(3, 0x000000, 0.22);
+      gfx.beginPath();
+      gfx.moveTo(verts[2].x, verts[2].y);
+      gfx.lineTo(verts[3].x, verts[3].y);
+      gfx.lineTo(verts[4].x, verts[4].y);
+      gfx.strokePath();
+    }
 
-      if (terrain === TERRAIN.PLAINS) {
-        pix(28, 0x98be63, 0x7ea650, 0.42);
-      } else if (terrain === TERRAIN.FOREST) {
-        pix(20, 0x245516, 0x2f6a1d, 0.45);
-        gfx.fillStyle(0x1a3f10, 0.85);
-        for (const [ox, oy] of [[-9,-4],[-2,-7],[6,-5],[-6,3],[1,5],[8,2]]) {
-          gfx.fillTriangle(cx+ox, cy+oy-4, cx+ox-4, cy+oy+3, cx+ox+4, cy+oy+3);
+    // ── Terrain details ────────────────────────────────────────────────────
+    if (!isHovered && !isSelected) {
+      // FOREST (1): tree canopy clusters
+      if (terrain === 1) {
+        for (const [ox, oy, s] of [[-7,-3,6],[4,-5,5],[0,5,6],[-3,6,4],[7,2,5]]) {
+          gfx.fillStyle(0x1a5010, 0.85);
+          gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox-s, cy+oy+s*0.6, cx+ox+s, cy+oy+s*0.6);
+          // trunk
+          gfx.fillStyle(0x5a3010, 0.7);
+          gfx.fillRect(cx+ox-1, cy+oy+s*0.6, 2, s*0.5);
         }
-      } else if (terrain === TERRAIN.MOUNTAIN) {
-        pix(18, 0x737373, 0x9a9a9a, 0.35);
-        gfx.lineStyle(1.7, 0xe3e3e3, 0.35);
+      }
+      // MOUNTAIN (2): snow-capped peaks with shadow face
+      if (terrain === 2) {
+        for (const [ox, oy, s] of [[-6,3,10],[4,4,8]]) {
+          // shadow face (right side)
+          gfx.fillStyle(0x4a4a55, 0.5);
+          gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox+s*0.8, cy+oy+s*0.5, cx+ox, cy+oy+s*0.5);
+          // main face
+          gfx.fillStyle(0x888899, 0.7);
+          gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox-s*0.8, cy+oy+s*0.5, cx+ox+s*0.8, cy+oy+s*0.5);
+          // snow cap
+          gfx.fillStyle(0xeeeeff, 0.85);
+          gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox-s*0.3, cy+oy-s*0.45, cx+ox+s*0.3, cy+oy-s*0.45);
+        }
+      }
+      // HILL (3): contour lines (2 arcs)
+      if (terrain === 3) {
+        gfx.lineStyle(1.5, 0xffffff, 0.3);
         gfx.beginPath();
-        gfx.moveTo(cx-10, cy+5); gfx.lineTo(cx-3, cy-8); gfx.lineTo(cx+4, cy+5);
-        gfx.moveTo(cx+0, cy+5);  gfx.lineTo(cx+8, cy-4); gfx.lineTo(cx+13, cy+5);
+        gfx.moveTo(cx-12, cy+6); gfx.lineTo(cx-6, cy-2); gfx.lineTo(cx+1, cy+6);
         gfx.strokePath();
-      } else if (terrain === TERRAIN.HILL) {
-        pix(18, 0xb99f61, 0xa78e53, 0.35);
-        gfx.lineStyle(2, 0xf0d49b, 0.2);
         gfx.beginPath();
-        gfx.moveTo(cx-11, cy+4); gfx.lineTo(cx-6, cy-5); gfx.lineTo(cx, cy+3);
-        gfx.moveTo(cx-1, cy+4); gfx.lineTo(cx+5, cy-4); gfx.lineTo(cx+11, cy+4);
+        gfx.moveTo(cx-2, cy+5); gfx.lineTo(cx+5, cy-2); gfx.lineTo(cx+12, cy+5);
         gfx.strokePath();
-      } else if (terrain === TERRAIN.SHALLOW) {
-        pix(22, 0x6bb7cf, 0x4ea4c2, 0.34);
-        gfx.lineStyle(1.5, 0xa8def0, 0.35);
+        gfx.lineStyle(1, 0x000000, 0.15);
         gfx.beginPath();
-        gfx.moveTo(cx-10, cy); gfx.lineTo(cx-2, cy-2); gfx.lineTo(cx+7, cy+1);
+        gfx.moveTo(cx-12, cy+7); gfx.lineTo(cx-6, cy-1); gfx.lineTo(cx+1, cy+7);
         gfx.strokePath();
-      } else if (terrain === TERRAIN.OCEAN) {
-        pix(26, 0x1a4167, 0x123456, 0.34);
-        gfx.lineStyle(1.3, 0x4f7ea8, 0.28);
-        gfx.beginPath();
-        gfx.moveTo(cx-11, cy+1); gfx.lineTo(cx-4, cy-1); gfx.lineTo(cx+3, cy+1); gfx.lineTo(cx+11, cy-1);
-        gfx.strokePath();
-      } else if (terrain === TERRAIN.SAND) {
-        pix(20, 0xe1c77d, 0xcfae67, 0.32);
+      }
+      // SHALLOW WATER (4): wave lines
+      if (terrain === 4) {
+        gfx.lineStyle(1.5, 0xaaddff, 0.5);
+        for (const dy of [-4, 3]) {
+          gfx.beginPath();
+          gfx.moveTo(cx-10, cy+dy);
+          gfx.lineTo(cx-5, cy+dy-3); gfx.lineTo(cx, cy+dy); gfx.lineTo(cx+5, cy+dy-3); gfx.lineTo(cx+10, cy+dy);
+          gfx.strokePath();
+        }
+      }
+      // OCEAN (5): deeper wave lines
+      if (terrain === 5) {
+        gfx.lineStyle(2, 0x4488bb, 0.4);
+        for (const dy of [-5, 2, 9]) {
+          gfx.beginPath();
+          gfx.moveTo(cx-11, cy+dy);
+          gfx.lineTo(cx-6, cy+dy-4); gfx.lineTo(cx-1, cy+dy); gfx.lineTo(cx+5, cy+dy-4); gfx.lineTo(cx+11, cy+dy);
+          gfx.strokePath();
+        }
+      }
+      // SAND (6): fine stipple dots
+      if (terrain === 6) {
+        gfx.fillStyle(0xddbb55, 0.55);
+        for (const [ox, oy] of [[-8,0],[-4,-5],[0,2],[5,-3],[8,5],[-2,7],[4,6],[-6,5]]) {
+          gfx.fillCircle(cx+ox, cy+oy, 1.2);
+        }
+      }
+      // LIGHT WOODS (7): 3 sparse trees — smaller than dense forest
+      if (terrain === 7) {
+        for (const [ox, oy, s] of [[-7,-2,4],[4,-4,4],[0,5,4]]) {
+          gfx.fillStyle(0x2a6818, 0.80);
+          gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox-s, cy+oy+s*0.6, cx+ox+s, cy+oy+s*0.6);
+          gfx.fillStyle(0x4a9a2a, 0.5);
+          gfx.fillTriangle(cx+ox, cy+oy-s-1, cx+ox-s*0.5, cy+oy, cx+ox+s*0.5, cy+oy);
+          gfx.fillStyle(0x5a3010, 0.6);
+          gfx.fillRect(cx+ox-1, cy+oy+s*0.6, 2, s*0.4);
+        }
       }
     }
 
-    // edge
+    // ── Outer border ───────────────────────────────────────────────────────
     gfx.lineStyle(strokeW, strokeColor);
     gfx.beginPath(); gfx.moveTo(verts[0].x, verts[0].y);
     for (let i = 1; i < verts.length; i++) gfx.lineTo(verts[i].x, verts[i].y);
     gfx.closePath(); gfx.strokePath();
   }
 
-  // ── Static layers (resources, roads) ─────────────────────────────────────
-  _drawStaticLayers() {
-    this._redrawRoads();
-    this._redrawResources();
+  _drawResourceOverlay(gfx, cx, cy, type) {
+    if (type === 'OIL') {
+      // Large dark oil seeps spread across the tile — visible under units
+      const puddles = [[-8,2,8],[ 5,-5,6.5],[ 9,6,5.5],[-4,-7,5],[1,4,7],[6,-1,4.5],[-10,5,4],[-1,-3,5]];
+      for (const [ox, oy, r] of puddles) {
+        gfx.fillStyle(0x0a0a14, 0.72);
+        gfx.fillEllipse(cx+ox, cy+oy, r*2.4, r*1.4);
+      }
+      // Iridescent oil sheen (blue/purple tint)
+      gfx.fillStyle(0x2233aa, 0.32);
+      gfx.fillEllipse(cx-6, cy+3, 14, 7);
+      gfx.fillStyle(0x552277, 0.22);
+      gfx.fillEllipse(cx+4, cy-2, 10, 5);
+      gfx.fillStyle(0x44aacc, 0.18);
+      gfx.fillEllipse(cx-2, cy+5, 8, 4);
+    } else if (type === 'IRON') {
+      // Gray/brown ore-crack network filling the tile
+      // Cracks — thick enough to read under a unit
+      gfx.lineStyle(2.5, 0x7a7a88, 0.72);
+      gfx.beginPath();
+      gfx.moveTo(cx-10, cy-2); gfx.lineTo(cx-2, cy+3); gfx.lineTo(cx+8, cy-4);
+      gfx.moveTo(cx-2, cy+3); gfx.lineTo(cx+2, cy+10);
+      gfx.moveTo(cx+8, cy-4); gfx.lineTo(cx+12, cy+2);
+      gfx.moveTo(cx-10, cy-2); gfx.lineTo(cx-12, cy+4);
+      gfx.moveTo(cx-6, cy-8); gfx.lineTo(cx-2, cy+3);
+      gfx.strokePath();
+      // Secondary fine cracks
+      gfx.lineStyle(1.2, 0x999999, 0.5);
+      gfx.beginPath();
+      gfx.moveTo(cx+2, cy+10); gfx.lineTo(cx+6, cy+13);
+      gfx.moveTo(cx-6, cy-8); gfx.lineTo(cx-10, cy-11);
+      gfx.strokePath();
+      // Ore nodules at crack nodes — darker with bright face
+      for (const [ox, oy, s] of [[-10,-1,5],[8,-3,4.5],[2,10,4],[-5,-8,4],[12,2,3.5]]) {
+        gfx.fillStyle(0x4a4a55, 0.85);
+        gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox-s, cy+oy+s*0.5, cx+ox+s, cy+oy+s*0.5);
+        gfx.fillStyle(0xaaaacc, 0.55);
+        gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox, cy+oy, cx+ox+s, cy+oy+s*0.5);
+      }
+      // Metallic glint specks
+      gfx.fillStyle(0xccccee, 0.65);
+      for (const [ox, oy] of [[-9,0],[9,-2],[3,11],[-4,-7],[13,3],[1,-1]]) {
+        gfx.fillCircle(cx+ox, cy+oy, 1.5);
+      }
+    } else if (type === 'WOOD') {
+      // Stacked log silhouettes — brown rounds across tile
+      for (const [ox, oy, rw, rh] of [[-8,3,7,4],[2,5,6,3.5],[8,-2,5.5,3],[-3,-6,5,3],[5,6,4.5,2.5]]) {
+        gfx.fillStyle(0x5a3010, 0.8);
+        gfx.fillEllipse(cx+ox, cy+oy, rw*2, rh*2);
+        gfx.fillStyle(0x7a4a22, 0.5);
+        gfx.fillEllipse(cx+ox, cy+oy-rh*0.3, rw*1.6, rh);
+        // ring lines
+        gfx.lineStyle(1, 0x3a1a00, 0.45);
+        gfx.strokeCircle(cx+ox, cy+oy, rw*0.55);
+      }
+    }
   }
 
-  _redrawResources() {
-    this.resourceGfx.clear();
-    for (const [key, res] of Object.entries(this.gameState.resourceHexes)) {
-      const [q, r] = key.split(',').map(Number);
-      const { x, y } = hexToWorld(q, r);
-      const s = HEX_SIZE * 0.2;
-      const color = RESOURCE_TYPES[res.type].color;
-      this.resourceGfx.fillStyle(color, 0.8);
-      this.resourceGfx.fillTriangle(x, y - s * 1.3, x - s, y, x + s, y);
-      this.resourceGfx.fillTriangle(x, y + s * 1.3, x - s, y, x + s, y);
-      // Label
-      const label = res.type === 'IRON' ? '⛏' : '🛢';
-      // (text labels added separately if needed)
-    }
+  // ── Static layers (resources, roads) ─────────────────────────────────────
+  _drawStaticLayers() {
+    this._drawTerrainDirect();
+    this._redrawRoads();
   }
 
   _redrawRoads() {
@@ -503,10 +649,8 @@ export class GameScene extends Phaser.Scene {
     // We-go integrity is maintained by _origQ/_origR on enemy units — enemy display positions
     // are locked to turn-start regardless of fog recomputation.
     this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
-    // Keep static layers in sync with newly built roads / captured resource structures
-    this._redrawRoads();
-    this._redrawResources();
     this._redrawHighlights();
+    this._redrawRoads();
     this._redrawBuildings();
     this._redrawUnits();
     this._redrawFog();
@@ -542,9 +686,7 @@ export class GameScene extends Phaser.Scene {
       for (const { q, r } of this.attackable) {
         const hasVisibleEnemy = gs.units.some(u => {
           if (u.owner === gs.currentPlayer || u.dead) return false;
-          const dq = (u._origQ !== undefined) ? u._origQ : u.q;
-          const dr = (u._origR !== undefined) ? u._origR : u.r;
-          if (dq !== q || dr !== r) return false;
+          if (u.q !== q || u.r !== r) return false;
           if (fog && !fog.has(`${dq},${dr}`)) return false; // hidden in fog
           return true;
         });
@@ -557,6 +699,9 @@ export class GameScene extends Phaser.Scene {
     if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
       const { x, y } = hexToWorld(this.hoveredHex.q, this.hoveredHex.r);
       this._drawHex(this.highlightGfx, x, y, this.terrain[`${this.hoveredHex.q},${this.hoveredHex.r}`], false, true);
+      // Re-draw resource overlay on top of hover hex so it doesn't disappear
+      const hRes = this.gameState.resourceHexes[`${this.hoveredHex.q},${this.hoveredHex.r}`];
+      if (hRes) this._drawResourceOverlay(this.highlightGfx, x, y, hRes.type);
     }
     if (this.selectedUnit) {
       const { x, y } = hexToWorld(this.selectedUnit.q, this.selectedUnit.r);
@@ -565,19 +710,6 @@ export class GameScene extends Phaser.Scene {
       this.highlightGfx.beginPath(); this.highlightGfx.moveTo(verts[0].x, verts[0].y);
       for (let i = 1; i < verts.length; i++) this.highlightGfx.lineTo(verts[i].x, verts[i].y);
       this.highlightGfx.closePath(); this.highlightGfx.strokePath();
-
-      // AP bar under selected unit
-      const ap = this.selectedUnit.ap ?? 0;
-      const apMax = this.selectedUnit.apMax ?? 100;
-      const ratio = Phaser.Math.Clamp(apMax > 0 ? ap / apMax : 0, 0, 1);
-      const bw = 28, bh = 4;
-      const bx = x - bw / 2, by = y + 18;
-      this.highlightGfx.fillStyle(0x111111, 0.9);
-      this.highlightGfx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
-      this.highlightGfx.fillStyle(0x2fd36b, 0.95);
-      this.highlightGfx.fillRect(bx, by, bw * ratio, bh);
-      this.highlightGfx.lineStyle(1, 0xffffff, 0.35);
-      this.highlightGfx.strokeRect(bx - 1, by - 1, bw + 2, bh + 2);
     }
 
     // ── Pending move arrows (own units with queued moves) ───────────────────
@@ -629,9 +761,9 @@ export class GameScene extends Phaser.Scene {
       if (typeof planned === 'number') {
         const target = gs.units.find(u => u.id === planned && !u.dead);
         if (!target) continue;
-        // We-go integrity: enemy shown/targeted at display position
-        tq = (target._origQ !== undefined) ? target._origQ : target.q;
-        tr = (target._origR !== undefined) ? target._origR : target.r;
+        // IGOUGO: use real position
+        tq = target.q;
+        tr = target.r;
       }
       // Blind fire target: { hex: {q,r} }
       else if (planned && typeof planned === 'object' && planned.hex) {
@@ -666,14 +798,12 @@ export class GameScene extends Phaser.Scene {
       this.highlightGfx.strokePath();
     }
 
-    // ── Auto-road standing order path preview ─────────────────────────────
-    // Draw a dim dotted line along the engineer's planned road route
+    // ── Auto-road standing order path preview (yellow) ────────────────────
     for (const u of gs.units) {
       if (!u.roadOrder || !u.roadOrder.path || u.owner !== gs.currentPlayer) continue;
       const path = u.roadOrder.path;
       if (!path.length) continue;
       const pts = [{ q: u.q, r: u.r }, ...path];
-      // Dim yellow dotted line through each hex center
       this.highlightGfx.lineStyle(1.5, 0xffdd44, 0.35);
       this.highlightGfx.beginPath();
       const steps = 10;
@@ -689,7 +819,6 @@ export class GameScene extends Phaser.Scene {
         }
       }
       this.highlightGfx.strokePath();
-      // Destination marker — small X
       const dest = hexToWorld(u.roadOrder.destQ, u.roadOrder.destR);
       this.highlightGfx.lineStyle(2, 0xffdd44, 0.7);
       const d = 6;
@@ -698,31 +827,44 @@ export class GameScene extends Phaser.Scene {
       this.highlightGfx.moveTo(dest.x + d, dest.y - d); this.highlightGfx.lineTo(dest.x - d, dest.y + d);
       this.highlightGfx.strokePath();
     }
+
+    // ── Auto-move standing order path preview (cyan) ───────────────────────
+    for (const u of gs.units) {
+      if (!u.moveOrder || u.owner !== gs.currentPlayer) continue;
+      const pts = [{ q: u.q, r: u.r }, ...(u.moveOrder.path || [])];
+      if (pts.length < 2) continue;
+      this.highlightGfx.lineStyle(1.5, 0x44eeff, 0.4);
+      this.highlightGfx.beginPath();
+      const steps = 10;
+      for (let seg = 0; seg < pts.length - 1; seg++) {
+        const from2 = hexToWorld(pts[seg].q, pts[seg].r);
+        const to2   = hexToWorld(pts[seg+1].q, pts[seg+1].r);
+        for (let i = 0; i < steps; i++) {
+          const t0 = i / steps, t1 = (i + 0.5) / steps;
+          if (i % 2 === 0) {
+            this.highlightGfx.moveTo(from2.x + (to2.x - from2.x) * t0, from2.y + (to2.y - from2.y) * t0);
+            this.highlightGfx.lineTo(from2.x + (to2.x - from2.x) * t1, from2.y + (to2.y - from2.y) * t1);
+          }
+        }
+      }
+      this.highlightGfx.strokePath();
+      // Destination marker — small diamond
+      const dest = hexToWorld(u.moveOrder.destQ, u.moveOrder.destR);
+      this.highlightGfx.lineStyle(2, 0x44eeff, 0.8);
+      const d = 7;
+      this.highlightGfx.beginPath();
+      this.highlightGfx.moveTo(dest.x,     dest.y - d);
+      this.highlightGfx.lineTo(dest.x + d, dest.y);
+      this.highlightGfx.lineTo(dest.x,     dest.y + d);
+      this.highlightGfx.lineTo(dest.x - d, dest.y);
+      this.highlightGfx.closePath();
+      this.highlightGfx.strokePath();
+    }
   }
 
   // ── Buildings ─────────────────────────────────────────────────────────────
   _redrawBuildings() {
     this.buildingGfx.clear();
-    this.buildingSpriteLayer.removeAll(true);
-
-    // Sprite-first building rendering
-    for (const b of this.gameState.buildings) {
-      if (b.type === 'ROAD') continue;
-      const { x, y } = hexToWorld(b.q, b.r);
-      const key = buildingTextureKey(b.type, b.owner || 1);
-      if (this.textures.exists(key)) {
-        const spr = this.add.image(x, y, key).setDepth(14).setScale(1.0).setOrigin(0.5, 0.6).setAlpha(0.98);
-        this.buildingSpriteLayer.add(spr);
-      }
-
-      // Keep owner outline for readability
-      const color = b.owner ? PLAYER_COLORS[b.owner] : 0x888888;
-      const s = HEX_SIZE * 0.28;
-      this.buildingGfx.lineStyle(1.5, color, 0.55);
-      this.buildingGfx.strokeRect(x - s, y - s * 0.45, s * 2, s * 1.2);
-    }
-    return;
-
     for (const b of this.gameState.buildings) {
       if (b.type === 'ROAD') continue;
       const { x, y } = hexToWorld(b.q, b.r);
@@ -872,24 +1014,64 @@ export class GameScene extends Phaser.Scene {
         this.buildingGfx.lineStyle(2, color, 1.0);
         this.buildingGfx.strokeRect(x - bw/2, y - bh/2, bw, bh);
       }
+
+      // ── Under-construction overlay ──────────────────────────────────────
+      if (b.underConstruction) {
+        const prog = b.buildProgress || 0;
+        const total = b.buildTurnsRequired || 1;
+        const fraction = prog / total;
+        const hw = HEX_SIZE * 0.42;
+
+        // Diagonal scaffolding hatching
+        this.buildingGfx.lineStyle(1.5, 0xffcc00, 0.55);
+        for (let i = -3; i <= 3; i++) {
+          this.buildingGfx.beginPath();
+          this.buildingGfx.moveTo(x + i * hw * 0.5 - hw, y - hw * 0.5);
+          this.buildingGfx.lineTo(x + i * hw * 0.5 + hw, y + hw * 0.5);
+          this.buildingGfx.strokePath();
+        }
+
+        // Progress bar background
+        const barW = HEX_SIZE * 0.7, barH = 5;
+        const barX = x - barW / 2, barY = y + HEX_SIZE * 0.28;
+        this.buildingGfx.fillStyle(0x000000, 0.7);
+        this.buildingGfx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+        this.buildingGfx.fillStyle(0x888888, 0.8);
+        this.buildingGfx.fillRect(barX, barY, barW, barH);
+        this.buildingGfx.fillStyle(0xffcc00, 1.0);
+        this.buildingGfx.fillRect(barX, barY, barW * fraction, barH);
+
+        // Turn counter text: "2/3"
+        this.buildingGfx.fillStyle(0x000000, 0.75);
+        this.buildingGfx.fillRect(x - 10, barY - 12, 20, 11);
+      }
+    }
+
+    // Construction turn labels (text objects — redrawn each refresh)
+    if (this._constructionLabels) this._constructionLabels.forEach(t => t.destroy());
+    this._constructionLabels = [];
+    for (const b of this.gameState.buildings) {
+      if (!b.underConstruction) continue;
+      const { x, y } = hexToWorld(b.q, b.r);
+      const prog = b.buildProgress || 0, total = b.buildTurnsRequired || 1;
+      const lbl = this.add.text(x, y + HEX_SIZE * 0.26, `${prog}/${total}`, {
+        font: 'bold 9px monospace', fill: '#ffcc00'
+      }).setOrigin(0.5, 0).setDepth(52).setScrollFactor(1);
+      this._constructionLabels.push(lbl);
     }
   }
 
   // ── Units ─────────────────────────────────────────────────────────────────
   _redrawUnits() {
     this.unitGfx.clear();
-    this.unitSpriteLayer.removeAll(true);
     const gs  = this.gameState;
     const fog = this._currentFog;
 
     for (const unit of gs.units) {
-      // Enemy units with pending moves: show at their ORIGINAL (turn-start) position
-      // so P2 can't see where P1 moved during planning (we-go integrity).
-      // During resolution playback, disable this lock so movement/combat phases show true positions.
+      // IGOUGO: all positions are real/immediate — no we-go display offset needed
       const isEnemy = unit.owner !== gs.currentPlayer;
-      const lockEnemyDisplay = !this._isResolvingPlayback;
-      const dispQ = (lockEnemyDisplay && isEnemy && unit._origQ !== undefined) ? unit._origQ : unit.q;
-      const dispR = (lockEnemyDisplay && isEnemy && unit._origR !== undefined) ? unit._origR : unit.r;
+      const dispQ = unit.q;
+      const dispR = unit.r;
 
       // Skip embarked units (they're inside a transport)
       if (unit.embarked) continue;
@@ -940,140 +1122,152 @@ export class GameScene extends Phaser.Scene {
         this.unitGfx.strokePath();
       }
 
-      // Sprite-first unit body
-      let facingAngle = 0;
-      if (unit._origQ !== undefined && unit._origR !== undefined && (unit.q !== unit._origQ || unit.r !== unit._origR)) {
-        const p0 = hexToWorld(unit._origQ, unit._origR);
-        facingAngle = Phaser.Math.RadToDeg(Math.atan2(y - p0.y, x - p0.x));
-      } else if (gs.pendingAttacks?.[unit.id]) {
-        const a = gs.pendingAttacks[unit.id];
-        let tq = null, tr = null;
-        if (typeof a === 'number') {
-          const t = gs.units.find(u2 => u2.id === a);
-          if (t) { tq = t.q; tr = t.r; }
-        } else if (a?.hex) {
-          tq = a.hex.q; tr = a.hex.r;
-        }
-        if (tq !== null) {
-          const tp = hexToWorld(tq, tr);
-          facingAngle = Phaser.Math.RadToDeg(Math.atan2(tp.y - y, tp.x - x));
-        }
-      }
-      const uKey = unitTextureKey(unit.type, unit.owner || 1);
-      if (this.textures.exists(uKey)) {
-        const spr = this.add.image(x, y, uKey).setDepth(19).setScale(1.0).setOrigin(0.5, 0.62).setAlpha(alpha).setAngle(facingAngle);
-        this.unitSpriteLayer.add(spr);
-      }
+      // ── Wargame counter (NATO-style) ───────────────────────────────────────
+      const NAVAL_SHAPES = new Set(['boat_sm','sub','destroyer','cruiser','cruiser_hv','battleship','transport','landing','battery']);
+      const isNaval = NAVAL_SHAPES.has(def.shape);
+      const cW = r * 2.1;
+      const cH = r * 1.7;
+      const cx2 = x - cW/2, cy2 = y - cH/2;
+      const spent = unit.moved && unit.attacked;
+      const fillAlpha = spent ? alpha * 0.5 : alpha;
 
-      if (false) {
-      this.unitGfx.fillStyle(color, alpha);
-      this.unitGfx.lineStyle(2, 0x000000, alpha);
+      // Drop shadow
+      this.unitGfx.fillStyle(0x000000, alpha * 0.4);
+      this.unitGfx.fillRect(cx2 + 2, cy2 + 2, cW, cH);
+
+      // Counter body
+      this.unitGfx.fillStyle(color, fillAlpha);
+      this.unitGfx.fillRect(cx2, cy2, cW, cH);
+
+      // Inner highlight (top + left edge)
+      this.unitGfx.lineStyle(1, 0xffffff, fillAlpha * 0.35);
+      this.unitGfx.beginPath();
+      this.unitGfx.moveTo(cx2, cy2 + cH - 1); this.unitGfx.lineTo(cx2, cy2);
+      this.unitGfx.lineTo(cx2 + cW - 1, cy2);
+      this.unitGfx.strokePath();
+      // Inner shadow (bottom + right edge)
+      this.unitGfx.lineStyle(1, 0x000000, fillAlpha * 0.45);
+      this.unitGfx.beginPath();
+      this.unitGfx.moveTo(cx2 + 1, cy2 + cH); this.unitGfx.lineTo(cx2 + cW, cy2 + cH);
+      this.unitGfx.lineTo(cx2 + cW, cy2 + 1);
+      this.unitGfx.strokePath();
+
+      // Outer border (double for selected unit)
+      const borderW = (this.selectedUnit === unit) ? 2.5 : 1.5;
+      const borderC = (this.selectedUnit === unit) ? 0xffff00 : 0x000000;
+      this.unitGfx.lineStyle(borderW, borderC, alpha);
+      this.unitGfx.strokeRect(cx2, cy2, cW, cH);
+
+      // ── Type symbol (NATO-inspired) ────────────────────────────────────────
+      const sg = this.unitGfx;
+      const ss = r * 0.38; // symbol scale
+      const symCol = 0xffffff;
+      sg.lineStyle(1.8, symCol, fillAlpha * 0.92);
+      sg.fillStyle(symCol, fillAlpha * 0.92);
 
       if (def.shape === 'circle') {
-        this.unitGfx.fillCircle(x, y, r); this.unitGfx.strokeCircle(x, y, r);
+        // Infantry: X cross
+        sg.beginPath();
+        sg.moveTo(x - ss, y - ss * 0.75); sg.lineTo(x + ss, y + ss * 0.75);
+        sg.moveTo(x + ss, y - ss * 0.75); sg.lineTo(x - ss, y + ss * 0.75);
+        sg.strokePath();
       } else if (def.shape === 'square') {
-        this.unitGfx.fillRect(x-r, y-r*0.7, r*2, r*1.4); this.unitGfx.strokeRect(x-r, y-r*0.7, r*2, r*1.4);
+        // Armor: horizontal oval
+        sg.strokeEllipse(x, y, ss * 2.2, ss * 1.0);
       } else if (def.shape === 'triangle') {
-        const th = r * 1.2;
-        this.unitGfx.fillTriangle(x, y-th, x-r, y+th*0.5, x+r, y+th*0.5);
-        this.unitGfx.strokeTriangle(x, y-th, x-r, y+th*0.5, x+r, y+th*0.5);
+        // Light infantry: single diagonal slash
+        sg.beginPath();
+        sg.moveTo(x - ss * 0.9, y + ss * 0.65); sg.lineTo(x + ss * 0.9, y - ss * 0.65);
+        sg.strokePath();
       } else if (def.shape === 'diamond') {
-        this.unitGfx.fillTriangle(x, y-r, x-r*0.7, y, x+r*0.7, y);
-        this.unitGfx.fillTriangle(x, y+r, x-r*0.7, y, x+r*0.7, y);
-        this.unitGfx.lineStyle(2, 0x000000, alpha);
-        this.unitGfx.strokeTriangle(x, y-r, x-r*0.7, y, x+r*0.7, y);
-        this.unitGfx.strokeTriangle(x, y+r, x-r*0.7, y, x+r*0.7, y);
+        // Artillery: circle with 4 spokes
+        sg.strokeCircle(x, y, ss * 0.55);
+        sg.beginPath();
+        sg.moveTo(x - ss * 1.1, y); sg.lineTo(x - ss * 0.6, y);
+        sg.moveTo(x + ss * 0.6, y); sg.lineTo(x + ss * 1.1, y);
+        sg.moveTo(x, y - ss * 1.1); sg.lineTo(x, y - ss * 0.6);
+        sg.moveTo(x, y + ss * 0.6); sg.lineTo(x, y + ss * 1.1);
+        sg.strokePath();
       } else if (def.shape === 'star') {
-        // Recon: 4-point star
-        this.unitGfx.fillTriangle(x, y-r, x-r*0.35, y, x+r*0.35, y);
-        this.unitGfx.fillTriangle(x, y+r, x-r*0.35, y, x+r*0.35, y);
-        this.unitGfx.fillTriangle(x-r, y, x, y-r*0.35, x, y+r*0.35);
-        this.unitGfx.fillTriangle(x+r, y, x, y-r*0.35, x, y+r*0.35);
+        // Recon: forward chevron
+        sg.beginPath();
+        sg.moveTo(x - ss * 0.9, y + ss * 0.5); sg.lineTo(x + ss * 0.5, y - ss * 0.2);
+        sg.lineTo(x + ss * 0.5, y + ss * 0.5);
+        sg.strokePath();
       } else if (def.shape === 'arrow') {
-        // Anti-Tank: rightward arrow / wedge
-        this.unitGfx.fillTriangle(x+r, y, x-r*0.5, y-r*0.7, x-r*0.5, y+r*0.7);
-        this.unitGfx.lineStyle(2, 0x000000, alpha);
-        this.unitGfx.strokeTriangle(x+r, y, x-r*0.5, y-r*0.7, x-r*0.5, y+r*0.7);
-      } else if (def.shape === 'boat_sm') {
-        // Patrol Boat: small elongated oval / hull
-        this.unitGfx.fillEllipse(x, y, r*2.2, r*1.0);
-        this.unitGfx.lineStyle(2, 0x000000, alpha); this.unitGfx.strokeEllipse(x, y, r*2.2, r*1.0);
-      } else if (def.shape === 'sub') {
-        // Submarine: thin elongated with rounded ends, darker
-        this.unitGfx.fillStyle(color, alpha * 0.85);
-        this.unitGfx.fillEllipse(x, y, r*2.6, r*0.8);
-        this.unitGfx.lineStyle(2, 0x000000, alpha);
-        this.unitGfx.strokeEllipse(x, y, r*2.6, r*0.8);
-        // Conning tower
-        this.unitGfx.fillStyle(color, alpha);
-        this.unitGfx.fillRect(x-r*0.15, y-r*0.7, r*0.3, r*0.5);
-      } else if (def.shape === 'destroyer') {
-        // Destroyer: elongated with pointed prow
-        this.unitGfx.fillTriangle(x+r*1.2, y, x-r*1.0, y-r*0.6, x-r*1.0, y+r*0.6);
-        this.unitGfx.lineStyle(2, 0x000000, alpha);
-        this.unitGfx.strokeTriangle(x+r*1.2, y, x-r*1.0, y-r*0.6, x-r*1.0, y+r*0.6);
-      } else if (def.shape === 'cruiser' || def.shape === 'cruiser_hv') {
-        // Cruiser: wider hull with superstructure block
-        const hw = def.shape === 'cruiser_hv' ? r*1.6 : r*1.3;
-        this.unitGfx.fillEllipse(x, y, hw*2, r*1.1);
-        this.unitGfx.lineStyle(2, 0x000000, alpha); this.unitGfx.strokeEllipse(x, y, hw*2, r*1.1);
-        // Superstructure
-        this.unitGfx.fillStyle(color, alpha * 0.7);
-        this.unitGfx.fillRect(x-r*0.4, y-r*0.7, r*0.8, r*0.55);
-      } else if (def.shape === 'battleship') {
-        // Battleship: large wide hull
-        this.unitGfx.fillEllipse(x, y, r*2.8, r*1.3);
-        this.unitGfx.lineStyle(3, 0x000000, alpha); this.unitGfx.strokeEllipse(x, y, r*2.8, r*1.3);
-        // Gun turret
-        this.unitGfx.fillStyle(color, alpha * 0.8);
-        this.unitGfx.fillCircle(x, y-r*0.3, r*0.4);
-      } else if (def.shape === 'transport') {
-        // Transport: wide boxy hull
-        this.unitGfx.fillRect(x-r*1.2, y-r*0.65, r*2.4, r*1.3);
-        this.unitGfx.lineStyle(2, 0x000000, alpha); this.unitGfx.strokeRect(x-r*1.2, y-r*0.65, r*2.4, r*1.3);
-        // Cargo hold indicator
-        if (unit.cargo && unit.cargo.length > 0) {
-          this.unitGfx.fillStyle(0xffdd44, alpha);
-          this.unitGfx.fillRect(x-r*0.3, y-r*0.2, r*0.6, r*0.5);
-        }
-      } else if (def.shape === 'landing') {
-        // Landing Craft: flat-bottomed box with ramp front
-        this.unitGfx.fillRect(x-r*0.9, y-r*0.6, r*1.8, r*1.1);
-        this.unitGfx.lineStyle(2, 0x000000, alpha); this.unitGfx.strokeRect(x-r*0.9, y-r*0.6, r*1.8, r*1.1);
-        // Ramp line
-        this.unitGfx.lineStyle(2, 0xffaa44, alpha);
-        this.unitGfx.beginPath(); this.unitGfx.moveTo(x+r*0.9, y-r*0.6); this.unitGfx.lineTo(x+r*0.9, y+r*0.5); this.unitGfx.strokePath();
-      } else if (def.shape === 'battery') {
-        // Coastal Battery: fortified emplacement — octagon + gun barrel
-        const bs = r * 0.85;
-        this.unitGfx.fillRect(x-bs, y-bs*0.7, bs*2, bs*1.4);
-        this.unitGfx.lineStyle(3, 0x000000, alpha); this.unitGfx.strokeRect(x-bs, y-bs*0.7, bs*2, bs*1.4);
-        // Gun barrel pointing right
-        this.unitGfx.lineStyle(4, 0x333333, alpha);
-        this.unitGfx.beginPath(); this.unitGfx.moveTo(x, y); this.unitGfx.lineTo(x+r*1.5, y); this.unitGfx.strokePath();
-        // Muzzle
-        this.unitGfx.fillStyle(0x333333, alpha); this.unitGfx.fillCircle(x+r*1.5, y, 3);
+        // Anti-tank: right-pointing arrow
+        sg.beginPath();
+        sg.moveTo(x - ss * 0.9, y); sg.lineTo(x + ss * 0.5, y);
+        sg.moveTo(x + ss * 0.5, y); sg.lineTo(x + ss * 0.1, y - ss * 0.55);
+        sg.moveTo(x + ss * 0.5, y); sg.lineTo(x + ss * 0.1, y + ss * 0.55);
+        sg.strokePath();
       } else if (def.shape === 'cross') {
         // Medic: red cross
-        this.unitGfx.fillStyle(0xffffff, alpha);
-        this.unitGfx.fillCircle(x, y, r);
-        this.unitGfx.fillStyle(0xdd2222, alpha);
-        this.unitGfx.fillRect(x-r*0.2, y-r*0.7, r*0.4, r*1.4);
-        this.unitGfx.fillRect(x-r*0.7, y-r*0.2, r*1.4, r*0.4);
-        this.unitGfx.lineStyle(2, 0x000000, alpha);
-        this.unitGfx.strokeCircle(x, y, r);
+        sg.lineStyle(2.2, 0xff4444, fillAlpha);
+        sg.beginPath();
+        sg.moveTo(x, y - ss * 0.9); sg.lineTo(x, y + ss * 0.9);
+        sg.moveTo(x - ss * 0.9, y); sg.lineTo(x + ss * 0.9, y);
+        sg.strokePath();
+      } else if (isNaval) {
+        if (def.shape === 'sub') {
+          // Submarine: elongated hull + conning tower
+          sg.strokeEllipse(x, y + ss * 0.1, ss * 2.4, ss * 0.8);
+          sg.fillRect(x - ss * 0.15, y - ss * 0.6, ss * 0.3, ss * 0.5);
+        } else if (def.shape === 'battleship') {
+          // Battleship: wide hull + two turret circles
+          sg.strokeEllipse(x, y + ss * 0.2, ss * 2.6, ss * 1.0);
+          sg.fillCircle(x - ss * 0.5, y - ss * 0.2, ss * 0.3);
+          sg.fillCircle(x + ss * 0.5, y - ss * 0.2, ss * 0.3);
+        } else if (def.shape === 'transport') {
+          // Transport: boxy rect + cargo dot
+          sg.strokeRect(x - ss * 1.1, y - ss * 0.5, ss * 2.2, ss * 1.0);
+          sg.fillCircle(x, y, ss * 0.25);
+        } else if (def.shape === 'boat_sm') {
+          // Patrol Boat: small compact V-hull
+          sg.beginPath();
+          sg.moveTo(x + ss * 0.9, y); sg.lineTo(x - ss * 0.5, y - ss * 0.45);
+          sg.lineTo(x - ss * 0.5, y + ss * 0.45); sg.closePath(); sg.strokePath();
+        } else if (def.shape === 'destroyer') {
+          // Destroyer: long slim hull + mast tick
+          sg.beginPath();
+          sg.moveTo(x + ss * 1.4, y); sg.lineTo(x - ss * 1.0, y - ss * 0.45);
+          sg.lineTo(x - ss * 1.0, y + ss * 0.45); sg.closePath(); sg.strokePath();
+          // Mast
+          sg.beginPath(); sg.moveTo(x, y - ss * 0.45); sg.lineTo(x, y - ss * 0.85); sg.strokePath();
+        } else if (def.shape === 'landing') {
+          // Landing Craft: flat-front box with ramp tick
+          sg.strokeRect(x - ss * 0.9, y - ss * 0.5, ss * 1.8, ss * 1.0);
+          sg.beginPath(); sg.moveTo(x + ss * 0.9, y - ss * 0.5); sg.lineTo(x + ss * 0.9, y + ss * 0.5); sg.strokePath();
+        } else if (def.shape === 'battery') {
+          // Coastal Battery: box + gun barrel pointing right
+          sg.strokeRect(x - ss * 0.8, y - ss * 0.55, ss * 1.6, ss * 1.1);
+          sg.lineStyle(2.5, symCol, fillAlpha * 0.92);
+          sg.beginPath(); sg.moveTo(x + ss * 0.2, y); sg.lineTo(x + ss * 1.3, y); sg.strokePath();
+          sg.fillCircle(x + ss * 1.3, y, ss * 0.2);
+        } else {
+          // Generic naval: medium pointed hull
+          sg.beginPath();
+          sg.moveTo(x + ss * 1.1, y); sg.lineTo(x - ss * 0.8, y - ss * 0.5);
+          sg.lineTo(x - ss * 0.8, y + ss * 0.5); sg.closePath(); sg.strokePath();
+        }
       }
 
+      // Spent slash overlay (unit used all AP)
+      if (spent) {
+        sg.lineStyle(1.5, 0xff3333, alpha * 0.65);
+        sg.beginPath();
+        sg.moveTo(cx2 + cW - 1, cy2 + 1); sg.lineTo(cx2 + cW - 9, cy2 + 8);
+        sg.strokePath();
       }
 
-      // Health bar
-      const barW = HEX_SIZE * 0.85, barH = 5;
-      const bx = x - barW/2, by = y + r + 5;
+      // Health bar (below counter)
+      const barW = cW * 0.9, barH = 4;
+      const bx = x - barW/2, by = cy2 + cH + 3;
       const pct = unit.health / unit.maxHealth;
-      const barColor = pct > 0.6 ? 0x44ff44 : pct > 0.3 ? 0xffcc00 : 0xff3333;
-      this.unitGfx.fillStyle(0x222222, alpha); this.unitGfx.fillRect(bx, by, barW, barH);
+      const barColor = pct > 0.6 ? 0x44dd44 : pct > 0.3 ? 0xffcc00 : 0xff3333;
+      this.unitGfx.fillStyle(0x111111, alpha); this.unitGfx.fillRect(bx, by, barW, barH);
       this.unitGfx.fillStyle(barColor, alpha); this.unitGfx.fillRect(bx, by, barW * pct, barH);
-      this.unitGfx.lineStyle(1, 0x000000, alpha*0.5); this.unitGfx.strokeRect(bx, by, barW, barH);
+      this.unitGfx.lineStyle(1, 0x000000, alpha * 0.5); this.unitGfx.strokeRect(bx, by, barW, barH);
     }
   }
 
@@ -1130,19 +1324,26 @@ export class GameScene extends Phaser.Scene {
     this.topBarBg = this.add.rectangle(w/2, 22, w, 44, 0x111111, 0.92)
       .setScrollFactor(0).setDepth(D);
 
-    // Resource cells
-    this.resIron = this._makeLabel(12, 11, '⚙ Iron: —', D);
-    this.resOil  = this._makeLabel(160, 11, '🛢 Oil: —', D);
-    this.turnLbl = this._makeLabel(w/2, 11, 'Turn 1 | Player 1 | PLANNING', D, true);
-
-    // Back to menu button
+    // Back to menu button (leftmost)
     this.btnMenu = this._makeBtn(12, 11, '← MENU', 0x333333, () => this.scene.start('MenuScene'), D);
+
+    // Resource cells — positioned right of menu button
+    this.resIron = this._makeLabel(110, 11, '⚙ —', D);
+    this.resOil  = this._makeLabel(230, 11, '🛢 —', D);
+    this.resWood   = this._makeLabel(350, 11, '🪵 —', D);
+
+    // Version tag
+    this.add.text(460, 11, GAME_VERSION, {
+      font: '11px monospace', fill: '#445566', backgroundColor: '#111111', padding: { x: 4, y: 4 }
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(D);
+
+    this.turnLbl = this._makeLabel(w/2, 11, 'Turn 1 | Player 1 | PLANNING', D, true);
 
     // Settings gear button
     this.btnSettings = this._makeBtn(w - 160, 11, '⚙ Settings', 0x333355, () => this._toggleSettings(), D, 'right');
 
     // Submit button (always visible in top-right)
-    this.btnSubmit = this._makeBtn(w - 10, 11, 'SUBMIT TURN', 0x226622, () => this._onSubmit(), D, 'right');
+    this.btnSubmit = this._makeBtn(w - 10, 11, 'END TURN', 0x226622, () => this._confirmEndTurn(), D, 'right');
   }
 
   _makeLabel(x, y, text, depth, center = false) {
@@ -1171,7 +1372,7 @@ export class GameScene extends Phaser.Scene {
     const pl  = gs.players[p];
     const inc = calcIncome(gs, p);
     const myOrders = gs.pendingRecruits.filter(r => r.owner === p);
-    const modeStr = this.mode === 'move' ? 'MOVING' : this.mode === 'attack' ? 'ATTACKING' : 'PLANNING';
+    const modeStr = this.mode === 'move' ? 'MOVING' : this.mode === 'sprint' ? 'SPRINTING' : this.mode === 'attack' ? 'ATTACKING' : 'PLANNING';
     const queueStr = myOrders.length
       ? '  |  ' + myOrders.map(r => {
           const name = r.designId !== undefined
@@ -1181,8 +1382,9 @@ export class GameScene extends Phaser.Scene {
         }).join(' ')
       : '';
 
-    this.resIron.setText(`⚙ ${pl.iron}  (+${inc.iron}/turn)`);
-    this.resOil.setText(`🛢 ${pl.oil}  (+${inc.oil}/turn)`);
+    this.resIron.setText(`⚙ ${pl.iron}  (+${inc.iron}/t)`);
+    this.resOil.setText(`🛢 ${pl.oil}  (+${inc.oil}/t)`);
+    this.resWood.setText(`🪵 ${pl.wood || 0}${inc.wood > 0 ? `  (+${inc.wood}/t)` : ''}`);
     this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  ${modeStr}${queueStr}`);
   }
 
@@ -1237,20 +1439,21 @@ export class GameScene extends Phaser.Scene {
         : def.name;
       const nameLabel = isOwnUnit && u.designId !== undefined ? `★ ${displayName}` : `[ ${displayName} ]`;
       this.unitNameTxt.setText(`${nameLabel}  P${u.owner}`);
-      this.unitStatsTxt.setText(`HP: ${u.health}/${u.maxHealth}  AP: ${u.ap ?? 0}/${u.apMax ?? 100}  ATK: ${def.attack}  MOV: ${def.move}  RNG: ${def.range}  SIGHT: ${def.sight}`);
+      const ap = (u.moved ? 0 : 1) + (u.attacked ? 0 : 1);
+      this.unitStatsTxt.setText(`HP: ${u.health}/${u.maxHealth}  AP: ${ap}/2  SA: ${def.soft_attack}  HA: ${def.hard_attack}  PRC: ${def.pierce}  ARM: ${def.armor}  MOV: ${def.move}  RNG: ${def.range}`);
       const pa = gs.pendingAttacks[u.id];
       let status = '';
-      const canMoveAP = (u.ap ?? 0) >= getMoveAPPerHex(u.type, u);
-      const canFireAP = (u.ap ?? 0) >= getActionAPCost(u.type, 'fire', u);
-      status += u.suppressed ? '⚡ SUPPRESSED  ' : u.moved ? '✓ Moved  ' : (canMoveAP ? '○ Can move  ' : '✗ No AP to move  ');
-      status += pa         ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : (canFireAP ? '○ Can attack  ' : '✗ No AP to fire  ');
-      if (u.dugIn) status += '🪖 Dug in';
-      // Move AP preview while hovering a reachable destination
-      if (this.mode === 'move' && this.hoveredHex && this.reachable.some(h => h.q === this.hoveredHex.q && h.r === this.hoveredHex.r)) {
-        const path = findPath(this.terrain, this.mapSize, u.q, u.r, this.hoveredHex.q, this.hoveredHex.r, u.type) || [];
-        const steps = path.length || hexDistance(u.q, u.r, this.hoveredHex.q, this.hoveredHex.r);
-        const apNeed = Math.max(1, steps) * getMoveAPPerHex(u.type);
-        status += `  |  Move preview: ${apNeed} AP (${steps} hex)`;
+      // Construction status takes priority
+      if (u.constructing) {
+        const bUnderConst = gs.buildings.find(b => b.id === u.constructing);
+        if (bUnderConst && bUnderConst.underConstruction) {
+          const prog = bUnderConst.buildProgress || 0, total = bUnderConst.buildTurnsRequired || 1;
+          status = `🔨 Building ${BUILDING_TYPES[bUnderConst.type].name}: ${prog}/${total} turns  (locked)`;
+        }
+      } else {
+        status += u.suppressed ? '⚡ SUPPRESSED  ' : u.moved ? '✓ Moved  ' : '○ Can move  ';
+        status += pa         ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : '○ Can attack  ';
+        if (u.dugIn) status += '🪖 Dug in';
       }
       this.unitStatusTxt.setText(status);
     } else if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
@@ -1678,10 +1881,15 @@ export class GameScene extends Phaser.Scene {
       cam.scrollY += wBefore.y - wAfter.y;
     });
 
+    this.input.keyboard.enableGlobalCapture();
     this.wasd = this.input.keyboard.addKeys('W,A,S,D');
-    this.input.keyboard.on('keydown-ESC',   () => this._toggleSettings());
-    this.input.keyboard.on('keydown-X',     () => { if (this.btnSubmit?.visible) this._onSubmit(); });
-    this.input.keyboard.on('keydown-SPACE', () => { if (this._splashDismiss) { this._splashDismiss(); this._splashDismiss = null; } });
+    this.input.keyboard.on('keydown-ESC',   () => { if (!this._endTurnPending) this._toggleSettings(); });
+    this.input.keyboard.on('keydown-X',     () => { this._confirmEndTurn(); });
+    this.input.keyboard.on('keydown-SPACE', () => {
+      if (this._splashDismiss) { this._splashDismiss(); this._splashDismiss = null; return; }
+      if (this._endTurnPending) { this._onSubmit(); this._hideEndTurnConfirm(); return; }
+      this._confirmEndTurn();
+    });
   }
 
   // ── World → Screen coordinate conversion ─────────────────────────────────
@@ -1701,7 +1909,9 @@ export class GameScene extends Phaser.Scene {
     const existingB = buildingAt(gs, unit.q, unit.r);
     const noBuilding = !existingB || existingB.type === 'ROAD';
     const res = gs.resourceHexes[`${unit.q},${unit.r}`];
-    const iron = gs.players[p].iron, oil = gs.players[p].oil;
+    const iron = gs.players[p].iron, oil = gs.players[p].oil, wood = gs.players[p].wood || 0;
+    const ttype = this.terrain[`${unit.q},${unit.r}`] ?? 0;
+    const onForest  = ttype === 1 || ttype === 7;
 
     // Priority 1: resource hex with no building → Mine / Oil Pump
     if (res && noBuilding) {
@@ -1713,9 +1923,11 @@ export class GameScene extends Phaser.Scene {
         return { label: `MINE      4⚙`, enabled: ok, cb: () => this._onBuildMine(res.type) };
       }
     }
+    // Priority 1b: terrain-based extractors
+    if (onForest  && noBuilding && !res) return { label: `LUMBER CAMP  2⚙`,    enabled: iron>=2,           cb: () => this._onBuildLumberCamp() };
     // Priority 2: no road on this hex → Road
     if (!roadAt(gs, unit.q, unit.r) && noBuilding) {
-      return { label: `ROAD      1⚙`, enabled: iron >= 1, cb: () => this._onBuildRoad() };
+      return { label: `ROAD      1🪵`, enabled: wood >= 1, cb: () => this._onBuildRoad() };
     }
     return null; // no obvious single option → show full submenu
   }
@@ -1742,9 +1954,13 @@ export class GameScene extends Phaser.Scene {
     const actions = [];
     const isImmobile = def.immobile || unit.immobile;
 
-    const moveApMin = getMoveAPPerHex(unit.type, unit);
     if (!unit.moved && !unit.suppressed && !isImmobile) {
-      actions.push({ label: `MOVE (${moveApMin} AP/hex)`,   key: 'move',   enabled: (unit.ap ?? 0) >= moveApMin,  color: 0x1a5c8a, cb: () => this._onMoveMode() });
+      actions.push({ label: 'MOVE',   key: 'move',   enabled: true,  color: 0x1a5c8a, cb: () => this._onMoveMode() });
+    }
+    // Patrol Boat sprint: 2nd shorter move after first, but negates attack
+    if (def.canSprint && unit.moved && !unit.sprinted && !unit.attacked && !unit.suppressed) {
+      actions.push({ label: `SPRINT +${def.sprintMove} (no attack)`, key: 'sprint', enabled: true, color: 0x1a6655,
+        cb: () => this._onSprintMode(unit) });
     }
 
     // Transport: LOAD (board adjacent land units) / UNLOAD (disembark to adjacent hex)
@@ -1752,42 +1968,64 @@ export class GameScene extends Phaser.Scene {
       const cargo = unit.cargo || [];
       const cap = def.capacity;
       const maxLoad = cap.infantry + cap.vehicle;
-      const loadAp = getActionAPCost(unit.type, 'load');
-      const unloadAp = getActionAPCost(unit.type, 'unload');
       if (cargo.length < maxLoad) {
-        actions.push({ label: `LOAD UNIT (${cargo.length}/${maxLoad}) [${loadAp} AP]`, key: 'load', enabled: (unit.ap ?? 0) >= loadAp, color: 0x336699,
+        actions.push({ label: `LOAD UNIT (${cargo.length}/${maxLoad})`, key: 'load', enabled: true, color: 0x336699,
           cb: () => this._enterLoadMode(unit) });
       }
       if (cargo.length > 0) {
-        actions.push({ label: `UNLOAD (${cargo.length}) [${unloadAp} AP]`, key: 'unload', enabled: (unit.ap ?? 0) >= unloadAp, color: 0x226644,
+        actions.push({ label: `UNLOAD (${cargo.length})`, key: 'unload', enabled: true, color: 0x226644,
           cb: () => this._enterUnloadMode(unit) });
       }
     }
     if (!unit.attacked && !unit.suppressed && def.attack > 0) {
-      const fireAp = getActionAPCost(unit.type, 'fire');
       const visibleEnemies = getAttackableHexes(gs, unit, unit.q, unit.r, this._currentFog);
       const hasRange = def.range > 0;
       // ATTACK — only if confirmed visible enemy in range (direct fire, no penalty)
       if (visibleEnemies.length > 0) {
-        actions.push({ label: `ATTACK [${fireAp} AP]`, key: 'attack', enabled: (unit.ap ?? 0) >= fireAp, color: 0x882222,
+        actions.push({ label: 'ATTACK', key: 'attack', enabled: true, color: 0x882222,
           cb: () => this._onDirectAttackMode() });
       }
       // FIRE AT TILE — always available (blind fire, accuracy debuff, shows full range)
       if (hasRange) {
-        actions.push({ label: `FIRE AT TILE [${fireAp} AP]`, key: 'fire_tile', enabled: (unit.ap ?? 0) >= fireAp, color: 0x663311,
+        actions.push({ label: 'FIRE AT TILE', key: 'fire_tile', enabled: true, color: 0x663311,
           cb: () => this._onAttackMode() });
       }
     }
     if (def.canDigIn && !unit.dugIn && !unit.moved) {
-      const digAp = getActionAPCost(unit.type, 'digIn');
-      actions.push({ label: `DIG IN [${digAp} AP]`, key: 'digin',  enabled: (unit.ap ?? 0) >= digAp,  color: 0x8B5A2B, cb: () => this._onDigIn() });
+      actions.push({ label: 'DIG IN', key: 'digin',  enabled: true,  color: 0x8B5A2B, cb: () => this._onDigIn() });
     }
     if (unit.roadOrder) {
       actions.push({ label: '✕ CANCEL ROAD ORDER', key: 'cancel_road', enabled: true, color: 0x662222,
         cb: () => { delete unit.roadOrder; this._hideContextMenu(); this._refresh(); }
       });
     }
-    if (def.canBuild) {
+    // Auto-move standing order
+    if (unit.moveOrder) {
+      actions.push({ label: '✕ CANCEL MOVE ORDER', key: 'cancel_move_order', enabled: true, color: 0x334466,
+        cb: () => { delete unit.moveOrder; this._hideContextMenu(); this._refresh(); }
+      });
+    } else if (!unit.moved) {
+      actions.push({ label: '📍 SET MOVE ORDER', key: 'move_order', enabled: true, color: 0x224466,
+        cb: () => this._enterMoveOrderMode(unit)
+      });
+    }
+    // Cancel active construction
+    if (unit.constructing) {
+      const bUnderConst = gs.buildings.find(b => b.id === unit.constructing);
+      if (bUnderConst && bUnderConst.underConstruction) {
+        actions.push({ label: `✕ CANCEL BUILD (no refund)`, key: 'cancel_build', enabled: true, color: 0x662222,
+          cb: () => {
+            // Remove the under-construction building; no resource refund
+            gs.buildings = gs.buildings.filter(b => b.id !== unit.constructing);
+            delete unit.constructing;
+            unit.moved = false; // free the engineer
+            this._hideContextMenu();
+            this._refresh();
+          }
+        });
+      }
+    }
+    if (def.canBuild && !unit.constructing) {
       const smart = this._getSmartBuild(unit);
       if (smart) {
         // Promote the obvious action directly into the root menu
@@ -1820,8 +2058,15 @@ export class GameScene extends Phaser.Scene {
     // Hook: special abilities (future — unit.abilities array)
     // (unit.abilities || []).forEach(ab => actions.push({ label: ab.name, key: ab.key, enabled: ab.canUse(gs, unit), color: 0x664488, cb: () => ab.use(gs, unit) }));
     // Undo move — only if moved but not yet attacked
-    if (unit.moved && !unit.attacked && unit._origQ !== undefined && gs.pendingMoves[unit.id]) {
-      actions.push({ label: '↩ UNDO MOVE', key: 'undo', enabled: true, color: 0x554422, cb: () => this._onUndoMove() });
+    if (unit.moved && !unit.attacked && unit._origQ !== undefined) {
+      const undoBlocked = !!unit._scoutedMove;
+      actions.push({
+        label: undoBlocked ? '↩ UNDO MOVE [revealed fog]' : '↩ UNDO MOVE',
+        key: 'undo',
+        enabled: !undoBlocked,
+        color: undoBlocked ? 0x553322 : 0x554422,
+        cb: () => this._onUndoMove()
+      });
     }
     actions.push({ label: 'WAIT',   key: 'wait',   enabled: true,  color: 0x444444, cb: () => this._clearSelection() });
 
@@ -1862,14 +2107,15 @@ export class GameScene extends Phaser.Scene {
       const existingBuilding = buildingAt(gs, unit.q, unit.r);
       const noBuilding = !existingBuilding || existingBuilding.type === 'ROAD';
       const res = gs.resourceHexes[`${unit.q},${unit.r}`];
-      const iron = gs.players[p].iron, oil = gs.players[p].oil;
+      const iron = gs.players[p].iron, oil = gs.players[p].oil, wood = gs.players[p].wood || 0;
       const coastal = this._isCoastalHex(unit.q, unit.r);
-      const buildAp = getActionAPCost(unit.type, 'build');
+      const ttype = this.terrain[`${unit.q},${unit.r}`] ?? 0;
+      const onForest  = ttype === 1 || ttype === 7;
 
       // All possible build options — add more here as the game grows
       const allOpts = [];
       if (!roadAt(gs, unit.q, unit.r))
-        allOpts.push({ label: `Road        1⚙ [${buildAp}AP]`,  cost: { iron:1,oil:0 }, enabled: iron>=1 && (unit.ap ?? 0) >= buildAp,  cb: () => this._onBuildRoad() });
+        allOpts.push({ label: `Road        1🪵`,  cost: { iron:0, oil:0, wood:1 }, enabled: wood>=1,  cb: () => this._onBuildRoad() });
       // Auto-road standing order (engineer pathfinds to destination, builds each turn)
       if (unit.roadOrder) {
         allOpts.push({ label: `✕ CANCEL ROAD ORDER`, cost: null, enabled: true, cb: () => { delete unit.roadOrder; this._hideContextMenu(); this._refresh(); } });
@@ -1877,22 +2123,25 @@ export class GameScene extends Phaser.Scene {
         allOpts.push({ label: `AUTO-ROAD →`, cost: null, enabled: true, cb: () => this._enterRoadDestMode(unit) });
       }
       if (res && noBuilding)
-        allOpts.push({ label: `${res.type==='OIL'?'Oil Pump   4⚙ 2🛢':'Mine        4⚙'} [${buildAp}AP]`,
-                       cost: { iron:4,oil: res.type==='OIL'?2:0 }, enabled: (res.type==='OIL'?(iron>=4&&oil>=2):iron>=4) && (unit.ap ?? 0) >= buildAp,
+        allOpts.push({ label: `${res.type==='OIL'?'Oil Pump   4⚙ 2🛢':'Mine        4⚙'}`,
+                       cost: { iron:4,oil: res.type==='OIL'?2:0 }, enabled: res.type==='OIL'?(iron>=4&&oil>=2):iron>=4,
                        cb: () => this._onBuildMine(res.type) });
+      if (onForest && noBuilding)
+        allOpts.push({ label: `Lumber Camp 2⚙`, cost:{iron:2,oil:0,wood:0}, enabled: iron>=2,
+                       cb: () => this._onBuildLumberCamp() });
       // Land military buildings
-      if (noBuilding) allOpts.push({ label: `Barracks    6⚙ [${buildAp}AP]`,       cost:{iron:6,oil:0},  enabled: iron>=6 && (unit.ap ?? 0) >= buildAp,          cb: () => this._onBuildStructure('BARRACKS',6) });
-      if (noBuilding) allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢 [${buildAp}AP]`, cost:{iron:8,oil:2},  enabled: iron>=8&&oil>=2 && (unit.ap ?? 0) >= buildAp,  cb: () => this._onBuildStructure('VEHICLE_DEPOT',8,2) });
+      if (noBuilding) allOpts.push({ label: `Barracks    4⚙ 4🪵`,    cost:{iron:4,oil:0,wood:4},  enabled: iron>=4&&wood>=4,        cb: () => this._onBuildStructure('BARRACKS',4,0,4) });
+      if (noBuilding) allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢`, cost:{iron:8,oil:2},          enabled: iron>=8&&oil>=2,         cb: () => this._onBuildStructure('VEHICLE_DEPOT',8,2) });
       // Naval buildings (coastal land only)
-      if (noBuilding) allOpts.push({ label: `Naval Yard  8⚙ 2🛢 ${coastal?'':'[COAST]'} [${buildAp}AP]`,   cost:{iron:8,oil:2},  enabled: coastal && iron>=8&&oil>=2 && (unit.ap ?? 0) >= buildAp,  cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
-      if (noBuilding) allOpts.push({ label: `Harbor      5⚙ 1🛢 ${coastal?'':'[COAST]'} [${buildAp}AP]`,   cost:{iron:5,oil:1},  enabled: coastal && iron>=5&&oil>=1 && (unit.ap ?? 0) >= buildAp,  cb: () => this._onBuildStructure('HARBOR',5,1) });
-      if (noBuilding) allOpts.push({ label: `Dry Dock   12⚙ 4🛢 ${coastal?'':'[COAST]'} [${buildAp}AP]`,   cost:{iron:12,oil:4}, enabled: coastal && iron>=12&&oil>=4 && (unit.ap ?? 0) >= buildAp, cb: () => this._onBuildStructure('DRY_DOCK',12,4) });
-      if (noBuilding) allOpts.push({ label: `Naval Base 16⚙ 6🛢 ${coastal?'':'[COAST]'} [${buildAp}AP]`,   cost:{iron:16,oil:6}, enabled: coastal && iron>=16&&oil>=6 && (unit.ap ?? 0) >= buildAp, cb: () => this._onBuildStructure('NAVAL_BASE',16,6) });
+      if (noBuilding) allOpts.push({ label: `Naval Yard  8⚙ 2🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:8,oil:2},  enabled: coastal && iron>=8&&oil>=2,  cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
+      if (noBuilding) allOpts.push({ label: `Harbor      5⚙ 1🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:5,oil:1},  enabled: coastal && iron>=5&&oil>=1,  cb: () => this._onBuildStructure('HARBOR',5,1) });
+      if (noBuilding) allOpts.push({ label: `Dry Dock   12⚙ 4🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:12,oil:4}, enabled: coastal && iron>=12&&oil>=4, cb: () => this._onBuildStructure('DRY_DOCK',12,4) });
+      if (noBuilding) allOpts.push({ label: `Naval Base 16⚙ 6🛢 ${coastal?'':'[COAST]'}`,   cost:{iron:16,oil:6}, enabled: coastal && iron>=16&&oil>=6, cb: () => this._onBuildStructure('NAVAL_BASE',16,6) });
       // Defensive structures
-      if (noBuilding) allOpts.push({ label: `Bunker      5⚙ [${buildAp}AP]`,       cost:{iron:5,oil:0},  enabled: iron>=5 && (unit.ap ?? 0) >= buildAp,          cb: () => this._onBuildStructure('BUNKER',5) });
-      if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙ [${buildAp}AP]`,       cost:{iron:3,oil:0},  enabled: iron>=3 && (unit.ap ?? 0) >= buildAp,          cb: () => this._onBuildStructure('OBS_POST',3) });
+      if (noBuilding) allOpts.push({ label: `Bunker      3⚙ 2🪵`,   cost:{iron:3,oil:0,wood:2},  enabled: iron>=3&&wood>=2, cb: () => this._onBuildStructure('BUNKER',3,0,2) });
+      if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙`,       cost:{iron:3,oil:0},         enabled: iron>=3,          cb: () => this._onBuildStructure('OBS_POST',3) });
       // Coastal Battery — spawns as immobile unit (no building on hex required)
-      allOpts.push({ label: `Coast. Battery 6⚙ 1🛢 [${buildAp}AP]`, cost:{iron:6,oil:1}, enabled: iron>=6&&oil>=1 && (unit.ap ?? 0) >= buildAp, cb: () => this._onBuildCoastalBattery() });
+      allOpts.push({ label: `Coast. Battery 6⚙ 1🛢`, cost:{iron:6,oil:1}, enabled: iron>=6&&oil>=1, cb: () => this._onBuildCoastalBattery() });
       // Future entries just go here — pagination handles overflow automatically
 
       const totalPages = Math.max(1, Math.ceil(allOpts.length / PAGE_SIZE));
@@ -2080,13 +2329,13 @@ export class GameScene extends Phaser.Scene {
   update() {
     const cam = this.cameras.main;
     const speed = 6 / cam.zoom;
-    const wasdMoving = this.wasd.W.isDown || this.wasd.S.isDown || this.wasd.A.isDown || this.wasd.D.isDown;
-    if (this.wasd.W.isDown) cam.scrollY -= speed;
-    if (this.wasd.S.isDown) cam.scrollY += speed;
-    if (this.wasd.A.isDown) cam.scrollX -= speed;
-    if (this.wasd.D.isDown) cam.scrollX += speed;
-    // Context menu is right-click only; close it if panning away
-    if (wasdMoving && this._contextMenuObjs) this._hideContextMenu();
+    const W = this.wasd;
+    if (W.W.isDown) cam.scrollY -= speed;
+    if (W.S.isDown) cam.scrollY += speed;
+    if (W.A.isDown) cam.scrollX -= speed;
+    if (W.D.isDown) cam.scrollX += speed;
+    const moving = W.W.isDown || W.S.isDown || W.A.isDown || W.D.isDown;
+    if (moving && this._contextMenuObjs) this._hideContextMenu();
   }
 
   // ── Click handling ────────────────────────────────────────────────────────
@@ -2098,8 +2347,7 @@ export class GameScene extends Phaser.Scene {
     // ── Transport load mode ──────────────────────────────────────────────
     if (this.mode === 'transport_load') {
       const transport = this._transportUnit;
-      const loadAp = transport ? getActionAPCost(transport.type, 'load') : 0;
-      if (transport && (transport.ap ?? 0) >= loadAp && clickedUnit && clickedUnit.owner === gs.currentPlayer && clickedUnit !== transport) {
+      if (transport && clickedUnit && clickedUnit.owner === gs.currentPlayer && clickedUnit !== transport) {
         const dist = hexDistance(transport.q, transport.r, q, r);
         if (dist <= 1) {
           if (!transport.cargo) transport.cargo = [];
@@ -2116,7 +2364,6 @@ export class GameScene extends Phaser.Scene {
           if (ok) {
             transport.cargo.push(clickedUnit.id);
             clickedUnit.embarked = true; // hidden from map
-            transport.ap = Math.max(0, (transport.ap ?? 0) - loadAp);
           }
         }
       }
@@ -2127,8 +2374,7 @@ export class GameScene extends Phaser.Scene {
     // ── Transport unload mode ────────────────────────────────────────────
     if (this.mode === 'transport_unload') {
       const transport = this._transportUnit;
-      const unloadAp = transport ? getActionAPCost(transport.type, 'unload') : 0;
-      if (transport && (transport.ap ?? 0) >= unloadAp && transport.cargo && transport.cargo.length > 0) {
+      if (transport && transport.cargo && transport.cargo.length > 0) {
         const dist = hexDistance(transport.q, transport.r, q, r);
         if (dist <= 1) {
           const ttype = this.terrain[`${q},${r}`] ?? 0;
@@ -2142,13 +2388,27 @@ export class GameScene extends Phaser.Scene {
                 cargoUnit.q = q; cargoUnit.r = r;
                 cargoUnit.embarked = false;
                 cargoUnit.moved = true; // used its move this turn
-                transport.ap = Math.max(0, (transport.ap ?? 0) - unloadAp);
               }
             }
           }
         }
       }
       this._cancelTransportMode();
+      return;
+    }
+
+    // ── Auto-move destination mode ────────────────────────────────────────
+    if (this.mode === 'move_order') {
+      const unit = this._moveOrderUnit;
+      if (unit) {
+        const path = findPath(this.terrain, this.mapSize, unit.q, unit.r, q, r, unit.type);
+        if (path && path.length > 0) {
+          unit.moveOrder = { destQ: q, destR: r, path };
+        } else {
+          console.log(`Auto-move: no path from (${unit.q},${unit.r}) to (${q},${r})`);
+        }
+      }
+      this._cancelMoveOrderMode();
       return;
     }
 
@@ -2168,40 +2428,45 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    if (this.mode === 'sprint') {
+      const isReachable = this.reachable.some(h => h.q === q && h.r === r);
+      const hexFree = !clickedUnit || clickedUnit.id === this.selectedUnit?.id;
+      if (isReachable && hexFree) {
+        this.selectedUnit.q = q; this.selectedUnit.r = r;
+        this.selectedUnit.sprinted = true;
+        this.selectedUnit.attacked = true; // sprint negates attack
+        this.reachable = []; this.attackable = [];
+        this.mode = 'select';
+        this._refresh();
+      } else {
+        this.mode = 'select'; this.reachable = []; this._refresh();
+      }
+      return;
+    }
+
     if (this.mode === 'move') {
       const isReachable = this.reachable.some(h => h.q === q && h.r === r);
-      if (isReachable && !clickedUnit) {
-        // AP-gated move cost: per-hex AP by unit type
-        const path = findPath(this.terrain, this.mapSize, this.selectedUnit.q, this.selectedUnit.r, q, r, this.selectedUnit.type) || [];
-        const moveSteps = path.length || hexDistance(this.selectedUnit.q, this.selectedUnit.r, q, r);
-        const moveApCost = Math.max(1, moveSteps) * getMoveAPPerHex(this.selectedUnit.type);
-        if ((this.selectedUnit.ap ?? 0) < moveApCost) {
-          this._log.unshift(`Not enough AP to move (${moveApCost} AP needed)`);
-          this._log = this._log.slice(0, 8);
-          this._refresh();
-          return;
-        }
-
-        // Store original position for undo / arrow drawing
+      // Allow move if hex is reachable and has no unit (or only the unit itself)
+      const hexFree = !clickedUnit || clickedUnit.id === this.selectedUnit?.id;
+      if (isReachable && hexFree) {
+        // IGOUGO: movement is immediate. Save _origQ/_origR for undo only (not used in combat).
         this.selectedUnit._origQ = this.selectedUnit.q;
         this.selectedUnit._origR = this.selectedUnit.r;
-        this.selectedUnit._apMoveCost = moveApCost;
-        this.selectedUnit.ap = Math.max(0, (this.selectedUnit.ap ?? 0) - moveApCost);
-
-        gs.pendingMoves[this.selectedUnit.id] = { q, r };
+        // Snapshot pre-move fog to detect if move reveals new hexes (prevent scouting exploit)
+        const _preFog = this._currentFog ? new Set(this._currentFog) : null;
+        // Do NOT add to pendingMoves — position is real immediately
         this.selectedUnit.q = q; this.selectedUnit.r = r; this.selectedUnit.moved = true;
-        // Keep unit selected after move — show remaining actions
-        this.reachable = [];
-        if (!this.selectedUnit.attacked) {
-          const atk = getAttackableHexes(gs, this.selectedUnit, q, r, this._currentFog);
-          if (atk.length > 0) {
-            this.attackable = atk; this.mode = 'attack';
-          } else {
-            this.attackable = []; this.mode = 'select';
-          }
-        } else {
-          this.attackable = []; this.mode = 'select';
+        // Check if move revealed new fog hexes — if so, undo is blocked
+        if (_preFog) {
+          const postFog = computeFog(gs, gs.currentPlayer, this.mapSize, this.terrain);
+          const revealedNew = [...postFog].some(k => !_preFog.has(k));
+          this.selectedUnit._scoutedMove = revealedNew;
         }
+        // After move: stay in select mode. Unit remains selected.
+        // Player clicks an enemy directly to attack (Civ-style) — no auto attack mode.
+        this.reachable = [];
+        this.attackable = getAttackableHexes(gs, this.selectedUnit, q, r, this._currentFog);
+        this.mode = 'select';
         // Engineers: auto-open build menu after moving (if setting enabled)
         this._refresh();
         // Engineer auto-build: pop open the build submenu after moving
@@ -2216,14 +2481,8 @@ export class GameScene extends Phaser.Scene {
       if (clickedUnit && clickedUnit.owner !== gs.currentPlayer && !this.selectedUnit.attacked) {
         const range = UNIT_TYPES[this.selectedUnit.type].range;
         if (hexDistance(this.selectedUnit.q, this.selectedUnit.r, q, r) <= range) {
-          const fireAp = getActionAPCost(this.selectedUnit.type, 'fire');
-          if ((this.selectedUnit.ap ?? 0) < fireAp) return;
-          // Direct fire — store unit ID (no blind fire penalty)
-          gs.pendingAttacks[this.selectedUnit.id] = clickedUnit.id;
-          this.selectedUnit.ap = Math.max(0, (this.selectedUnit.ap ?? 0) - fireAp);
-          this.selectedUnit.attacked = true;
-          this.reachable = []; this.attackable = []; this.mode = 'select';
-          this._refresh(); return;
+          this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+          return;
         }
       }
     }
@@ -2232,13 +2491,8 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'attack_direct') {
       const target = this.attackable.find(h => h.q === q && h.r === r);
       if (target) {
-        const fireAp = getActionAPCost(this.selectedUnit.type, 'fire');
-        if ((this.selectedUnit.ap ?? 0) < fireAp) return;
-        gs.pendingAttacks[this.selectedUnit.id] = target.targetId; // unit ID, direct
-        this.selectedUnit.ap = Math.max(0, (this.selectedUnit.ap ?? 0) - fireAp);
-        this.selectedUnit.attacked = true;
-        this.reachable = []; this.attackable = []; this.mode = 'select';
-        this._refresh();
+        const tUnit = gs.units.find(u => u.id === target.targetId);
+        if (tUnit) this._showCombatPreview(this.selectedUnit, tUnit, false);
         return;
       }
     }
@@ -2246,14 +2500,14 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'attack') {
       const inRange = this.attackable.find(h => h.q === q && h.r === r);
       if (inRange) {
-        const fireAp = getActionAPCost(this.selectedUnit.type, 'fire');
-        if ((this.selectedUnit.ap ?? 0) < fireAp) return;
-        // Blind fire — hex target, accuracy debuff applied in resolution
-        gs.pendingAttacks[this.selectedUnit.id] = { hex: { q, r } };
-        this.selectedUnit.ap = Math.max(0, (this.selectedUnit.ap ?? 0) - fireAp);
-        this.selectedUnit.attacked = true;
-        this.reachable = []; this.attackable = []; this.mode = 'select';
-        this._refresh();
+        const blindTarget = gs.units.find(u => u.q === q && u.r === r && u.owner !== gs.currentPlayer);
+        if (blindTarget) {
+          this._showCombatPreview(this.selectedUnit, blindTarget, true);
+        } else {
+          this.selectedUnit.attacked = true;
+          this.reachable = []; this.attackable = []; this.mode = 'select';
+          this._refresh();
+        }
         return;
       }
     }
@@ -2262,13 +2516,8 @@ export class GameScene extends Phaser.Scene {
     if (this.selectedUnit && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
       const attackTarget = this.attackable.find(h => h.q === q && h.r === r);
       if (attackTarget && clickedUnit && clickedUnit.owner !== gs.currentPlayer) {
-        const fireAp = getActionAPCost(this.selectedUnit.type, 'fire');
-        if ((this.selectedUnit.ap ?? 0) < fireAp) return;
-        gs.pendingAttacks[this.selectedUnit.id] = attackTarget.targetId;
-        this.selectedUnit.ap = Math.max(0, (this.selectedUnit.ap ?? 0) - fireAp);
-        this.selectedUnit.attacked = true;
-        this.attackable = []; this.mode = 'select';
-        this._refresh(); return;
+        this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+        return;
       }
     }
 
@@ -2313,6 +2562,7 @@ export class GameScene extends Phaser.Scene {
   _onHexRightClick(q, r) {
     // Cancel special modes on right-click
     if (this.mode === 'road_dest') { this._cancelRoadDestMode(); return; }
+    if (this.mode === 'move_order') { this._cancelMoveOrderMode(); return; }
     if (this.mode === 'transport_load' || this.mode === 'transport_unload') { this._cancelTransportMode(); return; }
     const gs = this.gameState;
     const clickedUnit = gs.units.find(u => u.q === q && u.r === r && !u.dead);
@@ -2336,17 +2586,28 @@ export class GameScene extends Phaser.Scene {
 
   _onMoveMode() {
     if (!this.selectedUnit || this.selectedUnit.moved) return;
-    if ((this.selectedUnit.ap ?? 0) < getMoveAPPerHex(this.selectedUnit.type)) return;
     this.mode = 'move';
     this.reachable  = getReachableHexes(this.gameState, this.selectedUnit, this.terrain, this.mapSize);
     this.attackable = [];
     this._refresh();
   }
 
+  _onSprintMode(unit) {
+    if (!unit || !unit.moved || unit.sprinted || unit.attacked) return;
+    this.selectedUnit = unit;
+    this.mode = 'sprint';
+    const def = UNIT_TYPES[unit.type];
+    // Temporarily override move range for sprint calculation
+    const sprintUnit = Object.assign({}, unit, { move: def.sprintMove, moved: false });
+    this.reachable  = getReachableHexes(this.gameState, sprintUnit, this.terrain, this.mapSize);
+    this.attackable = [];
+    this._hideContextMenu();
+    this._refresh();
+  }
+
   // Direct attack — only visible enemies, no blind fire penalty
   _onDirectAttackMode() {
     if (!this.selectedUnit || this.selectedUnit.attacked) return;
-    if ((this.selectedUnit.ap ?? 0) < getActionAPCost(this.selectedUnit.type, 'fire')) return;
     this.mode = 'attack_direct';
     this.reachable  = [];
     this.attackable = getAttackableHexes(this.gameState, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r, this._currentFog);
@@ -2356,7 +2617,6 @@ export class GameScene extends Phaser.Scene {
   // Blind fire — full tile range, applies accuracy debuff on resolution
   _onAttackMode() {
     if (!this.selectedUnit || this.selectedUnit.attacked) return;
-    if ((this.selectedUnit.ap ?? 0) < getActionAPCost(this.selectedUnit.type, 'fire')) return;
     this.mode = 'attack';
     this.reachable  = [];
     this.attackable = getAttackRangeHexes(this.mapSize, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r, this.terrain);
@@ -2366,15 +2626,18 @@ export class GameScene extends Phaser.Scene {
   _onUndoMove() {
     const u = this.selectedUnit, gs = this.gameState;
     if (!u || !u.moved || u.attacked || u._origQ === undefined) return;
+    // Block undo if this move revealed new fog hexes (anti-scouting exploit)
+    if (u._scoutedMove) {
+      this._log.unshift('⚠ Undo blocked — move revealed new territory');
+      this._log = this._log.slice(0, 8);
+      this._refresh();
+      return;
+    }
     // Restore original position
     u.q = u._origQ; u.r = u._origR;
     u.moved = false;
     u.building = false;
-    if (u._apMoveCost) u.ap = Math.min(u.apMax ?? 100, (u.ap ?? 0) + u._apMoveCost);
-    delete u._origQ; delete u._origR; delete u._apMoveCost;
-    delete gs.pendingMoves[u.id];
-    // Also clear any pending attacks that depended on this move
-    delete gs.pendingAttacks[u.id];
+    delete u._origQ; delete u._origR; delete u._scoutedMove;
     u.attacked = false;
     this._clearSelection();
     this._redrawRoads(); // in case a road was staged
@@ -2384,11 +2647,24 @@ export class GameScene extends Phaser.Scene {
   _onDigIn() {
     const u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canDigIn || u.dugIn || u.moved) return;
-    const digAp = getActionAPCost(u.type, 'digIn');
-    if ((u.ap ?? 0) < digAp) return;
-    u.ap = Math.max(0, (u.ap ?? 0) - digAp);
     u.dugIn = true; u.moved = true;
     this._clearSelection();
+  }
+
+  // ── Auto-move destination selection ──────────────────────────────────────
+  _enterMoveOrderMode(unit) {
+    this._hideContextMenu();
+    this._moveOrderUnit = unit;
+    this.mode = 'move_order';
+    this._showHint('📍 Click destination for AUTO-MOVE order  (Right-click to cancel)');
+    this._refresh();
+  }
+
+  _cancelMoveOrderMode() {
+    this.mode = 'select';
+    this._moveOrderUnit = null;
+    this._clearHint();
+    this._refresh();
   }
 
   // ── Auto-road destination selection ──────────────────────────────────────
@@ -2450,25 +2726,48 @@ export class GameScene extends Phaser.Scene {
     const gs = this.gameState;
     const u  = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
-    const buildAp = getActionAPCost(u.type, 'build');
-    if ((u.ap ?? 0) < buildAp) return;
     if (roadAt(gs, u.q, u.r)) return;
-    if (gs.players[gs.currentPlayer].iron < 1) return;
-    gs.players[gs.currentPlayer].iron -= 1;
-    u.ap = Math.max(0, (u.ap ?? 0) - buildAp);
+    if ((gs.players[gs.currentPlayer].wood || 0) < 1) return;
+    gs.players[gs.currentPlayer].wood = (gs.players[gs.currentPlayer].wood || 0) - 1;
     gs.buildings.push(createBuilding('ROAD', gs.currentPlayer, u.q, u.r));
     u.moved = true; u.building = true;
     this._redrawRoads();
     this._clearSelection();
   }
 
-  _onBuildStructure(type, ironCost, oilCost = 0) {
+  _onBuildLumberCamp() {
     const gs = this.gameState, u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
-    const buildAp = getActionAPCost(u.type, 'build');
-    if ((u.ap ?? 0) < buildAp) return;
     if (buildingAt(gs, u.q, u.r)) return;
-    // Naval facilities must be on coastal land (adjacent to shallow/ocean)
+    const ttype = this.terrain[`${u.q},${u.r}`] ?? 0;
+    if (ttype !== 1 && ttype !== 7) return;
+    if (gs.players[gs.currentPlayer].iron < 2) return;
+    gs.players[gs.currentPlayer].iron -= 2;
+    this._placeBuilding('LUMBER_CAMP', u);
+  }
+
+  // Central building placement — handles multi-turn construction
+  _placeBuilding(type, engineer) {
+    const gs = this.gameState;
+    const def = BUILDING_TYPES[type];
+    const turns = def.buildTurns || 0;
+    const b = createBuilding(type, gs.currentPlayer, engineer.q, engineer.r);
+    if (turns > 0) {
+      b.underConstruction = true;
+      b.buildProgress = 0;
+      b.buildTurnsRequired = turns;
+      engineer.constructing = b.id;
+    }
+    gs.buildings.push(b);
+    engineer.moved = true; engineer.building = true;
+    this._clearSelection();
+    this._refresh();
+  }
+
+  _onBuildStructure(type, ironCost, oilCost = 0, woodCost = 0) {
+    const gs = this.gameState, u = this.selectedUnit;
+    if (!u || !UNIT_TYPES[u.type].canBuild) return;
+    if (buildingAt(gs, u.q, u.r)) return;
     const NAVAL_FACILITIES = new Set(['NAVAL_YARD','HARBOR','DRY_DOCK','NAVAL_BASE']);
     if (NAVAL_FACILITIES.has(type) && !this._isCoastalHex(u.q, u.r)) {
       this._log.unshift('Build failed: naval facilities require a coastal hex');
@@ -2478,23 +2777,19 @@ export class GameScene extends Phaser.Scene {
     }
     if (gs.players[gs.currentPlayer].iron < ironCost) return;
     if (gs.players[gs.currentPlayer].oil  < oilCost)  return;
+    if ((gs.players[gs.currentPlayer].wood || 0) < woodCost) return;
     gs.players[gs.currentPlayer].iron -= ironCost;
     gs.players[gs.currentPlayer].oil  -= oilCost;
-    u.ap = Math.max(0, (u.ap ?? 0) - buildAp);
-    gs.buildings.push(createBuilding(type, gs.currentPlayer, u.q, u.r));
-    u.moved = true; u.building = true;
-    this._clearSelection();
+    gs.players[gs.currentPlayer].wood  = (gs.players[gs.currentPlayer].wood || 0) - woodCost;
+    this._placeBuilding(type, u);
   }
 
   _onBuildCoastalBattery() {
     const gs = this.gameState, u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
-    const buildAp = getActionAPCost(u.type, 'build');
-    if ((u.ap ?? 0) < buildAp) return;
     const p = gs.currentPlayer;
     if (gs.players[p].iron < 6 || gs.players[p].oil < 1) return;
     gs.players[p].iron -= 6; gs.players[p].oil -= 1;
-    u.ap = Math.max(0, (u.ap ?? 0) - buildAp);
     const def = UNIT_TYPES['COASTAL_BATTERY'];
     // Assign ID using state counter (same pattern as createUnit)
     if (!gs._nextUnitId) gs._nextUnitId = Math.max(...gs.units.map(u2 => u2.id), ...gs.buildings.map(b => b.id), 0) + 1;
@@ -2503,7 +2798,6 @@ export class GameScene extends Phaser.Scene {
       type: 'COASTAL_BATTERY', owner: p,
       q: u.q, r: u.r,
       health: def.health, maxHealth: def.health,
-      apMax: 100, ap: 100,
       moved: true, attacked: false, dugIn: false, building: false, immobile: true,
     };
     gs.units.push(battery);
@@ -2516,37 +2810,288 @@ export class GameScene extends Phaser.Scene {
     const gs  = this.gameState;
     const u   = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
-    const buildAp = getActionAPCost(u.type, 'build');
-    if ((u.ap ?? 0) < buildAp) return;
     const res = gs.resourceHexes[`${u.q},${u.r}`];
     if (!res || buildingAt(gs, u.q, u.r)) return;
     if (gs.players[gs.currentPlayer].iron < 4) return;
-    gs.players[gs.currentPlayer].iron -= 4;
-    u.ap = Math.max(0, (u.ap ?? 0) - buildAp);
     const btype = (resType || res.type) === 'OIL' ? 'OIL_PUMP' : 'MINE';
-    gs.buildings.push(createBuilding(btype, gs.currentPlayer, u.q, u.r));
-    u.moved = true; u.building = true;
-    this._clearSelection();
+    if (btype === 'OIL_PUMP' && gs.players[gs.currentPlayer].oil < 0) return; // safety
+    gs.players[gs.currentPlayer].iron -= 4;
+    this._placeBuilding(btype, u);
+  }
+
+  _showCombatPreview(attacker, target, blindFire) {
+    const gs = this.gameState;
+    const aDef = UNIT_TYPES[attacker.type];
+    const tDef = UNIT_TYPES[target.type];
+    const NAVAL_SET = new Set(['PATROL_BOAT','SUBMARINE','DESTROYER','CRUISER_LT','CRUISER_HV','BATTLESHIP','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG']);
+    const INDIRECT = new Set(['ARTILLERY','MORTAR']);
+    const atkIsNaval = NAVAL_SET.has(attacker.type) || attacker.type==='COASTAL_BATTERY';
+    const defIsNaval = NAVAL_SET.has(target.type);
+    const tTerrain = (this.terrain[`${target.q},${target.r}`]) ?? 0;
+    const tOnLand  = tTerrain <= 3 || tTerrain === 6 || tTerrain === 7;
+    const navalVsNaval = atkIsNaval && defIsNaval;
+    const navalVsLand  = atkIsNaval && tOnLand && !defIsNaval;
+    const isArmored = tDef.armor > 2;
+    let baseAtk = navalVsNaval ? aDef.hard_attack : (isArmored ? aDef.hard_attack : aDef.soft_attack);
+    if (navalVsLand) baseAtk = Math.floor((aDef.naval_attack||1)*0.6);
+    const pierceRatio = aDef.pierce < tDef.armor ? aDef.pierce/tDef.armor : 1;
+    const pierceMod = Math.round((pierceRatio-0.5)*20);
+
+    // Score breakdown (no random roll)
+    const terrainMod = tTerrain===1?10:tTerrain===2?20:0;
+    const dugInMod   = target.dugIn?8:0;
+    const onBunker   = gs.buildings?.find(b=>b.type==='BUNKER'&&b.q===target.q&&b.r===target.r&&b.owner===target.owner);
+    const bunkerMod  = onBunker?15:0;
+    const blindMod   = blindFire?20:0;
+    const baseScore  = 50;
+    const preRollScore = Math.max(0, Math.min(100,
+      baseScore + (aDef.accuracy||0) - (tDef.evasion||0)
+      - terrainMod - dugInMod - bunkerMod - blindMod + pierceMod));
+    const ROLL = 15; // ±15 random
+    const scoreMin = Math.max(0, preRollScore - ROLL);
+    const scoreMax = Math.min(100, preRollScore + ROLL);
+
+    const tierAt = s => s<20?'Catastrophic Failure':s<40?'Repelled':s<60?'Neutral':s<80?'Effective':'Overwhelming';
+    const dmgAt  = (s,ba,pr,def) => {
+      if(s<20) return 0;
+      if(s<40) return 0;
+      if(s<60) return Math.max(0,Math.max(1,Math.round(ba*pr*0.5))-def);
+      return Math.max(0,Math.max(1,Math.round(ba*pr))-def);
+    };
+    const tier   = tierAt(preRollScore);
+    const tierLo = tierAt(scoreMin);
+    const tierHi = tierAt(scoreMax);
+    const expDmg = dmgAt(preRollScore, baseAtk, pierceRatio, tDef.defense||0);
+    const maxDmg = dmgAt(scoreMax,     baseAtk, pierceRatio, tDef.defense||0);
+
+    // Retaliation
+    const dist = hexDistance(attacker.q,attacker.r,target.q,target.r);
+    const subDiveBlock = tDef.noSurfaceRetaliation && !aDef.noSurfaceRetaliation;
+    const canRet = !blindFire && !INDIRECT.has(attacker.type) && !subDiveBlock && dist<=(tDef.range||1) && !target.suppressed;
+    let expRetDmg=0, retTier='';
+    if (canRet) {
+      const rBase = navalVsNaval ? tDef.hard_attack : ((aDef.armor>2)?tDef.hard_attack:tDef.soft_attack);
+      const rPR   = tDef.pierce<aDef.armor ? tDef.pierce/aDef.armor : 1;
+      const rPierceMod = Math.round((rPR-0.5)*20);
+      const rScore = Math.max(0,Math.min(100, 50+(tDef.accuracy||0)-(aDef.evasion||0)+rPierceMod));
+      expRetDmg = dmgAt(rScore,rBase,rPR,aDef.defense||0);
+      retTier   = tierAt(rScore);
+    }
+
+    // ── UI ────────────────────────────────────────────────────────────────────
+    const TIER_COL={'Catastrophic Failure':'#ff4444','Repelled':'#ff8844','Neutral':'#cccccc','Effective':'#88ee44','Overwhelming':'#44ffcc'};
+    const TIER_BG ={'Catastrophic Failure':0x4a0000,'Repelled':0x3a1800,'Neutral':0x1a1a1a,'Effective':0x0e2800,'Overwhelming':0x002a1a};
+    const GLYPH={INFANTRY:'●',ENGINEER:'◆',RECON:'✶',TANK:'■',ARTILLERY:'▲',ANTI_TANK:'➤',MORTAR:'△',MEDIC:'✚',PATROL_BOAT:'◖',SUBMARINE:'▭',DESTROYER:'◉',CRUISER_LT:'⬒',CRUISER_HV:'⬓',BATTLESHIP:'⬔',LANDING_CRAFT:'⟂',TRANSPORT_SM:'◫',TRANSPORT_MD:'◫',TRANSPORT_LG:'◫',COASTAL_BATTERY:'▣'};
+    const PC=[null,0x3366cc,0xcc3333];
+    const sw=this.scale.width,sh=this.scale.height,cx=sw*0.5,cy=sh*0.5,D=210;
+    const objs=[];
+
+    const mk=(txt,x,y,col='#d0dde8',sz=12,bold=false,ox=0.5,oy=0.5)=>{
+      const t=this.add.text(x,y,txt,{font:`${bold?'bold ':''}${sz}px monospace`,fill:col}).setOrigin(ox,oy).setScrollFactor(0).setDepth(D+1);
+      objs.push(t);return t;
+    };
+    const bx=(x,y,w,h,fill,alpha=1,stroke=null)=>{
+      const r=this.add.rectangle(x,y,w,h,fill,alpha).setDepth(D).setScrollFactor(0);
+      if(stroke!==null)r.setStrokeStyle(1.5,stroke);objs.push(r);return r;
+    };
+    const hpBar=(x,y,bW,current,max,proj)=>{
+      bx(x,y,bW,10,0x111111,1,0x334455);
+      const f=Math.max(0,current)/Math.max(1,max);
+      bx(x-bW/2+(bW*f)/2,y,bW*f,10,f>0.6?0x44bb44:f>0.3?0xddaa00:0xcc2222);
+      const af=Math.max(0,current-proj)/Math.max(1,max);
+      if(proj>0){const lw=bW*(f-af);bx(x-bW/2+bW*af+lw/2,y,lw,10,0x882222,0.7);}
+    };
+
+    const cW=Math.min(740,sw-24), cH=380;
+    bx(cx,cy,sw,sh,0x000000,0.72);
+    bx(cx,cy,cW,cH,0x0a0d12,0.98,0x2e3d50);
+
+    // Header
+    bx(cx,cy-cH/2+22,cW,44,0x0c1824,1,0x2e3d50);
+    mk('⚔  ATTACK PREVIEW',cx-20,cy-cH/2+20,'#c8b87a',14,true,0.5,0.5);
+    mk(blindFire?'BLIND FIRE':'',cx+cW/4,cy-cH/2+20,'#ff8844',10,true,0.5,0.5);
+    mk('click ATTACK to confirm  ·  CANCEL to abort',cx,cy-cH/2+36,'#445566',9);
+
+    // Unit portraits (top section)
+    const pW=(cW-60)*0.38, pH=130, pY=cy-cH/2+56+pH/2;
+    const lX=cx-cW/2+12+pW/2, rX=cx+cW/2-12-pW/2;
+    const portrait=(pcx,pcy,type,owner,name,hp,maxHp,proj,role)=>{
+      bx(pcx,pcy,pW,pH,0x0f151c,1,PC[owner]||0x445566);
+      bx(pcx,pcy-pH/2+11,pW,22,owner===1?0x1a2a44:0x3a1414,1);
+      mk(role,pcx,pcy-pH/2+11,role==='ATTACKER'?'#5588ee':'#ee5544',10,true);
+      mk(GLYPH[type]||'◌',pcx,pcy-16,PC[owner]?'#'+PC[owner].toString(16).padStart(6,'0'):'#aaa',36,true);
+      mk(name,pcx,pcy+22,'#dde8f0',11,true);
+      hpBar(pcx,pcy+42,pW-16,hp,maxHp,proj);
+      mk(`HP ${hp}/${maxHp} → ${Math.max(0,hp-proj)}${proj>0?' (−'+proj+')':''}`,pcx,pcy+56,proj>0?'#ff8888':hp<maxHp?'#ddaa44':'#77cc77',9);
+    };
+    portrait(lX,pY,attacker.type,attacker.owner,aDef.name,attacker.health,attacker.maxHealth||aDef.health,expRetDmg,'ATTACKER');
+    portrait(rX,pY,target.type,target.owner,tDef.name,target.health,target.maxHealth||tDef.health,expDmg,'DEFENDER');
+
+    // Center VS + attack str
+    mk('VS',cx,pY-30,'#2a3a4a',14,true);
+    mk(`${baseAtk}`,cx,pY-8,'#e8d090',20,true);
+    mk('ATK STR',cx,pY+14,'#556677',9);
+
+    // ── Score breakdown panel ─────────────────────────────────────────────────
+    const sbY = cy-cH/2+56+pH+14;
+    const sbH = 108;
+    bx(cx, sbY+sbH/2, cW-16, sbH, 0x080c10, 0.95, 0x1e2d3a);
+    mk('SCORE BREAKDOWN', cx, sbY+6, '#6688aa', 10, true, 0.5, 0);
+
+    // Build modifier rows
+    const rows = [
+      ['Base score',        `${baseScore}`, '#778899'],
+    ];
+    if (aDef.accuracy)   rows.push([`Accuracy (${aDef.name})`,      `+${aDef.accuracy}`, '#88cc88']);
+    if (tDef.evasion)    rows.push([`Evasion (${tDef.name})`,       `−${tDef.evasion}`,  '#cc8844']);
+    if (terrainMod)      rows.push([`Terrain cover`,                 `−${terrainMod}`,    '#aa7744']);
+    if (dugInMod)        rows.push([`Dug-in fortification`,          `−${dugInMod}`,      '#aa7744']);
+    if (bunkerMod)       rows.push([`Bunker protection`,             `−${bunkerMod}`,     '#aa7744']);
+    if (blindMod)        rows.push([`Blind fire penalty`,            `−${blindMod}`,      '#cc4444']);
+    if (pierceMod !== 0) rows.push([`Pierce ${aDef.pierce} vs Armor ${tDef.armor}`, `${pierceMod>=0?'+':''}${pierceMod}`, pierceMod>=0?'#88cc88':'#cc8844']);
+    rows.push([`Random roll`,                                        `±${ROLL}`,          '#7799aa']);
+
+    // Two-column layout for rows
+    const col1X=cx-cW/2+24, col2X=cx+10;
+    const rH=14, rowStartY=sbY+20;
+    rows.forEach((row,i)=>{
+      const col = i<Math.ceil(rows.length/2)?0:1;
+      const ri  = col===0?i:i-Math.ceil(rows.length/2);
+      const rx  = col===0?col1X:col2X;
+      const ry  = rowStartY+ri*rH;
+      mk(`${row[0]}`, rx, ry, '#556677', 9, false, 0, 0);
+      mk(row[1], rx+160, ry, row[2], 9, true, 0, 0);
+    });
+    // Score summary line
+    mk(`Pre-roll score: ${preRollScore}  (range ${scoreMin}–${scoreMax})`, cx, sbY+sbH-10, '#aabbcc', 10, true, 0.5, 1);
+
+    // ── Outcome band ──────────────────────────────────────────────────────────
+    const outY = sbY + sbH + 6;
+    bx(cx, outY+14, cW-16, 28, TIER_BG[tier]||0x1a1a1a, 1, 0x334455);
+    const rangeStr = tierLo===tierHi ? tier : `${tierLo}  →  ${tier}  →  ${tierHi}`;
+    mk(`Expected: ${rangeStr.toUpperCase()}  |  est. −${expDmg} to defender${canRet?`  ·  ↩ ret. −${expRetDmg}`:' · no retaliation'}`, cx, outY+14, TIER_COL[tier]||'#ccc', 10, true);
+
+    // ── Buttons ───────────────────────────────────────────────────────────────
+    const btnY = cy+cH/2-22;
+    bx(cx, cy+cH/2-22, cW, 44, 0x080c10, 1, 0x2e3d50);
+    const atkBtn=this.add.text(cx-80,btnY,'  ATTACK  ',{font:'bold 13px monospace',fill:'#ffffff',backgroundColor:'#992211',padding:{x:16,y:8}}).setOrigin(0.5,0.5).setScrollFactor(0).setDepth(D+2).setInteractive({useHandCursor:true});
+    const canBtn=this.add.text(cx+80,btnY,'  CANCEL  ',{font:'bold 13px monospace',fill:'#aaaaaa',backgroundColor:'#1a1a2a',padding:{x:16,y:8}}).setOrigin(0.5,0.5).setScrollFactor(0).setDepth(D+2).setInteractive({useHandCursor:true});
+    this._addToUI([...objs,atkBtn,canBtn]);
+
+    const cleanup=()=>[...objs,atkBtn,canBtn].forEach(o=>{try{o.destroy();}catch(e){}});
+    atkBtn.on('pointerdown',()=>{ this._contextMenuClicked=true; cleanup(); this._doImmediateAttack(attacker,target.id,blindFire); });
+    canBtn.on('pointerdown',()=>{ this._contextMenuClicked=true; cleanup(); this._refresh(); });
+    atkBtn.on('pointerover',()=>atkBtn.setStyle({fill:'#ffdddd'}));
+    atkBtn.on('pointerout', ()=>atkBtn.setStyle({fill:'#ffffff'}));
+  }
+
+  _doImmediateAttack(attacker, targetId, blindFire) {
+    // IGOUGO: resolve combat now, show card, refresh
+    const gs = this.gameState;
+    const target = gs.units.find(u => u.id === targetId);
+    if (!target) return;
+    const hpBefore = { atk: attacker.health, def: target.health };
+    const log = resolveImmediateAttack(gs, attacker.id, targetId, blindFire);
+    this.reachable = []; this.attackable = []; this.mode = 'select';
+    // If attacker died from retaliation, clear selection
+    const atkAlive = gs.units.find(u => u.id === attacker.id);
+    if (!atkAlive) this.selectedUnit = null;
+    this._refresh();
+    // Show combat result card — dismiss on click or space after short delay
+    if (log.length > 0) {
+      const card = this._showCombatCard(log[0], 1, 1);
+      const dismiss = () => {
+        card.forEach(o => { try { o.destroy(); } catch(e){} });
+        this._splashDismiss = null;
+        this.input.off('pointerup', dismiss);
+      };
+      this._splashDismiss = dismiss;
+      this.time.delayedCall(150, () => {
+        this.input.on('pointerup', dismiss);
+        this.input.keyboard?.once('keydown-SPACE', dismiss);
+      });
+    }
+    const winner = checkWinner(gs);
+    if (winner) { this._showResolution([], winner); }
+  }
+
+  _confirmEndTurn() {
+    if (this._splashDismiss) return; // pass screen still active
+    if (this._endTurnPending) { this._onSubmit(); this._hideEndTurnConfirm(); return; }
+    this._endTurnPending = true;
+    const D = 200;
+    const w = this.scale.width, h = this.scale.height;
+    const bw = 260, bh = 72, bx = w - 10 - bw, by = 44;
+
+    // Dim overlay behind the confirm box
+    this._etcOverlay = this.add.rectangle(bx + bw/2, by + bh/2, bw + 4, bh + 4, 0x000000, 0.55)
+      .setScrollFactor(0).setDepth(D - 1);
+
+    // Confirm box
+    this._etcBox = this.add.rectangle(bx + bw/2, by + bh/2, bw, bh, 0x1a2a1a, 1)
+      .setScrollFactor(0).setDepth(D).setStrokeStyle(2, 0x44aa44);
+
+    this._etcLabel = this.add.text(bx + bw/2, by + 10, 'End Turn?', {
+      font: 'bold 15px monospace', fill: '#ffffff'
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(D);
+
+    // YES button
+    this._etcYes = this.add.text(bx + 20, by + 36, '[ YES ]', {
+      font: 'bold 13px monospace', fill: '#88ff88',
+      backgroundColor: '#226622', padding: { x: 10, y: 6 }
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(D).setInteractive({ useHandCursor: true });
+    this._etcYes.on('pointerdown', () => { this._onSubmit(); this._hideEndTurnConfirm(); });
+    this._etcYes.on('pointerover', () => this._etcYes.setAlpha(0.75));
+    this._etcYes.on('pointerout',  () => this._etcYes.setAlpha(1.0));
+
+    // NO button
+    this._etcNo = this.add.text(bx + bw - 20, by + 36, '[ NO ]', {
+      font: 'bold 13px monospace', fill: '#ff8888',
+      backgroundColor: '#662222', padding: { x: 10, y: 6 }
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(D).setInteractive({ useHandCursor: true });
+    this._etcNo.on('pointerdown', () => this._hideEndTurnConfirm());
+    this._etcNo.on('pointerover', () => this._etcNo.setAlpha(0.75));
+    this._etcNo.on('pointerout',  () => this._etcNo.setAlpha(1.0));
+
+    this._etcHint = this.add.text(bx + bw/2, by + bh - 10, 'SPACE to confirm  •  ESC to cancel', {
+      font: '10px monospace', fill: '#aaaaaa'
+    }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(D);
+
+    this._addToUI([this._etcOverlay, this._etcBox, this._etcLabel, this._etcYes, this._etcNo, this._etcHint]);
+
+    // ESC cancels
+    this._etcEscCb = () => this._hideEndTurnConfirm();
+    this.input.keyboard.once('keydown-ESC', this._etcEscCb);
+  }
+
+  _hideEndTurnConfirm() {
+    this._endTurnPending = false;
+    [this._etcOverlay, this._etcBox, this._etcLabel, this._etcYes, this._etcNo, this._etcHint]
+      .forEach(o => { if (o && !o.destroyed) o.destroy(); });
+    this._etcOverlay = this._etcBox = this._etcLabel = this._etcYes = this._etcNo = this._etcHint = null;
+    if (this._etcEscCb) { this.input.keyboard.off('keydown-ESC', this._etcEscCb); this._etcEscCb = null; }
   }
 
   _onSubmit() {
+    this._hideEndTurnConfirm();
+    // IGOUGO: end this player's turn (captures/income/spawns), then pass
     const gs = this.gameState;
     this._hideRecruitPanel();
-    if (gs.currentPlayer === 1) {
-      gs.players[1].submitted = true;
-      gs.currentPlayer = 2;
-      this._clearSelection();
-      this._showPassScreen("Player 2's turn — take the controls");
-    } else {
-      gs.players[2].submitted = true;
-      this._playResolutionAnimation();
+    this._clearSelection();
+    gs._mapSize = this.mapSize;
+    const events = resolveEndOfTurn(gs, this.terrain);
+    const winner = checkWinner(gs);
+    if (winner) {
+      this._showResolution([], winner);
+      return;
     }
+    this._freezeFog();
+    this._showPassScreen(`Player ${gs.currentPlayer}'s turn — take the controls`);
   }
 
   // ── Animated resolution playback ──────────────────────────────────────────
   async _playResolutionAnimation() {
     const gs = this.gameState;
-    this._isResolvingPlayback = true;
     
     this.btnSubmit?.setVisible(false);
     this._hideContextMenu();
@@ -2667,7 +3212,6 @@ export class GameScene extends Phaser.Scene {
       await this._wait(200);
     }
 
-    this._isResolvingPlayback = false;
     this._showResolution(events, winner);
   }
 
@@ -2686,48 +3230,174 @@ export class GameScene extends Phaser.Scene {
 
   _showCombatCard(entry, idx, total) {
     const objs = [];
-    const cx = this.scale.width * 0.5;
-    const y = 34;
-    const w = Math.min(900, this.scale.width - 24);
-    const h = 158;
-    const left = cx - w * 0.5 + 14;
+    const sw = this.scale.width, sh = this.scale.height;
+    const cx = sw * 0.5, cy = sh * 0.5;
+    const D = 206;
 
-    const panel = this.add.rectangle(cx, y, w, h, 0x0b0f16, 0.94)
-      .setOrigin(0.5, 0).setScrollFactor(0).setDepth(206)
-      .setStrokeStyle(2, 0x334455, 0.95);
-    objs.push(panel);
+    const GLYPH = { INFANTRY:'●', ENGINEER:'◆', RECON:'✶', TANK:'■', ARTILLERY:'▲',
+      ANTI_TANK:'➤', MORTAR:'△', MEDIC:'✚', PATROL_BOAT:'◖', SUBMARINE:'▭',
+      DESTROYER:'◉', CRUISER_LT:'⬒', CRUISER_HV:'⬓', BATTLESHIP:'⬔',
+      LANDING_CRAFT:'⟂', TRANSPORT_SM:'◫', TRANSPORT_MD:'◫', TRANSPORT_LG:'◫',
+      COASTAL_BATTERY:'▣' };
+    const g = t => GLYPH[t] || '◌';
 
-    const add = (txt, yy, color = '#d9e2ef', size = 12, bold = false) => {
-      const t = this.add.text(left, y + yy, txt, {
-        font: `${bold ? 'bold ' : ''}${size}px monospace`,
-        fill: color,
-      }).setOrigin(0, 0).setScrollFactor(0).setDepth(207);
-      objs.push(t);
+    const TIER_COL = {
+      'Catastrophic Failure': '#ff4444', 'Repelled': '#ff8844',
+      'Neutral': '#cccccc', 'Effective': '#88ee44', 'Overwhelming': '#44ffcc',
+    };
+    const TIER_BG = {
+      'Catastrophic Failure': 0x4a0000, 'Repelled': 0x3a1800,
+      'Neutral': 0x1a1a1a, 'Effective': 0x0e2800, 'Overwhelming': 0x002a1a,
+    };
+    const PC = [null, 0x3366cc, 0xcc3333]; // player colors
+
+    const mk = (txt, x, y, col='#d0dde8', sz=12, bold=false, ox=0.5, oy=0.5) => {
+      const t = this.add.text(x, y, txt, { font:`${bold?'bold ':''}${sz}px monospace`, fill:col })
+        .setOrigin(ox, oy).setScrollFactor(0).setDepth(D+1);
+      objs.push(t); return t;
+    };
+    const box = (x, y, w, h, fill, alpha=1, stroke=null) => {
+      const r = this.add.rectangle(x, y, w, h, fill, alpha).setDepth(D).setScrollFactor(0);
+      if (stroke !== null) r.setStrokeStyle(1.5, stroke);
+      objs.push(r); return r;
+    };
+    const hpBar = (x, y, barW, current, max, dmg) => {
+      const h = 10, bx = x - barW/2;
+      box(x, y, barW, h, 0x111111, 1, 0x334455);
+      const hpFrac = Math.max(0, current) / Math.max(1, max);
+      const col = hpFrac > 0.6 ? 0x44bb44 : hpFrac > 0.3 ? 0xddaa00 : 0xcc2222;
+      if (hpFrac > 0) box(bx + (barW*hpFrac)/2, y, barW*hpFrac, h, col);
+      if (dmg > 0) {
+        const lostW = Math.min(barW, barW * dmg / Math.max(1, max));
+        const lostX = bx + barW*hpFrac + lostW/2;
+        box(lostX, y, lostW, h, 0x882222, 0.6);
+      }
     };
 
-    const glyph = (type='') => ({ INFANTRY:'●', ENGINEER:'◆', RECON:'✶', TANK:'■', ARTILLERY:'▲', ANTI_TANK:'➤', MORTAR:'△', MEDIC:'✚', PATROL_BOAT:'◖', SUBMARINE:'▭', DESTROYER:'◉', CRUISER_LT:'⬒', CRUISER_HV:'⬓', BATTLESHIP:'⬔', LANDING_CRAFT:'⟂', TRANSPORT_SM:'◫', TRANSPORT_MD:'◫', TRANSPORT_LG:'◫', COASTAL_BATTERY:'▣' })[type] || '◌';
+    // ── Backdrop ──────────────────────────────────────────────────────────────
+    box(cx, cy, sw, sh, 0x000000, 0.65);
 
-    const tierColor = ({
-      'Catastrophic Failure': '#ff5d5d',
-      'Repelled': '#ff9a52',
-      'Neutral': '#dddddd',
-      'Effective': '#a4ff7a',
-      'Overwhelming': '#57ffd2',
-    })[entry.tier] || '#ffffff';
+    // ── Card shell ────────────────────────────────────────────────────────────
+    const cW = Math.min(700, sw - 32), cH = 320;
+    const cX = cx, cY = cy;
+    box(cX, cY, cW, cH, 0x0b0e14, 0.98, 0x2e3d50);
 
-    add(`[${idx}/${total}] ${entry.panic ? 'PANIC CLASH' : 'COMBAT'} — movement already resolved`, 8, '#ffffff', 13, true);
-    add(`${glyph(entry.attackerType)} ${entry.attackerName || '?'} (P${entry.attackerOwner || '?'})  ▶  ${glyph(entry.targetType)} ${entry.targetName || '?'} (P${entry.targetOwner || '?'})`, 32, '#ffffff', 12, true);
+    // Top header strip
+    const hdrBg = entry.panic ? 0x3d2000 : 0x0d1b2a;
+    box(cX, cY - cH/2 + 22, cW, 44, hdrBg, 1, 0x2e3d50);
+    const hdrTxt = entry.panic ? '⚡  PANIC CLASH' : '⚔  COMBAT';
+    mk(hdrTxt, cX - 30, cY - cH/2 + 22, '#c8b87a', 15, true, 0.5, 0.5);
+    if (total > 1) mk(`${idx} / ${total}`, cX + cW/2 - 16, cY - cH/2 + 22, '#556677', 11, false, 1, 0.5);
 
-    if (entry.type === 'combat') {
-      add(`Outcome: ${entry.tier}   Score: ${entry.score}   Damage: defender -${entry.dmg}, attacker -${entry.attackerDmg}`, 56, tierColor, 12, true);
-      add(`Stats: atk ${entry.baseAttack} | pierce ${entry.pierce} vs armor ${entry.armor} | ratio ${Number(entry.pierceRatio || 0).toFixed(2)}`, 80, '#a9d7ff');
-      add(`Mods: acc ${entry.accuracy || 0}, eva -${entry.evasion || 0}, terrain -${entry.terrainMod || 0}, dug-in -${entry.dugInMod || 0}, bunker -${entry.bunkerMod || 0}, flank +${entry.flankMod || 0}, roll ${entry.roll >= 0 ? '+' : ''}${entry.roll || 0}`, 104, '#ffd9a8');
-      add(`${entry.blindFirePenalty ? `Blind-fire penalty -${entry.blindFirePenalty}. ` : ''}${entry.panic ? 'Panic clash: both units contested same destination. ' : ''}Thresholds: <20/<40/<60/<80/≥80`, 128, '#bfbfbf');
+    // Portrait zones
+    const pW = cW * 0.38, pH = 160;
+    const lCX = cX - cW/2 + 16 + pW/2;
+    const rCX = cX + cW/2 - 16 - pW/2;
+    const pY  = cY - cH/2 + 44 + pH/2 + 4;
+
+    const portrait = (pcx, pcy, type, owner, name, hpBefore, hpAfter, dmgTaken, role) => {
+      const borderCol = PC[owner] || 0x445566;
+      box(pcx, pcy, pW, pH, 0x0f151c, 1, borderCol);
+      // Role label (ATTACKER / DEFENDER)
+      const roleCol = role === 'ATTACKER' ? '#5588ee' : '#ee5544';
+      box(pcx, pcy - pH/2 + 11, pW, 22, owner===1?0x1a2a44:0x3a1414, 1);
+      mk(role, pcx, pcy - pH/2 + 11, roleCol, 10, true);
+      // Big unit glyph
+      mk(g(type), pcx, pcy - 22, PC[owner]?`#${PC[owner].toString(16).padStart(6,'0')}`:'#aaaaaa', 42, true);
+      // Unit name
+      mk(name, pcx, pcy + 28, '#dde8f0', 11, true);
+      // HP bar
+      hpBar(pcx, pcy + 50, pW - 20, hpAfter, hpBefore, dmgTaken);
+      // HP text
+      const hpColor = dmgTaken > 0 ? '#ff8888' : '#88cc88';
+      mk(`HP  ${Math.max(0,hpAfter)} / ${hpBefore}${dmgTaken>0?'  (−'+dmgTaken+')':''}`, pcx, pcy + 65, hpColor, 10);
+    };
+
+    const atkHP0 = entry.attackerHPBefore ?? 0;
+    const defHP0 = entry.targetHPBefore   ?? 0;
+    const atkHP1 = Math.max(0, atkHP0 - (entry.attackerDmg||0));
+    const defHP1 = Math.max(0, defHP0 - (entry.dmg||0));
+
+    portrait(lCX, pY, entry.attackerType, entry.attackerOwner, entry.attackerName||'?', atkHP0, atkHP1, entry.attackerDmg||0, 'ATTACKER');
+    portrait(rCX, pY, entry.targetType,   entry.targetOwner,   entry.targetName||'?',   defHP0, defHP1, entry.dmg||0,         'DEFENDER');
+
+    // ── Center column: VS + outcome ───────────────────────────────────────────
+    const midX = cX, midTop = pY - pH/2;
+    mk('VS', midX, midTop + 28, '#334455', 18, true);
+
+    // Strength numbers
+    mk(`${entry.baseAttack ?? '?'}`, midX, midTop + 60, '#e8d090', 22, true);
+    mk('ATK', midX, midTop + 80, '#7799aa', 9, false);
+
+    // Score
+    mk(`SCORE  ${entry.score ?? '?'}`, midX, midTop + 102, '#aabbcc', 11, true);
+
+    // Roll
+    const roll = entry.roll ?? 0;
+    mk(`Roll  ${roll>=0?'+':''}${roll}`, midX, midTop + 118, roll>=0?'#88cc88':'#cc6666', 10);
+
+    // ── Outcome banner ────────────────────────────────────────────────────────
+    const outY = cY + cH/2 - 74;
+    const tierCol  = TIER_COL[entry.tier]  || '#cccccc';
+    const tierBgC  = TIER_BG[entry.tier]   || 0x1a1a1a;
+    if (entry.type === 'combat' || entry.panic) {
+      // Label based on ACTUAL damage exchange, not attack score tier
+      const atkDmg = entry.attackerDmg || 0;  // damage attacker took (from retaliation)
+      const defDmg = entry.dmg         || 0;  // damage defender took
+      const attackerDestroyed = entry.attackerHPBefore !== undefined ? (entry.attackerHPBefore - atkDmg) <= 0 : false;
+      const defenderDestroyed = entry.targetHPBefore   !== undefined ? (entry.targetHPBefore   - defDmg) <= 0 : false;
+      let outcomeLabel, outcomeTierCol, outcomeBgC;
+      if (attackerDestroyed && defenderDestroyed) {
+        outcomeLabel = 'MUTUAL DESTRUCTION'; outcomeTierCol = '#ff8833'; outcomeBgC = 0x4a2200;
+      } else if (attackerDestroyed) {
+        outcomeLabel = 'ATTACKER DESTROYED'; outcomeTierCol = '#ff4444'; outcomeBgC = 0x440000;
+      } else if (defenderDestroyed) {
+        outcomeLabel = 'DEFENDER DESTROYED'; outcomeTierCol = '#44ff88'; outcomeBgC = 0x004422;
+      } else if (defDmg > atkDmg) {
+        outcomeLabel = 'ATTACK SUCCESSFUL';  outcomeTierCol = '#88ee88'; outcomeBgC = 0x1a3a1a;
+      } else if (atkDmg > defDmg) {
+        outcomeLabel = 'ATTACK REPELLED';    outcomeTierCol = '#ee8888'; outcomeBgC = 0x3a1a1a;
+      } else if (defDmg === 0 && atkDmg === 0) {
+        outcomeLabel = 'NO EFFECT';          outcomeTierCol = '#888888'; outcomeBgC = 0x1a1a1a;
+      } else {
+        // Equal nonzero damage — truly neutral exchange
+        outcomeLabel = 'EXCHANGE';           outcomeTierCol = '#ccaa44'; outcomeBgC = 0x2a2200;
+      }
+      box(cX, outY, cW - 4, 30, outcomeBgC, 1, 0x445566);
+      mk(outcomeLabel, cX, outY, outcomeTierCol, 14, true);
     } else if (entry.type === 'miss') {
-      add('Outcome: MISS — target moved out of range after movement phase.', 70, '#dddddd', 12, true);
-    } else if (entry.type === 'blind_miss') {
-      add('Outcome: BLIND FIRE MISS — empty target hex.', 70, '#dddddd', 12, true);
+      mk('MISS — TARGET OUT OF RANGE', cX, outY, '#888888', 13, true);
+    } else {
+      mk('BLIND FIRE — EMPTY HEX', cX, outY, '#888888', 13, true);
     }
+
+    // ── Score breakdown + roll reveal ─────────────────────────────────────────
+    const modY = outY + 20;
+    const rollCol = roll>5?'#88ee44':roll<-5?'#ff6644':'#aabbcc';
+    const rollStr = roll>=0?`+${roll}`:String(roll);
+    // Score line
+    mk(`Score: ${entry.score??'?'}  (base 50 + roll ${rollStr})   Atk: ${entry.baseAttack??'?'}   Pierce ${entry.pierce??'?'} / Armor ${entry.armor??'?'}`, cX, modY, '#667788', 9, false, [0.5,0.5]);
+    // Modifiers line
+    const mods = [];
+    if (entry.accuracy)        mods.push(`Acc ${(entry.accuracy??0)>=0?'+':''}${entry.accuracy}`);
+    if (entry.evasion)         mods.push(`Eva −${entry.evasion}`);
+    if (entry.terrainMod)      mods.push(`Terrain −${entry.terrainMod}`);
+    if (entry.dugInMod)        mods.push(`Dug-in −${entry.dugInMod}`);
+    if (entry.bunkerMod)       mods.push(`Bunker −${entry.bunkerMod}`);
+    if (entry.flankMod)        mods.push(`Flank +${entry.flankMod}`);
+    if (entry.blindFirePenalty) mods.push(`Blind −${entry.blindFirePenalty}`);
+    if (entry.suppressed)      mods.push('SUPPRESSED');
+    mk(mods.join('  ·  ')||'No modifiers', cX, modY+14, '#445566', 9, false, [0.5,0.5]);
+    // Retaliation line
+    if (entry.defenderCanRetaliate && entry.retaliationDmg > 0) {
+      mk(`↩ Retaliation: ${entry.retaliationTier||'?'} (score ${entry.retaliationScore??'?'})  —  defender deals −${entry.retaliationDmg}`, cX, modY+28, '#ffcc88', 9, false, [0.5,0.5]);
+    } else {
+      mk(`↩ No retaliation — ${entry.blindFire?'blind fire':'defender dived / out of range'}`, cX, modY+28, '#334455', 9, false, [0.5,0.5]);
+    }
+
+    // ── Footer ────────────────────────────────────────────────────────────────
+    box(cX, cY + cH/2 - 16, cW, 32, 0x080b10, 1, 0x2e3d50);
+    mk('CLICK  or  SPACE  to  continue', cX, cY + cH/2 - 16, '#3a4a5a', 11, false);
 
     this._addToUI(objs);
     return objs;
@@ -2875,7 +3545,11 @@ export class GameScene extends Phaser.Scene {
       yPos += 6;
       addLine(`Turn ${this.gameState.turn} begins`, '#666666');
       this._addToUI(objects);
-      this._showSplash(objects, () => { this._freezeFog(); this._refresh(); });
+      // IGOUGO: after resolution, pass to current player (already set by resolveTurn)
+      const nextP = this.gameState.currentPlayer;
+      this._showSplash(objects, () => {
+        this._showPassScreen(`Player ${nextP}'s turn — take the controls`);
+      });
     }
   }
 
@@ -2931,14 +3605,24 @@ export class GameScene extends Phaser.Scene {
       // Standard procedural terrain (scout / grand / default)
       const seed = this.scenario === 'grand' ? 99999 : 12345;
       const rng = this._seededRng(seed);
-      const forestCount = this.scenario === 'grand' ? 80 : 30;
-      const hillCount   = this.scenario === 'grand' ? 50 : 20;
-      const mtCount     = this.scenario === 'grand' ? 25 : 10;
+      const forestCount    = this.scenario === 'grand' ? 80 : 30;
+      const lightWoodCount = this.scenario === 'grand' ? 60 : 25; // light woods: more frequent, smaller patches
+      const hillCount      = this.scenario === 'grand' ? 50 : 20;
+      const mtCount        = this.scenario === 'grand' ? 25 : 10;
+      // Dense forest — large blobs
       for (let i = 0; i < forestCount; i++) {
         const cq = Math.floor(rng() * ms), cr = Math.floor(rng() * ms);
         for (let dq = -2; dq <= 2; dq++)
           for (let dr = -2; dr <= 2; dr++)
             if (isValid(cq+dq, cr+dr, ms) && rng()>0.4) map[`${cq+dq},${cr+dr}`] = 1;
+      }
+      // Light woods — smaller scattered patches, often bordering dense forest or alone
+      for (let i = 0; i < lightWoodCount; i++) {
+        const cq = Math.floor(rng() * ms), cr = Math.floor(rng() * ms);
+        for (let dq = -2; dq <= 2; dq++)
+          for (let dr = -2; dr <= 2; dr++)
+            if (isValid(cq+dq, cr+dr, ms) && rng()>0.55 && map[`${cq+dq},${cr+dr}`] === 0)
+              map[`${cq+dq},${cr+dr}`] = 7; // only overwrite plains, not forests/hills
       }
       for (let i = 0; i < hillCount; i++) {
         const cq = Math.floor(rng() * ms), cr = Math.floor(rng() * ms);
@@ -2976,82 +3660,75 @@ export class GameScene extends Phaser.Scene {
     for (let q = 0; q < ms; q++)
       for (let r = 0; r < ms; r++) map[`${q},${r}`] = 5; // OCEAN
 
-    // ── Rectangular visual region via offset coordinates ──────────────────
-    // In flat-top axial hex grids, the q∈[0,ms) r∈[0,ms) grid is a parallelogram.
-    // We use "even-q offset" coords: offset_row = r + floor(q/2)
-    // The playable rectangle is q∈[0,ms), offset_row∈[rowMin, rowMax).
-    // Hexes outside this range stay OCEAN (impassable) — giving a rectangular map.
-    const RECT_H = Math.round(ms * 0.65); // visual row count
-    const rowMin = Math.round(ms * 0.1);
-    const rowMax = rowMin + RECT_H;
-
-    const inRect = (q, r) => {
-      const offsetRow = r + Math.floor(q / 2);
-      return q >= 0 && q < ms && offsetRow >= rowMin && offsetRow < rowMax;
-    };
-
     // Helper: convert offset coords (col, offsetRow) → axial (q, r)
     const offsetToAxial = (col, offsetRow) => ({ q: col, r: offsetRow - Math.floor(col / 2) });
 
+    // setIsland: terrain-varied land core surrounded by 2 rings of shallow water
+    //   dist <= 1               → grass (center of island)
+    //   dist <= radius-1        → mix of grass (0) and light woods (7)
+    //   dist <= radius          → sand coast
+    //   dist <= radius+2        → shallow water (2-hex coastal ring)
+    //   beyond                  → ocean
     const setIsland = (cq, cr, radius) => {
-      for (let dq = -radius; dq <= radius; dq++) {
-        for (let dr = -radius; dr <= radius; dr++) {
+      const shell = radius + 2;
+      for (let dq = -shell; dq <= shell; dq++) {
+        for (let dr = -shell; dr <= shell; dr++) {
           const nq = cq+dq, nr = cr+dr;
           if (!isValid(nq, nr, ms)) continue;
-          const dist = Math.abs(dq) + Math.abs(dr) + Math.abs(-dq-dr);
-          const hexDist = dist / 2;
-          if (hexDist <= radius)          map[`${nq},${nr}`] = 6; // sand interior
-          else if (hexDist <= radius+1.5) map[`${nq},${nr}`] = 4; // shallow shore
+          const dist = (Math.abs(dq) + Math.abs(dr) + Math.abs(-dq-dr)) / 2;
+          if (dist <= shell) {
+            let ttype;
+            if (dist > radius) {
+              ttype = 4; // shallow coast ring
+            } else if (dist === radius) {
+              ttype = 6; // sandy beach ring
+            } else if (radius >= 3 && dist <= 1) {
+              ttype = 0; // grass center
+            } else if (radius >= 4 && dist <= radius - 2) {
+              // Interior: mix grass and light woods via deterministic hash
+              const h = (((nq * 1619 + nr * 31337) ^ (nq * 6791)) & 0xFFFF) / 0xFFFF;
+              ttype = h < 0.45 ? 7 : 0; // 45% light woods, 55% grass
+            } else {
+              ttype = 6; // inner sand / beach
+            }
+            map[`${nq},${nr}`] = ttype;
+          }
         }
       }
     };
 
-    // Island row: same offset row for both → same VISUAL height (symmetric left-right)
-    // Constraint: P2 island at col=ms-5 needs axial r = islandRow - floor((ms-5)/2) >= radius+1
-    const radius = 5;
-    const p2col = ms - 5;
-    const p2floorQ = Math.floor(p2col / 2);
-    const islandRow = Math.max(rowMin + Math.round(RECT_H * 0.5), p2floorQ + radius + 2);
+    // Island row: centered vertically in the map
+    // ms=35: RECT_H≈23, rowMin≈4 → islandRow≈15+4=19, bumped to 22 for axial validity
+    const RECT_H = Math.round(ms * 0.65);
+    const rowMin = Math.round(ms * 0.1);
+    const islandRow = rowMin + Math.round(RECT_H * 0.5);
 
-    // P1 island: left side (radius 5)
+    // ── Main player islands ─────────────────────────────────────────────
+    // P1: left, col=4, radius=5
+    // P2: right, col=25, radius=5
+    // Center-to-center hex dist ≈ 21; gap between shallow rings = 21-7-7 = 7 ocean hexes ✓
     const p1 = offsetToAxial(4, islandRow);
-    setIsland(p1.q, p1.r, radius);
+    setIsland(p1.q, p1.r, 5);
 
-    // P2 island: right next to P1, ~13 hexes away center-to-center (1-hex ocean channel)
-    const p2 = offsetToAxial(17, islandRow);
-    setIsland(p2.q, p2.r, 4); // radius 4 — slightly smaller, close neighbor
+    const p2 = offsetToAxial(25, islandRow);
+    setIsland(p2.q, p2.r, 5);
 
-    // Far islands: neutral resource targets
-    const far1 = offsetToAxial(p2col, islandRow);      // original far-right position
-    setIsland(far1.q, far1.r, 3);                       // smaller neutral island
-    const far2 = offsetToAxial(Math.floor(ms*0.55), islandRow); // center-right
-    setIsland(far2.q, far2.r, 2);
+    // ── Neutral islands (resource targets in the channel) ───────────────
+    // Small mid-channel island at center
+    const mid = offsetToAxial(14, islandRow);
+    setIsland(mid.q, mid.r, 2);
 
-    // Small mid-ocean islands
+    // Two small islands slightly off-center row
     const smalls = [
-      [Math.floor(ms*0.28), islandRow - 5, 2],
-      [Math.floor(ms*0.45), islandRow + 4, 2],
-      [Math.floor(ms*0.68), islandRow - 3, 2],
-      [Math.floor(ms*0.38), islandRow + 6, 1],
+      [Math.floor(ms*0.28), islandRow - 4, 2],
+      [Math.floor(ms*0.68), islandRow + 4, 2],
+      [Math.floor(ms*0.38), islandRow + 5, 1],
+      [Math.floor(ms*0.60), islandRow - 5, 1],
+      [ms - 4, islandRow, 3],  // far-right island (neutral late-game target)
     ];
     for (const [col, orow, rad] of smalls) {
       const { q, r } = offsetToAxial(col, orow);
       if (isValid(q, r, ms)) setIsland(q, r, rad);
-    }
-
-    // Add land variety on islands: mix some sand into plains + hills
-    // (keeps coastal silhouette while making islands less monochrome)
-    for (let q = 0; q < ms; q++) {
-      for (let r = 0; r < ms; r++) {
-        const key = `${q},${r}`;
-        if (map[key] !== 6) continue; // only mutate sand land
-        // Deterministic pseudo-random from coords (no RNG state needed)
-        const n = ((q * 73856093) ^ (r * 19349663)) >>> 0;
-        const roll = n % 100;
-        // Preserve most sand; sprinkle plains and a few hills
-        if (roll < 22) map[key] = 0;      // plains/grass
-        else if (roll < 30) map[key] = 3; // hills
-      }
     }
   }
 
