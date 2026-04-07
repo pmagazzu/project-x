@@ -18,12 +18,12 @@ export const UNIT_TYPES = {
   //                                                                                                                                                                                          buildTime = turns to produce
   // range in hexes (1 hex ≈ 250m)
   INFANTRY:  { name:'Infantry',  move:2, attack:2, health:3, range:1, cost:{iron:2,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:3, hard_attack:1, pierce:1, armor:1, defense:1, evasion:0,  accuracy:0,  buildTime:1 },
-  TANK:      { name:'Tank',      move:4, attack:3, health:6, range:3, cost:{iron:4,oil:2}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:2, hard_attack:4, pierce:5, armor:6, defense:2, evasion:5,  accuracy:5,  buildTime:3 },
+  TANK:      { name:'Tank',      move:4, attack:3, health:6, range:2, cost:{iron:4,oil:2}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:2, hard_attack:4, pierce:5, armor:6, defense:2, evasion:5,  accuracy:5,  buildTime:3 },
   ARTILLERY: { name:'Artillery', move:1, attack:4, health:2, range:8, cost:{iron:3,oil:2}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:5, hard_attack:3, pierce:3, armor:1, defense:0, evasion:0,  accuracy:5,  buildTime:2 },
   ENGINEER:  { name:'Engineer',  move:2, attack:1, health:2, range:1, cost:{iron:3,oil:0}, shape:'diamond',  canDigIn:false, canBuild:true,  canHeal:false, sight:2, soft_attack:1, hard_attack:0, pierce:1, armor:1, defense:0, evasion:0,  accuracy:-5, buildTime:1 },
-  RECON:     { name:'Recon',     move:4, attack:1, health:2, range:2, cost:{iron:3,oil:1}, shape:'star',     canDigIn:false, canBuild:false, canHeal:false, sight:6, soft_attack:2, hard_attack:0, pierce:1, armor:1, defense:0, evasion:15, accuracy:5,  buildTime:1 },
+  RECON:     { name:'Recon',     move:4, attack:1, health:2, range:1, cost:{iron:3,oil:1}, shape:'star',     canDigIn:false, canBuild:false, canHeal:false, sight:6, soft_attack:2, hard_attack:0, pierce:1, armor:1, defense:0, evasion:15, accuracy:5,  buildTime:1 },
   ANTI_TANK: { name:'Anti-Tank', move:2, attack:1, health:2, range:3, cost:{iron:3,oil:0}, shape:'arrow',    canDigIn:true,  canBuild:false, canHeal:false, sight:3, soft_attack:1, hard_attack:3, pierce:6, armor:1, defense:1, evasion:0,  accuracy:0,  buildTime:2 },
-  MORTAR:    { name:'Mortar',    move:2, attack:3, health:2, range:4, cost:{iron:2,oil:0}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:4, hard_attack:1, pierce:2, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:2 },
+  MORTAR:    { name:'Mortar',    move:2, attack:3, health:2, range:3, cost:{iron:2,oil:0}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:2, hard_attack:1, pierce:2, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:2 },
   MEDIC:     { name:'Medic',     move:2, attack:0, health:2, range:0, cost:{iron:2,oil:0}, shape:'cross',    canDigIn:false, canBuild:false, canHeal:true,  sight:2, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:1 },
 
   // ── Naval units ──────────────────────────────────────────────────────────
@@ -36,18 +36,53 @@ export const UNIT_TYPES = {
   // immobile:true    = cannot move (coastal battery, fortifications)
   // capacity:{infantry,vehicle} = how many embarked units this transport holds
   //
-  PATROL_BOAT:   { name:'Patrol Boat',    move:4, attack:2, health:2, range:2, cost:{iron:2,oil:1}, shape:'boat_sm',  canDigIn:false, canBuild:false, canHeal:false, sight:5,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:0, detection:1, naval_attack:1, soft_attack:2, hard_attack:1, pierce:2, armor:1, defense:0, evasion:5,  accuracy:0,  buildTime:1 },
-  SUBMARINE:     { name:'Submarine',      move:3, attack:3, health:4, range:3, cost:{iron:4,oil:2}, shape:'sub',      canDigIn:false, canBuild:false, canHeal:false, sight:3,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:5, detection:0, naval_attack:0, soft_attack:1, hard_attack:4, pierce:6, armor:2, defense:1, evasion:10, accuracy:5,  buildTime:3 },
-  DESTROYER:     { name:'Destroyer',      move:3, attack:3, health:5, range:3, cost:{iron:5,oil:2}, shape:'destroyer', canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:2, naval_attack:2, soft_attack:3, hard_attack:2, pierce:3, armor:2, defense:1, evasion:5,  accuracy:5,  buildTime:3 },
+  PATROL_BOAT:   { name:'Patrol Boat',    move:4, attack:2, health:2, range:2, cost:{iron:2,oil:1}, shape:'boat_sm',  canDigIn:false, canBuild:false, canHeal:false, sight:5,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:0, detection:1, naval_attack:1, soft_attack:2, hard_attack:1, pierce:2, armor:1, defense:0, evasion:5,  accuracy:0,  buildTime:1, canSprint:true, sprintMove:2 },
+  MTB:           { name:'Motor Torpedo Boat', move:5, attack:3, health:3, range:2, cost:{iron:3,oil:2}, shape:'mtb', canDigIn:false, canBuild:false, canHeal:false, sight:4, naval:true, canEnterShallow:true, canEnterSand:false, stealthy:2, detection:0, naval_attack:3, soft_attack:1, hard_attack:5, pierce:7, armor:1, defense:0, evasion:8, accuracy:5, buildTime:2, torpedoBonus:true, antiNavalOnly:true },
+  SUBMARINE:     { name:'Submarine',      move:3, attack:3, health:4, range:3, cost:{iron:4,oil:2}, shape:'sub',      canDigIn:false, canBuild:false, canHeal:false, sight:3,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:5, detection:0, naval_attack:0, soft_attack:1, hard_attack:4, pierce:6, armor:2, defense:1, evasion:5, accuracy:5,  buildTime:3, noSurfaceRetaliation:true, antiNavalOnly:true },
+  DESTROYER:     { name:'Destroyer',      move:3, attack:3, health:5, range:3, cost:{iron:5,oil:2}, shape:'destroyer', canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:2, naval_attack:2, soft_attack:3, hard_attack:4, pierce:5, armor:2, defense:1, evasion:5,  accuracy:10, buildTime:3, antiSub:true },
   CRUISER_LT:    { name:'Light Cruiser',  move:3, attack:3, health:6, range:4, cost:{iron:6,oil:3}, shape:'cruiser',   canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:3, soft_attack:3, hard_attack:3, pierce:3, armor:3, defense:2, evasion:3,  accuracy:5,  buildTime:4 },
   CRUISER_HV:    { name:'Heavy Cruiser',  move:2, attack:4, health:8, range:5, cost:{iron:8,oil:4}, shape:'cruiser_hv',canDigIn:false,canBuild:false, canHeal:false, sight:4,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:5, soft_attack:4, hard_attack:4, pierce:4, armor:5, defense:2, evasion:1,  accuracy:5,  buildTime:5 },
   BATTLESHIP:    { name:'Battleship',     move:1, attack:5, health:12, range:7, cost:{iron:12,oil:6},shape:'battleship',canDigIn:false,canBuild:false, canHeal:false, sight:5,  naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:7, soft_attack:5, hard_attack:5, pierce:5, armor:8, defense:3, evasion:0,  accuracy:5,  buildTime:7 },
+  SUPPLY_SHIP:   { name:'Supply Ship',    move:2, attack:0, health:4, range:0, cost:{iron:4,oil:1}, shape:'transport', canDigIn:false,canBuild:false, canHeal:false, sight:3, naval:true, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:1, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:1, evasion:0, accuracy:0, buildTime:2, supplyRadius:1, tier:0 },
   LANDING_CRAFT: { name:'Landing Craft',  move:2, attack:0, health:2, range:0, cost:{iron:2,oil:1}, shape:'landing',   canDigIn:false,canBuild:false, canHeal:false, sight:2,  naval:true, canEnterShallow:true,  canEnterSand:true,  stealthy:0, detection:0, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:2, capacity:{infantry:1,vehicle:0} },
   TRANSPORT_SM:  { name:'Transport (S)',  move:2, attack:0, health:3, range:0, cost:{iron:3,oil:1}, shape:'transport', canDigIn:false,canBuild:false, canHeal:false, sight:2,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:0, detection:0, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:2, capacity:{infantry:2,vehicle:1} },
   TRANSPORT_MD:  { name:'Transport (M)',  move:2, attack:0, health:4, range:0, cost:{iron:5,oil:2}, shape:'transport', canDigIn:false,canBuild:false, canHeal:false, sight:2,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:0, detection:0, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:2, defense:0, evasion:0,  accuracy:0,  buildTime:3, capacity:{infantry:4,vehicle:2} },
   TRANSPORT_LG:  { name:'Transport (L)',  move:2, attack:0, health:5, range:0, cost:{iron:7,oil:3}, shape:'transport', canDigIn:false,canBuild:false, canHeal:false, sight:2,  naval:true, canEnterShallow:true,  canEnterSand:false, stealthy:0, detection:0, naval_attack:0, soft_attack:0, hard_attack:0, pierce:0, armor:2, defense:0, evasion:0,  accuracy:0,  buildTime:4, capacity:{infantry:6,vehicle:4} },
   // Coastal Battery — built by engineer, immobile, fires at water and land targets
-  COASTAL_BATTERY:{ name:'Coastal Battery', move:0, attack:4, health:4, range:6, cost:{iron:6,oil:1}, shape:'battery', canDigIn:false,canBuild:false, canHeal:false, sight:5, naval:false, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:0, naval_attack:4, soft_attack:4, hard_attack:3, pierce:4, armor:3, defense:2, evasion:0, accuracy:5, buildTime:0, immobile:true },
+  COASTAL_BATTERY:{ name:'Coastal Battery', move:0, attack:2, health:2, range:4, cost:{iron:6,oil:1}, shape:'battery', canDigIn:false,canBuild:false, canHeal:false, sight:4, naval:false, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:0, naval_attack:2, soft_attack:1, hard_attack:1, pierce:2, armor:1, defense:0, evasion:0, accuracy:1, buildTime:0, immobile:true },
+  // AA Emplacement — built by engineer, immobile, anti-air deterrent vs tier-0 planes
+  AA_EMPLACEMENT: { name:'AA Emplacement',  move:0, attack:3, health:3, range:3, cost:{iron:4,oil:1}, shape:'aa_gun', canDigIn:false,canBuild:false, canHeal:false, sight:4, naval:false, canEnterShallow:false, canEnterSand:false, stealthy:0, detection:0, naval_attack:0, soft_attack:2, hard_attack:1, pierce:2, armor:2, defense:1, evasion:0, accuracy:8, buildTime:0, immobile:true, antiAir:true },
+
+  // ── Air units ─────────────────────────────────────────────────────────────
+  // air:true         = flies over any terrain, can share hex with friendly ground units
+  // antiAir:true     = can intercept/attack other air units with priority
+  // Air units are based at an Airfield; move across any terrain at cost 1 per hex.
+  // Sight is high — they can see further from altitude.
+  BIPLANE_FIGHTER:  { name:'Biplane Fighter',  move:8,  attack:3, health:3, range:2, cost:{iron:4,oil:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:4, hard_attack:2, pierce:2, armor:1, defense:0, evasion:10, accuracy:5,  buildTime:2, air:true, antiAir:true,  fuelMax:6  },
+  LIGHT_BOMBER:     { name:'Light Bomber',     move:6,  attack:4, health:3, range:1, cost:{iron:5,oil:3}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:7, hard_attack:5, pierce:3, armor:1, defense:0, evasion:5,  accuracy:3,  buildTime:3, air:true, antiAir:false, fuelMax:4  },
+  OBS_PLANE:        { name:'Obs. Plane',       move:10, attack:0, health:2, range:0, cost:{iron:3,oil:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:8, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:8,  accuracy:0,  buildTime:1, air:true, antiAir:false, fuelMax:8  },
+  // ── Unlockable via research ───────────────────────────────────────────────
+  MONOPLANE_FIGHTER:{ name:'Monoplane Fighter',move:10, attack:4, health:4, range:2, cost:{iron:5,oil:3,components:1}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:6, soft_attack:5, hard_attack:3, pierce:3, armor:2, defense:0, evasion:14, accuracy:8,  buildTime:2, air:true, antiAir:true,  fuelMax:8,  unlockedBy:'monoplane_fighter' },
+  DIVE_BOMBER:      { name:'Dive Bomber',      move:7,  attack:5, health:3, range:1, cost:{iron:6,oil:3,components:1}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:8, hard_attack:7, pierce:5, armor:1, defense:0, evasion:4,  accuracy:12, buildTime:3, air:true, antiAir:false, fuelMax:5,  unlockedBy:'dive_bomber' },
+  HEAVY_BOMBER:     { name:'Heavy Bomber',     move:5,  attack:6, health:5, range:1, cost:{iron:9,oil:5,components:2}, shape:'aircraft', canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:12,hard_attack:8, pierce:4, armor:2, defense:0, evasion:2,  accuracy:5,  buildTime:5, air:true, antiAir:false, fuelMax:4,  unlockedBy:'heavy_bomber' },
+  MEDIUM_TANK:      { name:'Medium Tank',      move:3,  attack:4, health:8, range:2, cost:{iron:7,oil:3,components:1}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:3, hard_attack:6, pierce:7, armor:8, defense:2, evasion:3,  accuracy:5,  buildTime:4, unlockedBy:'medium_tank' },
+  SPG:              { name:'Self-Prop. Gun',   move:2,  attack:5, health:5, range:6, cost:{iron:7,oil:3,components:1}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:7, hard_attack:4, pierce:4, armor:4, defense:1, evasion:1,  accuracy:8,  buildTime:4, unlockedBy:'self_propelled_gun' },
+  ARMORED_CAR:      { name:'Armored Car',      move:5,  attack:2, health:3, range:2, cost:{iron:4,oil:2}, shape:'car',      canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:3, hard_attack:1, pierce:2, armor:2, defense:0, evasion:8,  accuracy:5,  buildTime:2, unlockedBy:'armored_car' },
+  ASSAULT_INFANTRY: { name:'Assault Infantry', move:2,  attack:3, health:3, range:1, cost:{iron:3,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:5, hard_attack:2, pierce:2, armor:2, defense:2, evasion:0,  accuracy:0,  buildTime:2, unlockedBy:'assault_infantry' },
+  SMG_SQUAD:        { name:'SMG Squad',        move:3,  attack:3, health:3, range:1, cost:{iron:2,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:2, soft_attack:6, hard_attack:1, pierce:1, armor:1, defense:1, evasion:2,  accuracy:0,  buildTime:2, unlockedBy:'smg_doctrine' },
+  LMG_TEAM:         { name:'LMG Team',         move:2,  attack:3, health:3, range:3, cost:{iron:2,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:3, soft_attack:5, hard_attack:0, pierce:0, armor:0, defense:1, evasion:0,  accuracy:3,  buildTime:2, unlockedBy:'lmg_suppression' },
+  HMG_TEAM:         { name:'HMG Team',         move:1,  attack:3, health:3, range:3, cost:{iron:3,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:3, soft_attack:7, hard_attack:1, pierce:1, armor:0, defense:2, evasion:0,  accuracy:5,  buildTime:2, unlockedBy:'hmg_team' },
+  SNIPER:           { name:'Sniper Team',       move:2,  attack:2, health:2, range:5, cost:{iron:2,oil:0}, shape:'circle',   canDigIn:true,  canBuild:false, canHeal:false, sight:5, soft_attack:5, hard_attack:0, pierce:0, armor:0, defense:0, evasion:6,  accuracy:12, buildTime:2, unlockedBy:'sniper_team' },
+  MOTORCYCLE:       { name:'Motorcycle Scout',  move:6,  attack:1, health:2, range:2, cost:{iron:2,oil:1}, shape:'diamond',  canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:2, hard_attack:0, pierce:0, armor:0, defense:0, evasion:8,  accuracy:3,  buildTime:1, unlockedBy:'motorcycle_recon' },
+  HALFTRACK:        { name:'Light Halftrack',   move:4,  attack:2, health:4, range:2, cost:{iron:3,oil:1}, shape:'square',   canDigIn:false, canBuild:false, canHeal:false, sight:3, soft_attack:3, hard_attack:1, pierce:1, armor:2, defense:1, evasion:2,  accuracy:2,  buildTime:2, transport:1, capacity:{infantry:1,vehicle:0}, unlockedBy:'light_halftrack' },
+  TORPEDO_BOAT:     { name:'Torpedo Boat',      move:10, attack:3, health:3, range:2, cost:{iron:3,oil:2}, shape:'diamond',  canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:0, hard_attack:6, pierce:6, armor:0, defense:0, evasion:10, accuracy:4,  buildTime:2, naval:true, unlockedBy:'torpedo_boat' },
+  MOTOR_GUNBOAT:    { name:'Motor Gunboat',     move:8,  attack:3, health:4, range:3, cost:{iron:3,oil:2}, shape:'boat_sm',  canDigIn:false, canBuild:false, canHeal:false, sight:4, soft_attack:4, hard_attack:1, pierce:1, armor:1, defense:1, evasion:5,  accuracy:4,  buildTime:2, naval:true, unlockedBy:'motor_gunboat' },
+  DESTROYER_MK1:    { name:'Destroyer Mk.I',   move:8,  attack:5, health:8, range:4, cost:{iron:8,oil:4,components:2}, shape:'triangle', canDigIn:false, canBuild:false, canHeal:false, sight:5, soft_attack:3, hard_attack:6, pierce:6, armor:4, defense:2, evasion:3,  accuracy:5,  buildTime:4, naval:true, unlockedBy:'destroyer_mk1' },
+
+  // ── Supply truck ────────────────────────────────────────────────────────
+  // Soft unarmed vehicle that projects a supply bubble around itself.
+  // Built at Vehicle Depot. Primary role: extend supply lines for offensive ops.
+  SUPPLY_TRUCK:    { name:'Supply Truck',    move:3,  attack:0, health:2, range:0, cost:{iron:2,oil:1}, shape:'truck',    canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:1, supplyRadius:3 },
 };
 
 // ── Module system ─────────────────────────────────────────────────────────
@@ -57,13 +92,41 @@ export const UNIT_TYPES = {
 export const MODULES = {
   AT_RIFLE:      { name: 'Anti-Tank Rifle',  tier: 1, chassis: ['INFANTRY','ENGINEER'],            statDelta: { pierce: 2, hard_attack: 1 },           designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1,  oil:  0 } },
   FIELD_RADIO:   { name: 'Field Radio',      tier: 1, chassis: ['INFANTRY','ENGINEER','RECON'],     statDelta: { sight: 1, accuracy: 3 },               designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1,  oil:  0 } },
-  BETTER_ENGINE: { name: 'Better Engine',    tier: 1, chassis: ['TANK','ARTILLERY','RECON'],        statDelta: { move: 1 },                             designCost: { iron: 2, oil: 1 }, trainCost: { iron: 0,  oil:  1 } },
-  EXTRA_ARMOR:   { name: 'Extra Armor',      tier: 1, chassis: ['TANK'],                            statDelta: { armor: 2, defense: 1, move: -1 },      designCost: { iron: 3, oil: 0 }, trainCost: { iron: 2,  oil:  0 } },
+  BETTER_ENGINE: { name: 'Better Engine',    tier: 1, chassis: ['TANK','ARTILLERY','RECON'],        statDelta: { move: 1 },                             designCost: { iron: 2, oil: 1 }, trainCost: { iron: 0,  oil:  1 }, mutuallyExclusiveWith:['EXTRA_ARMOR'] },
+  EXTRA_ARMOR:   { name: 'Extra Armor',      tier: 1, chassis: ['TANK'],                            statDelta: { armor: 2, defense: 1, move: -1 },      designCost: { iron: 3, oil: 0 }, trainCost: { iron: 2,  oil:  0 }, mutuallyExclusiveWith:['BETTER_ENGINE'] },
   EXTRA_FUEL:    { name: 'Extra Fuel Tank',  tier: 1, chassis: ['TANK','ARTILLERY'],                statDelta: { move: 1, defense: -1 },                designCost: { iron: 1, oil: 1 }, trainCost: { iron: 0,  oil:  1 } },
   RED_BALL:      { name: 'Red Ball (speed)', tier: 1, chassis: ['RECON'],                           statDelta: { move: 2, defense: -1 },                designCost: { iron: 1, oil: 1 }, trainCost: { iron: 0,  oil:  2 } },
-  REINFORCED_POS:{ name: 'Reinforced Pos.',  tier: 1, chassis: ['MORTAR','ARTILLERY'],              statDelta: { defense: 2, move: -1 },                designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1,  oil:  0 } },
+  REINFORCED_POS:{ name: 'Reinforced Pos.',  tier: 1, chassis: ['MORTAR','ARTILLERY'],              statDelta: { defense: 2, move: -1 },                designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1,  oil:  0 }, mutuallyExclusiveWith:['LONG_RANGE'] },
   SKELETON_CREW: { name: 'Skeleton Crew',    tier: 0, chassis: ['INFANTRY','ENGINEER','MEDIC'],     statDelta: { health: -1, defense: -1 },             designCost: { iron: 0, oil: 0 }, trainCost: { iron: -1, oil:  0 } },
-  LONG_RANGE:    { name: 'Long Barrel',      tier: 1, chassis: ['ARTILLERY','MORTAR'],              statDelta: { range: 1, soft_attack: 1, move: -1 },  designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1,  oil:  0 } },
+  LONG_RANGE:    { name: 'Long Barrel',      tier: 1, chassis: ['ARTILLERY','MORTAR'],              statDelta: { range: 1, soft_attack: 1, move: -1 },  designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1,  oil:  0 }, mutuallyExclusiveWith:['REINFORCED_POS'] },
+  // Infantry loadout modules (research-unlocked)
+  INF_SMG_PACKAGE:      { name: 'SMG Package',        tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY'], statDelta: { range: -1, soft_attack: 2, fortification_assault: 2 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'smg_doctrine' },
+  INF_GRENADE_KIT:      { name: 'Grenade Kit',        tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY','ENGINEER'], statDelta: { soft_attack: 1, fortification_assault: 1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'grenade_training' },
+  INF_LMG_PACKAGE:      { name: 'LMG Package',        tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY'], statDelta: { range: 1, soft_attack: 1, move: -1, suppression: 1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'lmg_suppression' },
+  INF_HMG_EMPLACEMENT:  { name: 'HMG Emplacement',    tier: 2, chassis: ['INFANTRY','ASSAULT_INFANTRY'], statDelta: { range: 2, soft_attack: 2, move: -2, suppression: 2 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 2, oil: 0 }, requiredTech: 'hmg_team' },
+  INF_SNIPER_PACKAGE:   { name: 'Sniper Package',     tier: 2, chassis: ['INFANTRY','RECON'], statDelta: { range: 2, accuracy: 6, move: -1, soft_attack: 1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'sniper_team' },
+  INF_AT_RIFLE_PACKAGE: { name: 'AT Rifle Package',   tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY'], statDelta: { hard_attack: 2, pierce: 2, soft_attack: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'at_rifle_upgrade' },
+  INF_CAMO_WEBBING:     { name: 'Camo Webbing',       tier: 1, chassis: ['INFANTRY','RECON','ASSAULT_INFANTRY'], statDelta: { evasion: 2, defense: 1, move: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'camo_webbing' },
+  VEH_APCR_ROUNDS:      { name: 'APCR Rounds',        tier: 1, chassis: ['TANK','MEDIUM_TANK','SPG','ARMORED_CAR'], statDelta: { pierce: 2, hard_attack: 1 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'apcr_rounds' },
+  AIR_DROP_TANKS:       { name: 'Drop Tanks',         tier: 1, chassis: ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE','MONOPLANE_FIGHTER'], statDelta: { move: 1, fuelMax: 1, defense: -1 }, designCost: { iron: 1, oil: 1 }, trainCost: { iron: 0, oil: 1 }, requiredTech: 'drop_tanks' },
+
+  // ── Module families (mutually-exclusive archetypes) ───────────────────
+  GUN_HV_CANNON:         { name: 'HV Cannon',         tier: 2, chassis: ['TANK','MEDIUM_TANK','SPG'], statDelta: { hard_attack: 2, pierce: 2, range: 1, move: -1 }, designCost: { iron: 2, oil: 1 }, trainCost: { iron: 1, oil: 1 }, requiredTech: 'hv_gun_theory', mutuallyExclusiveWith:['GUN_SHORT_BARREL'] },
+  GUN_SHORT_BARREL:      { name: 'Short Barrel',      tier: 1, chassis: ['TANK','MEDIUM_TANK','SPG','ARTILLERY','MORTAR'], statDelta: { soft_attack: 2, range: -1, move: 1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'short_barrel_doctrine', mutuallyExclusiveWith:['GUN_HV_CANNON','LONG_RANGE'] },
+
+  OPTICS_SCOUT:          { name: 'Advanced Optics',   tier: 1, chassis: ['RECON','ARMORED_CAR','MOTORCYCLE','INFANTRY'], statDelta: { sight: 2, accuracy: 2, defense: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'advanced_optics', mutuallyExclusiveWith:['CONCEALED_PROFILE'] },
+  CONCEALED_PROFILE:     { name: 'Concealed Profile', tier: 1, chassis: ['RECON','ARMORED_CAR','MOTORCYCLE','INFANTRY'], statDelta: { evasion: 3, sight: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'concealment_drills', mutuallyExclusiveWith:['OPTICS_SCOUT'] },
+  RECON_FORAGING:        { name: 'Foraging Doctrine', tier: 1, chassis: ['RECON'], statDelta: { ignoreSupply: 1, defense: -1 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'advanced_optics' },
+
+  // Additional deep families
+  AIR_LIGHT_FRAME:       { name: 'Light Airframe',    tier: 1, chassis: ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE','MONOPLANE_FIGHTER','DIVE_BOMBER'], statDelta: { move: 1, evasion: 2, health: -1 }, designCost: { iron: 1, oil: 1 }, trainCost: { iron: 0, oil: 1 }, requiredTech: 'light_airframe', mutuallyExclusiveWith:['AIR_ARMORED_FRAME'] },
+  AIR_ARMORED_FRAME:     { name: 'Armored Airframe',  tier: 1, chassis: ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE','MONOPLANE_FIGHTER','DIVE_BOMBER'], statDelta: { health: 1, defense: 1, move: -1 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'armored_airframe', mutuallyExclusiveWith:['AIR_LIGHT_FRAME'] },
+
+  TANK_MOBILITY_KIT:     { name: 'Mobility Kit',      tier: 1, chassis: ['TANK','MEDIUM_TANK','ARMORED_CAR','HALFTRACK'], statDelta: { move: 1, evasion: 1, armor: -1 }, designCost: { iron: 1, oil: 1 }, trainCost: { iron: 0, oil: 1 }, requiredTech: 'tank_mobility_kit', mutuallyExclusiveWith:['TANK_SIEGE_PLATING'] },
+  TANK_SIEGE_PLATING:    { name: 'Siege Plating',     tier: 2, chassis: ['TANK','MEDIUM_TANK','SPG'], statDelta: { armor: 2, defense: 1, move: -1 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'tank_siege_plating', mutuallyExclusiveWith:['TANK_MOBILITY_KIT'] },
+
+  INF_ASSAULT_DRILL:     { name: 'Assault Drill',     tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD'], statDelta: { soft_attack: 1, move: 1, defense: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'inf_assault_drill', mutuallyExclusiveWith:['INF_SUPPRESSIVE_DRILL'] },
+  INF_SUPPRESSIVE_DRILL: { name: 'Suppressive Drill', tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY','LMG_TEAM','HMG_TEAM'], statDelta: { range: 1, suppression: 1, move: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'inf_suppressive_drill', mutuallyExclusiveWith:['INF_ASSAULT_DRILL'] },
 };
 
 // Which building trains which chassis types (for design registration)
@@ -81,59 +144,53 @@ export const CHASSIS_BUILDINGS = {
   SUBMARINE:       'NAVAL_YARD',
   LANDING_CRAFT:   'NAVAL_YARD',
   TRANSPORT_SM:    'NAVAL_YARD',
-  TRANSPORT_MD:    'DRY_DOCK',
-  TRANSPORT_LG:    'NAVAL_BASE',
+  TRANSPORT_MD:    'NAVAL_YARD',
+  TRANSPORT_LG:    'NAVAL_YARD',
   DESTROYER:       'DRY_DOCK',
   CRUISER_LT:      'DRY_DOCK',
   CRUISER_HV:      'DRY_DOCK',
   BATTLESHIP:      'NAVAL_BASE',
+  // Air — base chassis (always available)
+  BIPLANE_FIGHTER:  'AIRFIELD',
+  LIGHT_BOMBER:     'AIRFIELD',
+  OBS_PLANE:        'AIRFIELD',
+  // Air — unlockable chassis
+  MONOPLANE_FIGHTER:'AIRFIELD',
+  DIVE_BOMBER:      'AIRFIELD',
+  HEAVY_BOMBER:     'AIRFIELD',
+  // Ground — unlockable chassis
+  MEDIUM_TANK:      'VEHICLE_DEPOT',
+  SPG:              'VEHICLE_DEPOT',
+  ARMORED_CAR:      'VEHICLE_DEPOT',
+  HALFTRACK:        'VEHICLE_DEPOT',
+  MOTORCYCLE:       'HQ',
+  ASSAULT_INFANTRY: 'BARRACKS',
+  SMG_SQUAD:        'BARRACKS',
+  LMG_TEAM:         'BARRACKS',
+  HMG_TEAM:         'BARRACKS',
+  SNIPER:           'BARRACKS',
+  // Naval — unlockable
+  TORPEDO_BOAT:     'NAVAL_YARD',
+  MOTOR_GUNBOAT:    'NAVAL_YARD',
+  DESTROYER_MK1:    'DRY_DOCK',
 };
 
+// Which chassis require research to unlock (keyed by unit type)
+export const LOCKED_CHASSIS = new Set([
+  'MONOPLANE_FIGHTER','DIVE_BOMBER','HEAVY_BOMBER',
+  'MEDIUM_TANK','SPG','ARMORED_CAR','HALFTRACK','MOTORCYCLE',
+  'ASSAULT_INFANTRY','SMG_SQUAD','LMG_TEAM','HMG_TEAM','SNIPER',
+  'TORPEDO_BOAT','MOTOR_GUNBOAT','DESTROYER_MK1',
+]);
+
 // Naval unit types set (for movement/terrain checks)
-export const NAVAL_UNITS = new Set(['PATROL_BOAT','SUBMARINE','DESTROYER','CRUISER_LT','CRUISER_HV','BATTLESHIP','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG']);
+export const NAVAL_UNITS = new Set(['PATROL_BOAT','MTB','SUBMARINE','DESTROYER','CRUISER_LT','CRUISER_HV','BATTLESHIP','SUPPLY_SHIP','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG','TORPEDO_BOAT','MOTOR_GUNBOAT','DESTROYER_MK1']);
+// Air unit types set (base + unlockable)
+export const AIR_UNITS = new Set(['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE','MONOPLANE_FIGHTER','DIVE_BOMBER','HEAVY_BOMBER']);
 // Units that can enter shallow water (type 4)
 export const SHALLOW_UNITS = new Set(['PATROL_BOAT','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG']);
 // Units that can land on sand/beach (type 6) — amphibious disembark
 export const AMPHIBIOUS_UNITS = new Set(['LANDING_CRAFT']);
-
-const BUILDING_TIER = {
-  HQ: 1, BARRACKS: 1, VEHICLE_DEPOT: 1,
-  NAVAL_YARD: 1, DRY_DOCK: 2, NAVAL_BASE: 3,
-};
-const DOMAIN_TIER_BUILDINGS = {
-  ground:  ['BARRACKS', 'BARRACKS', 'BARRACKS'],
-  vehicle: ['VEHICLE_DEPOT', 'VEHICLE_DEPOT', 'VEHICLE_DEPOT'],
-  naval:   ['NAVAL_YARD', 'DRY_DOCK', 'NAVAL_BASE'],
-  air:     ['HQ', 'HQ', 'HQ'], // placeholder until air facilities exist
-};
-
-function chassisDomain(chassis) {
-  if (NAVAL_UNITS.has(chassis)) return 'naval';
-  if (['TANK', 'ARTILLERY'].includes(chassis)) return 'vehicle';
-  if (['INFANTRY','ENGINEER','RECON','ANTI_TANK','MORTAR','MEDIC'].includes(chassis)) return 'ground';
-  return 'ground';
-}
-
-export function getDesignTier(moduleKeys = []) {
-  let tier = 1;
-  for (const key of moduleKeys) {
-    const mod = MODULES[key];
-    if (!mod) continue;
-    tier = Math.max(tier, mod.tier || 1);
-  }
-  return tier;
-}
-
-export function getRequiredBuildingForDesign(design) {
-  if (!design) return null;
-  const domain = chassisDomain(design.chassis);
-  const moduleTier = getDesignTier(design.modules || []);
-  const baseBld = CHASSIS_BUILDINGS[design.chassis];
-  const baseTier = BUILDING_TIER[baseBld] || 1;
-  const reqTier = Math.max(baseTier, moduleTier);
-  const ladder = DOMAIN_TIER_BUILDINGS[domain] || DOMAIN_TIER_BUILDINGS.ground;
-  return ladder[Math.min(3, Math.max(1, reqTier)) - 1] || baseBld;
-}
 
 export const MAX_DESIGNS_PER_PLAYER = 4; // design slots per player
 export const DESIGN_BASE_COST = { iron: 3, oil: 0 }; // flat registration fee + module costs
@@ -176,17 +233,29 @@ export function designTrainCost(chassis, moduleKeys) {
   for (const key of moduleKeys) {
     const mod = MODULES[key];
     if (!mod) continue;
-    base.iron = (base.iron || 0) + mod.trainCost.iron;
-    base.oil  = (base.oil  || 0) + mod.trainCost.oil;
+    base.iron = (base.iron || 0) + (mod.trainCost.iron || 0);
+    base.oil  = (base.oil  || 0) + (mod.trainCost.oil  || 0);
+    base.components = (base.components || 0) + (mod.trainCost.components || 0);
   }
-  base.iron = Math.max(0, base.iron);
-  base.oil  = Math.max(0, base.oil);
+  base.iron = Math.max(0, base.iron || 0);
+  base.oil  = Math.max(0, base.oil || 0);
+  base.components = Math.max(0, base.components || 0);
   return base;
 }
 
 export function registerDesign(state, player, chassis, moduleKeys, designName) {
   const designs = state.designs[player];
   if (designs.length >= MAX_DESIGNS_PER_PLAYER) return { ok: false, reason: `Max ${MAX_DESIGNS_PER_PLAYER} designs reached` };
+
+  // Validate mutual exclusions
+  const modSet = new Set(moduleKeys);
+  for (const mk of modSet) {
+    const mod = MODULES[mk];
+    if (!mod) continue;
+    for (const ex of (mod.mutuallyExclusiveWith || [])) {
+      if (modSet.has(ex)) return { ok: false, reason: `${mod.name} conflicts with ${MODULES[ex]?.name || ex}` };
+    }
+  }
   const cost = designRegistrationCost(moduleKeys);
   if (state.players[player].iron < cost.iron) return { ok: false, reason: `Need ${cost.iron} iron` };
   if (state.players[player].oil  < cost.oil)  return { ok: false, reason: `Need ${cost.oil} oil` };
@@ -205,72 +274,165 @@ export function registerDesign(state, player, chassis, moduleKeys, designName) {
 // - Dug-in (infantry field): -1 incoming damage, lost on move
 
 export const BUILDING_TYPES = {
-  HQ:            { name: 'HQ',             ironPerTurn: 3, oilPerTurn: 0, canRecruit: ['ENGINEER','RECON'],                   buildCost: null,               color: 0xffdd00, sight: 0 },
-  MINE:          { name: 'Iron Mine',      ironPerTurn: 2, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 4, oil: 0 }, color: 0xaaaaaa, sight: 0 },
-  OIL_PUMP:      { name: 'Oil Pump',       ironPerTurn: 0, oilPerTurn: 2, canRecruit: [],                                        buildCost: { iron: 4, oil: 0 }, color: 0x222244, sight: 0 },
-  BARRACKS:      { name: 'Barracks',       ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['INFANTRY','ANTI_TANK','MORTAR','MEDIC'], buildCost: { iron: 6, oil: 0 }, color: 0xaa6644, sight: 0 },
-  VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['TANK','ARTILLERY'],                      buildCost: { iron: 8, oil: 2 }, color: 0x557799, sight: 0 },
-  BUNKER:        { name: 'Bunker',         ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 5, oil: 0 }, color: 0x888866, sight: 0 },
-  OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 3, oil: 0 }, color: 0x88aacc, sight: 3 },
-  ROAD:          { name: 'Road',           ironPerTurn: 0, oilPerTurn: 0, canRecruit: [],                                        buildCost: { iron: 1, oil: 0 }, color: 0xccbbaa, sight: 0 },
+  HQ:            { name: 'HQ',             ironPerTurn: 3, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 0, canRecruit: ['ENGINEER','RECON'],                   buildCost: null,               color: 0xffdd00, sight: 3 },
+  MINE:          { name: 'Iron Mine',      ironPerTurn: 2, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, oil: 0 },         color: 0xaaaaaa, sight: 2 },
+  OIL_PUMP:      { name: 'Oil Pump',       ironPerTurn: 0, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, oil: 0 },         color: 0x222244, sight: 2 },
+  BARRACKS:      { name: 'Barracks',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: ['INFANTRY','ANTI_TANK','MORTAR','MEDIC'], buildCost: { iron: 4, oil: 0, wood: 4 }, color: 0xaa6644, sight: 2 },
+  VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['TANK','ARTILLERY','SUPPLY_TRUCK','MEDIUM_TANK','SPG','ARMORED_CAR','HALFTRACK'],        buildCost: { iron: 8, oil: 2 }, color: 0x557799, sight: 2 },
+  BUNKER:        { name: 'Bunker',         ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 2 }, color: 0x888866, sight: 2 },
+  OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 0 }, color: 0x88aacc, sight: 4 },
+  ROAD:          { name: 'Dirt Road',      ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xccbbaa, sight: 0, roadTier: 0, moveCost: 0.5 },
+  CONCRETE_ROAD: { name: 'Concrete Road',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 0 }, color: 0xaaaaaa, sight: 0, roadTier: 1, moveCost: 0.25, requiresTech: 'CONCRETE_ROADS' },
+  RAILWAY:       { name: 'Railway',        ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: [], buildCost: { iron: 4, oil: 1, wood: 2 }, color: 0x555566, sight: 0, roadTier: 2, moveCost: 0.1,  requiresTech: 'RAILWAYS', tier: 3 },
+  LUMBER_CAMP:   { name: 'Lumber Camp',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 2, buildTurns: 1, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 0 }, color: 0x7a5020, sight: 2 },
   // Naval buildings
-  NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['PATROL_BOAT','SUBMARINE','LANDING_CRAFT','TRANSPORT_SM'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 0 },
-  HARBOR:        { name: 'Harbor',         ironPerTurn: 1, oilPerTurn: 1, canRecruit: [],                                        buildCost: { iron: 5, oil: 1 }, color: 0x4488cc, sight: 0, repairsNaval: true },
-  DRY_DOCK:      { name: 'Dry Dock',       ironPerTurn: 0, oilPerTurn: 0, canRecruit: ['DESTROYER','CRUISER_LT','CRUISER_HV','TRANSPORT_MD'],   buildCost: { iron:12, oil: 4 }, color: 0x225588, sight: 0 },
-  NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, canRecruit: ['BATTLESHIP','TRANSPORT_LG'],                            buildCost: { iron:16, oil: 6 }, color: 0x113366, sight: 2 },
+  NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['SUPPLY_SHIP','PATROL_BOAT','SUBMARINE','DESTROYER','LANDING_CRAFT','TRANSPORT_MD','TORPEDO_BOAT','MOTOR_GUNBOAT'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 2 },
+  // Obstacle / fortification buildings (engineer-built, no recruitment)
+  BARBED_WIRE:   { name: 'Barbed Wire',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0x888866, sight: 0, obstacle: true, infantryMoveCost: 1 },
+  SANDBAG:       { name: 'Sandbag Post',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xc8aa66, sight: 0, defenseBonus: 2 },
+  SUPPLY_DEPOT:  { name: 'Supply Depot',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 1, wood: 1 }, color: 0xddaa44, sight: 2, supplyRadius: 3, moveBonus: 1 },
+  SUPPLY_WAREHOUSE:{ name:'Supply Warehouse', ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, buildTurns:2, canRecruit:[], buildCost:{ iron:8, oil:2, wood:4 }, color:0xc9922a, sight:2, supplyRadius:4, moveBonus:1 },
+  HARBOR:        { name: 'Harbor',         ironPerTurn: 1, oilPerTurn: 1, woodPerTurn: 0, buildTurns: 3, canRecruit: [],                         buildCost: { iron: 5, oil: 1, components: 1 }, color: 0x4488cc, sight: 2, repairsNaval: true },
+  DRY_DOCK:      { name: 'Dry Dock',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: ['DESTROYER','CRUISER_LT','CRUISER_HV'],  buildCost: { iron:12, oil: 4, components: 2 }, color: 0x225588, sight: 2 },
+  NAVAL_BASE:    { name: 'Naval Base',     ironPerTurn: 1, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 4, canRecruit: ['BATTLESHIP','SUPPLY_SHIP'],             buildCost: { iron:16, oil: 6, components: 3 }, color: 0x113366, sight: 3 },
+  // Air buildings
+  AIRFIELD:      { name: 'Airfield',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE'], buildCost: { iron: 6, oil: 2, wood: 2 }, color: 0x888844, sight: 3 },
+
+  // ── Tier 1 New Buildings ─────────────────────────────────────────────────
+  FARM:          { name: 'Farm',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 3, goldPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 3 }, color: 0x66aa44, sight: 2, placementTerrain: new Set([0, 6, 7]) }, // plains/sand/light woods only
+  MARKET:        { name: 'Market',         ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 2, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 4 }, color: 0xddaa22, sight: 2 },
+  PORT:          { name: 'Port',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 1, buildTurns: 3, canRecruit: [], buildCost: { iron: 5, oil: 1, wood: 4 }, color: 0x3d7fb0, sight: 2, coastalOnly: true, tier: 1 },
+  SCIENCE_LAB:   { name: 'Science Lab',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, rpPerTurn: 3,  buildTurns: 4, canRecruit: [], buildCost: { iron: 6, oil: 0, wood: 4 }, color: 0x8844cc, sight: 2 },
+  FACTORY:       { name: 'Factory',        ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, componentsPerTurn: 1, buildTurns: 4, canRecruit: [], buildCost: { iron: 10, oil: 3, wood: 8 }, color: 0x666666, sight: 2, fragile: true },
+  TRENCH:        { name: 'Trench',         ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 2 }, color: 0x887755, sight: 1, defenseBonus: 4 },
+  AT_DITCH:      { name: 'AT Ditch',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 0 }, color: 0x886644, sight: 1, blocksVehicles: true },
+  PONTOON_BRIDGE:{ name: 'Pontoon Bridge', ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 2 }, color: 0xccbb88, sight: 1, isBridge: true },
+  // Tier 2 production buildings
+  ADV_BARRACKS:   { name: 'Advanced Barracks', ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, foodPerTurn:0, goldPerTurn:0, buildTurns:4, canRecruit:['ASSAULT_INFANTRY'], buildCost:{ iron:10, oil:2, wood:6 }, color:0x996644, sight:2, tier:2, componentsCost:3 },
+  ARMOR_WORKS:    { name: 'Armor Works',       ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, foodPerTurn:0, goldPerTurn:0, buildTurns:5, canRecruit:['MEDIUM_TANK','SPG'], buildCost:{ iron:14, oil:4, wood:4 }, color:0x556677, sight:2, tier:2, componentsCost:4 },
+  NAVAL_DOCKYARD: { name: 'Naval Dockyard',    ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, foodPerTurn:0, goldPerTurn:0, buildTurns:5, canRecruit:['SUPPLY_SHIP','DESTROYER_MK1'], buildCost:{ iron:16, oil:5, wood:4 }, color:0x224477, sight:2, tier:2, componentsCost:4 },
+  ADV_AIRFIELD:   { name: 'Advanced Airfield', ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, foodPerTurn:0, goldPerTurn:0, buildTurns:4, canRecruit:['MONOPLANE_FIGHTER','DIVE_BOMBER','HEAVY_BOMBER'], buildCost:{ iron:12, oil:5, wood:4 }, color:0x777744, sight:3, tier:2, componentsCost:3 },
 };
 
 export const RESOURCE_TYPES = {
-  IRON: { name: 'Iron Deposit', buildingType: 'MINE',     color: 0xbbbbcc },
-  OIL:  { name: 'Oil Deposit',  buildingType: 'OIL_PUMP', color: 0x333355 },
+  IRON:   { name: 'Iron Deposit',   buildingType: 'MINE',     color: 0xbbbbcc },
+  OIL:    { name: 'Oil Deposit',    buildingType: 'OIL_PUMP', color: 0x334466 },
+  FOOD:   { name: 'Fertile Land',   buildingType: 'FARM',     color: 0x66aa44 },
 };
 
 export const PLAYER_COLORS = { 1: 0x4488ff, 2: 0xff4444 };
 
 export const STARTING_IRON      = 15;
 export const STARTING_OIL       = 4;
+export const STARTING_FOOD      = 8;
+export const STARTING_GOLD      = 0;
 export const BASE_IRON_PER_TURN = 3;
 export const BASE_OIL_PER_TURN  = 0;
 
-// ── Action Points (AP) ─────────────────────────────────────────────────────
-export const BASE_AP = 100;
-const MOVE_AP_PER_HEX = {
-  INFANTRY: 22, ENGINEER: 22, RECON: 18, MEDIC: 22,
-  TANK: 34, ARTILLERY: 75, ANTI_TANK: 55, MORTAR: 40,
-  PATROL_BOAT: 24, SUBMARINE: 30, DESTROYER: 36, CRUISER_LT: 45, CRUISER_HV: 55, BATTLESHIP: 70,
-  LANDING_CRAFT: 28, TRANSPORT_SM: 30, TRANSPORT_MD: 36, TRANSPORT_LG: 45, COASTAL_BATTERY: 999,
-};
-const ACTION_AP = {
-  default: { fire: 45, digIn: 40, build: 60, load: 30, unload: 30 },
-  ARTILLERY: { fire: 40 },
-  BATTLESHIP: { fire: 45 },
-  RECON: { fire: 35 },
-  COASTAL_BATTERY: { fire: 35 },
-};
-export function getMoveAPPerHex(unitType, unit = null) {
-  const base = MOVE_AP_PER_HEX[unitType] ?? 25;
-  const mult = unit?.apMoveMult ?? 1;
-  const flat = unit?.apMoveFlat ?? 0;
-  return Math.max(1, Math.round(base * mult + flat));
+// ── Science Lab RP formula (stacking with diminishing returns) ─────────────
+// Lab 1: 3 RP/t, Lab 2: +2, Lab 3: +1, Lab 4+: +1 each
+export function calcRPFromLabs(labCount) {
+  let rp = 0;
+  for (let i = 0; i < labCount; i++) rp += Math.max(1, 3 - i);
+  return rp;
 }
-export function getActionAPCost(unitType, action, unit = null) {
-  const base = ACTION_AP.default[action] ?? 40;
-  const ov = ACTION_AP[unitType]?.[action];
-  const raw = ov ?? base;
-  const mult = unit?.apActionMult ?? 1;
-  const byActionFlat = unit?.apActionFlat?.[action] ?? 0;
-  const allFlat = unit?.apActionFlatAll ?? 0;
-  return Math.max(1, Math.round(raw * mult + byActionFlat + allFlat));
+
+// ── Unit upkeep (per turn, decimal) ────────────────────────────────────────
+// Values are floating point — accumulated and deducted each turn.
+// Two turns unsupplied = unit deserts (removed from game).
+export const UNIT_UPKEEP = {
+  INFANTRY:        { food: 0.2, iron: 0.0, oil: 0.0 },
+  ENGINEER:        { food: 0.2, iron: 0.0, oil: 0.0 },
+  RECON:           { food: 0.1, iron: 0.0, oil: 0.2 },
+  MORTAR:          { food: 0.1, iron: 0.1, oil: 0.0 },
+  ANTI_TANK:       { food: 0.1, iron: 0.1, oil: 0.0 },
+  MEDIC:           { food: 0.2, iron: 0.0, oil: 0.0 },
+  TANK:            { food: 0.0, iron: 0.2, oil: 0.4 },
+  ARTILLERY:       { food: 0.0, iron: 0.1, oil: 0.2 },
+  PATROL_BOAT:     { food: 0.0, iron: 0.1, oil: 0.2 },
+  MTB:             { food: 0.0, iron: 0.1, oil: 0.3 },
+  SUBMARINE:       { food: 0.0, iron: 0.2, oil: 0.4 },
+  DESTROYER:       { food: 0.0, iron: 0.3, oil: 0.5 },
+  CRUISER_LT:      { food: 0.0, iron: 0.4, oil: 0.6 },
+  CRUISER_HV:      { food: 0.0, iron: 0.5, oil: 0.8 },
+  BATTLESHIP:      { food: 0.0, iron: 0.8, oil: 1.2 },
+  LANDING_CRAFT:   { food: 0.0, iron: 0.1, oil: 0.1 },
+  TRANSPORT_SM:    { food: 0.0, iron: 0.1, oil: 0.2 },
+  TRANSPORT_MD:    { food: 0.0, iron: 0.2, oil: 0.3 },
+  TRANSPORT_LG:    { food: 0.0, iron: 0.3, oil: 0.4 },
+  COASTAL_BATTERY: { food: 0.0, iron: 0.1, oil: 0.0 },
+  SUPPLY_TRUCK:    { food: 0.0, iron: 0.1, oil: 0.2 },
+  BIPLANE_FIGHTER:  { food: 0.0, iron: 0.2, oil: 0.4 },
+  LIGHT_BOMBER:     { food: 0.0, iron: 0.3, oil: 0.5 },
+  OBS_PLANE:        { food: 0.0, iron: 0.1, oil: 0.3 },
+  // Unlockable chassis upkeep
+  MONOPLANE_FIGHTER:{ food: 0.0, iron: 0.3, oil: 0.5 },
+  DIVE_BOMBER:      { food: 0.0, iron: 0.3, oil: 0.5 },
+  HEAVY_BOMBER:     { food: 0.0, iron: 0.5, oil: 0.8 },
+  MEDIUM_TANK:      { food: 0.0, iron: 0.3, oil: 0.5 },
+  SPG:              { food: 0.0, iron: 0.2, oil: 0.4 },
+  ARMORED_CAR:      { food: 0.0, iron: 0.1, oil: 0.3 },
+  HALFTRACK:        { food: 0.0, iron: 0.1, oil: 0.3 },
+  MOTORCYCLE:       { food: 0.0, iron: 0.0, oil: 0.2 },
+  ASSAULT_INFANTRY: { food: 0.2, iron: 0.1, oil: 0.0 },
+  SMG_SQUAD:        { food: 0.2, iron: 0.0, oil: 0.0 },
+  LMG_TEAM:         { food: 0.1, iron: 0.1, oil: 0.0 },
+  HMG_TEAM:         { food: 0.1, iron: 0.1, oil: 0.0 },
+  SNIPER:           { food: 0.1, iron: 0.0, oil: 0.0 },
+  TORPEDO_BOAT:     { food: 0.0, iron: 0.1, oil: 0.3 },
+  MOTOR_GUNBOAT:    { food: 0.0, iron: 0.1, oil: 0.2 },
+  DESTROYER_MK1:    { food: 0.0, iron: 0.3, oil: 0.5 },
+  SUPPLY_SHIP:      { food: 0.0, iron: 0.1, oil: 0.3 },
+};
+
+const BASE_SUPPLY_HEAL_PCT = 5;
+const OOS_HEALTH_LOSS_PCT = 10;
+const OOS_MIN_HEALTH_PCT = 25;
+
+function getSupplyHealPct(state, player) {
+  const unlocked = state.players?.[player]?.research?.unlocked || [];
+  const bonus = Array.isArray(unlocked)
+    ? unlocked.filter(id => String(id).startsWith('supply_medicine_')).length
+    : 0;
+  return BASE_SUPPLY_HEAL_PCT + bonus;
+}
+
+function applyPercentHealthDelta(unit, pct, direction = 'heal') {
+  const maxHp = Math.max(1, unit.maxHealth || unit.health || 1);
+  const delta = Math.max(0.01, +(maxHp * (pct / 100)).toFixed(2));
+  if (direction === 'harm') {
+    const floor = +(maxHp * (OOS_MIN_HEALTH_PCT / 100)).toFixed(2);
+    unit.health = Math.max(floor, +((unit.health || maxHp) - delta).toFixed(2));
+  } else {
+    unit.health = Math.min(maxHp, +((unit.health || maxHp) + delta).toFixed(2));
+  }
+}
+
+// Compute total upkeep for all of a player's units
+export function calcUpkeep(state, player) {
+  const UPKEEP_SCALE = 0.6; // global balance knob (60% upkeep; +20% from prior)
+  let food = 0, iron = 0, oil = 0;
+  for (const unit of state.units) {
+    if (unit.owner !== player || unit.embarked) continue;
+    const base = UNIT_UPKEEP[unit.type] || { food: 0, iron: 0, oil: 0 };
+    food += base.food * UPKEEP_SCALE;
+    iron += base.iron * UPKEEP_SCALE;
+    oil  += base.oil  * UPKEEP_SCALE;
+  }
+  return { food: +food.toFixed(2), iron: +iron.toFixed(2), oil: +oil.toFixed(2) };
 }
 
 let _nextId = 1;
 
 export function createUnit(type, owner, q, r) {
   const def = UNIT_TYPES[type];
-  return { id: _nextId++, type, owner, q, r,
+  const unit = { id: _nextId++, type, owner, q, r,
     health: def.health, maxHealth: def.health,
-    apMax: BASE_AP, ap: BASE_AP,
-    moved: false, attacked: false, dugIn: false, building: false };
+    moved: false, attacked: false, dugIn: false, building: false,
+    movesLeft: def.move };
+  // Air units start with a full fuel tank
+  if (def.fuelMax) { unit.fuel = def.fuelMax; unit.fuelMax = def.fuelMax; }
+  return unit;
 }
 
 export function createBuilding(type, owner, q, r) {
@@ -279,19 +441,42 @@ export function createBuilding(type, owner, q, r) {
 
 export function createGameState(scenario = 'default') {
   _nextId = 1; // reset IDs on new game
+  const makePlayer = (iron, oil, wood) => ({
+    iron, oil, wood: wood || 0,
+    food: STARTING_FOOD, gold: STARTING_GOLD,
+    components: 0, // Tier 2 manufactured resource
+    // Research state
+    rp: 0,
+    research: {
+      queue:    [],        // [{ techId, rpSpent }] — index 0 is active
+      unlocked: [],        // array of tech ids (serializable)
+      slots:    1,         // active research slots (default 1, Science branch unlocks more)
+    },
+    // Upkeep debt tracker (2 turns = desert)
+    upkeepDebt: { food: 0, iron: 0, oil: 0 },
+    submitted: false,
+  });
+
   const state = {
     turn: 1, phase: 'planning', currentPlayer: 1,
     scenario,
     players: {
-      1: { iron: STARTING_IRON, oil: STARTING_OIL, submitted: false },
-      2: { iron: STARTING_IRON, oil: STARTING_OIL, submitted: false },
+      1: makePlayer(STARTING_IRON, STARTING_OIL, 0),
+      2: makePlayer(STARTING_IRON, STARTING_OIL, 0),
     },
     units: [], buildings: [], resourceHexes: {},
     pendingMoves: {}, pendingAttacks: {}, pendingRecruits: [],
     designs: { 1: [], 2: [] },
+    tradeOffers: [],  // active trade contract offers
   };
 
-  if (scenario === 'scout') {
+  if (scenario === 'random' || scenario === 'custom') {
+    // Terrain + spawns placed procedurally by GameScene after terrain gen
+    // Give starter wood so early road networking can begin before first lumber cycle.
+    state.players[1].iron = 20; state.players[1].oil = 6; state.players[1].wood = 6; state.players[1].food = 10;
+    state.players[2].iron = 20; state.players[2].oil = 6; state.players[2].wood = 6; state.players[2].food = 10;
+
+  } else if (scenario === 'scout') {
     // Two engineers each, far apart — explore and build
     state.units.push(createUnit('ENGINEER', 1, 3, 4));
     state.units.push(createUnit('ENGINEER', 1, 4, 4));
@@ -304,52 +489,62 @@ export function createGameState(scenario = 'default') {
     for (const [q,r] of [[11,13],[12,9],[14,10],[13,15]])
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
 
+
   } else if (scenario === 'naval') {
-    // Island layout (ms=35, islandRow=22):
-    //   P1 island: offsetToAxial(4, 22)  = {q:4, r:20},  radius=5
-    //   P2 island: offsetToAxial(17, 22) = {q:17, r:14}, radius=4  (right next to P1)
-    //   Far neutral islands also exist for resource contention
-    state.units.push(createUnit('ENGINEER', 1, 4, 19));
-    state.units.push(createUnit('ENGINEER', 1, 5, 19));
-    state.units.push(createUnit('ENGINEER', 2, 17, 13));
-    state.units.push(createUnit('ENGINEER', 2, 18, 13));
-    state.buildings.push(createBuilding('HQ', 1, 4, 20));
-    state.buildings.push(createBuilding('HQ', 2, 17, 14));
-    // Starting naval facilities on coastal hexes (adjacent to water)
-    state.buildings.push(createBuilding('NAVAL_YARD', 1, 9, 20));
-    state.buildings.push(createBuilding('NAVAL_YARD', 2, 21, 14));
-    // Patrol boats spawn in the ocean channel between the two islands (~q=11-12)
-    // _fixNavalSpawns() will BFS-relocate if somehow on land
-    state.units.push(createUnit('PATROL_BOAT', 1, 10, 17));
-    state.units.push(createUnit('PATROL_BOAT', 1, 10, 18));
-    state.units.push(createUnit('PATROL_BOAT', 2, 13, 16));
-    state.units.push(createUnit('PATROL_BOAT', 2, 13, 17));
-    // Starting heavier naval presence: sub + destroyer + light cruiser + small transport per side
-    state.units.push(createUnit('SUBMARINE', 1, 11, 16));
-    state.units.push(createUnit('DESTROYER', 1, 9, 17));
-    state.units.push(createUnit('CRUISER_LT', 1, 8, 16));
-    state.units.push(createUnit('TRANSPORT_SM', 1, 9, 18));
-    state.units.push(createUnit('SUBMARINE', 2, 12, 17));
-    state.units.push(createUnit('DESTROYER', 2, 14, 16));
-    state.units.push(createUnit('CRUISER_LT', 2, 15, 17));
-    state.units.push(createUnit('TRANSPORT_SM', 2, 14, 15));
+    // Island layout (ms=35, islandRow=16):
+    //   P1 island: offsetToAxial(4, 16)  = {q:4,  r:14}, radius=5
+    //   P2 island: offsetToAxial(25, 16) = {q:25, r:4},  radius=5
+    //   Center-to-center ~21 hexes; 2-ring shallow → 7 ocean hexes between shores
+
+    // ── P1 starting buildings ──────────────────────────────────────────────
+    state.buildings.push(createBuilding('HQ',         1,  4, 14));
+    state.buildings.push(createBuilding('MINE',       1,  3, 14)); // iron hex adjacent to HQ
+    state.buildings.push(createBuilding('OIL_PUMP',   1,  5, 13)); // oil hex
+    state.buildings.push(createBuilding('BARRACKS',   1,  4, 16)); // inland, dist-2 from HQ
+    state.buildings.push(createBuilding('NAVAL_YARD', 1,  9, 14)); // east coast, borders shallow water
+
+    // ── P2 starting buildings ──────────────────────────────────────────────
+    state.buildings.push(createBuilding('HQ',         2, 25,  4));
+    state.buildings.push(createBuilding('MINE',       2, 24,  4)); // iron hex adjacent to HQ
+    state.buildings.push(createBuilding('OIL_PUMP',   2, 25,  3)); // oil hex
+    state.buildings.push(createBuilding('BARRACKS',   2, 25,  6)); // inland, dist-2 from HQ
+    state.buildings.push(createBuilding('NAVAL_YARD', 2, 20,  4)); // west coast, borders shallow water
+
+    // ── Starting engineers (repositioned away from resource hexes) ─────────
+    state.units.push(createUnit('ENGINEER', 1,  6, 14));
+    state.units.push(createUnit('ENGINEER', 1,  7, 14));
+    state.units.push(createUnit('ENGINEER', 2, 23,  4));
+    state.units.push(createUnit('ENGINEER', 2, 24,  3));
+    // Patrol boats in the ocean channel between islands
+    state.units.push(createUnit('PATROL_BOAT', 1, 11, 11));
+    state.units.push(createUnit('PATROL_BOAT', 1, 11, 12));
+    state.units.push(createUnit('PATROL_BOAT', 2, 18,  7));
+    state.units.push(createUnit('PATROL_BOAT', 2, 18,  8));
+    // Starting heavier naval presence: 1 submarine + 1 destroyer per side
+    state.units.push(createUnit('SUBMARINE', 1, 12, 11));
+    state.units.push(createUnit('DESTROYER', 1, 10, 12));
+    state.units.push(createUnit('SUBMARINE', 2, 17,  7));
+    state.units.push(createUnit('DESTROYER', 2, 19,  7));
     // P1 island resources
-    for (const [q,r] of [[3,20],[4,21],[5,20],[3,21]])
+    for (const [q,r] of [[3,14],[4,15],[5,14],[3,15]])
       state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
-    for (const [q,r] of [[4,19],[5,19]])
+    for (const [q,r] of [[4,13],[5,13]])
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
     // P2 island resources
-    for (const [q,r] of [[16,14],[17,15],[18,14]])
+    for (const [q,r] of [[24,4],[25,5],[26,4]])
       state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
-    for (const [q,r] of [[17,13],[16,15]])
+    for (const [q,r] of [[25,3],[24,5]])
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
-    // Mid-ocean neutral resource islands
-    for (const [q,r] of [[25,10],[26,10]])
+    // Mid-channel neutral island resources (q=14,r=9)
+    for (const [q,r] of [[14,9],[13,9]])
       state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
-    for (const [q,r] of [[30,7],[29,8]])
+    for (const [q,r] of [[14,8],[15,9]])
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
-    state.players[1].iron = 25; state.players[1].oil = 8;
-    state.players[2].iron = 25; state.players[2].oil = 8;
+    // Far-right island resources
+    for (const [q,r] of [[31,1],[32,1]])
+      state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
+    state.players[1].iron = 20; state.players[1].oil = 6;
+    state.players[2].iron = 20; state.players[2].oil = 6;
 
   } else if (scenario === 'combat') {
     // All unit types lined up 5 tiles apart — centered on the 20×10 map
@@ -399,8 +594,74 @@ export function createGameState(scenario = 'default') {
     for (const [q,r] of [[58,40],[59,36],[57,37],[60,39]])
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
 
+  } else if (scenario === 'air_test') {
+    // Air Testing -- 20x20 open plains, both airfields within ~10 hexes
+    // Planes start in play; everything you need to test air combat
+    state.players[1] = { iron: 20, oil: 10, wood: 8, submitted: false };
+    state.players[2] = { iron: 20, oil: 10, wood: 8, submitted: false };
+    // P1 cluster (top-left)
+    state.buildings.push(createBuilding('HQ',       1,  4,  4));
+    state.buildings.push(createBuilding('AIRFIELD', 1,  5,  4));
+    state.buildings.push(createBuilding('BARRACKS', 1,  4,  5));
+    // P2 cluster (bottom-right) -- airfields ~10 hex apart
+    state.buildings.push(createBuilding('HQ',       2, 14, 14));
+    state.buildings.push(createBuilding('AIRFIELD', 2, 13, 14));
+    state.buildings.push(createBuilding('BARRACKS', 2, 14, 13));
+    // P1 starting air + ground
+    state.units.push(createUnit('BIPLANE_FIGHTER', 1,  4,  3));
+    state.units.push(createUnit('OBS_PLANE',       1,  5,  3));
+    state.units.push(createUnit('INFANTRY',        1,  3,  5));
+    state.units.push(createUnit('ENGINEER',        1,  3,  4));
+    // P2 starting air + ground
+    state.units.push(createUnit('BIPLANE_FIGHTER', 2, 14, 15));
+    state.units.push(createUnit('LIGHT_BOMBER',    2, 13, 15));
+    state.units.push(createUnit('INFANTRY',        2, 15, 13));
+    state.units.push(createUnit('ENGINEER',        2, 15, 14));
+    // Resources scattered mid-map
+    for (const [q,r] of [[7,7],[9,9],[11,7],[8,10],[6,8]])
+      state.resourceHexes[`${q},${r}`] = { type: 'IRON' };
+    for (const [q,r] of [[10,8],[7,11],[12,10]])
+      state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
+
+  } else if (scenario === 'mortar_test') {
+    // Mortar LOS bypass test: one mortar with 3 enemies in range, LOS blocked by mountains.
+    state.players[1].iron = 20; state.players[1].oil = 10; state.players[1].food = 10;
+    state.players[2].iron = 20; state.players[2].oil = 10; state.players[2].food = 10;
+
+    // Keep both HQs so winner logic doesn't auto-end.
+    state.buildings.push(createBuilding('HQ', 1, 3, 10));
+    state.buildings.push(createBuilding('HQ', 2, 15, 10));
+    state.buildings.push(createBuilding('BARRACKS', 1, 4, 10));
+    state.buildings.push(createBuilding('BARRACKS', 2, 14, 10));
+
+    // P1 test unit
+    state.units.push(createUnit('MORTAR', 1, 5, 10));
+
+    // P2 targets all within range 3 of mortar at (5,10)
+    state.units.push(createUnit('INFANTRY', 2, 8, 10));
+    state.units.push(createUnit('INFANTRY', 2, 7, 11));
+    state.units.push(createUnit('INFANTRY', 2, 7, 9));
+
+  } else if (scenario === 'coastal_battery_test') {
+    // Coastal battery retaliation/range test map.
+    state.players[1].iron = 20; state.players[1].oil = 10; state.players[1].food = 10;
+    state.players[2].iron = 20; state.players[2].oil = 10; state.players[2].food = 10;
+
+    state.buildings.push(createBuilding('HQ', 1, 3, 10));
+    state.buildings.push(createBuilding('HQ', 2, 15, 10));
+    state.buildings.push(createBuilding('BARRACKS', 1, 4, 10));
+    state.buildings.push(createBuilding('BARRACKS', 2, 14, 10));
+
+    // P1 battery on coast-adjacent tile.
+    state.units.push(createUnit('COASTAL_BATTERY', 1, 6, 10));
+
+    // In-range test targets
+    state.units.push(createUnit('RECON', 2, 9, 10));      // 3 hexes
+    state.units.push(createUnit('INFANTRY', 2, 10, 10));  // 4 hexes
+    state.units.push(createUnit('PATROL_BOAT', 2, 8, 10)); // naval target in shallow/deep strip
+
   } else {
-    // default — close combat test (original layout)
+    // default -- close combat test (original layout)
     state.units.push(createUnit('INFANTRY', 1, 9,  11));
     state.units.push(createUnit('INFANTRY', 1, 10, 10));
     state.units.push(createUnit('TANK',     1, 10, 11));
@@ -421,6 +682,47 @@ export function createGameState(scenario = 'default') {
       state.resourceHexes[`${q},${r}`] = { type: 'OIL' };
   }
 
+  // Spawn one starting Supply Truck per team (near HQ) if not already present.
+  const START_NBRS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+  for (const p of [1,2]) {
+    const hasTruck = state.units.some(u => Number(u.owner) === p && u.type === 'SUPPLY_TRUCK');
+    if (hasTruck) continue;
+    const hq = state.buildings.find(b => Number(b.owner) === p && b.type === 'HQ');
+    if (!hq) continue;
+
+    let spawnQ = hq.q, spawnR = hq.r;
+    for (const [dq, dr] of START_NBRS) {
+      const nq = hq.q + dq, nr = hq.r + dr;
+      const occupied = state.units.some(u => u.q === nq && u.r === nr && !u.embarked);
+      if (!occupied) { spawnQ = nq; spawnR = nr; break; }
+    }
+    state.units.push(createUnit('SUPPLY_TRUCK', p, spawnQ, spawnR));
+  }
+
+  // Ensure both teams start with one Vehicle Depot near HQ for faster land-force ramp.
+  for (const p of [1,2]) {
+    const hasDepot = state.buildings.some(b => Number(b.owner) === p && b.type === 'VEHICLE_DEPOT');
+    if (hasDepot) continue;
+    const hq = state.buildings.find(b => Number(b.owner) === p && b.type === 'HQ');
+    if (!hq) continue;
+
+    let dq = hq.q, dr = hq.r;
+    for (const [oq, or] of START_NBRS) {
+      const nq = hq.q + oq, nr = hq.r + or;
+      const occupiedByBuilding = state.buildings.some(b => b.q === nq && b.r === nr && !ROAD_TYPES.has(b.type));
+      if (!occupiedByBuilding) { dq = nq; dr = nr; break; }
+    }
+    state.buildings.push(createBuilding('VEHICLE_DEPOT', p, dq, dr));
+  }
+
+  // Ensure non-economy buildings start with a dirt road on the same hex.
+  for (const b of state.buildings) {
+    if (ROAD_TYPES.has(b.type)) continue;
+    if (ECON_BUILDINGS.has(b.type)) continue;
+    const hasRoad = state.buildings.some(r => ROAD_TYPES.has(r.type) && r.q === b.q && r.r === b.r);
+    if (!hasRoad) state.buildings.push(createBuilding('ROAD', b.owner, b.q, b.r));
+  }
+
   return state;
 }
 
@@ -431,18 +733,25 @@ export function unitAt(state, q, r) {
 export function buildingAt(state, q, r) {
   return state.buildings.find(b => b.q === q && b.r === r) || null;
 }
+export const ROAD_TYPES = new Set(['ROAD', 'CONCRETE_ROAD', 'RAILWAY']);
+const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 export function roadAt(state, q, r) {
-  return state.buildings.find(b => b.type === 'ROAD' && b.q === q && b.r === r) || null;
+  return state.buildings.find(b => ROAD_TYPES.has(b.type) && b.q === q && b.r === r) || null;
 }
 export function hexDistance(q1, r1, q2, r2) {
   return (Math.abs(q1-q2) + Math.abs(q1+r1-q2-r2) + Math.abs(r1-r2)) / 2;
+}
+
+function ustat(unit, key, fallback = 0) {
+  if (unit && unit[key] !== undefined && unit[key] !== null) return unit[key];
+  return UNIT_TYPES[unit?.type]?.[key] ?? fallback;
 }
 
 // ── Full-map pathfinding for standing orders (e.g., auto-road) ────────────
 // Returns an array of {q,r} hexes from start (exclusive) to dest (inclusive),
 // or null if no path exists.  Uses Dijkstra with terrain costs; ignores units
 // (standing-order units move around obstacles each turn by re-pathing).
-export function findPath(terrain, mapSize, startQ, startR, destQ, destR, unitType = 'ENGINEER') {
+export function findPath(terrain, mapSize, startQ, startR, destQ, destR, unitType = 'ENGINEER', state = null) {
   const dist  = new Map();
   const prev  = new Map();
   const visited = new Set();
@@ -465,10 +774,13 @@ export function findPath(terrain, mapSize, startQ, startR, destQ, destR, unitTyp
       if (visited.has(key)) continue;
       const ttype = terrain[key] ?? 0;
       if (!canEnterTerrain(unitType, ttype)) continue;
-      // Use raw terrain cost (no road boost — roads don't exist yet on planned route)
-      const moveCost = getMoveCost(ttype, false, unitType);
+      // Prefer roads when available for standing orders.
+      const hasRoad = !!(state && roadAt(state, nq, nr));
+      const moveCost = getMoveCost(ttype, hasRoad, unitType);
       const realCost = moveCost >= 999 ? 10 : moveCost; // treat impassable-for-vehicles as expensive but not infinite for path search
-      const newCost = cost + realCost;
+      // Small bias toward roads for tie-break quality.
+      const roadBias = hasRoad ? -0.12 : 0;
+      const newCost = cost + realCost + roadBias;
       if (!dist.has(key) || newCost < dist.get(key)) {
         dist.set(key, newCost);
         prev.set(key, { q, r });
@@ -499,23 +811,28 @@ const HEAVY_UNITS = new Set(['TANK', 'ARTILLERY', 'ANTI_TANK', 'VEHICLE_DEPOT'])
 // terrain: 0=plains, 1=forest, 2=mountain, 3=hill
 // Move costs: plains=1, forest=2(infantry)/999(vehicles), mountain=3(foot only), hill=2(all)
 export function getMoveCost(terrainType, hasRoad, unitType = '') {
+  // Air units: fly over everything at cost 1, roads don't help
+  if (AIR_UNITS.has(unitType)) return 1;
   // Naval units: ocean/shallow cost 1, can't enter land terrain
   if (NAVAL_UNITS.has(unitType)) {
     if (terrainType === 5) return 1; // ocean: free sailing
-    if (terrainType === 4) return SHALLOW_UNITS.has(unitType) ? 1 : 999; // shallow: lighter ships only
+    if (terrainType === 4) return NAVAL_UNITS.has(unitType) ? 1 : 999; // shallow: all naval ships can enter (subs get debuff)
     if (terrainType === 6) return AMPHIBIOUS_UNITS.has(unitType) ? 1 : 999; // sand: amphibious only
     return 999; // land terrain: impassable for naval
   }
   if (hasRoad) return 0.5;
-  if (terrainType === 1 && HEAVY_UNITS.has(unitType)) return 999; // forest: vehicles crawl (1 hex)
-  // 0=plains, 1=forest, 2=mountain, 3=hill, 4=shallow, 5=ocean, 6=sand(beach)
+  if (terrainType === 1 && HEAVY_UNITS.has(unitType)) return 999; // dense forest: vehicles blocked
+  // 0=plains, 1=dense forest, 2=mountain, 3=hill, 4=shallow, 5=ocean, 6=sand, 7=light woods
+  if (terrainType === 7) return 1.5; // light woods: slight move penalty, all units allowed
   return [1, 2, 3, 2, 999, 999, 1][terrainType] ?? 1;
 }
 export function canEnterTerrain(unitType, terrainType) {
+  // Air units: can fly over any terrain
+  if (AIR_UNITS.has(unitType)) return true;
   // Naval units: can only enter water/beach terrain
   if (NAVAL_UNITS.has(unitType)) {
     if (terrainType === 5) return true;  // ocean: all naval
-    if (terrainType === 4) return SHALLOW_UNITS.has(unitType); // shallow: lighter ships only
+    if (terrainType === 4) return NAVAL_UNITS.has(unitType); // shallow: all naval ships can enter
     if (terrainType === 6) return AMPHIBIOUS_UNITS.has(unitType); // sand: amphibious only
     return false; // no land terrain for naval
   }
@@ -524,17 +841,21 @@ export function canEnterTerrain(unitType, terrainType) {
   // Land units
   if (terrainType === 2) return unitType === 'INFANTRY' || unitType === 'ENGINEER'; // mountains: foot only
   if (terrainType === 4 || terrainType === 5) return false; // shallow/ocean: no land units
-  return true; // hills, forest, sand, plains: all land units allowed
+  return true; // hills, forest, light woods, sand, plains: all land units allowed
 }
 
 // Terrain that blocks line-of-sight beyond 1 hex (for future LOS system)
-export const LOS_BLOCKING = new Set([1, 2, 3]); // forest, mountain, hill all block LOS
+// 7=light woods: partial block (units inside are concealed but can still see out 1 hex)
+export const LOS_BLOCKING = new Set([1, 2, 3, 7]); // dense forest, mountain, hill, light woods
 // Units ON a hill get a sight bonus (elevated position)
 export const HILL_SIGHT_BONUS = 2;
 
 // ── Pathfinding (Dijkstra for terrain costs) ───────────────────────────────
 export function getReachableHexes(state, unit, terrain, mapSize) {
-  const maxMove = UNIT_TYPES[unit.type].move;
+  // Indirect-fire teams (mortar/artillery) cannot move after firing.
+  if (unit.attacked && INDIRECT_FIRE.has(unit.type)) return [];
+  // Use remaining movement budget if tracked, otherwise full move allowance
+  const maxMove = unit.movesLeft ?? UNIT_TYPES[unit.type].move;
   const dist  = new Map();
   const visited = new Set();
   const queue = [{ q: unit.q, r: unit.r, cost: 0 }];
@@ -580,11 +901,20 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
   }
 
   // Collect all reachable hexes — exclude any that have a unit on them (can't end there)
+  // Exception: air units can share a hex with friendly ground units (not other air)
+  // Exception: engineers can share a hex with any friendly unit (road building through occupied tiles)
+  const isAir = AIR_UNITS.has(unit.type);
+  const isEngineer = unit.type === 'ENGINEER';
   for (const [key] of dist) {
     const [q, r] = key.split(',').map(Number);
     if (q === unit.q && r === unit.r) continue; // skip origin
     const occupant = unitAt(state, q, r);
-    if (!occupant || occupant.id === unit.id) result.push({ q, r });
+    const movCost = dist.get(key) ?? 0;
+    if (!occupant || occupant.id === unit.id) { result.push({ q, r, cost: movCost }); continue; }
+    // Air can land on hex with friendly ground unit (not another air unit)
+    if (isAir && occupant.owner === unit.owner && !AIR_UNITS.has(occupant.type)) result.push({ q, r, cost: movCost });
+    // Engineers can share a hex with any friendly unit to continue road building
+    if (isEngineer && occupant.owner === unit.owner) result.push({ q, r, cost: movCost });
   }
   return result;
 }
@@ -594,15 +924,24 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
 // Enemy units with pending moves are treated as being at their ORIGINAL (turn-start) position —
 // prevents revealing where enemies moved to before the turn resolves.
 export function getAttackableHexes(state, unit, fromQ, fromR, fog) {
-  const def = UNIT_TYPES[unit.type];
+  const range = ustat(unit, 'range', UNIT_TYPES[unit.type]?.range || 1);
+  const _unitDef = UNIT_TYPES[unit.type] || {};
   return state.units
     .filter(u => {
       if (u.owner === unit.owner || u.dead) return false;
       // Use display position (orig if moved) — same as what the player sees
       const dq = (u._origQ !== undefined) ? u._origQ : u.q;
       const dr = (u._origR !== undefined) ? u._origR : u.r;
-      if (hexDistance(fromQ, fromR, dq, dr) > def.range) return false;
+      if (hexDistance(fromQ, fromR, dq, dr) > range) return false;
       if (fog && !fog.has(`${dq},${dr}`)) return false; // hidden in fog
+      // antiNavalOnly (torpedo) units can only target water hexes
+      if (_unitDef.antiNavalOnly) {
+        const tgt = state._terrain?.[`${dq},${dr}`] ?? 0;
+        if (tgt !== 4 && tgt !== 5) return false;
+      }
+      // Direct-fire units require LOS for known-target attack mode.
+      const indirect = INDIRECT_FIRE.has(unit.type);
+      if (!indirect && state._terrain && !hasLOS(fromQ, fromR, dq, dr, state._terrain)) return false;
       return true;
     })
     .map(u => {
@@ -634,13 +973,19 @@ function hexLine(q1, r1, q2, r2) {
 }
 
 // Returns true if there is an unobstructed LOS between two hexes.
-// Intermediate hexes (not the source or target) that are forest or mountain block LOS.
-function hasLOS(fromQ, fromR, toQ, toR, terrain) {
+// Intermediate hexes (not source/target):
+// - forest (1) and mountain (2) always block LOS
+// - hill (3) blocks LOS unless attacker or target stands on a hill (elevation advantage)
+export function hasLOS(fromQ, fromR, toQ, toR, terrain) {
   if (!terrain) return true;
+  const srcT = terrain[`${fromQ},${fromR}`] ?? 0;
+  const dstT = terrain[`${toQ},${toR}`] ?? 0;
+  const elevated = (srcT === 3) || (dstT === 3);
   const line = hexLine(fromQ, fromR, toQ, toR);
   for (let i = 1; i < line.length - 1; i++) {
     const t = terrain[`${line[i].q},${line[i].r}`] ?? 0;
-    if (t === 1 || t === 2) return false; // forest (1) or mountain (2) blocks
+    if (t === 1 || t === 2) return false;
+    if (t === 3 && !elevated) return false;
   }
   return true;
 }
@@ -648,7 +993,7 @@ function hasLOS(fromQ, fromR, toQ, toR, terrain) {
 // Returns ALL hexes within attack range — for blind fire targeting
 // terrain: optional — if provided, LOS is checked (indirect-fire units bypass this)
 export function getAttackRangeHexes(mapSize, unit, fromQ, fromR, terrain) {
-  const range = UNIT_TYPES[unit.type].range;
+  const range = ustat(unit, 'range', UNIT_TYPES[unit.type]?.range || 1);
   const indirect = INDIRECT_FIRE.has(unit.type);
   const result = [];
   for (let q = 0; q < mapSize; q++) {
@@ -672,8 +1017,13 @@ export function getAttackRangeHexes(mapSize, unit, fromQ, fromR, terrain) {
 // Visibility if: adjacent to enemy unit (always reveals), OR
 //   any own unit with detection > 0 is within detection range AND roll passes.
 export function isStealthDetected(state, stealthyUnit, byPlayer) {
-  const stealthVal = UNIT_TYPES[stealthyUnit.type]?.stealthy || 0;
+  let stealthVal = UNIT_TYPES[stealthyUnit.type]?.stealthy || 0;
   if (!stealthVal) return true; // not stealthy — always visible
+  // Submarine shallow-water debuff: can't dive deep → stealth drops from 5 to 2
+  if (stealthyUnit.type === 'SUBMARINE' && state._terrain) {
+    const ttype = state._terrain[`${stealthyUnit.q},${stealthyUnit.r}`] ?? 5;
+    if (ttype === 4) stealthVal = 2; // shallow water: easily detectable
+  }
   for (const u of state.units.filter(u => u.owner === byPlayer)) {
     const dist = hexDistance(u.q, u.r, stealthyUnit.q, stealthyUnit.r);
     if (dist <= 1) return true; // adjacent always spots
@@ -690,12 +1040,11 @@ export function computeFog(state, player, mapSize, terrain) {
   const visible = new Set();
 
   // Sight sources: friendly units + observation posts
+  const pNum = Number(player);
   const sources = [
-    ...state.units.filter(u => u.owner === player).map(u => ({ q: u.q, r: u.r, sight: UNIT_TYPES[u.type].sight })),
-    // Buildings: minimum 1 sight for all owned non-road structures, plus any higher per-type sight.
-    ...state.buildings
-      .filter(b => b.owner === player && b.type !== 'ROAD')
-      .map(b => ({ q: b.q, r: b.r, sight: Math.max(1, BUILDING_TYPES[b.type]?.sight || 0) })),
+    ...state.units.filter(u => Number(u.owner) === pNum).map(u => ({ q: u.q, r: u.r, sight: UNIT_TYPES[u.type].sight })),
+    ...state.buildings.filter(b => Number(b.owner) === pNum && BUILDING_TYPES[b.type].sight > 0)
+                      .map(b => ({ q: b.q, r: b.r, sight: BUILDING_TYPES[b.type].sight })),
   ];
 
   for (const src of sources) {
@@ -740,15 +1089,32 @@ export function computeFog(state, player, mapSize, terrain) {
 }
 
 // ── Income ─────────────────────────────────────────────────────────────────
-export function calcIncome(state, player) {
-  let iron = BASE_IRON_PER_TURN, oil = BASE_OIL_PER_TURN;
+export function calcIncome(state, player, techBonuses = null) {
+  let iron = BASE_IRON_PER_TURN, oil = BASE_OIL_PER_TURN, wood = 0, food = 0, gold = 0, components = 0;
+  const labs = state.buildings.filter(b => b.type === 'SCIENCE_LAB' && b.owner === player && !b.underConstruction).length;
+  const baseRpBonus = techBonuses?.rpBonusPerLab || 0;
+  const rp = calcRPFromLabs(labs) + labs * baseRpBonus;
   for (const b of state.buildings) {
     if (b.owner !== player) continue;
+    if (b.underConstruction) continue;
     const def = BUILDING_TYPES[b.type];
-    iron += def.ironPerTurn;
-    oil  += def.oilPerTurn;
+    // Tech bonuses for building output
+    const bonus = techBonuses?.buildingBonus?.[b.type] || {};
+    iron += (def.ironPerTurn || 0) + (bonus.ironPerTurn || 0);
+    oil  += (def.oilPerTurn  || 0) + (bonus.oilPerTurn  || 0);
+    wood += (def.woodPerTurn || 0) + (bonus.woodPerTurn || 0);
+    food += (def.foodPerTurn || 0) + (bonus.foodPerTurn || 0);
+    gold += (def.goldPerTurn || 0) + (bonus.goldPerTurn || 0);
+    components += (def.componentsPerTurn || 0) + (bonus.componentsPerTurn || 0);
   }
-  return { iron, oil };
+  return { iron, oil, wood, food, gold, components, rp };
+}
+
+// Recruit-time food cost helper (debug/balance pass)
+export function getRecruitFoodCost(unitType) {
+  const up = UNIT_UPKEEP[unitType]?.food || 0;
+  // Convert upkeep pressure into upfront manpower/food requirement.
+  return Math.max(0, Math.ceil(up * 5));
 }
 
 // ── Recruitment ────────────────────────────────────────────────────────────
@@ -756,26 +1122,29 @@ export function calcIncome(state, player) {
 export function canRecruit(state, player, unitType, buildingId) {
   const b = state.buildings.find(b => b.id === buildingId && b.owner === player);
   if (!b) return { ok: false, reason: 'No building' };
+  if (b.underConstruction) return { ok: false, reason: 'Still under construction' };
 
   // Custom design
   if (typeof unitType === 'number') {
     const design = state.designs[player].find(d => d.id === unitType);
     if (!design) return { ok: false, reason: 'Design not found' };
-    const expectedBuilding = getRequiredBuildingForDesign(design) || CHASSIS_BUILDINGS[design.chassis];
-    if (b.type !== expectedBuilding) {
-      const bName = BUILDING_TYPES[expectedBuilding]?.name || expectedBuilding;
-      const dTier = getDesignTier(design.modules || []);
-      return { ok: false, reason: `Requires ${bName} (tier ${dTier} design)` };
-    }
-    if (state.players[player].iron < design.trainCost.iron) return { ok: false, reason: `Need ${design.trainCost.iron} iron` };
-    if (state.players[player].oil  < design.trainCost.oil)  return { ok: false, reason: `Need ${design.trainCost.oil} oil` };
+    const expectedBuilding = CHASSIS_BUILDINGS[design.chassis];
+    if (b.type !== expectedBuilding) return { ok: false, reason: 'Wrong building for this design' };
+    if (state.players[player].iron < (design.trainCost.iron||0)) return { ok: false, reason: `Need ${design.trainCost.iron||0} iron` };
+    if (state.players[player].oil  < (design.trainCost.oil||0))  return { ok: false, reason: `Need ${design.trainCost.oil||0} oil` };
+    if ((state.players[player].components||0) < (design.trainCost.components||0)) return { ok: false, reason: `Need ${design.trainCost.components||0} components` };
+    const dFood = getRecruitFoodCost(design.chassis);
+    if ((state.players[player].food||0) < dFood) return { ok: false, reason: `Need ${dFood} food` };
     return { ok: true };
   }
 
   if (!BUILDING_TYPES[b.type].canRecruit.includes(unitType)) return { ok: false, reason: 'Wrong building' };
   const def = UNIT_TYPES[unitType];
-  if (state.players[player].iron < def.cost.iron) return { ok: false, reason: 'Not enough iron' };
-  if (state.players[player].oil  < def.cost.oil)  return { ok: false, reason: 'Not enough oil' };
+  if (state.players[player].iron < (def.cost.iron||0)) return { ok: false, reason: 'Not enough iron' };
+  if (state.players[player].oil  < (def.cost.oil||0))  return { ok: false, reason: 'Not enough oil' };
+  if ((state.players[player].components||0) < (def.cost.components||0)) return { ok: false, reason: 'Not enough components' };
+  const foodCost = getRecruitFoodCost(unitType);
+  if ((state.players[player].food||0) < foodCost) return { ok: false, reason: 'Not enough food' };
   return { ok: true };
 }
 
@@ -785,16 +1154,20 @@ export function queueRecruit(state, player, unitType, buildingId) {
 
   if (typeof unitType === 'number') {
     const design = state.designs[player].find(d => d.id === unitType);
-    state.players[player].iron -= design.trainCost.iron;
-    state.players[player].oil  -= design.trainCost.oil;
+    state.players[player].iron -= (design.trainCost.iron||0);
+    state.players[player].oil  -= (design.trainCost.oil||0);
+    state.players[player].components = (state.players[player].components||0) - (design.trainCost.components||0);
+    state.players[player].food = (state.players[player].food||0) - getRecruitFoodCost(design.chassis);
     const buildTime = UNIT_TYPES[design.chassis]?.buildTime ?? 1;
     state.pendingRecruits.push({ owner: player, designId: unitType, buildingId, turnsLeft: buildTime });
     return { ok: true };
   }
 
   const def = UNIT_TYPES[unitType];
-  state.players[player].iron -= def.cost.iron;
-  state.players[player].oil  -= def.cost.oil;
+  state.players[player].iron -= (def.cost.iron||0);
+  state.players[player].oil  -= (def.cost.oil||0);
+  state.players[player].components = (state.players[player].components||0) - (def.cost.components||0);
+  state.players[player].food = (state.players[player].food||0) - getRecruitFoodCost(unitType);
   state.pendingRecruits.push({ owner: player, type: unitType, buildingId, turnsLeft: def.buildTime ?? 1 });
   return { ok: true };
 }
@@ -922,8 +1295,8 @@ export function resolveTurn(state, terrain) {
     const attacker = state.units.find(u => u.id === parseInt(idStr));
     const target   = state.units.find(u => u.id === targetId);
     if (!attacker || !target) continue;
-    const aDef = UNIT_TYPES[attacker.type];
-    const tDef = UNIT_TYPES[target.type];
+    const aDef = { ...UNIT_TYPES[attacker.type], ...attacker };
+    const tDef = { ...UNIT_TYPES[target.type], ...target };
     const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
     if (dist > aDef.range) {
       events.push(`${aDef.name} (P${attacker.owner}) missed — target moved out of range`);
@@ -935,7 +1308,7 @@ export function resolveTurn(state, terrain) {
     const attackerIsNaval = NAVAL_UNITS.has(attacker.type) || attacker.type === 'COASTAL_BATTERY';
     const targetIsNaval   = NAVAL_UNITS.has(target.type);
     const targetTerrain   = (state._terrain && state._terrain[`${target.q},${target.r}`]) ?? 0;
-    const targetOnLand    = targetTerrain <= 3 || targetTerrain === 6; // plains/forest/mtn/hill/sand
+    const targetOnLand    = targetTerrain <= 3 || targetTerrain === 6 || targetTerrain === 7; // plains/forest/mtn/hill/sand/lightwoods
     // Ships attacking land: use naval_attack, halved effectiveness
     const navalVsLand = attackerIsNaval && targetOnLand && !targetIsNaval;
     const navalVsNaval = attackerIsNaval && targetIsNaval;
@@ -945,6 +1318,22 @@ export function resolveTurn(state, terrain) {
     let baseAttack = isArmored ? aDef.hard_attack : aDef.soft_attack;
     if (navalVsLand) baseAttack = Math.floor((aDef.naval_attack || 1) * 0.6); // naval bombardment: 60% naval_attack
 
+    // Air-to-ground strafing balance:
+    // Fighters (antiAir=true) are primarily anti-air; they deal reduced damage to ground units.
+    const attackerIsAir = AIR_UNITS.has(attacker.type);
+    const targetIsAir = AIR_UNITS.has(target.type);
+    const fighterStrafePenalty = attackerIsAir && !targetIsAir && aDef.antiAir;
+    if (fighterStrafePenalty) {
+      baseAttack = Math.max(1, Math.floor(baseAttack * 0.5));
+    }
+
+    // Supply debuffs: unsupplied units attack worse and defend worse.
+    const atkSupplyPen = attacker.outOfSupply > 0 ? supplyPenalty(attacker.outOfSupply) : { movePenalty: 0, attackPenalty: 0 };
+    const defSupplyPen = target.outOfSupply > 0 ? supplyPenalty(target.outOfSupply) : { movePenalty: 0, attackPenalty: 0 };
+    if (atkSupplyPen.attackPenalty > 0) {
+      baseAttack = Math.max(1, baseAttack - atkSupplyPen.attackPenalty);
+    }
+
     // Pierce vs armor ratio
     let pierceRatio = 1;
     if (aDef.pierce < tDef.armor) pierceRatio = aDef.pierce / tDef.armor;
@@ -952,17 +1341,46 @@ export function resolveTurn(state, terrain) {
     // Base combat score (50 = neutral starting point)
     let score = 50;
     score += aDef.accuracy;
+
+    // Infantry long-range rifle penalty (max-range shots are less effective)
+    const INF_RIFLE_TYPES = new Set(['INFANTRY']);
+    const infantryRangePenalty = (INF_RIFLE_TYPES.has(attacker.type) && dist >= 2) ? 8 : 0;
+    if (infantryRangePenalty > 0) {
+      baseAttack = Math.max(1, baseAttack - 1);
+      score -= infantryRangePenalty;
+    }
     // Blind fire penalty: firing at a hex without confirmed intel = -20 score
     const blindFirePenalty = blindFire ? 20 : 0;
     score -= blindFirePenalty;
     score += target.evasion_penalty || 0; // suppressed units lose evasion
+    if (atkSupplyPen.attackPenalty > 0) score -= atkSupplyPen.attackPenalty * 3; // harder to execute attacks
+    if (defSupplyPen.attackPenalty > 0) score += defSupplyPen.attackPenalty * 3; // easier to hit unsupplied defenders
 
     // Terrain modifier for defender
     const ttype = (state._terrain && state._terrain[`${target.q},${target.r}`]) ?? 0;
     let terrainMod = 0;
-    if (ttype === 1) terrainMod = 10; // forest
-    if (ttype === 2) terrainMod = 20; // mountain
+    if (ttype === 7) terrainMod = 5;  // light woods: slight cover
+    if (ttype === 1) terrainMod = 10; // dense forest: good cover
+    if (ttype === 2) terrainMod = 20; // mountain: strong cover
     score -= terrainMod; // terrain helps defender = hurts attacker score
+
+    // Open-plains exposure penalty for infantry-like defenders not fortified.
+    const INF_LIKE = new Set(['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD','LMG_TEAM','HMG_TEAM','SNIPER','ENGINEER','MEDIC','ANTI_TANK']);
+    const openPlains = (ttype === 0 || ttype === 6);
+    const onFort = !!state.buildings.find(b => (b.type === 'BUNKER' || b.type === 'TRENCH' || b.type === 'SANDBAG') && b.q === target.q && b.r === target.r && b.owner === target.owner);
+    const openPlainMod = (openPlains && INF_LIKE.has(target.type) && !target.dugIn && !onFort) ? 6 : 0;
+    score += openPlainMod;
+    const onRoad = !!state.buildings.find(b => ROAD_TYPES.has(b.type) && b.q === target.q && b.r === target.r);
+    const exposedMod = (onRoad && !onFort && !target.dugIn) ? 8 : 0;
+    score += exposedMod;
+
+    // Submarine shallow-water debuff: exposed, can't dive → -10 evasion in combat
+    const subShallowPenalty = (target.type === 'SUBMARINE' && ttype === 4) ? 10 : 0;
+    score += subShallowPenalty; // makes sub easier to hit
+
+    // MTB torpedo bonus: +15 score vs armored ships (armor > 3)
+    const mtbTorpedoBonus = (aDef.torpedoBonus && tDef.armor > 3) ? 15 : 0;
+    score += mtbTorpedoBonus;
 
     // Dug-in bonus
     let dugInMod = 0;
@@ -974,7 +1392,7 @@ export function resolveTurn(state, terrain) {
     if (onBunker) { bunkerMod = 15; score -= bunkerMod; }
 
     // Evasion (defender)
-    score -= tDef.evasion;
+    score -= Math.max(0, (tDef.evasion || 0) - (defSupplyPen.attackPenalty * 2));
 
     // Flanking bonus (multiple attackers on same target)
     const flankers = Math.max(0, (attackerCount[targetId] || 1) - 1);
@@ -991,16 +1409,18 @@ export function resolveTurn(state, terrain) {
 
     // Outcome tier
     let tier, dmg = 0, attackerDmg = 0, suppressed = false;
+    let potentialRet = 0;
+    const isIndirectAttack = INDIRECT_FIRE.has(attacker.type);
     if (score < 20) {
       tier = 'Catastrophic Failure';
-      attackerDmg = Math.ceil(baseAttack * 0.5);
+      potentialRet = Math.ceil(baseAttack * 0.5);
     } else if (score < 40) {
       tier = 'Repelled';
-      attackerDmg = 1;
+      potentialRet = 1;
     } else if (score < 60) {
       tier = 'Neutral';
       dmg = Math.max(1, Math.round(baseAttack * pierceRatio * 0.5));
-      attackerDmg = 1;
+      potentialRet = 1;
     } else if (score < 80) {
       tier = 'Effective';
       dmg = Math.max(1, Math.round(baseAttack * pierceRatio));
@@ -1010,8 +1430,21 @@ export function resolveTurn(state, terrain) {
       suppressed = true;
     }
 
-    // Defense flat reduction
-    dmg = Math.max(0, dmg - tDef.defense);
+    // Defense flat reduction (unsupplied defender loses some defensive efficiency)
+    const effectiveTargetDefense = Math.max(0, (tDef.defense || 0) - defSupplyPen.attackPenalty);
+    dmg = Math.max(0, dmg - effectiveTargetDefense);
+
+    // Indirect-fire attackers never take direct defender return damage in this system.
+    if (isIndirectAttack) potentialRet = 0;
+
+    // Retaliation gating: defender must be in range and alive after incoming damage.
+    const retDist = hexDistance(attacker.q, attacker.r, target.q, target.r);
+    const defenderRange = tDef.range || 0;
+    const defenderCanAttack = ((tDef.attack || 0) > 0) || ((tDef.soft_attack || 0) > 0) || ((tDef.hard_attack || 0) > 0) || ((tDef.naval_attack || 0) > 0);
+    const retHasLOS = retDist <= 1 || !state._terrain || hasLOS(target.q, target.r, attacker.q, attacker.r, state._terrain);
+    const coastalVsLandNoRet = attacker.type === 'COASTAL_BATTERY' && !targetIsNaval;
+    const canRetaliate = !coastalVsLandNoRet && !blindFire && !INDIRECT_FIRE.has(attacker.type) && defenderCanAttack && retDist <= defenderRange && retHasLOS && (target.health - dmg > 0) && !target.suppressed;
+    attackerDmg = canRetaliate ? potentialRet : 0;
 
     // Accumulate damage
     if (dmg > 0)        damage[targetId]  = (damage[targetId]  || 0) + dmg;
@@ -1026,7 +1459,10 @@ export function resolveTurn(state, terrain) {
       targetName: tDef.name,   targetOwner: target.owner,
       isArmored, baseAttack, pierce: aDef.pierce, armor: tDef.armor, pierceRatio,
       accuracy: aDef.accuracy, evasion: tDef.evasion,
-      terrainMod, dugInMod, bunkerMod, flankMod, roll, blindFirePenalty,
+      terrainMod, openPlainMod, exposedMod, dugInMod, bunkerMod, flankMod, roll, blindFirePenalty,
+      attackerSupplyPenalty: atkSupplyPen.attackPenalty || 0,
+      defenderSupplyPenalty: defSupplyPen.attackPenalty || 0,
+      infantryRangePenalty: infantryRangePenalty || 0,
       score, tier, dmg, attackerDmg, suppressed, blindFire,
     };
     combatLog.push(entry);
@@ -1101,7 +1537,7 @@ export function resolveTurn(state, terrain) {
 
     // Re-pathfind from current position each turn
     const mapSz = state._mapSize || 25;
-    const path = findPath(terrain, mapSz, unit.q, unit.r, order.destQ, order.destR, 'ENGINEER');
+    const path = findPath(terrain, mapSz, unit.q, unit.r, order.destQ, order.destR, 'ENGINEER', state);
     if (!path || path.length === 0) {
       events.push(`Engineer (P${owner}) auto-road blocked — no path to (${order.destQ},${order.destR}) from (${unit.q},${unit.r})`);
       delete unit.roadOrder; continue;
@@ -1111,20 +1547,23 @@ export function resolveTurn(state, terrain) {
     const next = path[0];
     const nq = next.q, nr = next.r;
 
-    // Don't step on a unit that isn't the engineer itself
-    const blocker = state.units.find(u => u.q === nq && u.r === nr && u.id !== unit.id && !u.embarked);
+    // Don't step on a unit that isn't the engineer itself (enemies block; friendly units allow stacking)
+    const blocker = state.units.find(u => u.q === nq && u.r === nr && u.id !== unit.id && !u.embarked && u.owner !== owner);
     if (blocker) {
-      events.push(`Engineer (P${owner}) auto-road stalled — hex (${nq},${nr}) occupied by ${UNIT_TYPES[blocker.type]?.name}`);
+      events.push(`Engineer (P${owner}) auto-road stalled — hex (${nq},${nr}) occupied by enemy`);
       continue; // keep order, try again next turn
     }
 
     unit.q = nq; unit.r = nr; unit.moved = true;
 
-    // Build road on the new hex if none exists
-    if (!roadAt(state, nq, nr)) {
+    // Build road on the new hex if none exists and terrain allows (no mountains)
+    const ttype = terrain?.[`${nq},${nr}`] ?? 0;
+    if (!roadAt(state, nq, nr) && ttype !== 2) {
       state.buildings.push({ id: _autoRoadNextId(), type: 'ROAD', q: nq, r: nr, owner });
       state.players[owner].iron -= 1;
       events.push(`Engineer (P${owner}) auto-builds road at (${nq},${nr})`);
+    } else if (ttype === 2) {
+      events.push(`Engineer (P${owner}) cannot road mountain at (${nq},${nr})`);
     } else {
       events.push(`Engineer (P${owner}) advances along existing road at (${nq},${nr})`);
     }
@@ -1141,7 +1580,7 @@ export function resolveTurn(state, terrain) {
 
   // Phase 3: Captures
   for (const b of state.buildings) {
-    if (b.type === 'ROAD') continue;
+    if (ROAD_TYPES.has(b.type)) continue;
     const unit = unitAt(state, b.q, b.r);
     if (unit && unit.owner !== b.owner) {
       events.push(`P${unit.owner} captures ${BUILDING_TYPES[b.type].name}!`);
@@ -1149,39 +1588,73 @@ export function resolveTurn(state, terrain) {
     }
   }
 
-  // Phase 4: Tick recruit timers — spawn when turnsLeft reaches 0
+  // Phase 4: Tick recruit timers — only queue head per building advances each turn.
+  // This enforces true production line behavior (no parallel pop from same building).
+  const ticked = new Set();
   for (const recruit of state.pendingRecruits) {
+    const key = `${recruit.owner}:${recruit.buildingId}`;
+    if (ticked.has(key)) continue;
+    ticked.add(key);
     recruit.turnsLeft = Math.max(0, (recruit.turnsLeft ?? 1) - 1);
   }
-  const toSpawn = state.pendingRecruits.filter(r => r.turnsLeft <= 0);
-  state.pendingRecruits = state.pendingRecruits.filter(r => r.turnsLeft > 0);
+
+  const toSpawn = [];
+  const heads = new Set();
+  for (const recruit of state.pendingRecruits) {
+    const key = `${recruit.owner}:${recruit.buildingId}`;
+    if (heads.has(key)) continue;
+    heads.add(key);
+    if (recruit.turnsLeft <= 0) toSpawn.push(recruit);
+  }
+
   for (const recruit of toSpawn) {
     const b = state.buildings.find(b => b.id === recruit.buildingId);
-    if (!b || b.owner !== recruit.owner) continue;
-    // Determine the chassis type for terrain-aware spawn placement
+    if (!b || Number(b.owner) !== Number(recruit.owner)) continue;
     const spawnChassis = recruit.designId !== undefined
       ? (state.designs[recruit.owner].find(d => d.id === recruit.designId)?.chassis ?? null)
       : (recruit.type ?? null);
-    const spawnHex = findFreeAdjacentHex(state, b.q, b.r, spawnChassis, state._terrain);
-    if (spawnHex) {
-      if (recruit.designId !== undefined) {
-        // Custom design spawn
-        const design = state.designs[recruit.owner].find(d => d.id === recruit.designId);
-        if (design) {
-          const unit = createUnit(design.chassis, recruit.owner, spawnHex.q, spawnHex.r);
-          // Apply custom stats
-          Object.assign(unit, { ...design.stats, q: spawnHex.q, r: spawnHex.r, owner: recruit.owner, id: unit.id, type: design.chassis, health: design.stats.health, maxHealth: design.stats.health, moved: false, attacked: false, dugIn: false, building: false, suppressed: false, designId: design.id, designName: design.name });
-          state.units.push(unit);
-          events.push(`P${recruit.owner} recruits ${design.name}`);
-        }
-      } else {
-        state.units.push(createUnit(recruit.type, recruit.owner, spawnHex.q, spawnHex.r));
-        events.push(`P${recruit.owner} recruits ${UNIT_TYPES[recruit.type].name}`);
+    const spawnHex = findFreeAdjacentHex(state, b.q, b.r, spawnChassis, state._terrain, recruit.owner);
+    if (!spawnHex) {
+      recruit.turnsLeft = 0; // stay ready; retry next turn
+      events.push(`P${recruit.owner} recruit delayed — no space near ${BUILDING_TYPES[b.type]?.name || 'building'}`);
+      continue;
+    }
+
+    if (recruit.designId !== undefined) {
+      const design = state.designs[recruit.owner].find(d => d.id === recruit.designId);
+      if (design) {
+        const unit = createUnit(design.chassis, recruit.owner, spawnHex.q, spawnHex.r);
+        Object.assign(unit, { ...design.stats, q: spawnHex.q, r: spawnHex.r, owner: recruit.owner, id: unit.id, type: design.chassis, health: design.stats.health, maxHealth: design.stats.health, moved: false, attacked: false, dugIn: false, building: false, suppressed: false, designId: design.id, designName: design.name });
+        state.units.push(unit);
+        events.push(`P${recruit.owner} recruits ${design.name}`);
+        recruit._spawned = true;
       }
     } else {
-      events.push(`P${recruit.owner} recruit failed — no space`);
+      state.units.push(createUnit(recruit.type, recruit.owner, spawnHex.q, spawnHex.r));
+      events.push(`P${recruit.owner} recruits ${UNIT_TYPES[recruit.type].name}`);
+      recruit._spawned = true;
     }
   }
+
+  // Remove only successfully spawned queue-head recruits
+  state.pendingRecruits = state.pendingRecruits.filter(r => !r._spawned);
+
+  // Phase 4b: Air unit fuel (both players)
+  for (const player of [1, 2]) {
+    for (const unit of state.units.filter(u => u.owner === player && u.fuel !== undefined)) {
+      const onAirfield = state.buildings.find(
+        b => b.q === unit.q && b.r === unit.r && b.type === 'AIRFIELD' &&
+             b.owner === player && !b.underConstruction
+      );
+      if (onAirfield) {
+        unit.fuel = unit.fuelMax;
+      } else {
+        unit.fuel = Math.max(0, unit.fuel - 1);
+        if (unit.fuel === 0) { unit.health = 0; events.push(`${UNIT_TYPES[unit.type].name} (P${player}) crashed — out of fuel!`); }
+      }
+    }
+  }
+  state.units = state.units.filter(u => u.health > 0);
 
   // Phase 5: Income
   for (const player of [1, 2]) {
@@ -1193,40 +1666,853 @@ export function resolveTurn(state, terrain) {
 
   // Reset
   for (const unit of state.units) {
-    unit.moved = false; unit.attacked = false; unit.building = false; unit.suppressed = false;
-    unit.apMax = unit.apMax || BASE_AP;
-    unit.ap = unit.apMax;
-    delete unit._origQ; delete unit._origR; delete unit._apMoveCost; // clear undo anchors
+    unit.moved = false; unit.attacked = false; unit.building = false; unit.suppressed = false; unit.sprinted = false;
+    unit.movesLeft = UNIT_TYPES[unit.type]?.move ?? (unit.movesLeft || 1);
+    delete unit._origQ; delete unit._origR; // clear undo anchors
   }
   state.pendingMoves = {}; state.pendingAttacks = {};
   state.players[1].submitted = false; state.players[2].submitted = false;
-  state.currentPlayer = 1; state.phase = 'planning'; state.turn++;
+  // IGOUGO: alternate the active player each resolution
+  state.currentPlayer = Number(state.currentPlayer) === 1 ? 2 : 1;
+  state.phase = 'planning'; state.turn++;
 
   return events;
 }
 
-function findFreeAdjacentHex(state, q, r, unitType = null, terrain = null) {
+// ── IGOUGO: resolve a single immediate attack (Civ-style) ────────────────────
+// Call when the attacker clicks attack during their turn.
+// Returns a combatLog entry (single entry array) for UI display.
+export function resolveImmediateAttack(state, attackerId, targetId, blindFire = false) {
+  const attacker = state.units.find(u => u.id === attackerId);
+  const target   = state.units.find(u => u.id === targetId);
+  if (!attacker || !target) return [];
+  // antiNavalOnly (torpedo) units cannot attack land targets
+  const _atkDef = UNIT_TYPES[attacker.type] || {};
+  if (_atkDef.antiNavalOnly) {
+    const _tgt = state._terrain?.[`${target.q},${target.r}`] ?? 0;
+    if (_tgt !== 4 && _tgt !== 5) {
+      return [`${_atkDef.name} cannot attack land targets (torpedoes only)`];
+    }
+  }
+
+  const aDef = { ...UNIT_TYPES[attacker.type], ...attacker };
+  const tDef = { ...UNIT_TYPES[target.type], ...target };
+  const INDIRECT_FIRE = new Set(['ARTILLERY', 'MORTAR']);
+
+  const attackerIsNaval = NAVAL_UNITS.has(attacker.type) || attacker.type === 'COASTAL_BATTERY';
+  const targetIsNaval   = NAVAL_UNITS.has(target.type);
+  const targetTerrain   = (state._terrain && state._terrain[`${target.q},${target.r}`]) ?? 0;
+  const targetOnLand    = targetTerrain <= 3 || targetTerrain === 6 || targetTerrain === 7;
+  const navalVsLand     = attackerIsNaval && targetOnLand && !targetIsNaval;
+  const navalVsNaval    = attackerIsNaval && targetIsNaval;
+
+  const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
+  const attackerRange = aDef.range || 1;
+  const isIndirectAttack = INDIRECT_FIRE.has(attacker.type);
+  const attackerHasLOS = !state._terrain || hasLOS(attacker.q, attacker.r, target.q, target.r, state._terrain);
+  const attackInRange = dist >= 1 && dist <= attackerRange;
+  const attackLOSOk = isIndirectAttack || blindFire || attackerHasLOS;
+
+  // Hard validation: never resolve impossible direct attacks.
+  if (!attackInRange || !attackLOSOk) {
+    return [{
+      type: 'miss',
+      attackerId: attacker.id, attackerType: attacker.type,
+      targetId: target.id, targetType: target.type,
+      reason: !attackInRange ? 'out_of_range' : 'no_los',
+      dist, attackerRange,
+    }];
+  }
+
+  const isArmored = tDef.armor > 2;
+  let baseAttack = isArmored ? aDef.hard_attack : aDef.soft_attack;
+  // Naval vs naval: ships fight with hard_attack (hull vs hull)
+  if (navalVsNaval) baseAttack = aDef.hard_attack;
+  if (navalVsLand)  baseAttack = Math.floor((aDef.naval_attack || 1) * 0.6);
+
+  // Air-to-ground strafing balance: fighters are weaker vs ground units.
+  const attackerIsAir = AIR_UNITS.has(attacker.type);
+  const targetIsAir = AIR_UNITS.has(target.type);
+  const fighterStrafePenalty = attackerIsAir && !targetIsAir && aDef.antiAir;
+  if (fighterStrafePenalty) {
+    baseAttack = Math.max(1, Math.floor(baseAttack * 0.5));
+  }
+
+  // Out-of-supply reduces effective attack/defense effectiveness
+  const atkSupplyPen = attacker.outOfSupply > 0 ? supplyPenalty(attacker.outOfSupply) : { movePenalty: 0, attackPenalty: 0 };
+  const defSupplyPen = target.outOfSupply > 0 ? supplyPenalty(target.outOfSupply) : { movePenalty: 0, attackPenalty: 0 };
+  if (atkSupplyPen.attackPenalty > 0) {
+    baseAttack = Math.max(1, baseAttack - atkSupplyPen.attackPenalty);
+  }
+
+  let pierceRatio = 1;
+  if (aDef.pierce < tDef.armor) pierceRatio = aDef.pierce / tDef.armor;
+
+  // Anti-air bonus: AA units get accuracy bonus vs air targets
+  const aaBonus = (aDef.antiAir && targetIsAir) ? 10 : 0;
+
+  let score = 50;
+  score += aDef.accuracy;
+  score += aaBonus;
+
+  // Infantry long-range rifle penalty (max-range shots are less effective)
+  const INF_RIFLE_TYPES = new Set(['INFANTRY']);
+  const infantryRangePenalty = (INF_RIFLE_TYPES.has(attacker.type) && dist >= 2) ? 8 : 0;
+  if (infantryRangePenalty > 0) {
+    baseAttack = Math.max(1, baseAttack - 1);
+    score -= infantryRangePenalty;
+  }
+
+  const blindFirePenalty = blindFire ? 20 : 0;
+  score -= blindFirePenalty;
+  if (atkSupplyPen.attackPenalty > 0) score -= atkSupplyPen.attackPenalty * 3;
+  if (defSupplyPen.attackPenalty > 0) score += defSupplyPen.attackPenalty * 3;
+  const ttype = targetTerrain;
+  let terrainMod = 0;
+  if (ttype === 7) terrainMod = 5;
+  if (ttype === 1) terrainMod = 10;
+  if (ttype === 2) terrainMod = 20;
+  score -= terrainMod;
+  const INF_LIKE = new Set(['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD','LMG_TEAM','HMG_TEAM','SNIPER','ENGINEER','MEDIC','ANTI_TANK']);
+  const openPlains = (ttype === 0 || ttype === 6);
+  const onFort = !!state.buildings.find(b => (b.type === 'BUNKER' || b.type === 'TRENCH' || b.type === 'SANDBAG') && b.q === target.q && b.r === target.r && b.owner === target.owner);
+  const openPlainMod = (openPlains && INF_LIKE.has(target.type) && !target.dugIn && !onFort) ? 6 : 0;
+  score += openPlainMod;
+  const onRoad = !!state.buildings.find(b => ROAD_TYPES.has(b.type) && b.q === target.q && b.r === target.r);
+  const exposedMod = (onRoad && !onFort && !target.dugIn) ? 8 : 0;
+  score += exposedMod;
+  const subShallowPenalty = (target.type === 'SUBMARINE' && ttype === 4) ? 10 : 0;
+  score += subShallowPenalty;
+  let dugInMod = 0;
+  if (target.dugIn) { dugInMod = 8; score -= dugInMod; }
+  let bunkerMod = 0;
+  const onBunker = state.buildings.find(b => b.type === 'BUNKER' && b.q === target.q && b.r === target.r && b.owner === target.owner);
+  if (onBunker) { bunkerMod = 15; score -= bunkerMod; }
+  score -= Math.max(0, (tDef.evasion || 0) - (defSupplyPen.attackPenalty * 2));
+  score += Math.round((pierceRatio - 0.5) * 20);
+  const roll = Math.floor(Math.random() * 31) - 15;
+  score += roll;
+  score = Math.max(0, Math.min(100, score));
+
+  let tier, dmg = 0, attackerDmg = 0, suppressed = false;
+  if (score < 20)       { tier = 'Catastrophic Failure'; attackerDmg = Math.ceil(baseAttack * 0.5); }
+  else if (score < 40)  { tier = 'Repelled';             attackerDmg = 1; }
+  else if (score < 60)  { tier = 'Neutral';              dmg = Math.max(1, Math.round(baseAttack * pierceRatio * 0.5)); attackerDmg = 1; }
+  else if (score < 80)  { tier = 'Effective';            dmg = Math.max(1, Math.round(baseAttack * pierceRatio)); }
+  else                  { tier = 'Overwhelming';         dmg = Math.max(1, Math.round(baseAttack * pierceRatio)); suppressed = true; }
+
+  // Mortar/artillery should not take defender return damage in this system.
+  if (isIndirectAttack) attackerDmg = 0;
+
+  const effectiveTargetDefense = Math.max(0, (tDef.defense || 0) - defSupplyPen.attackPenalty);
+  dmg = Math.max(0, dmg - effectiveTargetDefense);
+
+  // Retaliation: defender fires back if alive after attacker's hit and in range
+  const retDist = hexDistance(attacker.q, attacker.r, target.q, target.r);
+  const defenderRange = tDef.range || 1;
+  // Subs with noSurfaceRetaliation can't retaliate against surface ships (they dive instead)
+  const subDiveBlock = tDef.noSurfaceRetaliation && !aDef.noSurfaceRetaliation;
+  const retHasLOS = retDist <= 1 || !state._terrain || hasLOS(target.q, target.r, attacker.q, attacker.r, state._terrain);
+  const coastalVsLandNoRet = attacker.type === 'COASTAL_BATTERY' && !targetIsNaval;
+  const canRetaliate = !coastalVsLandNoRet && !blindFire && !isIndirectAttack && !subDiveBlock && retDist <= defenderRange && retHasLOS && target.health - dmg > 0 && !target.suppressed;
+
+  let retDmg = 0, retScore = 0, retTier = '';
+  if (canRetaliate) {
+    const rIsArmored = aDef.armor > 2;
+    let rBaseAttack = (navalVsNaval) ? tDef.hard_attack : (rIsArmored ? tDef.hard_attack : tDef.soft_attack);
+    let rPierceRatio = 1;
+    if (tDef.pierce < aDef.armor) rPierceRatio = tDef.pierce / aDef.armor;
+    retScore = 50 + tDef.accuracy - aDef.evasion + Math.round((rPierceRatio - 0.5) * 20) + (Math.floor(Math.random() * 31) - 15);
+    retScore = Math.max(0, Math.min(100, retScore));
+    if (retScore >= 60) retDmg = Math.max(1, Math.round(rBaseAttack * rPierceRatio));
+    else if (retScore >= 40) retDmg = Math.max(1, Math.round(rBaseAttack * rPierceRatio * 0.5));
+    retTier = retScore >= 80 ? 'Overwhelming' : retScore >= 60 ? 'Effective' : retScore >= 40 ? 'Neutral' : retScore >= 20 ? 'Repelled' : 'Catastrophic Failure';
+    retDmg = Math.max(0, retDmg - aDef.defense);
+    attackerDmg += retDmg;
+  }
+
+  // Apply damage immediately
+  if (dmg > 0)         { target.health   -= dmg;        if (target.health   <= 0) target.dead = true; }
+  if (attackerDmg > 0) { attacker.health -= attackerDmg; if (attacker.health <= 0) attacker.dead = true; }
+  if (suppressed) target.suppressed = true;
+  state.units = state.units.filter(u => !u.dead);
+  attacker.attacked = true;
+
+  const entry = {
+    type: 'combat',
+    attackerId: attacker.id, attackerType: attacker.type, attackerHex: { q: attacker.q, r: attacker.r },
+    attackerName: aDef.name, attackerOwner: attacker.owner,
+    attackerHPBefore: attacker.health + attackerDmg,
+    targetId: target.id, targetType: target.type, targetHex: { q: target.q, r: target.r },
+    targetName: tDef.name, targetOwner: target.owner,
+    targetHPBefore: target.health + dmg,
+    isArmored, baseAttack, pierce: aDef.pierce, armor: tDef.armor, pierceRatio,
+    accuracy: aDef.accuracy, evasion: tDef.evasion,
+    terrainMod, openPlainMod, exposedMod, dugInMod, bunkerMod, flankMod: 0, roll, blindFirePenalty,
+    attackerSupplyPenalty: atkSupplyPen.attackPenalty || 0,
+    defenderSupplyPenalty: defSupplyPen.attackPenalty || 0,
+    infantryRangePenalty: infantryRangePenalty || 0,
+    score, tier, dmg, attackerDmg, suppressed, blindFire,
+    defenderCanRetaliate: canRetaliate, retaliationDmg: retDmg, retaliationScore: retScore, retaliationTier: retTier,
+  };
+  state._lastCombatLog = [entry];
+  return [entry];
+}
+
+// ── IGOUGO: end-of-turn for current player (captures, income, spawns) ─────────
+export function resolveEndOfTurn(state, terrain) {
+  const events = [];
+  const player = Number(state.currentPlayer) || 1;
+  state.currentPlayer = player;
+  state._terrain = terrain;
+
+  // Captures (only by current player's units)
+  for (const b of state.buildings) {
+    if (ROAD_TYPES.has(b.type)) continue;
+    const unit = unitAt(state, b.q, b.r);
+    if (unit && unit.owner !== b.owner && unit.owner === player) {
+      events.push(`P${player} captures ${BUILDING_TYPES[b.type].name}!`);
+      b.owner = player;
+    }
+  }
+
+  // Tick recruit timers for current player: only queue head per building progresses.
+  const tickedPlayer = new Set();
+  for (const recruit of state.pendingRecruits) {
+    if (Number(recruit.owner) !== Number(player)) continue;
+    const key = `${recruit.owner}:${recruit.buildingId}`;
+    if (tickedPlayer.has(key)) continue;
+    tickedPlayer.add(key);
+    recruit.turnsLeft = Math.max(0, (recruit.turnsLeft ?? 1) - 1);
+  }
+
+  const spawnHeads = [];
+  const seenHeads = new Set();
+  for (const recruit of state.pendingRecruits) {
+    if (Number(recruit.owner) !== Number(player)) continue;
+    const key = `${recruit.owner}:${recruit.buildingId}`;
+    if (seenHeads.has(key)) continue;
+    seenHeads.add(key);
+    if (recruit.turnsLeft <= 0) spawnHeads.push(recruit);
+  }
+
+  for (const recruit of spawnHeads) {
+    const b = state.buildings.find(b => b.id === recruit.buildingId);
+    if (!b || Number(b.owner) !== Number(recruit.owner)) continue;
+    const spawnChassis = recruit.designId !== undefined
+      ? (state.designs[recruit.owner].find(d => d.id === recruit.designId)?.chassis ?? null)
+      : (recruit.type ?? null);
+    const spawnHex = findFreeAdjacentHex(state, b.q, b.r, spawnChassis, state._terrain, recruit.owner);
+    if (!spawnHex) {
+      recruit.turnsLeft = 0;
+      events.push(`P${recruit.owner} recruit delayed at ${BUILDING_TYPES[b.type]?.name || 'building'} (spawn blocked)`);
+      continue;
+    }
+
+    if (recruit.designId !== undefined) {
+      const design = state.designs[recruit.owner].find(d => d.id === recruit.designId);
+      if (design) {
+        const unit = createUnit(design.chassis, recruit.owner, spawnHex.q, spawnHex.r);
+        Object.assign(unit, { ...design.stats, q: spawnHex.q, r: spawnHex.r, owner: recruit.owner, id: unit.id, type: design.chassis, health: design.stats.health, maxHealth: design.stats.health, moved: false, attacked: false, dugIn: false, building: false, suppressed: false, designId: design.id, designName: design.name });
+        state.units.push(unit);
+        events.push(`P${recruit.owner} recruits ${design.name}`);
+        recruit._spawned = true;
+      }
+    } else {
+      state.units.push(createUnit(recruit.type, recruit.owner, spawnHex.q, spawnHex.r));
+      events.push(`P${recruit.owner} recruits ${UNIT_TYPES[recruit.type].name}`);
+      recruit._spawned = true;
+    }
+  }
+  // Remove only recruits that actually spawned
+  state.pendingRecruits = state.pendingRecruits.filter(r => !r._spawned);
+
+  // Medic healing for current player
+  for (const medic of state.units.filter(u => u.type === 'MEDIC' && u.owner === player)) {
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const t = unitAt(state, medic.q + dq, medic.r + dr);
+      if (t && t.owner === player && t.health < t.maxHealth) {
+        t.health = Math.min(t.maxHealth, t.health + 1);
+      }
+    }
+  }
+
+  // Auto-move standing orders (all unit types)
+  for (const unit of state.units.filter(u => u.owner === player && u.moveOrder)) {
+    const order = unit.moveOrder;
+    // Already at destination?
+    if (unit.q === order.destQ && unit.r === order.destR) {
+      events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) auto-move complete`);
+      delete unit.moveOrder; continue;
+    }
+    // Re-pathfind from current position
+    const mapSz = state._mapSize || 25;
+    const path = findPath(terrain, mapSz, unit.q, unit.r, order.destQ, order.destR, unit.type, state);
+    if (!path || path.length === 0) {
+      events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) auto-move blocked — no path`);
+      delete unit.moveOrder; continue;
+    }
+    // Move as many steps as the unit's move allowance
+    let steps = UNIT_TYPES[unit.type]?.move || 1;
+    for (let i = 0; i < steps && i < path.length; i++) {
+      const nq = path[i].q, nr = path[i].r;
+      const blocker = state.units.find(u => u.q === nq && u.r === nr && u.id !== unit.id && !u.embarked);
+      if (blocker) {
+        // Auto-move parity with manual movement: pass THROUGH friendlies, but never END on occupied.
+        const isFriendly = Number(blocker.owner) === Number(player);
+        const isFinalStepThisTurn = (i === steps - 1) || (i === path.length - 1) || (nq === order.destQ && nr === order.destR);
+        if (!isFriendly || isFinalStepThisTurn) break; // enemy blocks, or friendly occupies intended end tile
+      }
+      unit.q = nq; unit.r = nr;
+      unit.dugIn = false;
+      if (nq === order.destQ && nr === order.destR) {
+        events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) reached destination`);
+        delete unit.moveOrder; break;
+      }
+    }
+    unit.moved = true;
+    if (unit.moveOrder) order.path = path.slice(Math.min(steps, path.length));
+  }
+
+  // Auto-road standing orders (current player's engineers)
+  const _autoRoadNextId = () => {
+    const maxId = Math.max(0, ...state.units.map(u => u.id || 0), ...state.buildings.map(b => isNaN(b.id) ? 0 : (b.id || 0)));
+    return maxId + 1;
+  };
+  for (const unit of state.units.filter(u => u.type === 'ENGINEER' && u.owner === player && u.roadOrder)) {
+    const order = unit.roadOrder;
+    // Cancel if enemy within 2 tiles
+    const threatened = state.units.some(e => e.owner !== player && hexDistance(unit.q, unit.r, e.q, e.r) <= 2);
+    if (threatened) {
+      events.push(`Engineer (P${player}) auto-road cancelled — enemy nearby`);
+      delete unit.roadOrder; continue;
+    }
+    // Cancel if iron insufficient
+    if (state.players[player].iron < 1) {
+      events.push(`Engineer (P${player}) auto-road paused — no iron`);
+      continue; // keep order, try again next turn
+    }
+    // Already at destination?
+    if (unit.q === order.destQ && unit.r === order.destR) {
+      events.push(`Engineer (P${player}) auto-road complete`);
+      delete unit.roadOrder; continue;
+    }
+    // Re-pathfind from current position
+    const mapSz = state._mapSize || 25;
+    const path = findPath(terrain, mapSz, unit.q, unit.r, order.destQ, order.destR, 'ENGINEER', state);
+    if (!path || path.length === 0) {
+      events.push(`Engineer (P${player}) auto-road blocked — no path`);
+      delete unit.roadOrder; continue;
+    }
+    // Move one step
+    const next = path[0];
+    const nq = next.q, nr = next.r;
+    // Friendly units can share the hex with an engineer (stacking allowed); enemies block
+    const blocker = state.units.find(u => u.q === nq && u.r === nr && u.id !== unit.id && !u.embarked && u.owner !== player);
+    if (blocker) {
+      events.push(`Engineer (P${player}) auto-road stalled — hex (${nq},${nr}) occupied by enemy`);
+      continue; // keep order
+    }
+    unit.q = nq; unit.r = nr; unit.moved = true;
+    const ttype = terrain?.[`${nq},${nr}`] ?? 0;
+    if (!roadAt(state, nq, nr) && ttype !== 2) {
+      state.buildings.push({ id: _autoRoadNextId(), type: 'ROAD', q: nq, r: nr, owner: player });
+      state.players[player].iron -= 1;
+      events.push(`Engineer (P${player}) auto-builds road at (${nq},${nr})`);
+    } else if (ttype === 2) {
+      events.push(`Engineer (P${player}) cannot road mountain at (${nq},${nr})`);
+    } else {
+      events.push(`Engineer (P${player}) advances along road at (${nq},${nr})`);
+    }
+    order.path = path.slice(1);
+    if (nq === order.destQ && nr === order.destR) {
+      events.push(`Engineer (P${player}) auto-road order complete`);
+      delete unit.roadOrder;
+    }
+  }
+
+  // ── Construction progress ─────────────────────────────────────────────────
+  // For each engineer still building, advance their building's progress by 1
+  for (const unit of state.units.filter(u => u.owner === player && u.constructing)) {
+    const b = state.buildings.find(b => b.id === unit.constructing);
+    if (!b || !b.underConstruction) {
+      // Building gone or already complete — clear the flag
+      delete unit.constructing;
+      continue;
+    }
+    b.buildProgress = (b.buildProgress || 0) + 1;
+    if (b.buildProgress >= b.buildTurnsRequired) {
+      b.underConstruction = false;
+      delete b.buildProgress;
+      delete b.buildTurnsRequired;
+      delete unit.constructing;
+      events.push(`P${player} completed ${BUILDING_TYPES[b.type].name}!`);
+    }
+  }
+
+  // ── Air unit fuel ──────────────────────────────────────────────────────────
+  // At end of each player's turn: refuel if on friendly Airfield, else burn 1 fuel.
+  // Hitting 0 = crash (unit destroyed).
+  for (const unit of state.units.filter(u => u.owner === player && u.fuel !== undefined)) {
+    const onAirfield = state.buildings.find(
+      b => b.q === unit.q && b.r === unit.r && b.type === 'AIRFIELD' &&
+           b.owner === player && !b.underConstruction
+    );
+    if (onAirfield) {
+      unit.fuel = unit.fuelMax; // refueled
+      events.push(`${UNIT_TYPES[unit.type].name} (P${player}) refueled at Airfield`);
+    } else {
+      unit.fuel = Math.max(0, unit.fuel - 1);
+      if (unit.fuel === 0) {
+        events.push(`${UNIT_TYPES[unit.type].name} (P${player}) crashed — out of fuel!`);
+        unit.health = 0; // mark for removal below
+      } else if (unit.fuel === 1) {
+        events.push(`${UNIT_TYPES[unit.type].name} (P${player}) — FUEL CRITICAL (1 turn remaining)`);
+      }
+    }
+  }
+  // Remove crashed air units
+  state.units = state.units.filter(u => u.health > 0);
+
+  // ── Unit upkeep deduction ─────────────────────────────────────────────────
+  const upkeep = calcUpkeep(state, player);
+  const pl = state.players[player];
+  if (!pl.upkeepDebt) pl.upkeepDebt = { food: 0, iron: 0, oil: 0 };
+  let economicShortage = false;
+  // For each resource: deduct. If can't afford, accumulate debt.
+  for (const res of ['food', 'iron', 'oil']) {
+    const cost = upkeep[res];
+    if (cost <= 0) continue;
+    if (pl[res] >= cost) {
+      pl[res] = +((pl[res] - cost).toFixed(2));
+      pl.upkeepDebt[res] = 0; // cleared
+    } else {
+      // Can't fully pay — take what's available, mark debt
+      pl[res] = 0;
+      pl.upkeepDebt[res] = (pl.upkeepDebt[res] || 0) + 1;
+      economicShortage = true;
+    }
+  }
+  // Economic shortages should never delete the army.
+  if (economicShortage) {
+    for (const unit of state.units.filter(u => u.owner === player)) {
+      unit.unsupplied = (unit.unsupplied || 0) + 1;
+      events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) suffers economic shortage (-move, -attack)`);
+    }
+  } else {
+    // Clear economic unsupplied flags when resources are restored
+    for (const unit of state.units.filter(u => u.owner === player)) {
+      unit.unsupplied = 0;
+    }
+    pl.upkeepDebt = { food: 0, iron: 0, oil: 0 };
+  }
+
+  // ── Research tick (TECH_TREE injected from GameScene via state._techTree) ──
+  const _TECH_TREE = state._techTree || {};
+  const inc = calcIncome(state, player);
+  if (inc.rp > 0) {
+    const resState = pl.research;
+    if (!resState) { pl.research = { queue: [], unlocked: [], slots: 1 }; }
+    // Spend RP on queued research (up to `slots` active at once)
+    const activeCount = Math.min(resState.queue.length, resState.slots || 1);
+    for (let qi = 0; qi < activeCount; qi++) {
+      const item = resState.queue[qi];
+      if (!item) continue;
+      const tech = _TECH_TREE[item.techId];
+      if (!tech) { resState.queue.splice(qi, 1); qi--; continue; }
+      const rpGain = inc.rp / Math.max(1, activeCount);
+      item.rpSpent = (item.rpSpent || 0) + rpGain;
+      if (item.rpSpent >= tech.cost) {
+        resState.unlocked.push(item.techId);
+        resState.queue.splice(qi, 1); qi--;
+        events.push(`P${player} researched: ${tech.name}!`);
+        if (tech.effect.extraResearchSlots) resState.slots = (resState.slots || 1) + tech.effect.extraResearchSlots;
+        // Chassis unlock: auto-create Mk.0 base design for immediate use
+        if (tech.effect.unlockChassis) {
+          const chassis = tech.effect.unlockChassis;
+          const mkName  = `${UNIT_TYPES[chassis]?.name || chassis} Mk.0`;
+          if (!state.designs[player]) state.designs[player] = [];
+          const alreadyHas = state.designs[player].some(d => d.chassis === chassis && d.name === mkName);
+          if (!alreadyHas && state.designs[player].length < MAX_DESIGNS_PER_PLAYER) {
+            const baseStats = Object.assign({}, UNIT_TYPES[chassis] || {});
+            state.designs[player].push({
+              id: Date.now() + player * 1000 + Math.floor(Math.random() * 999),
+              name: mkName, chassis, modules: [],
+              stats: baseStats,
+              trainCost: { iron: baseStats.cost?.iron ?? 0, oil: baseStats.cost?.oil ?? 0 },
+              isBaseMk0: true,
+            });
+            events.push(`P${player} unlocked new chassis: ${mkName} — available in Unit Designer.`);
+          }
+        }
+      }
+    }
+  }
+
+  // Income for current player
+  state.players[player].iron += inc.iron;
+  state.players[player].oil  += inc.oil;
+  state.players[player].wood  = (state.players[player].wood || 0) + inc.wood;
+  state.players[player].food  = +((state.players[player].food  || 0) + inc.food).toFixed(2);
+  state.players[player].gold  = +((state.players[player].gold  || 0) + inc.gold).toFixed(2);
+
+  // Tier 2 conversion: factories consume raw resources -> components.
+  let madeComponents = 0;
+  for (const b of state.buildings) {
+    if (b.owner !== player || b.type !== 'FACTORY' || b.underConstruction) continue;
+    if (b.active === false) continue; // player toggled off
+    if (state.players[player].iron >= 1 && state.players[player].oil >= 1 && (state.players[player].wood || 0) >= 1) {
+      state.players[player].iron -= 1;
+      state.players[player].oil  -= 1;
+      state.players[player].wood = (state.players[player].wood || 0) - 1;
+      state.players[player].components = (state.players[player].components || 0) + 1;
+      madeComponents += 1;
+    }
+  }
+
+  let incStr = `P${player} +${inc.iron} iron, +${inc.oil} oil`;
+  if (inc.wood  > 0) incStr += `, +${inc.wood} wood`;
+  if (inc.food  > 0) incStr += `, +${inc.food} food`;
+  if (inc.gold  > 0) incStr += `, +${inc.gold} gold`;
+  if (madeComponents > 0) incStr += `, +${madeComponents} components`;
+  if (inc.rp    > 0) incStr += `, +${inc.rp} RP`;
+  events.push(incStr);
+
+  // Reset current player's units for next turn
+  for (const unit of state.units.filter(u => u.owner === player)) {
+    unit.moved = false; unit.attacked = false; unit.building = false; unit.suppressed = false; unit.sprinted = false;
+    unit.movesLeft = UNIT_TYPES[unit.type]?.move ?? (unit.movesLeft || 1);
+    // Keep constructing engineers locked in place
+    if (unit.constructing) { unit.moved = true; unit.movesLeft = 0; }
+    delete unit._origQ; delete unit._origR;
+  }
+
+  // ── Supply check ──────────────────────────────────────────────────────────
+  const suppliedHexes = computeSupply(state, player, state._mapSize || 25);
+  const supplyHealPct = getSupplyHealPct(state, player);
+  for (const unit of state.units.filter(u => u.owner === player && !u.embarked)) {
+    // Recon upgrade: unit ignores supply needs entirely.
+    if ((unit.ignoreSupply || 0) > 0) {
+      unit.outOfSupply = 0;
+      continue;
+    }
+
+    // Naval endurance model: ships can operate off onboard stores for many turns.
+    const isNaval = NAVAL_UNITS.has(unit.type);
+    const navalMax = unit.type === 'SUPPLY_SHIP' ? 99
+      : unit.type === 'SUBMARINE' ? 10
+      : unit.type === 'PATROL_BOAT' ? 6
+      : (unit.type === 'DESTROYER' || unit.type === 'DESTROYER_MK1') ? 7
+      : (unit.type === 'CRUISER_LT' || unit.type === 'CRUISER_HV') ? 8
+      : unit.type === 'BATTLESHIP' ? 10
+      : (unit.type === 'LANDING_CRAFT' || unit.type?.startsWith('TRANSPORT_')) ? 5
+      : 6;
+    // Building-proximity recharge for navalSupply
+    let navalRecharge = 0;
+    if (unit.type === 'SUPPLY_SHIP') {
+      navalRecharge = 99;
+    } else {
+      const _dirs6 = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+      const _navalRestockRates = { PORT:2, HARBOR:2, NAVAL_YARD:2, DRY_DOCK:3, NAVAL_BASE:4, NAVAL_DOCKYARD:5 };
+      // Adjacent supply ship
+      const _adjSupplyShip = state.units.some(u2 => u2.owner===unit.owner && u2.type==='SUPPLY_SHIP' &&
+        _dirs6.some(([dq,dr]) => u2.q===unit.q+dq && u2.r===unit.r+dr));
+      if (_adjSupplyShip) navalRecharge = Math.max(navalRecharge, 1);
+      // Adjacent naval buildings
+      for (const [btype, rate] of Object.entries(_navalRestockRates)) {
+        const _near = state.buildings.some(b => b.owner===unit.owner && b.type===btype && !b.underConstruction &&
+          ((Math.abs(b.q-unit.q)+Math.abs(b.r-unit.r)+Math.abs((b.q-unit.q)+(b.r-unit.r)))/2) <= 1);
+        if (_near) navalRecharge = Math.max(navalRecharge, rate);
+      }
+      // Baseline: in supply network = +1
+      if (suppliedHexes.has(`${unit.q},${unit.r}`)) navalRecharge = Math.max(navalRecharge, 1);
+    }
+
+    // Supply ships are floating logistics hubs and ignore network supply constraints.
+    if (unit.type === 'SUPPLY_SHIP') {
+      unit.outOfSupply = 0;
+      unit.navalSupply = navalMax;
+      if (unit.health < unit.maxHealth) applyPercentHealthDelta(unit, supplyHealPct, 'heal');
+      continue;
+    }
+
+    const key = `${unit.q},${unit.r}`;
+    if (suppliedHexes.has(key)) {
+      // In supply — clear penalty and recharge naval endurance.
+      if (unit.outOfSupply > 0) events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) resupplied`);
+      unit.outOfSupply = 0;
+      if (isNaval) {
+        unit.navalSupply = Math.min(navalMax, (unit.navalSupply ?? navalMax) + navalRecharge);
+      }
+      if (unit.health < unit.maxHealth) {
+        applyPercentHealthDelta(unit, supplyHealPct, 'heal');
+        events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) healed in supply (+${supplyHealPct}% max HP)`);
+      }
+    } else {
+      if (isNaval) {
+        unit.navalSupply = Math.max(0, (unit.navalSupply ?? navalMax) - 1);
+        if (unit.navalSupply > 0) {
+          // Still operating on onboard supply, no out-of-supply penalties yet.
+          unit.outOfSupply = 0;
+          continue;
+        }
+      }
+
+      unit.outOfSupply = (unit.outOfSupply || 0) + 1;
+      if (unit.outOfSupply === 1) events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) is OUT OF SUPPLY (-1 move, -1 attack)`);
+      else if (unit.outOfSupply === 2) events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) unsupplied 2 turns (-2 move, -2 attack)`);
+      else events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) critically unsupplied`);
+      const before = unit.health;
+      applyPercentHealthDelta(unit, OOS_HEALTH_LOSS_PCT, 'harm');
+      if (unit.health < before) {
+        const floorPct = OOS_MIN_HEALTH_PCT;
+        events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) loses ${OOS_HEALTH_LOSS_PCT}% max HP from lack of supply (min ${floorPct}% HP)`);
+      }
+      // Apply move penalty for this coming turn
+      const pen = supplyPenalty(unit.outOfSupply);
+      unit.movesLeft = Math.max(1, unit.movesLeft - pen.movePenalty);
+    }
+  }
+  state.pendingMoves = {}; state.pendingAttacks = {};
+
+  // Switch player
+  state.currentPlayer = Number(player) === 1 ? 2 : 1;
+  // Increment turn counter every time P2 ends their turn (full round)
+  if (player === 2) state.turn++;
+  state.phase = 'planning';
+
+  return events;
+}
+
+function findFreeAdjacentHex(state, q, r, unitType = null, terrain = null, spawnOwner = null) {
+  const mapSize = state._mapSize || 25;
+  const isValid = (x, y) => x >= 0 && y >= 0 && x < mapSize && y < mapSize;
+
+  const isSpawnable = (x, y) => {
+    if (!isValid(x, y)) return false;
+
+    const unitsHere = state.units.filter(u => !u.dead && u.q === x && u.r === y);
+    const isOrigin = (x === q && y === r);
+
+    if (spawnOwner !== null && unitsHere.some(u => Number(u.owner) !== Number(spawnOwner))) return false;
+
+    if (isOrigin) {
+      // Spawn ON producer tile is allowed only if occupants are friendly engineer/air stack types.
+      const hasBlockingGround = unitsHere.some(u => u.type !== 'ENGINEER' && !AIR_UNITS.has(u.type));
+      if (hasBlockingGround) return false;
+    } else {
+      // Non-origin spawn hexes must be empty of units.
+      if (unitsHere.length > 0) return false;
+      const bld = buildingAt(state, x, y);
+      const blockedByBuilding = bld && !ROAD_TYPES.has(bld.type);
+      if (blockedByBuilding) return false;
+    }
+
+    if (unitType && terrain) {
+      const ttype = terrain[`${x},${y}`] ?? 0;
+      if (!canEnterTerrain(unitType, ttype)) return false;
+    }
+    return true;
+  };
+
+  // 1) Prefer spawning ON the producer tile when legal.
+  if (isSpawnable(q, r)) return { q, r };
+
+  // 2) Then prefer adjacent spawn.
   for (const [dq, dr] of HEX_NEIGHBORS) {
     const nq = q + dq, nr = r + dr;
-    if (unitAt(state, nq, nr) || buildingAt(state, nq, nr)) continue;
-    // If unitType and terrain provided, check that the unit can actually stand here
-    if (unitType && terrain) {
-      const ttype = terrain[`${nq},${nr}`] ?? 0;
-      if (!canEnterTerrain(unitType, ttype)) continue;
-    }
-    return { q: nq, r: nr };
+    if (isSpawnable(nq, nr)) return { q: nq, r: nr };
   }
+
+  // 2) Fallback: nearest free hex in expanding BFS radius.
+  // This prevents hard-lock when barracks/depot is surrounded by structures.
+  const maxSearch = 8;
+  const seen = new Set([`${q},${r}`]);
+  const queue = [{ q, r, d: 0 }];
+  while (queue.length) {
+    const cur = queue.shift();
+    if (cur.d > 0 && cur.d <= maxSearch && isSpawnable(cur.q, cur.r)) return { q: cur.q, r: cur.r };
+    if (cur.d >= maxSearch) continue;
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const nq = cur.q + dq, nr = cur.r + dr;
+      if (!isValid(nq, nr)) continue;
+      const k = `${nq},${nr}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      queue.push({ q: nq, r: nr, d: cur.d + 1 });
+    }
+  }
+
   return null;
 }
 
 export function checkWinner(state) {
-  const p1 = state.units.filter(u => u.owner === 1).length;
-  const p2 = state.units.filter(u => u.owner === 2).length;
+  // Victory is HQ-based only (prevents accidental early wins from transient unit-count issues).
   const p1HQ = state.buildings.find(b => b.type === 'HQ' && b.owner === 1);
   const p2HQ = state.buildings.find(b => b.type === 'HQ' && b.owner === 2);
-  if (!p2HQ || p2 === 0) return 1;
-  if (!p1HQ || p1 === 0) return 2;
+  if (!p2HQ) return 1;
+  if (!p1HQ) return 2;
   return null;
 }
 
 const HEX_NEIGHBORS = [[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];
+
+// ── Supply system ─────────────────────────────────────────────────────────
+// Global supply range scale (0.65 = 35% shorter reach overall for buildings/road networks).
+const SUPPLY_RANGE_SCALE = 0.65;
+
+// Base supply radius per building type (hexes). Roads use an entry tax then free chaining.
+export const BUILDING_SUPPLY_RADIUS = {
+  HQ:           8,
+  BARRACKS:     4,
+  VEHICLE_DEPOT:4,
+  AIRFIELD:     3,
+  SCIENCE_LAB:  3,
+  MINE:         2,
+  OIL_PUMP:     2,
+  FARM:         2,
+  MARKET:       2,
+  HARBOR:       3,
+  NAVAL_YARD:   3,
+  DRY_DOCK:     2,
+  NAVAL_BASE:   3,
+  SUPPLY_WAREHOUSE: 4,
+};
+
+// Returns a Set of "q,r" keys that are in supply for the given player.
+// Roads consume 1 range when first entered from non-road, then chain for free while on-road.
+// Only SAME-OWNER roads count, so extension must be connected to your own supply network.
+export function computeSupply(state, player, mapSize) {
+  const supplied = new Set();
+  const ms = mapSize || state._mapSize || 25;
+
+  // Roads extend supply only when they are OWNED by the same player AND connected to that player's HQ road network.
+  const isOwnedRoadHex = (q, r) => state.buildings.some(b => ROAD_TYPES.has(b.type) && b.q === q && b.r === r && Number(b.owner) === Number(player));
+  const _isValid = (q, r) => q >= 0 && r >= 0 && q < ms && r < ms;
+
+  // Build a set of owned roads that are connected to HQ OR Supply Warehouse
+  // (warehouse acts as alternate logistics anchor for detached road networks).
+  const hqRoadConnected = new Set();
+  const myRoadAnchors = state.buildings.filter(b => Number(b.owner) === Number(player) && (b.type === 'HQ' || b.type === 'SUPPLY_WAREHOUSE'));
+  const roadQueue = [];
+  for (const anchor of myRoadAnchors) {
+    const seeds = [{ q: anchor.q, r: anchor.r }, ...HEX_NEIGHBORS.map(([dq, dr]) => ({ q: anchor.q + dq, r: anchor.r + dr }))];
+    for (const s of seeds) {
+      if (!_isValid(s.q, s.r)) continue;
+      if (!isOwnedRoadHex(s.q, s.r)) continue;
+      const k = `${s.q},${s.r}`;
+      if (hqRoadConnected.has(k)) continue;
+      hqRoadConnected.add(k);
+      roadQueue.push(s);
+    }
+  }
+  while (roadQueue.length > 0) {
+    const cur = roadQueue.shift();
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const nq = cur.q + dq, nr = cur.r + dr;
+      if (!_isValid(nq, nr)) continue;
+      if (!isOwnedRoadHex(nq, nr)) continue;
+      const nk = `${nq},${nr}`;
+      if (hqRoadConnected.has(nk)) continue;
+      hqRoadConnected.add(nk);
+      roadQueue.push({ q: nq, r: nr });
+    }
+  }
+
+  const isRoadHex = (q, r) => hqRoadConnected.has(`${q},${r}`);
+
+  const floodFill = (sq, sr, radius) => {
+    // BFS — roads cost 0, other hexes cost 1.
+    // Highways should genuinely project supply deep into theater (not just 2 hops).
+    const ROAD_CHAIN_LIMIT = 12;
+    const queue = [{ q: sq, r: sr, rem: radius, roadChain: 0 }];
+    const visited = new Map(); // key -> best rem seen for chain-state
+    visited.set(`${sq},${sr},0`, radius);
+    while (queue.length > 0) {
+      const { q, r, rem, roadChain } = queue.shift();
+      supplied.add(`${q},${r}`);
+      if (rem <= 0) continue;
+      for (const [dq, dr] of HEX_NEIGHBORS) {
+        const nq = q + dq, nr = r + dr;
+        if (!_isValid(nq, nr)) continue;
+        const fromRoad = isRoadHex(q, r);
+        const toRoad = isRoadHex(nq, nr);
+        let nextRoadChain = 0;
+        if (toRoad) {
+          nextRoadChain = fromRoad ? (roadChain + 1) : 1;
+          if (nextRoadChain > ROAD_CHAIN_LIMIT) continue;
+        }
+        // entering a road from non-road consumes 1 range; continuing on roads is free.
+        // This makes road corridors materially better for long-distance logistics.
+        const stepCost = toRoad ? (fromRoad ? 0 : 1) : 1;
+        const nextRem = rem - stepCost;
+        const key = `${nq},${nr},${nextRoadChain}`;
+        const prevBest = visited.get(key) ?? -1;
+        if (nextRem > prevBest) {
+          visited.set(key, nextRem);
+          queue.push({ q: nq, r: nr, rem: nextRem, roadChain: nextRoadChain });
+        }
+      }
+    }
+  };
+
+  // Flood from owned non-under-construction buildings
+  for (const b of state.buildings) {
+    if (b.owner !== player || b.underConstruction) continue;
+    const radius = Math.max(0, Math.floor((BUILDING_SUPPLY_RADIUS[b.type] || 0) * SUPPLY_RANGE_SCALE));
+    if (radius > 0) floodFill(b.q, b.r, radius);
+  }
+
+  // Flood from mobile supply nodes (truck + supply ship)
+  for (const u of state.units) {
+    if (u.owner !== player || u.embarked) continue;
+    if (u.type !== 'SUPPLY_TRUCK' && u.type !== 'SUPPLY_SHIP') continue;
+    const rad = UNIT_TYPES[u.type]?.supplyRadius || (u.type === 'SUPPLY_SHIP' ? 2 : 3);
+    floodFill(u.q, u.r, rad);
+  }
+
+  // Naval buildings project supply across water by default (6 tiles).
+  const isWater = (q, r) => {
+    const t = state.terrain?.[`${q},${r}`] ?? 0;
+    return t === 4 || t === 5; // shallow/ocean
+  };
+  const waterFlood = (sq, sr, radius) => {
+    const queue = [{ q: sq, r: sr, rem: radius }];
+    const visited = new Map();
+    visited.set(`${sq},${sr}`, radius);
+    while (queue.length > 0) {
+      const { q, r, rem } = queue.shift();
+      supplied.add(`${q},${r}`);
+      if (rem <= 0) continue;
+      for (const [dq, dr] of HEX_NEIGHBORS) {
+        const nq = q + dq, nr = r + dr;
+        if (!_isValid(nq, nr) || !isWater(nq, nr)) continue;
+        const nextRem = rem - 1;
+        const key = `${nq},${nr}`;
+        const prevBest = visited.get(key) ?? -1;
+        if (nextRem > prevBest) {
+          visited.set(key, nextRem);
+          queue.push({ q: nq, r: nr, rem: nextRem });
+        }
+      }
+    }
+  };
+  const navalSupplySources = state.buildings.filter(b => Number(b.owner) === Number(player) && !b.underConstruction && ['HARBOR','NAVAL_YARD','DRY_DOCK','NAVAL_BASE','NAVAL_DOCKYARD'].includes(b.type));
+  for (const b of navalSupplySources) {
+    // seed from adjacent water tiles so coastal naval bases project over sea lanes.
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const nq = b.q + dq, nr = b.r + dr;
+      if (_isValid(nq, nr) && isWater(nq, nr)) waterFlood(nq, nr, 6);
+    }
+  }
+
+  return supplied;
+}
+
+// Out-of-supply stat penalty: { movePenalty, attackPenalty } based on unsupplied turns
+export function supplyPenalty(outOfSupplyTurns) {
+  if (outOfSupplyTurns <= 0) return { movePenalty: 0, attackPenalty: 0 };
+  if (outOfSupplyTurns === 1) return { movePenalty: 1, attackPenalty: 1 };
+  if (outOfSupplyTurns === 2) return { movePenalty: 2, attackPenalty: 2 };
+  return { movePenalty: 3, attackPenalty: 3 }; // caps at 3 for both
+}

@@ -18,3 +18,7 @@ const config = {
 };
 
 window.game = new Phaser.Game(config);
+// Ensure canvas is keyboard-focusable (needed for WASD after click events)
+window.game.events.once('ready', () => {
+  if (window.game.canvas) window.game.canvas.setAttribute('tabindex', '0');
+});
