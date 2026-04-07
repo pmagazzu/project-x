@@ -98,20 +98,9 @@ function drawUnitByShape(g, shape, s, color) {
   } else if (shape === 'arrow') {
     g.fillStyle(light, 0.95);
     g.fillTriangle(cx - 7, cy, cx + 6, cy - 6, cx + 6, cy + 6);
-  } else if (shape === 'boat' || shape === 'mtb' || shape === 'sub' || shape === 'destroyer' || shape === 'cruiser' || shape === 'battleship' || shape === 'transport') {
+  } else if (shape === 'boat' || shape === 'sub' || shape === 'destroyer' || shape === 'cruiser' || shape === 'battleship' || shape === 'transport') {
     const deck = 0x8d7a5e;
-    if (shape === 'mtb') {
-      // MTB: sleek fast hull, low profile, torpedo tubes on sides
-      g.fillStyle(0x5a6670, 0.98);
-      g.fillTriangle(cx - 7, cy + 3, cx + 10, cy + 1, cx + 11, cy - 1);
-      g.fillRect(cx - 7, cy - 3, 17, 6);
-      g.fillStyle(deck, 1); g.fillRect(cx - 6, cy - 2, 10, 3);
-      g.fillStyle(0x3a4550, 1); g.fillRect(cx + 1, cy - 7, 3, 4); // small bridge
-      // Torpedo tube stubs (sides)
-      g.fillStyle(0x9fb0c3, 0.85);
-      g.fillRect(cx - 5, cy + 3, 5, 1); // port tube
-      g.fillRect(cx - 5, cy - 4, 5, 1); // starboard tube
-    } else if (shape === 'sub') {
+    if (shape === 'sub') {
       g.fillStyle(0x1e232a, 0.98); g.fillEllipse(cx, cy + 1, 22, 7);
       g.fillStyle(0x555f6e, 0.95); g.fillRect(cx - 2, cy - 6, 5, 4);
       g.fillStyle(0x9fb0c3, 0.8);  g.fillRect(cx - 8, cy + 1, 16, 1);
