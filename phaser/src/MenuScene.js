@@ -21,42 +21,10 @@ const SCENARIOS = [
     customSize: true,
   },
   {
-    key:   'ai_vs_ai_island_medium',
-    label: 'AI VS AI · ISLAND (MEDIUM)',
+    key:   'ai_vs_ai_island_extreme_500',
+    label: 'AI VS AI · ISLAND EXTREME (500T)',
     icon:  '🤖',
-    sub:   '40×40 single island profile · both players AI (20 turns)',
-    color: 0x1b3248,
-    hoverColor: 0x2a5678,
-  },
-  {
-    key:   'ai_vs_ai_island_medium_40',
-    label: 'AI VS AI · ISLAND DUPLICATE (40T)',
-    icon:  '🤖',
-    sub:   '40×40 single island profile · both players AI (40 turns)',
-    color: 0x1f3f5a,
-    hoverColor: 0x336a99,
-  },
-  {
-    key:   'ai_vs_ai_island_large_80',
-    label: 'AI VS AI · ISLAND HUGE (80T)',
-    icon:  '🤖',
-    sub:   '90×90 single island profile · both players AI (80 turns)',
-    color: 0x22445f,
-    hoverColor: 0x3a79a8,
-  },
-  {
-    key:   'ai_vs_ai_two_continents',
-    label: 'AI VS AI · TWO CONTINENTS (250T)',
-    icon:  '🌍',
-    sub:   '135×135 · two continents · land bridge · naval + air + ground (250 turns)',
-    color: 0x1a3355,
-    hoverColor: 0x2a5588,
-  },
-  {
-    key:   'ai_vs_ai_island_extreme_120',
-    label: 'AI VS AI · ISLAND EXTREME (120T)',
-    icon:  '🤖',
-    sub:   '135×135 single island profile · both players AI (120 turns)',
+    sub:   '135×135 single island profile · both players AI (500 turns)',
     color: 0x2a2f68,
     hoverColor: 0x4a59b0,
   },
@@ -166,30 +134,10 @@ export class MenuScene extends Phaser.Scene {
         sub.setStyle({ fill: '#556650' });
       });
       bg.on('pointerdown', () => {
-        if (sc.key === 'ai_vs_ai_two_continents') {
+        if (sc.key === 'ai_vs_ai_island_extreme_500') {
           this.scene.start('GameScene', {
             scenario: 'custom',
             customSize: 135,
-            procLandProfile: 'two_continents',
-            aiP1: true,
-            aiP2: true,
-            aiStrategy: 'balanced',
-            aiLabExport: true,
-            autoStopTurn: 250,
-            aiViewerMode: true,
-          });
-        } else if (sc.key === 'ai_vs_ai_island_medium' || sc.key === 'ai_vs_ai_island_medium_40' || sc.key === 'ai_vs_ai_island_large_80' || sc.key === 'ai_vs_ai_island_extreme_120') {
-          const autoStopTurn = sc.key === 'ai_vs_ai_island_medium_40'
-            ? 40
-            : (sc.key === 'ai_vs_ai_island_large_80'
-              ? 80
-              : (sc.key === 'ai_vs_ai_island_extreme_120' ? 120 : 20));
-          const customSize = sc.key === 'ai_vs_ai_island_large_80'
-            ? 90
-            : (sc.key === 'ai_vs_ai_island_extreme_120' ? 135 : 40);
-          this.scene.start('GameScene', {
-            scenario: 'custom',
-            customSize,
             aiP1: true,
             aiP2: true,
             aiStrategy: 'balanced',
@@ -197,7 +145,7 @@ export class MenuScene extends Phaser.Scene {
             procQuickStart: true,
             debugNoFog: true,
             aiViewerMode: true,
-            autoStopTurn,
+            autoStopTurn: 500,
             aiLabExport: true,
             startSupplyTruck: true,
           });
