@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.4.127';
+export const GAME_VERSION = 'v1.4.126';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -2596,84 +2596,37 @@ export class GameScene extends Phaser.Scene {
     const w = this.scale.width;
     const D = 100;
 
-    // Single-row top bar (resources moved to left sidebar)
-    this.topBarBg = this.add.rectangle(w/2, 22, w, 44, 0x0a0a0a, 0.96)
+    // Two-row top bar to prevent overlaps as features grow.
+    this.topBarBg = this.add.rectangle(w/2, 37, w, 74, 0x0a0a0a, 0.96)
       .setScrollFactor(0).setDepth(D);
-    this.topBarAccent = this.add.rectangle(w/2, 44, w, 1, 0x2a4a2a, 1).setScrollFactor(0).setDepth(D + 1);
+    this.topBarDivider = this.add.rectangle(w/2, 37, w, 1, 0x1f2f1f, 1).setScrollFactor(0).setDepth(D + 1); // row divider
+    this.topBarAccent = this.add.rectangle(w/2, 74, w, 1, 0x2a4a2a, 1).setScrollFactor(0).setDepth(D + 1); // bottom accent
 
-    // Top bar: nav + state + action buttons
-    this.btnMenu     = this._makeBtn(10,    8, '← MENU',  0x222222, () => this.scene.start('MenuScene'), D);
-    this.btnEconomy  = this._makeBtn(112,   8, '📊 ECON', 0x2a2a14, () => this._toggleEconomy(), D);
-    this.turnLbl     = this._makeLabel(w/2, 8, 'Turn 1 | Player 1 | PLANNING', D, true);
-
-    this.btnSupply   = this._makeBtn(w - 500, 8, '⬡ SUP',   0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
-    this.btnResearch = this._makeBtn(w - 414, 8, '⚗ RES',   0x442266, () => this._toggleResearch(), D, 'right');
-    this.btnDesigner = this._makeBtn(w - 328, 8, '🔧 DES',   0x1a3322, () => this._toggleDesigner(), D, 'right');
-    this.btnTrade    = this._makeBtn(w - 242, 8, '💱 TRADE', 0x3a2a11, () => this._toggleTrade(), D, 'right');
-    this.btnSettings = this._makeBtn(w - 140, 8, '⚙ SET',   0x222244, () => this._toggleSettings(), D, 'right');
-    this.btnSubmit   = this._makeBtn(w - 8,   8, 'END TURN',0x1a5c1a, () => this._confirmEndTurn(), D, 'right');
+    // Row 1: nav + state
+    this.btnMenu = this._makeBtn(10, 8, '← MENU', 0x222222, () => this.scene.start('MenuScene'), D);
+    this.btnEconomy = this._makeBtn(112, 8, '📊 ECON', 0x2a2a14, () => this._toggleEconomy(), D);
+    this.turnLbl = this._makeLabel(w/2, 8, 'Turn 1 | Player 1 | PLANNING', D, true);
 
     // Version tag
-    this.versionTag = this.add.text(w/2 + 180, 8, GAME_VERSION, {
+    this.versionTag = this.add.text(w - 110, 8, GAME_VERSION, {
       font: '11px monospace', fill: '#5a6f8a'
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(D);
 
-    // ── Left resource sidebar ─────────────────────────────────────────────
-    // Anchored below the top bar on the left edge.
-    // Each resource: large emoji + big stock number + small net/turn.
-    const RES_PANEL_W = 88;
-    const RES_ROW_H   = 44;
-    const RES_ROWS    = 7; // iron, oil, wood, food, gold, components, rp
-    const RES_TOP     = 48; // just below top bar
-    const RES_PAD_X   = 6;
+    // Row 2: resources (left) + actions (right)
+    this.resIron = this._makeLabel(10, 42, '⚙ —', D);
+    this.resOil  = this._makeLabel(104, 42, '🛢 —', D);
+    this.resWood = this._makeLabel(198, 42, '🪵 —', D);
+    this.resFood = this._makeLabel(290, 42, '🍞 —', D);
+    this.resGold = this._makeLabel(382, 42, '💰 —', D);
+    this.resComp = this._makeLabel(474, 42, '🧩 —', D);
+    this.resRp   = this._makeLabel(566, 42, '⚗ —', D);
 
-    this.resSidebarBg = this.add.rectangle(
-      RES_PANEL_W / 2, RES_TOP + (RES_ROWS * RES_ROW_H) / 2,
-      RES_PANEL_W, RES_ROWS * RES_ROW_H,
-      0x0a0f0a, 0.88
-    ).setStrokeStyle(1, 0x1e2e1e).setScrollFactor(0).setDepth(D);
-
-    const makeResRow = (idx, emoji) => {
-      const rowY  = RES_TOP + idx * RES_ROW_H;
-      const midY  = rowY + RES_ROW_H / 2;
-      // Emoji icon (large)
-      const icon = this.add.text(RES_PAD_X + 2, midY - 10, emoji, {
-        font: '22px monospace'
-      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 1);
-      // Stock number (big)
-      const stock = this.add.text(RES_PAD_X + 34, midY - 11, '—', {
-        font: 'bold 15px monospace', fill: '#e8f4e8'
-      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 1);
-      // Net per turn (small, below stock)
-      const net = this.add.text(RES_PAD_X + 34, midY + 6, '', {
-        font: '10px monospace', fill: '#88aa88'
-      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 1);
-      // Divider line between rows
-      if (idx < RES_ROWS - 1) {
-        this.add.rectangle(RES_PANEL_W / 2, rowY + RES_ROW_H, RES_PANEL_W, 1, 0x1e2e1e, 0.7)
-          .setScrollFactor(0).setDepth(D);
-      }
-      return { icon, stock, net };
-    };
-
-    this._resRows = {
-      iron: makeResRow(0, '⚙'),
-      oil:  makeResRow(1, '🛢'),
-      wood: makeResRow(2, '🪵'),
-      food: makeResRow(3, '🍞'),
-      gold: makeResRow(4, '💰'),
-      comp: makeResRow(5, '🧩'),
-      rp:   makeResRow(6, '⚗'),
-    };
-
-    // Keep legacy refs pointing at stock labels so existing update code still works
-    this.resIron = this._resRows.iron.stock;
-    this.resOil  = this._resRows.oil.stock;
-    this.resWood = this._resRows.wood.stock;
-    this.resFood = this._resRows.food.stock;
-    this.resGold = this._resRows.gold.stock;
-    this.resComp = this._resRows.comp.stock;
-    this.resRp   = this._resRows.rp.stock;
+    this.btnSupply   = this._makeBtn(w - 500, 42, '⬡ SUP',   0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
+    this.btnResearch = this._makeBtn(w - 414, 42, '⚗ RES',   0x442266, () => this._toggleResearch(), D, 'right');
+    this.btnDesigner = this._makeBtn(w - 328, 42, '🔧 DES',   0x1a3322, () => this._toggleDesigner(), D, 'right');
+    this.btnTrade    = this._makeBtn(w - 242, 42, '💱 TRADE', 0x3a2a11, () => this._toggleTrade(), D, 'right');
+    this.btnSettings = this._makeBtn(w - 140, 42, '⚙ SET',   0x222244, () => this._toggleSettings(), D, 'right');
+    this.btnSubmit   = this._makeBtn(w - 8,   42, 'END TURN',0x1a5c1a, () => this._confirmEndTurn(), D, 'right');
     if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
       this.btnPauseAI = this._makeBtn(w - 610, 8, '⏸ AI', 0x3a2a11, () => {
         this._aiAutoplayPaused = !this._aiAutoplayPaused;
@@ -2746,40 +2699,25 @@ export class GameScene extends Phaser.Scene {
     const ttzIron = _ttz(pl.iron, netIron);
     const ttzOil  = _ttz(pl.oil,  netOil);
     const ttzFood = _ttz(pl.food || 0, netFood);
+    const ttzSuffix = (ttz) => ttz <= 1 ? ' !!!' : ttz <= 3 ? ` (${ttz}t)` : '';
 
-    // ── Update left sidebar resource rows ──────────────────────────────────
-    const setRow = (row, stockVal, netVal, ttz) => {
-      if (!row) return;
-      row.stock.setText(fmtRes(stockVal));
-      const netStr = netVal !== undefined ? sgn(netVal) : '';
-      row.net.setText(netStr);
-      // Color: red at ≤1t, orange at ≤3t, warn color if debt, default otherwise
-      const clr = ttz <= 1 ? '#ff4422' : ttz <= 3 ? '#ffaa33' : unsupplied ? '#ffaa33' : '#e8f4e8';
-      const netClr = netVal > 0 ? '#66cc66' : netVal < 0 ? (ttz <= 3 ? '#ff8833' : '#cc6644') : '#888888';
-      row.stock.setStyle({ fill: clr, font: 'bold 15px monospace' });
-      row.net.setStyle({ fill: netClr, font: '10px monospace' });
-    };
-
-    if (this._resRows) {
-      setRow(this._resRows.iron, pl.iron,              netIron, ttzIron);
-      setRow(this._resRows.oil,  pl.oil,               netOil,  ttzOil);
-      setRow(this._resRows.wood, pl.wood || 0,          netWood, Infinity);
-      setRow(this._resRows.food, pl.food || 0,          netFood, ttzFood);
-      setRow(this._resRows.gold, pl.gold || 0,          netGold, Infinity);
-      setRow(this._resRows.comp, pl.components || 0,    undefined, Infinity);
-
-      // Research row: show tech progress or idle state
-      const resState = pl.research;
-      const activeRes = resState?.queue?.[0];
-      const activeTech = activeRes ? TECH_TREE[activeRes.techId] : null;
-      const rpPct = activeTech ? Math.floor(((activeRes.rpSpent || 0) / activeTech.cost) * 100) : 0;
-      const rpStock = inc.rp === 0 ? '—' : `+${inc.rp}/t`;
-      const rpNet   = activeTech ? `${activeTech.name.substring(0, 9)}.. ${rpPct}%` : (inc.rp > 0 ? 'idle' : 'no lab');
-      this._resRows.rp.stock.setText(rpStock);
-      this._resRows.rp.net.setText(rpNet);
-      this._resRows.rp.stock.setStyle({ fill: inc.rp > 0 ? '#cc88ff' : '#666666', font: 'bold 13px monospace' });
-      this._resRows.rp.net.setStyle({ fill: activeTech ? '#aa88dd' : '#556655', font: '10px monospace' });
-    }
+    this.resIron.setText(`⚙ ${fmtRes(pl.iron)} ${sgn(netIron)}${ttzSuffix(ttzIron)}`);
+    this.resOil.setText(`🛢 ${fmtRes(pl.oil)} ${sgn(netOil)}${ttzSuffix(ttzOil)}`);
+    this.resWood.setText(`🪵 ${fmtRes(pl.wood || 0)} ${sgn(netWood)}`);
+    this.resFood.setText(`🍞 ${fmtRes(pl.food || 0)} ${sgn(netFood)}${ttzSuffix(ttzFood)}`);
+    this.resGold.setText(`💰 ${fmtRes(pl.gold || 0)} ${sgn(netGold)}`);
+    this.resComp.setText(`🧩 ${fmtRes(pl.components || 0)}`);
+    // Research: show active tech name + % or "no lab"
+    const resState = pl.research;
+    const activeRes = resState?.queue?.[0];
+    const activeTech = activeRes ? TECH_TREE[activeRes.techId] : null;
+    const rpPct = activeTech ? Math.floor(((activeRes.rpSpent || 0) / activeTech.cost) * 100) : 0;
+    const rpLabel = inc.rp === 0 ? 'no lab' : activeTech ? `${activeTech.name.substring(0,12)} ${rpPct}%` : `idle (+${inc.rp}/t)`;
+    this.resRp.setText(`⚗ ${rpLabel}`);
+    // Color coding: debt/unsupplied = red, imminent zero = orange, healthy = default
+    this.resFood.setStyle({ fill: unsupplied ? '#ff4422' : ttzFood <= 3 ? '#ffaa33' : '#ccddcc' });
+    this.resIron.setStyle({ fill: ttzIron <= 1 ? '#ff4422' : ttzIron <= 3 ? '#ffaa33' : '#ccddcc' });
+    this.resOil.setStyle({  fill: ttzOil  <= 1 ? '#ff4422' : ttzOil  <= 3 ? '#ffaa33' : '#ccddcc' });
 
     this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  ${modeStr}`);
     this.turnBadge?.setText(`TURN ${gs.turn}`);
