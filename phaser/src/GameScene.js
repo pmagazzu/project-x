@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.5.11';
+export const GAME_VERSION = 'v1.5.12';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -1642,30 +1642,6 @@ export class GameScene extends Phaser.Scene {
     // Viewport culling (large-map perf)
     const { L: _bvpL, R: _bvpR, T: _bvpT, B: _bvpB } = this._vpBounds();
     const fog = this._currentFog || null;
-
-    // Explicit resource markers so deposits remain visible even if baked terrain art is subtle.
-    for (const [k, res] of Object.entries(this.gameState.resourceHexes || {})) {
-      const [q, r] = k.split(',').map(Number);
-      const { x, y } = hexToWorld(q, r);
-      if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
-      const claimed = this.gameState.buildings.some(b => b.q === q && b.r === r && (b.type === 'MINE' || b.type === 'OIL_PUMP'));
-      const ringColor = res?.type === 'OIL' ? 0x1b1b1b : 0xb8842f;
-      const fillColor = res?.type === 'OIL' ? 0x2f2f38 : 0xd9b35b;
-      const iconText = res?.type === 'OIL' ? 'O' : 'I';
-      const alpha = claimed ? 0.18 : 0.92;
-      this.buildingGfx.fillStyle(fillColor, alpha);
-      this.buildingGfx.lineStyle(2, ringColor, Math.min(1, alpha + 0.05));
-      this.buildingGfx.fillCircle(x, y, HEX_SIZE * 0.16);
-      this.buildingGfx.strokeCircle(x, y, HEX_SIZE * 0.16);
-      this.buildingGfx.lineStyle(1.4, 0xffffff, claimed ? 0.12 : 0.55);
-      this.buildingGfx.strokeCircle(x, y, HEX_SIZE * 0.23);
-      if (!claimed) {
-        const t = this.add.text(x, y, iconText, { font: 'bold 11px monospace', fill: res?.type === 'OIL' ? '#d7d7df' : '#3d2a12' })
-          .setOrigin(0.5)
-          .setDepth(6);
-        this.farmTileLayer?.add(t);
-      }
-    }
 
     const curP = Number(this.gameState.currentPlayer);
     for (const b of this.gameState.buildings) {
