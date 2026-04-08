@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.5.06';
+export const GAME_VERSION = 'v1.5.07';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -296,6 +296,10 @@ export class GameScene extends Phaser.Scene {
     if (this._mapBuilderMode) this._initMapBuilder();
     this._drawStaticLayers();
     this._freezeFog(); // lock fog for P1's first planning phase
+    this._refresh();
+    // Rebuild terrain art once more after initial refresh so generated maps and overlays settle
+    // before the final visible terrain layer is attached.
+    this._drawStaticLayers();
     this._refresh();
 
     // Auto-start if current player is AI (supports AI vs AI autoplay starts)
