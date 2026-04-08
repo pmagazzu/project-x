@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.5.18';
+export const GAME_VERSION = 'v1.5.19';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -1173,11 +1173,6 @@ export class GameScene extends Phaser.Scene {
         gfx.fillStyle(0xaaaacc, 0.55);
         gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox, cy+oy, cx+ox+s, cy+oy+s*0.5);
       }
-      // Metallic glint specks
-      gfx.fillStyle(0xccccee, 0.65);
-      for (const [ox, oy] of [[-9,0],[9,-2],[3,11],[-4,-7],[13,3],[1,-1]]) {
-        gfx.fillCircle(cx+ox, cy+oy, 1.5);
-      }
     } else if (type === 'WOOD') {
       // Stacked log silhouettes — brown rounds across tile
       for (const [ox, oy, rw, rh] of [[-8,3,7,4],[2,5,6,3.5],[8,-2,5.5,3],[-3,-6,5,3],[5,6,4.5,2.5]]) {
@@ -1185,9 +1180,6 @@ export class GameScene extends Phaser.Scene {
         gfx.fillEllipse(cx+ox, cy+oy, rw*2, rh*2);
         gfx.fillStyle(0x7a4a22, 0.5);
         gfx.fillEllipse(cx+ox, cy+oy-rh*0.3, rw*1.6, rh);
-        // ring lines
-        gfx.lineStyle(1, 0x3a1a00, 0.45);
-        gfx.strokeCircle(cx+ox, cy+oy, rw*0.55);
       }
     }
   }
