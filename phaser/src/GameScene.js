@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.5.17';
+export const GAME_VERSION = 'v1.5.18';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -2824,12 +2824,12 @@ export class GameScene extends Phaser.Scene {
     const ttzFood = _ttz(pl.food || 0, netFood);
     const ttzSuffix = (ttz) => ttz <= 1 ? ' !!!' : ttz <= 3 ? ` (${ttz}t)` : '';
 
-    this.resIron.setText('⚙');
-    this.resOil.setText('🛢');
-    this.resWood.setText('🪵');
-    this.resFood.setText('🍞');
-    this.resGold.setText('💰');
-    this.resComp.setText('🧩');
+    this.resIron.setText(`⚙ ${fmtRes(pl.iron)} ${sgn(netIron)}${ttzSuffix(ttzIron)}`);
+    this.resOil.setText(`🛢 ${fmtRes(pl.oil)} ${sgn(netOil)}${ttzSuffix(ttzOil)}`);
+    this.resWood.setText(`🪵 ${fmtRes(pl.wood || 0)} ${sgn(netWood)}`);
+    this.resFood.setText(`🍞 ${fmtRes(pl.food || 0)} ${sgn(netFood)}${ttzSuffix(ttzFood)}`);
+    this.resGold.setText(`💰 ${fmtRes(pl.gold || 0)} ${sgn(netGold)}`);
+    this.resComp.setText(`🧩 ${fmtRes(pl.components || 0)} 0`);
     // Research: show active tech name + % or "no lab"
     const resState = pl.research;
     const activeRes = resState?.queue?.[0];
