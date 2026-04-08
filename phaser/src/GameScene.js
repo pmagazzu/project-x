@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.5.07';
+export const GAME_VERSION = 'v1.5.08';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -136,6 +136,30 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
+    // Ensure terrain art assets exist even if Phaser skipped/short-circuited scene preload.
+    const _terrainAssetDefs = [
+      ...Object.entries(TERRAIN_ART_FILES).map(([key, path]) => ({ key, path })),
+      ...SAND_VARIANT_FILES,
+      ...GRASS_VARIANT_FILES,
+      ...FOREST_VARIANT_FILES,
+      ...OCEAN_VARIANT_FILES,
+      ...SHALLOW_VARIANT_FILES,
+      ...LIGHTWOODS_VARIANT_FILES,
+      ...MOUNTAIN_VARIANT_FILES,
+      ...HILL_VARIANT_FILES,
+      ...FARM_VARIANT_FILES,
+    ];
+    const _missingTerrainArt = _terrainAssetDefs.filter(({ key }) => !this.textures.exists(key));
+    if (_missingTerrainArt.length) {
+      console.warn('Terrain art missing at GameScene.create(), loading on demand', _missingTerrainArt.slice(0, 8).map(x => x.key));
+      this.load.reset();
+      for (const { key, path } of _missingTerrainArt) this.load.image(key, path);
+      this.load.once('complete', () => {
+        this._drawStaticLayers();
+        this._refresh();
+      });
+      this.load.start();
+    }
     // Read scenario config passed from MenuScene (or default)
     const data = this.scene.settings.data || {};
     this.scenario = data.scenario || 'default';
