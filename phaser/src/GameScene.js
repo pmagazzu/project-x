@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.5.14';
+export const GAME_VERSION = 'v1.5.15';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -2731,21 +2731,21 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(D + 2);
 
     // Left-sidebar economy block
-    this.sidebarEcoBg = this.add.rectangle(78, 248, 128, 248, 0x0d120d, 0.92)
+    this.sidebarEcoBg = this.add.rectangle(68, 248, 108, 248, 0x0d120d, 0.92)
       .setStrokeStyle(1, 0x2a3a2a).setScrollFactor(0).setDepth(D);
-    this.sidebarEcoTitle = this.add.text(12, 104, 'ECONOMY', {
-      font: 'bold 14px monospace', fill: '#d8ead8'
+    this.sidebarEcoTitle = this.add.text(8, 104, 'ECONOMY', {
+      font: 'bold 13px monospace', fill: '#d8ead8'
     }).setScrollFactor(0).setDepth(D + 1);
-    this.sidebarEcoHint = this.add.text(12, 124, 'stock | net', {
-      font: '11px monospace', fill: '#8ea88e'
+    this.sidebarEcoHint = this.add.text(8, 121, 'stock / net', {
+      font: '10px monospace', fill: '#8ea88e'
     }).setScrollFactor(0).setDepth(D + 1);
-    this.resIron = this._makeSidebarResLabel(12, 148, '⚙ IRON', D + 1);
-    this.resOil  = this._makeSidebarResLabel(12, 174, '🛢 OIL', D + 1);
-    this.resWood = this._makeSidebarResLabel(12, 200, '🪵 WOOD', D + 1);
-    this.resFood = this._makeSidebarResLabel(12, 226, '🍞 FOOD', D + 1);
-    this.resGold = this._makeSidebarResLabel(12, 252, '💰 GOLD', D + 1);
-    this.resComp = this._makeSidebarResLabel(12, 278, '🧩 COMP', D + 1);
-    this.resRp   = this._makeSidebarResLabel(12, 304, '⚗ RESEARCH', D + 1);
+    this.resIron = this._makeSidebarResLabel(8, 144, '⚙ IRON', D + 1);
+    this.resOil  = this._makeSidebarResLabel(8, 168, '🛢 OIL', D + 1);
+    this.resWood = this._makeSidebarResLabel(8, 192, '🪵 WOOD', D + 1);
+    this.resFood = this._makeSidebarResLabel(8, 216, '🍞 FOOD', D + 1);
+    this.resGold = this._makeSidebarResLabel(8, 240, '💰 GOLD', D + 1);
+    this.resComp = this._makeSidebarResLabel(8, 264, '🧩 COMP', D + 1);
+    this.resRp   = this._makeSidebarResLabel(8, 288, '⚗ RESEARCH', D + 1);
   }
 
   _makeLabel(x, y, text, depth, center = false) {
@@ -2757,9 +2757,9 @@ export class GameScene extends Phaser.Scene {
 
   _makeSidebarResLabel(x, y, text, depth) {
     return this.add.text(x, y, text, {
-      font: 'bold 13px monospace', fill: '#d8ead8',
-      backgroundColor: '#141814', padding: { x: 8, y: 5 }, stroke: '#081008', strokeThickness: 1,
-      wordWrap: { width: 100 }
+      font: 'bold 11px monospace', fill: '#d8ead8',
+      backgroundColor: '#141814', padding: { x: 5, y: 3 }, stroke: '#081008', strokeThickness: 1,
+      wordWrap: { width: 82 }
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(depth);
   }
 
@@ -2813,12 +2813,12 @@ export class GameScene extends Phaser.Scene {
     const ttzFood = _ttz(pl.food || 0, netFood);
     const ttzSuffix = (ttz) => ttz <= 1 ? ' !!!' : ttz <= 3 ? ` (${ttz}t)` : '';
 
-    this.resIron.setText(`⚙ IRON   ${fmtRes(pl.iron)}   ${sgn(netIron)}${ttzSuffix(ttzIron)}`);
-    this.resOil.setText(`🛢 OIL    ${fmtRes(pl.oil)}   ${sgn(netOil)}${ttzSuffix(ttzOil)}`);
-    this.resWood.setText(`🪵 WOOD   ${fmtRes(pl.wood || 0)}   ${sgn(netWood)}`);
-    this.resFood.setText(`🍞 FOOD   ${fmtRes(pl.food || 0)}   ${sgn(netFood)}${ttzSuffix(ttzFood)}`);
-    this.resGold.setText(`💰 GOLD   ${fmtRes(pl.gold || 0)}   ${sgn(netGold)}`);
-    this.resComp.setText(`🧩 COMP   ${fmtRes(pl.components || 0)}   0`);
+    this.resIron.setText(`⚙ IRON ${fmtRes(pl.iron)} ${sgn(netIron)}${ttzSuffix(ttzIron)}`);
+    this.resOil.setText(`🛢 OIL ${fmtRes(pl.oil)} ${sgn(netOil)}${ttzSuffix(ttzOil)}`);
+    this.resWood.setText(`🪵 WOOD ${fmtRes(pl.wood || 0)} ${sgn(netWood)}`);
+    this.resFood.setText(`🍞 FOOD ${fmtRes(pl.food || 0)} ${sgn(netFood)}${ttzSuffix(ttzFood)}`);
+    this.resGold.setText(`💰 GOLD ${fmtRes(pl.gold || 0)} ${sgn(netGold)}`);
+    this.resComp.setText(`🧩 COMP ${fmtRes(pl.components || 0)} 0`);
     // Research: show active tech name + % or "no lab"
     const resState = pl.research;
     const activeRes = resState?.queue?.[0];
