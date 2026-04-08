@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.5.19';
+export const GAME_VERSION = 'v1.5.20';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -2740,8 +2740,8 @@ export class GameScene extends Phaser.Scene {
 
   _makeSidebarResIcon(x, y, icon, label, depth) {
     const t = this.add.text(x, y, icon, {
-      font: 'bold 22px monospace', fill: '#d8ead8',
-      backgroundColor: '#141814', padding: { x: 6, y: 4 }, stroke: '#081008', strokeThickness: 1
+      font: 'bold 16px monospace', fill: '#d8ead8',
+      backgroundColor: '#141814', padding: { x: 4, y: 2 }, stroke: '#081008', strokeThickness: 1
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(depth).setInteractive({ useHandCursor: true });
     const tip = () => this._showHoverTip(`${label}`, x + 28, y + 5);
     t.on('pointerover', tip);
@@ -2752,10 +2752,10 @@ export class GameScene extends Phaser.Scene {
 
   _showHoverTip(text, x, y) {
     this._hideHoverTip();
-    this._hoverTipBg = this.add.rectangle(x + 56, y + 12, 104, 22, 0x111111, 0.92)
+    this._hoverTipBg = this.add.rectangle(x + 46, y + 10, 88, 18, 0x111111, 0.92)
       .setStrokeStyle(1, 0x444444).setScrollFactor(0).setDepth(12000);
-    this._hoverTipText = this.add.text(x + 8, y + 2, text, {
-      font: 'bold 10px monospace', fill: '#f1f1f1'
+    this._hoverTipText = this.add.text(x + 6, y + 1, text, {
+      font: 'bold 8px monospace', fill: '#f1f1f1'
     }).setScrollFactor(0).setDepth(12001);
   }
 
