@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.5.16';
+export const GAME_VERSION = 'v1.5.17';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -1690,16 +1690,7 @@ export class GameScene extends Phaser.Scene {
           farmFx.closePath();
           farmFx.strokePath();
 
-          // Owner marker (larger and obvious)
-          const badgeBg = this.add.rectangle(x + HEX_SIZE * 0.29, y - HEX_SIZE * 0.29, 20, 11, 0x111111, 0.9)
-            .setStrokeStyle(1.4, 0xf0d8a0, 0.95).setDepth(1);
-          const badge = this.add.circle(x + HEX_SIZE * 0.21, y - HEX_SIZE * 0.29, 4.0, color, 1.0)
-            .setStrokeStyle(1, 0x111111, 0.95).setDepth(2);
-          const glyph = this.add.text(x + HEX_SIZE * 0.33, y - HEX_SIZE * 0.29, 'F', {
-            font: 'bold 9px monospace', fill: '#f6e3b6'
-          }).setOrigin(0.5).setDepth(2);
-
-          this.farmTileLayer?.add([farmFx, badgeBg, badge, glyph]);
+          this.farmTileLayer?.add(farmFx);
           continue;
         }
 
