@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.5.12';
+export const GAME_VERSION = 'v1.5.13';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -326,14 +326,6 @@ export class GameScene extends Phaser.Scene {
     this._drawStaticLayers();
     this._refresh();
 
-    // Temporary terrain diagnostics so we can verify active battle-scene texture state.
-    const _terrainKeys = ['terrain_grass','terrain_sand_1','terrain_hill_1','terrain_ocean_1','terrain_art_baked'];
-    const _loaded = _terrainKeys.filter(k => this.textures.exists(k));
-    this._terrainDiagText?.destroy?.();
-    this._terrainDiagText = this.add.text(10, 10, `terrain:${_loaded.length}/${_terrainKeys.length} ${_loaded.join(',')}`,
-      { font: '11px monospace', fill: '#ffffff', backgroundColor: 'rgba(0,0,0,0.55)', padding: { x: 6, y: 3 } })
-      .setScrollFactor(0)
-      .setDepth(10000);
 
     // Auto-start if current player is AI (supports AI vs AI autoplay starts)
     if (this.aiPlayers.has(this.gameState.currentPlayer)) {
@@ -2715,15 +2707,7 @@ export class GameScene extends Phaser.Scene {
       font: '11px monospace', fill: '#5a6f8a'
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(D);
 
-    // Row 2: resources (left) + actions (right)
-    this.resIron = this._makeLabel(10, 42, '⚙ —', D);
-    this.resOil  = this._makeLabel(104, 42, '🛢 —', D);
-    this.resWood = this._makeLabel(198, 42, '🪵 —', D);
-    this.resFood = this._makeLabel(290, 42, '🍞 —', D);
-    this.resGold = this._makeLabel(382, 42, '💰 —', D);
-    this.resComp = this._makeLabel(474, 42, '🧩 —', D);
-    this.resRp   = this._makeLabel(566, 42, '⚗ —', D);
-
+    // Row 2: actions only. Resource economy is moved into the left sidebar for readability.
     this.btnSupply   = this._makeBtn(w - 500, 42, '⬡ SUP',   0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
     this.btnResearch = this._makeBtn(w - 414, 42, '⚗ RES',   0x442266, () => this._toggleResearch(), D, 'right');
     this.btnDesigner = this._makeBtn(w - 328, 42, '🔧 DES',   0x1a3322, () => this._toggleDesigner(), D, 'right');
@@ -2745,6 +2729,23 @@ export class GameScene extends Phaser.Scene {
       font: 'bold 12px monospace', fill: '#fff7c2',
       backgroundColor: '#3a3312', padding: { x: 8, y: 4 }
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(D + 2);
+
+    // Left-sidebar economy block
+    this.sidebarEcoBg = this.add.rectangle(80, 230, 136, 270, 0x0d120d, 0.92)
+      .setStrokeStyle(1, 0x2a3a2a).setScrollFactor(0).setDepth(D);
+    this.sidebarEcoTitle = this.add.text(18, 104, 'ECONOMY', {
+      font: 'bold 14px monospace', fill: '#d8ead8'
+    }).setScrollFactor(0).setDepth(D + 1);
+    this.sidebarEcoHint = this.add.text(18, 124, 'stock | net', {
+      font: '11px monospace', fill: '#8ea88e'
+    }).setScrollFactor(0).setDepth(D + 1);
+    this.resIron = this._makeSidebarResLabel(18, 148, '⚙ IRON   —', D + 1);
+    this.resOil  = this._makeSidebarResLabel(18, 180, '🛢 OIL    —', D + 1);
+    this.resWood = this._makeSidebarResLabel(18, 212, '🪵 WOOD   —', D + 1);
+    this.resFood = this._makeSidebarResLabel(18, 244, '🍞 FOOD   —', D + 1);
+    this.resGold = this._makeSidebarResLabel(18, 276, '💰 GOLD   —', D + 1);
+    this.resComp = this._makeSidebarResLabel(18, 308, '🧩 COMP   —', D + 1);
+    this.resRp   = this._makeSidebarResLabel(18, 340, '⚗ RES    —', D + 1);
   }
 
   _makeLabel(x, y, text, depth, center = false) {
@@ -2752,6 +2753,14 @@ export class GameScene extends Phaser.Scene {
       font: '13px monospace', fill: '#d8ead8',
       backgroundColor: '#141814', padding: { x: 8, y: 6 }, stroke: '#081008', strokeThickness: 1
     }).setOrigin(center ? 0.5 : 0, 0).setScrollFactor(0).setDepth(depth);
+  }
+
+  _makeSidebarResLabel(x, y, text, depth) {
+    return this.add.text(x, y, text, {
+      font: 'bold 15px monospace', fill: '#d8ead8',
+      backgroundColor: '#141814', padding: { x: 10, y: 7 }, stroke: '#081008', strokeThickness: 1,
+      wordWrap: { width: 112 }
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(depth);
   }
 
   _makeBtn(x, y, label, color, cb, depth = 100, origin = 'left') {
@@ -2804,19 +2813,19 @@ export class GameScene extends Phaser.Scene {
     const ttzFood = _ttz(pl.food || 0, netFood);
     const ttzSuffix = (ttz) => ttz <= 1 ? ' !!!' : ttz <= 3 ? ` (${ttz}t)` : '';
 
-    this.resIron.setText(`⚙ ${fmtRes(pl.iron)} ${sgn(netIron)}${ttzSuffix(ttzIron)}`);
-    this.resOil.setText(`🛢 ${fmtRes(pl.oil)} ${sgn(netOil)}${ttzSuffix(ttzOil)}`);
-    this.resWood.setText(`🪵 ${fmtRes(pl.wood || 0)} ${sgn(netWood)}`);
-    this.resFood.setText(`🍞 ${fmtRes(pl.food || 0)} ${sgn(netFood)}${ttzSuffix(ttzFood)}`);
-    this.resGold.setText(`💰 ${fmtRes(pl.gold || 0)} ${sgn(netGold)}`);
-    this.resComp.setText(`🧩 ${fmtRes(pl.components || 0)}`);
+    this.resIron.setText(`⚙ IRON\n${fmtRes(pl.iron)} | ${sgn(netIron)}${ttzSuffix(ttzIron)}`);
+    this.resOil.setText(`🛢 OIL\n${fmtRes(pl.oil)} | ${sgn(netOil)}${ttzSuffix(ttzOil)}`);
+    this.resWood.setText(`🪵 WOOD\n${fmtRes(pl.wood || 0)} | ${sgn(netWood)}`);
+    this.resFood.setText(`🍞 FOOD\n${fmtRes(pl.food || 0)} | ${sgn(netFood)}${ttzSuffix(ttzFood)}`);
+    this.resGold.setText(`💰 GOLD\n${fmtRes(pl.gold || 0)} | ${sgn(netGold)}`);
+    this.resComp.setText(`🧩 COMP\n${fmtRes(pl.components || 0)} | 0`);
     // Research: show active tech name + % or "no lab"
     const resState = pl.research;
     const activeRes = resState?.queue?.[0];
     const activeTech = activeRes ? TECH_TREE[activeRes.techId] : null;
     const rpPct = activeTech ? Math.floor(((activeRes.rpSpent || 0) / activeTech.cost) * 100) : 0;
     const rpLabel = inc.rp === 0 ? 'no lab' : activeTech ? `${activeTech.name.substring(0,12)} ${rpPct}%` : `idle (+${inc.rp}/t)`;
-    this.resRp.setText(`⚗ ${rpLabel}`);
+    this.resRp.setText(`⚗ RESEARCH\n${rpLabel}`);
     // Color coding: debt/unsupplied = red, imminent zero = orange, healthy = default
     this.resFood.setStyle({ fill: unsupplied ? '#ff4422' : ttzFood <= 3 ? '#ffaa33' : '#ccddcc' });
     this.resIron.setStyle({ fill: ttzIron <= 1 ? '#ff4422' : ttzIron <= 3 ? '#ffaa33' : '#ccddcc' });
