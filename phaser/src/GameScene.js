@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.5.05';
+export const GAME_VERSION = 'v1.5.06';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -686,6 +686,7 @@ export class GameScene extends Phaser.Scene {
     const canvas = document.createElement('canvas');
     canvas.width = cw; canvas.height = ch;
     const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, cw, ch);
 
     for (let q = 0; q < this.mapSize; q++) {
@@ -747,10 +748,65 @@ export class GameScene extends Phaser.Scene {
             ? this.textures.get(grassKey).getSourceImage() : null;
           if (grassImg?.width) ctx.drawImage(grassImg, dx, dy, artW, artH);
         }
-        ctx.drawImage(srcImg, dx, dy, artW * 1.04, artH * 1.04);
-        // subtle baked contrast so terrain textures read more strongly at gameplay zoom
-        ctx.fillStyle = ttype === 5 ? 'rgba(0,0,0,0.10)' : 'rgba(0,0,0,0.045)';
-        ctx.fill();
+        ctx.drawImage(srcImg, Math.round(dx), Math.round(dy), Math.round(artW), Math.round(artH));
+
+        // Pixel-art terrain treatments per tile type for stronger tactical readability.
+        if (ttype === 0) {
+          // plains: light pixel grain
+          ctx.fillStyle = 'rgba(255,255,255,0.09)';
+          for (let i = 0; i < 18; i++) {
+            const px = Math.round(vx - hw + ((_varHash + i * 17) % Math.round(artW)));
+            const py = Math.round(vy - hh + (((_varHash >> 3) + i * 29) % Math.round(artH)));
+            ctx.fillRect(px, py, 2, 2);
+          }
+        } else if (ttype === 3) {
+          // hills: contour-like horizontal bands to clearly separate from plains
+          ctx.fillStyle = 'rgba(60,38,18,0.16)';
+          for (let i = 0; i < 4; i++) {
+            const bandY = Math.round(vy - hh * 0.45 + i * hh * 0.30);
+            ctx.fillRect(Math.round(vx - hw * 0.55), bandY, Math.round(hw * 1.1), 2);
+          }
+          ctx.fillStyle = 'rgba(255,230,180,0.08)';
+          for (let i = 0; i < 3; i++) {
+            const bandY = Math.round(vy - hh * 0.32 + i * hh * 0.30);
+            ctx.fillRect(Math.round(vx - hw * 0.40), bandY, Math.round(hw * 0.8), 1);
+          }
+        } else if (ttype === 6) {
+          // sand: warm dither speckle
+          ctx.fillStyle = 'rgba(255,245,210,0.10)';
+          for (let i = 0; i < 16; i++) {
+            const px = Math.round(vx - hw + ((_varHash + i * 23) % Math.round(artW)));
+            const py = Math.round(vy - hh + (((_varHash >> 4) + i * 13) % Math.round(artH)));
+            ctx.fillRect(px, py, 2, 2);
+          }
+        } else if (ttype === 5) {
+          // deep water: blocky wave bands
+          ctx.fillStyle = 'rgba(255,255,255,0.08)';
+          for (let i = 0; i < 3; i++) {
+            const waveY = Math.round(vy - hh * 0.30 + i * hh * 0.32);
+            ctx.fillRect(Math.round(vx - hw * 0.60), waveY, Math.round(hw * 1.20), 2);
+          }
+        } else if (ttype === 4) {
+          // shallow water: brighter shoreline shimmer
+          ctx.fillStyle = 'rgba(255,255,255,0.14)';
+          for (let i = 0; i < 2; i++) {
+            const waveY = Math.round(vy - hh * 0.18 + i * hh * 0.28);
+            ctx.fillRect(Math.round(vx - hw * 0.52), waveY, Math.round(hw * 1.04), 2);
+          }
+        } else if (ttype === 1 || ttype === 7) {
+          // woods: chunky canopy clusters
+          ctx.fillStyle = 'rgba(18,48,18,0.18)';
+          for (let i = 0; i < 8; i++) {
+            const px = Math.round(vx - hw * 0.55 + ((_varHash + i * 31) % Math.round(hw * 1.1)));
+            const py = Math.round(vy - hh * 0.48 + (((_varHash >> 5) + i * 19) % Math.round(hh * 0.96)));
+            ctx.fillRect(px, py, 4, 3);
+          }
+        }
+
+        // crisp terrain border for readability
+        ctx.strokeStyle = ttype === 5 ? 'rgba(200,220,255,0.18)' : 'rgba(0,0,0,0.20)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
         ctx.restore();
       }
     }
