@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.5.04';
+export const GAME_VERSION = 'v1.5.05';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -747,7 +747,10 @@ export class GameScene extends Phaser.Scene {
             ? this.textures.get(grassKey).getSourceImage() : null;
           if (grassImg?.width) ctx.drawImage(grassImg, dx, dy, artW, artH);
         }
-        ctx.drawImage(srcImg, dx, dy, artW, artH);
+        ctx.drawImage(srcImg, dx, dy, artW * 1.04, artH * 1.04);
+        // subtle baked contrast so terrain textures read more strongly at gameplay zoom
+        ctx.fillStyle = ttype === 5 ? 'rgba(0,0,0,0.10)' : 'rgba(0,0,0,0.045)';
+        ctx.fill();
         ctx.restore();
       }
     }
@@ -769,8 +772,15 @@ export class GameScene extends Phaser.Scene {
         }
         ctx.closePath();
         ctx.clip();
-        ctx.globalAlpha = 0.62; // -38% opacity
+        ctx.globalAlpha = 0.92;
         this._drawResourceOverlayCanvas(ctx, vx, vy, hw, hh, res.type);
+        // add an outer ring so deposits remain readable against busier terrain textures
+        ctx.globalAlpha = 0.55;
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = res.type === 'OIL' ? '#f2f2ff' : '#3b2408';
+        ctx.beginPath();
+        ctx.arc(vx, vy, Math.max(8, Math.min(hw, hh) * 0.32), 0, Math.PI * 2);
+        ctx.stroke();
         ctx.restore(); // also resets globalAlpha
       }
     }
