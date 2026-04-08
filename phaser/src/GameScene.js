@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.5.08';
+export const GAME_VERSION = 'v1.5.10';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -325,6 +325,15 @@ export class GameScene extends Phaser.Scene {
     // before the final visible terrain layer is attached.
     this._drawStaticLayers();
     this._refresh();
+
+    // Temporary terrain diagnostics so we can verify active battle-scene texture state.
+    const _terrainKeys = ['terrain_grass','terrain_sand_1','terrain_hill_1','terrain_ocean_1','terrain_art_baked'];
+    const _loaded = _terrainKeys.filter(k => this.textures.exists(k));
+    this._terrainDiagText?.destroy?.();
+    this._terrainDiagText = this.add.text(10, 10, `terrain:${_loaded.length}/${_terrainKeys.length} ${_loaded.join(',')}`,
+      { font: '11px monospace', fill: '#ffffff', backgroundColor: 'rgba(0,0,0,0.55)', padding: { x: 6, y: 3 } })
+      .setScrollFactor(0)
+      .setDepth(10000);
 
     // Auto-start if current player is AI (supports AI vs AI autoplay starts)
     if (this.aiPlayers.has(this.gameState.currentPlayer)) {
