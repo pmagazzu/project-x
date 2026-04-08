@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.5.15';
+export const GAME_VERSION = 'v1.5.16';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -2731,21 +2731,21 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(D + 2);
 
     // Left-sidebar economy block
-    this.sidebarEcoBg = this.add.rectangle(68, 248, 108, 248, 0x0d120d, 0.92)
-      .setStrokeStyle(1, 0x2a3a2a).setScrollFactor(0).setDepth(D);
-    this.sidebarEcoTitle = this.add.text(8, 104, 'ECONOMY', {
-      font: 'bold 13px monospace', fill: '#d8ead8'
+    this.sidebarEcoBg = this.add.rectangle(68, 248, 94, 248, 0x0d120d, 0.92)
+      .setStrokeStyle(1, 0x2a3a2a).setScrollFactor(0).setDepth(D).setInteractive({ useHandCursor: true });
+    this.sidebarEcoTitle = this.add.text(6, 104, 'ECONOMY', {
+      font: 'bold 12px monospace', fill: '#d8ead8'
     }).setScrollFactor(0).setDepth(D + 1);
-    this.sidebarEcoHint = this.add.text(8, 121, 'stock / net', {
-      font: '10px monospace', fill: '#8ea88e'
+    this.sidebarEcoHint = this.add.text(6, 120, 'hover = resource', {
+      font: '9px monospace', fill: '#8ea88e'
     }).setScrollFactor(0).setDepth(D + 1);
-    this.resIron = this._makeSidebarResLabel(8, 144, '⚙ IRON', D + 1);
-    this.resOil  = this._makeSidebarResLabel(8, 168, '🛢 OIL', D + 1);
-    this.resWood = this._makeSidebarResLabel(8, 192, '🪵 WOOD', D + 1);
-    this.resFood = this._makeSidebarResLabel(8, 216, '🍞 FOOD', D + 1);
-    this.resGold = this._makeSidebarResLabel(8, 240, '💰 GOLD', D + 1);
-    this.resComp = this._makeSidebarResLabel(8, 264, '🧩 COMP', D + 1);
-    this.resRp   = this._makeSidebarResLabel(8, 288, '⚗ RESEARCH', D + 1);
+    this.resIron = this._makeSidebarResIcon(10, 142, '⚙', 'Iron', D + 1);
+    this.resOil  = this._makeSidebarResIcon(10, 176, '🛢', 'Oil', D + 1);
+    this.resWood = this._makeSidebarResIcon(10, 210, '🪵', 'Wood', D + 1);
+    this.resFood = this._makeSidebarResIcon(10, 244, '🍞', 'Food', D + 1);
+    this.resGold = this._makeSidebarResIcon(10, 278, '💰', 'Gold', D + 1);
+    this.resComp = this._makeSidebarResIcon(10, 312, '🧩', 'Components', D + 1);
+    this.resRp   = this._makeSidebarResIcon(10, 346, '⚗', 'Research', D + 1);
   }
 
   _makeLabel(x, y, text, depth, center = false) {
@@ -2755,12 +2755,32 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(center ? 0.5 : 0, 0).setScrollFactor(0).setDepth(depth);
   }
 
-  _makeSidebarResLabel(x, y, text, depth) {
-    return this.add.text(x, y, text, {
-      font: 'bold 11px monospace', fill: '#d8ead8',
-      backgroundColor: '#141814', padding: { x: 5, y: 3 }, stroke: '#081008', strokeThickness: 1,
-      wordWrap: { width: 82 }
-    }).setOrigin(0, 0).setScrollFactor(0).setDepth(depth);
+  _makeSidebarResIcon(x, y, icon, label, depth) {
+    const t = this.add.text(x, y, icon, {
+      font: 'bold 22px monospace', fill: '#d8ead8',
+      backgroundColor: '#141814', padding: { x: 6, y: 4 }, stroke: '#081008', strokeThickness: 1
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(depth).setInteractive({ useHandCursor: true });
+    const tip = () => this._showHoverTip(`${label}`, x + 28, y + 5);
+    t.on('pointerover', tip);
+    t.on('pointermove', tip);
+    t.on('pointerout', () => this._hideHoverTip());
+    return t;
+  }
+
+  _showHoverTip(text, x, y) {
+    this._hideHoverTip();
+    this._hoverTipBg = this.add.rectangle(x + 56, y + 12, 104, 22, 0x111111, 0.92)
+      .setStrokeStyle(1, 0x444444).setScrollFactor(0).setDepth(12000);
+    this._hoverTipText = this.add.text(x + 8, y + 2, text, {
+      font: 'bold 10px monospace', fill: '#f1f1f1'
+    }).setScrollFactor(0).setDepth(12001);
+  }
+
+  _hideHoverTip() {
+    this._hoverTipBg?.destroy?.();
+    this._hoverTipText?.destroy?.();
+    this._hoverTipBg = null;
+    this._hoverTipText = null;
   }
 
   _makeBtn(x, y, label, color, cb, depth = 100, origin = 'left') {
@@ -2813,12 +2833,12 @@ export class GameScene extends Phaser.Scene {
     const ttzFood = _ttz(pl.food || 0, netFood);
     const ttzSuffix = (ttz) => ttz <= 1 ? ' !!!' : ttz <= 3 ? ` (${ttz}t)` : '';
 
-    this.resIron.setText(`⚙ IRON ${fmtRes(pl.iron)} ${sgn(netIron)}${ttzSuffix(ttzIron)}`);
-    this.resOil.setText(`🛢 OIL ${fmtRes(pl.oil)} ${sgn(netOil)}${ttzSuffix(ttzOil)}`);
-    this.resWood.setText(`🪵 WOOD ${fmtRes(pl.wood || 0)} ${sgn(netWood)}`);
-    this.resFood.setText(`🍞 FOOD ${fmtRes(pl.food || 0)} ${sgn(netFood)}${ttzSuffix(ttzFood)}`);
-    this.resGold.setText(`💰 GOLD ${fmtRes(pl.gold || 0)} ${sgn(netGold)}`);
-    this.resComp.setText(`🧩 COMP ${fmtRes(pl.components || 0)} 0`);
+    this.resIron.setText('⚙');
+    this.resOil.setText('🛢');
+    this.resWood.setText('🪵');
+    this.resFood.setText('🍞');
+    this.resGold.setText('💰');
+    this.resComp.setText('🧩');
     // Research: show active tech name + % or "no lab"
     const resState = pl.research;
     const activeRes = resState?.queue?.[0];
