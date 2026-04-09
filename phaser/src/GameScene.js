@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.5.20';
+export const GAME_VERSION = 'v1.5.21';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -7386,6 +7386,11 @@ export class GameScene extends Phaser.Scene {
 
   // ── Pass / Resolution screens ─────────────────────────────────────────────
   _showSplash(objects, onDismiss) {
+    // Defensive: ensure only one splash/modal is ever alive.
+    if (this._splashDismiss) {
+      try { this._splashDismiss(); } catch (e) {}
+      this._splashDismiss = null;
+    }
     this.btnSubmit?.setVisible(false);
 
     const btn = this.add.text(this.scale.width / 2, this.scale.height - 60, '[ CLICK or SPACE to continue ]', {
@@ -7454,6 +7459,7 @@ export class GameScene extends Phaser.Scene {
       this._refresh();
       // Extra anti-loop guard: after pass-screen SPACE dismiss, ignore submit SPACE for a short window.
       this._spaceGuardUntil = Math.max(this._spaceGuardUntil || 0, performance.now() + 1400);
+      this._splashDismiss = null;
     });
   }
 
