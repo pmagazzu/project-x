@@ -61,6 +61,14 @@ const SCENARIOS = [
     hoverColor: 0x4a59b0,
   },
   {
+    key:   'ai_vs_ai_endless',
+    label: 'AI VS AI · ENDLESS',
+    icon:  '∞',
+    sub:   'AI spectator battle with no stop condition',
+    color: 0x2b5f58,
+    hoverColor: 0x46a696,
+  },
+  {
     key:   'mortar_test',
     label: 'MORTAR TEST',
     icon:  '△',
@@ -178,12 +186,12 @@ export class MenuScene extends Phaser.Scene {
             autoStopTurn: 250,
             aiViewerMode: true,
           });
-        } else if (sc.key === 'ai_vs_ai_island_medium' || sc.key === 'ai_vs_ai_island_medium_40' || sc.key === 'ai_vs_ai_island_large_80' || sc.key === 'ai_vs_ai_island_extreme_120') {
+        } else if (sc.key === 'ai_vs_ai_island_medium' || sc.key === 'ai_vs_ai_island_medium_40' || sc.key === 'ai_vs_ai_island_large_80' || sc.key === 'ai_vs_ai_island_extreme_120' || sc.key === 'ai_vs_ai_endless') {
           const autoStopTurn = sc.key === 'ai_vs_ai_island_medium_40'
             ? 40
             : (sc.key === 'ai_vs_ai_island_large_80'
               ? 80
-              : (sc.key === 'ai_vs_ai_island_extreme_120' ? 120 : 20));
+              : (sc.key === 'ai_vs_ai_island_extreme_120' ? 120 : null));
           const customSize = sc.key === 'ai_vs_ai_island_large_80'
             ? 90
             : (sc.key === 'ai_vs_ai_island_extreme_120' ? 135 : 40);
@@ -197,7 +205,7 @@ export class MenuScene extends Phaser.Scene {
             procQuickStart: true,
             debugNoFog: true,
             aiViewerMode: true,
-            autoStopTurn,
+            ...(autoStopTurn == null ? {} : { autoStopTurn }),
             aiLabExport: true,
             startSupplyTruck: true,
           });
