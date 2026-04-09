@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.5.21';
+export const GAME_VERSION = 'v1.5.22';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -859,13 +859,6 @@ export class GameScene extends Phaser.Scene {
         ctx.clip();
         ctx.globalAlpha = 0.92;
         this._drawResourceOverlayCanvas(ctx, vx, vy, hw, hh, res.type);
-        // add an outer ring so deposits remain readable against busier terrain textures
-        ctx.globalAlpha = 0.55;
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = res.type === 'OIL' ? '#f2f2ff' : '#3b2408';
-        ctx.beginPath();
-        ctx.arc(vx, vy, Math.max(8, Math.min(hw, hh) * 0.32), 0, Math.PI * 2);
-        ctx.stroke();
         ctx.restore(); // also resets globalAlpha
       }
     }
@@ -989,11 +982,6 @@ export class GameScene extends Phaser.Scene {
         ctx.beginPath();
         ctx.moveTo(cx+ox,cy+oy-ns); ctx.lineTo(cx+ox,cy+oy); ctx.lineTo(cx+ox+ns,cy+oy+ns*0.5);
         ctx.closePath(); ctx.fillStyle = 'rgba(170,170,200,0.55)'; ctx.fill();
-      }
-      // Metallic glint dots
-      ctx.fillStyle = 'rgba(200,200,220,0.65)';
-      for (const [ox,oy] of [[-hw*0.62,0],[hw*0.55,-hh*0.2],[hw*0.18,hh*0.72],[-hw*0.35,-hh*0.5],[hw*0.8,hh*0.15]]) {
-        ctx.beginPath(); ctx.arc(cx+ox, cy+oy, 1.8, 0, Math.PI*2); ctx.fill();
       }
 
     } else if (type === 'WOOD') {
