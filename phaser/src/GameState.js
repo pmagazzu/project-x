@@ -972,11 +972,16 @@ export function hasLOS(fromQ, fromR, toQ, toR, terrain) {
 export function getAttackRangeHexes(mapSize, unit, fromQ, fromR, terrain) {
   const range = ustat(unit, 'range', UNIT_TYPES[unit.type]?.range || 1);
   const indirect = INDIRECT_FIRE.has(unit.type);
+  const unitDef = UNIT_TYPES[unit.type] || {};
   const result = [];
   for (let q = 0; q < mapSize; q++) {
     for (let r = 0; r < mapSize; r++) {
       const dist = hexDistance(fromQ, fromR, q, r);
       if (dist < 1 || dist > range) continue;
+      if (unitDef.antiNavalOnly) {
+        const targetTerrain = terrain?.[`${q},${r}`] ?? 0;
+        if (targetTerrain !== 4 && targetTerrain !== 5) continue;
+      }
       // Direct-fire units need clear LOS; indirect fire (arty/mortar) always allowed
       if (!indirect && terrain && !hasLOS(fromQ, fromR, q, r, terrain)) continue;
       result.push({ q, r });
@@ -1663,12 +1668,15 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   const attacker = state.units.find(u => u.id === attackerId);
   const target   = state.units.find(u => u.id === targetId);
   if (!attacker || !target) return [];
-  // antiNavalOnly (torpedo) units cannot attack land targets
-  const _atkDef = UNIT_TYPES[attacker.type] || {};
-  if (_atkDef.antiNavalOnly) {
-    const _tgt = state._terrain?.[`${target.q},${target.r}`] ?? 0;
-    if (_tgt !== 4 && _tgt !== 5) {
-      return [`${_atkDef.name} cannot attack land targets (torpedoes only)`];
+  const events = [];
+
+  // antiNavalOnly units (torpedoes) cannot attack land targets
+  const atkDef = UNIT_TYPES[attacker.type] || {};
+  if (atkDef.antiNavalOnly) {
+    const targetTerrain = state._terrain?.[`${target.q},${target.r}`] ?? 0;
+    if (targetTerrain !== 4 && targetTerrain !== 5) {
+      events.push(`${atkDef.name} cannot attack land targets (torpedoes only)`);
+      return events;
     }
   }
 
@@ -2190,26 +2198,30 @@ export function resolveEndOfTurn(state, terrain) {
       : unit.type === 'BATTLESHIP' ? 10
       : (unit.type === 'LANDING_CRAFT' || unit.type?.startsWith('TRANSPORT_')) ? 5
       : 6;
-    // Building-proximity recharge for navalSupply
+    // Building-proximity recharge rates for navalSupply
     let navalRecharge = 0;
-    if (unit.type === 'SUPPLY_SHIP') {
-      navalRecharge = 99;
-    } else {
-      const _dirs6 = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
-      const _navalRestockRates = { PORT:2, HARBOR:2, NAVAL_YARD:2, DRY_DOCK:3, NAVAL_BASE:4, NAVAL_DOCKYARD:5 };
-      // Adjacent supply ship
-      const _adjSupplyShip = state.units.some(u2 => u2.owner===unit.owner && u2.type==='SUPPLY_SHIP' &&
-        _dirs6.some(([dq,dr]) => u2.q===unit.q+dq && u2.r===unit.r+dr));
-      if (_adjSupplyShip) navalRecharge = Math.max(navalRecharge, 1);
-      // Adjacent naval buildings
-      for (const [btype, rate] of Object.entries(_navalRestockRates)) {
-        const _near = state.buildings.some(b => b.owner===unit.owner && b.type===btype && !b.underConstruction &&
-          ((Math.abs(b.q-unit.q)+Math.abs(b.r-unit.r)+Math.abs((b.q-unit.q)+(b.r-unit.r)))/2) <= 1);
-        if (_near) navalRecharge = Math.max(navalRecharge, rate);
+    const rechargeBuildings = [
+      { types: ['SUPPLY_SHIP'], rate: 1, checkUnit: true },
+      { types: ['PORT','HARBOR'], rate: 2 },
+      { types: ['NAVAL_YARD'], rate: 2 },
+      { types: ['DRY_DOCK'], rate: 3 },
+      { types: ['NAVAL_BASE'], rate: 4 },
+      { types: ['NAVAL_DOCKYARD'], rate: 5 },
+    ];
+    const dirs6 = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+    for (const rb of rechargeBuildings) {
+      if (rb.checkUnit) {
+        const adjShip = state.units.some(u => u.owner === unit.owner && u.type === 'SUPPLY_SHIP' &&
+          dirs6.some(([dq,dr]) => u.q === unit.q + dq && u.r === unit.r + dr));
+        if (adjShip) navalRecharge = Math.max(navalRecharge, 1);
+      } else {
+        const nearBuilding = state.buildings.some(b => b.owner === unit.owner &&
+          rb.types.includes(b.type) && !b.underConstruction &&
+          ((Math.abs(b.q - unit.q) + Math.abs(b.r - unit.r) + Math.abs((b.q - unit.q) + (b.r - unit.r))) / 2) <= 1);
+        if (nearBuilding) navalRecharge = Math.max(navalRecharge, rb.rate);
       }
-      // Baseline: in supply network = +1
-      if (suppliedHexes.has(`${unit.q},${unit.r}`)) navalRecharge = Math.max(navalRecharge, 1);
     }
+    if (suppliedHexes.has(`${unit.q},${unit.r}`)) navalRecharge = Math.max(navalRecharge, 1);
 
     // Supply ships are floating logistics hubs and ignore network supply constraints.
     if (unit.type === 'SUPPLY_SHIP') {

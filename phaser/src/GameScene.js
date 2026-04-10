@@ -2542,23 +2542,20 @@ export class GameScene extends Phaser.Scene {
         const pipR = 4;
         const pipX = cx2 + pipR + 1;
         const pipY = cy2 + pipR + 1;
-        // oos=1 → orange, oos=2 → dark orange, oos>=3 → red
-        const pipCol = oos >= 3 ? 0xff2222 : oos >= 2 ? 0xff5500 : 0xffaa00;
+        const pipCol = oos >= 2 ? 0xff2222 : 0xff8800;
         this.unitGfx.fillStyle(pipCol, alpha);
         this.unitGfx.fillCircle(pipX, pipY, pipR);
         this.unitGfx.lineStyle(1, 0x000000, alpha * 0.5);
         this.unitGfx.strokeCircle(pipX, pipY, pipR);
-      }
-      // Naval low-reserves badge: blue dot when ship is running on onboard supply (not OOS yet)
-      if (NAVAL_UNITS.has(unit.type) && unit.type !== 'SUPPLY_SHIP' &&
+      } else if (NAVAL_UNITS.has(unit.type) && unit.type !== 'SUPPLY_SHIP' &&
           unit.navalSupply !== undefined && unit.navalSupply <= 2 && (unit.outOfSupply || 0) === 0) {
-        const nPipR = 3;
-        const nPipX = cx2 + cW - nPipR - 1;  // bottom-right corner
-        const nPipY = cy2 + cH - nPipR - 1;
-        this.unitGfx.fillStyle(0x0088ff, alpha * 0.9);
-        this.unitGfx.fillCircle(nPipX, nPipY, nPipR);
-        this.unitGfx.lineStyle(1, 0x003366, alpha * 0.7);
-        this.unitGfx.strokeCircle(nPipX, nPipY, nPipR);
+        const pipR = 4;
+        const pipX = cx2 + pipR + 1;
+        const pipY = cy2 + pipR + 1;
+        this.unitGfx.fillStyle(0x0088ff, 0.8);
+        this.unitGfx.fillCircle(pipX, pipY, pipR);
+        this.unitGfx.lineStyle(1, 0x000000, 0.4);
+        this.unitGfx.strokeCircle(pipX, pipY, pipR);
       }
 
       // Engineer busy indicator: small amber dot + wrench-arm lines in top-right corner of counter
@@ -2923,7 +2920,8 @@ export class GameScene extends Phaser.Scene {
             const navalMax = navalMaxMap[u.type] ?? 6;
             const navalCur = u.navalSupply ?? navalMax;
             const navalWarn = navalCur <= 2 ? '⚠ ' : '';
-            status += `  ⚓ Supply: ${navalWarn}${navalCur}/${navalMax} turns`;
+            const lowReserves = navalCur <= 2 && (u.outOfSupply || 0) === 0 ? '  🔵 Low reserves' : '';
+            status += `  ⚓ Supply: ${navalWarn}${navalCur}/${navalMax} turns${lowReserves}`;
           }
         }
       }
