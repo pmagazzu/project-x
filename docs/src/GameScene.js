@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.5';
+export const GAME_VERSION = 'v1.6.0';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -136,6 +136,30 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
+    // Ensure terrain art assets exist even if Phaser skipped/short-circuited scene preload.
+    const _terrainAssetDefs = [
+      ...Object.entries(TERRAIN_ART_FILES).map(([key, path]) => ({ key, path })),
+      ...SAND_VARIANT_FILES,
+      ...GRASS_VARIANT_FILES,
+      ...FOREST_VARIANT_FILES,
+      ...OCEAN_VARIANT_FILES,
+      ...SHALLOW_VARIANT_FILES,
+      ...LIGHTWOODS_VARIANT_FILES,
+      ...MOUNTAIN_VARIANT_FILES,
+      ...HILL_VARIANT_FILES,
+      ...FARM_VARIANT_FILES,
+    ];
+    const _missingTerrainArt = _terrainAssetDefs.filter(({ key }) => !this.textures.exists(key));
+    if (_missingTerrainArt.length) {
+      console.warn('Terrain art missing at GameScene.create(), loading on demand', _missingTerrainArt.slice(0, 8).map(x => x.key));
+      this.load.reset();
+      for (const { key, path } of _missingTerrainArt) this.load.image(key, path);
+      this.load.once('complete', () => {
+        this._drawStaticLayers();
+        this._refresh();
+      });
+      this.load.start();
+    }
     // Read scenario config passed from MenuScene (or default)
     const data = this.scene.settings.data || {};
     this.scenario = data.scenario || 'default';
@@ -297,6 +321,11 @@ export class GameScene extends Phaser.Scene {
     this._drawStaticLayers();
     this._freezeFog(); // lock fog for P1's first planning phase
     this._refresh();
+    // Rebuild terrain art once more after initial refresh so generated maps and overlays settle
+    // before the final visible terrain layer is attached.
+    this._drawStaticLayers();
+    this._refresh();
+
 
     // Auto-start if current player is AI (supports AI vs AI autoplay starts)
     if (this.aiPlayers.has(this.gameState.currentPlayer)) {
@@ -686,6 +715,7 @@ export class GameScene extends Phaser.Scene {
     const canvas = document.createElement('canvas');
     canvas.width = cw; canvas.height = ch;
     const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, cw, ch);
 
     for (let q = 0; q < this.mapSize; q++) {
@@ -747,7 +777,65 @@ export class GameScene extends Phaser.Scene {
             ? this.textures.get(grassKey).getSourceImage() : null;
           if (grassImg?.width) ctx.drawImage(grassImg, dx, dy, artW, artH);
         }
-        ctx.drawImage(srcImg, dx, dy, artW, artH);
+        ctx.drawImage(srcImg, Math.round(dx), Math.round(dy), Math.round(artW), Math.round(artH));
+
+        // Pixel-art terrain treatments per tile type for stronger tactical readability.
+        if (ttype === 0) {
+          // plains: light pixel grain
+          ctx.fillStyle = 'rgba(255,255,255,0.09)';
+          for (let i = 0; i < 18; i++) {
+            const px = Math.round(vx - hw + ((_varHash + i * 17) % Math.round(artW)));
+            const py = Math.round(vy - hh + (((_varHash >> 3) + i * 29) % Math.round(artH)));
+            ctx.fillRect(px, py, 2, 2);
+          }
+        } else if (ttype === 3) {
+          // hills: contour-like horizontal bands to clearly separate from plains
+          ctx.fillStyle = 'rgba(60,38,18,0.16)';
+          for (let i = 0; i < 4; i++) {
+            const bandY = Math.round(vy - hh * 0.45 + i * hh * 0.30);
+            ctx.fillRect(Math.round(vx - hw * 0.55), bandY, Math.round(hw * 1.1), 2);
+          }
+          ctx.fillStyle = 'rgba(255,230,180,0.08)';
+          for (let i = 0; i < 3; i++) {
+            const bandY = Math.round(vy - hh * 0.32 + i * hh * 0.30);
+            ctx.fillRect(Math.round(vx - hw * 0.40), bandY, Math.round(hw * 0.8), 1);
+          }
+        } else if (ttype === 6) {
+          // sand: warm dither speckle
+          ctx.fillStyle = 'rgba(255,245,210,0.10)';
+          for (let i = 0; i < 16; i++) {
+            const px = Math.round(vx - hw + ((_varHash + i * 23) % Math.round(artW)));
+            const py = Math.round(vy - hh + (((_varHash >> 4) + i * 13) % Math.round(artH)));
+            ctx.fillRect(px, py, 2, 2);
+          }
+        } else if (ttype === 5) {
+          // deep water: blocky wave bands
+          ctx.fillStyle = 'rgba(255,255,255,0.08)';
+          for (let i = 0; i < 3; i++) {
+            const waveY = Math.round(vy - hh * 0.30 + i * hh * 0.32);
+            ctx.fillRect(Math.round(vx - hw * 0.60), waveY, Math.round(hw * 1.20), 2);
+          }
+        } else if (ttype === 4) {
+          // shallow water: brighter shoreline shimmer
+          ctx.fillStyle = 'rgba(255,255,255,0.14)';
+          for (let i = 0; i < 2; i++) {
+            const waveY = Math.round(vy - hh * 0.18 + i * hh * 0.28);
+            ctx.fillRect(Math.round(vx - hw * 0.52), waveY, Math.round(hw * 1.04), 2);
+          }
+        } else if (ttype === 1 || ttype === 7) {
+          // woods: chunky canopy clusters
+          ctx.fillStyle = 'rgba(18,48,18,0.18)';
+          for (let i = 0; i < 8; i++) {
+            const px = Math.round(vx - hw * 0.55 + ((_varHash + i * 31) % Math.round(hw * 1.1)));
+            const py = Math.round(vy - hh * 0.48 + (((_varHash >> 5) + i * 19) % Math.round(hh * 0.96)));
+            ctx.fillRect(px, py, 4, 3);
+          }
+        }
+
+        // crisp terrain border for readability
+        ctx.strokeStyle = ttype === 5 ? 'rgba(200,220,255,0.18)' : 'rgba(0,0,0,0.20)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
         ctx.restore();
       }
     }
@@ -769,7 +857,7 @@ export class GameScene extends Phaser.Scene {
         }
         ctx.closePath();
         ctx.clip();
-        ctx.globalAlpha = 0.62; // -38% opacity
+        ctx.globalAlpha = 0.92;
         this._drawResourceOverlayCanvas(ctx, vx, vy, hw, hh, res.type);
         ctx.restore(); // also resets globalAlpha
       }
@@ -894,11 +982,6 @@ export class GameScene extends Phaser.Scene {
         ctx.beginPath();
         ctx.moveTo(cx+ox,cy+oy-ns); ctx.lineTo(cx+ox,cy+oy); ctx.lineTo(cx+ox+ns,cy+oy+ns*0.5);
         ctx.closePath(); ctx.fillStyle = 'rgba(170,170,200,0.55)'; ctx.fill();
-      }
-      // Metallic glint dots
-      ctx.fillStyle = 'rgba(200,200,220,0.65)';
-      for (const [ox,oy] of [[-hw*0.62,0],[hw*0.55,-hh*0.2],[hw*0.18,hh*0.72],[-hw*0.35,-hh*0.5],[hw*0.8,hh*0.15]]) {
-        ctx.beginPath(); ctx.arc(cx+ox, cy+oy, 1.8, 0, Math.PI*2); ctx.fill();
       }
 
     } else if (type === 'WOOD') {
@@ -1078,11 +1161,6 @@ export class GameScene extends Phaser.Scene {
         gfx.fillStyle(0xaaaacc, 0.55);
         gfx.fillTriangle(cx+ox, cy+oy-s, cx+ox, cy+oy, cx+ox+s, cy+oy+s*0.5);
       }
-      // Metallic glint specks
-      gfx.fillStyle(0xccccee, 0.65);
-      for (const [ox, oy] of [[-9,0],[9,-2],[3,11],[-4,-7],[13,3],[1,-1]]) {
-        gfx.fillCircle(cx+ox, cy+oy, 1.5);
-      }
     } else if (type === 'WOOD') {
       // Stacked log silhouettes — brown rounds across tile
       for (const [ox, oy, rw, rh] of [[-8,3,7,4],[2,5,6,3.5],[8,-2,5.5,3],[-3,-6,5,3],[5,6,4.5,2.5]]) {
@@ -1090,9 +1168,6 @@ export class GameScene extends Phaser.Scene {
         gfx.fillEllipse(cx+ox, cy+oy, rw*2, rh*2);
         gfx.fillStyle(0x7a4a22, 0.5);
         gfx.fillEllipse(cx+ox, cy+oy-rh*0.3, rw*1.6, rh);
-        // ring lines
-        gfx.lineStyle(1, 0x3a1a00, 0.45);
-        gfx.strokeCircle(cx+ox, cy+oy, rw*0.55);
       }
     }
   }
@@ -1595,16 +1670,7 @@ export class GameScene extends Phaser.Scene {
           farmFx.closePath();
           farmFx.strokePath();
 
-          // Owner marker (larger and obvious)
-          const badgeBg = this.add.rectangle(x + HEX_SIZE * 0.29, y - HEX_SIZE * 0.29, 20, 11, 0x111111, 0.9)
-            .setStrokeStyle(1.4, 0xf0d8a0, 0.95).setDepth(1);
-          const badge = this.add.circle(x + HEX_SIZE * 0.21, y - HEX_SIZE * 0.29, 4.0, color, 1.0)
-            .setStrokeStyle(1, 0x111111, 0.95).setDepth(2);
-          const glyph = this.add.text(x + HEX_SIZE * 0.33, y - HEX_SIZE * 0.29, 'F', {
-            font: 'bold 9px monospace', fill: '#f6e3b6'
-          }).setOrigin(0.5).setDepth(2);
-
-          this.farmTileLayer?.add([farmFx, badgeBg, badge, glyph]);
+          this.farmTileLayer?.add(farmFx);
           continue;
         }
 
@@ -2476,23 +2542,20 @@ export class GameScene extends Phaser.Scene {
         const pipR = 4;
         const pipX = cx2 + pipR + 1;
         const pipY = cy2 + pipR + 1;
-        // oos=1 → orange, oos=2 → dark orange, oos>=3 → red
-        const pipCol = oos >= 3 ? 0xff2222 : oos >= 2 ? 0xff5500 : 0xffaa00;
+        const pipCol = oos >= 2 ? 0xff2222 : 0xff8800;
         this.unitGfx.fillStyle(pipCol, alpha);
         this.unitGfx.fillCircle(pipX, pipY, pipR);
         this.unitGfx.lineStyle(1, 0x000000, alpha * 0.5);
         this.unitGfx.strokeCircle(pipX, pipY, pipR);
-      }
-      // Naval low-reserves badge: blue dot when ship is running on onboard supply (not OOS yet)
-      if (NAVAL_UNITS.has(unit.type) && unit.type !== 'SUPPLY_SHIP' &&
+      } else if (NAVAL_UNITS.has(unit.type) && unit.type !== 'SUPPLY_SHIP' &&
           unit.navalSupply !== undefined && unit.navalSupply <= 2 && (unit.outOfSupply || 0) === 0) {
-        const nPipR = 3;
-        const nPipX = cx2 + cW - nPipR - 1;  // bottom-right corner
-        const nPipY = cy2 + cH - nPipR - 1;
-        this.unitGfx.fillStyle(0x0088ff, alpha * 0.9);
-        this.unitGfx.fillCircle(nPipX, nPipY, nPipR);
-        this.unitGfx.lineStyle(1, 0x003366, alpha * 0.7);
-        this.unitGfx.strokeCircle(nPipX, nPipY, nPipR);
+        const pipR = 4;
+        const pipX = cx2 + pipR + 1;
+        const pipY = cy2 + pipR + 1;
+        this.unitGfx.fillStyle(0x0088ff, 0.8);
+        this.unitGfx.fillCircle(pipX, pipY, pipR);
+        this.unitGfx.lineStyle(1, 0x000000, 0.4);
+        this.unitGfx.strokeCircle(pipX, pipY, pipR);
       }
 
       // Engineer busy indicator: small amber dot + wrench-arm lines in top-right corner of counter
@@ -2596,84 +2659,29 @@ export class GameScene extends Phaser.Scene {
     const w = this.scale.width;
     const D = 100;
 
-    // Single-row top bar (resources moved to left sidebar)
-    this.topBarBg = this.add.rectangle(w/2, 22, w, 44, 0x0a0a0a, 0.96)
+    // Two-row top bar to prevent overlaps as features grow.
+    this.topBarBg = this.add.rectangle(w/2, 37, w, 74, 0x0a0a0a, 0.96)
       .setScrollFactor(0).setDepth(D);
-    this.topBarAccent = this.add.rectangle(w/2, 44, w, 1, 0x2a4a2a, 1).setScrollFactor(0).setDepth(D + 1);
+    this.topBarDivider = this.add.rectangle(w/2, 37, w, 1, 0x1f2f1f, 1).setScrollFactor(0).setDepth(D + 1); // row divider
+    this.topBarAccent = this.add.rectangle(w/2, 74, w, 1, 0x2a4a2a, 1).setScrollFactor(0).setDepth(D + 1); // bottom accent
 
-    // Top bar: nav + state + action buttons
-    this.btnMenu     = this._makeBtn(10,    8, '← MENU',  0x222222, () => this.scene.start('MenuScene'), D);
-    this.btnEconomy  = this._makeBtn(112,   8, '📊 ECON', 0x2a2a14, () => this._toggleEconomy(), D);
-    this.turnLbl     = this._makeLabel(w/2, 8, 'Turn 1 | Player 1 | PLANNING', D, true);
-
-    this.btnSupply   = this._makeBtn(w - 500, 8, '⬡ SUP',   0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
-    this.btnResearch = this._makeBtn(w - 414, 8, '⚗ RES',   0x442266, () => this._toggleResearch(), D, 'right');
-    this.btnDesigner = this._makeBtn(w - 328, 8, '🔧 DES',   0x1a3322, () => this._toggleDesigner(), D, 'right');
-    this.btnTrade    = this._makeBtn(w - 242, 8, '💱 TRADE', 0x3a2a11, () => this._toggleTrade(), D, 'right');
-    this.btnSettings = this._makeBtn(w - 140, 8, '⚙ SET',   0x222244, () => this._toggleSettings(), D, 'right');
-    this.btnSubmit   = this._makeBtn(w - 8,   8, 'END TURN',0x1a5c1a, () => this._confirmEndTurn(), D, 'right');
+    // Row 1: nav + state
+    this.btnMenu = this._makeBtn(10, 8, '← MENU', 0x222222, () => this.scene.start('MenuScene'), D);
+    this.btnEconomy = this._makeBtn(112, 8, '📊 ECON', 0x2a2a14, () => this._toggleEconomy(), D);
+    this.turnLbl = this._makeLabel(w/2, 8, 'Turn 1 | Player 1 | PLANNING', D, true);
 
     // Version tag
-    this.versionTag = this.add.text(w/2 + 180, 8, GAME_VERSION, {
+    this.versionTag = this.add.text(w - 110, 8, GAME_VERSION, {
       font: '11px monospace', fill: '#5a6f8a'
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(D);
 
-    // ── Left resource sidebar ─────────────────────────────────────────────
-    // Anchored below the top bar on the left edge.
-    // Each resource: large emoji + big stock number + small net/turn.
-    const RES_PANEL_W = 88;
-    const RES_ROW_H   = 44;
-    const RES_ROWS    = 7; // iron, oil, wood, food, gold, components, rp
-    const RES_TOP     = 48; // just below top bar
-    const RES_PAD_X   = 6;
-
-    this.resSidebarBg = this.add.rectangle(
-      RES_PANEL_W / 2, RES_TOP + (RES_ROWS * RES_ROW_H) / 2,
-      RES_PANEL_W, RES_ROWS * RES_ROW_H,
-      0x0a0f0a, 0.88
-    ).setStrokeStyle(1, 0x1e2e1e).setScrollFactor(0).setDepth(D);
-
-    const makeResRow = (idx, emoji) => {
-      const rowY  = RES_TOP + idx * RES_ROW_H;
-      const midY  = rowY + RES_ROW_H / 2;
-      // Emoji icon (large)
-      const icon = this.add.text(RES_PAD_X + 2, midY - 10, emoji, {
-        font: '22px monospace'
-      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 1);
-      // Stock number (big)
-      const stock = this.add.text(RES_PAD_X + 34, midY - 11, '—', {
-        font: 'bold 15px monospace', fill: '#e8f4e8'
-      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 1);
-      // Net per turn (small, below stock)
-      const net = this.add.text(RES_PAD_X + 34, midY + 6, '', {
-        font: '10px monospace', fill: '#88aa88'
-      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 1);
-      // Divider line between rows
-      if (idx < RES_ROWS - 1) {
-        this.add.rectangle(RES_PANEL_W / 2, rowY + RES_ROW_H, RES_PANEL_W, 1, 0x1e2e1e, 0.7)
-          .setScrollFactor(0).setDepth(D);
-      }
-      return { icon, stock, net };
-    };
-
-    this._resRows = {
-      iron: makeResRow(0, '⚙'),
-      oil:  makeResRow(1, '🛢'),
-      wood: makeResRow(2, '🪵'),
-      food: makeResRow(3, '🍞'),
-      gold: makeResRow(4, '💰'),
-      comp: makeResRow(5, '🧩'),
-      rp:   makeResRow(6, '⚗'),
-    };
-
-    // Keep legacy refs pointing at stock labels so existing update code still works
-    this.resIron = this._resRows.iron.stock;
-    this.resOil  = this._resRows.oil.stock;
-    this.resWood = this._resRows.wood.stock;
-    this.resFood = this._resRows.food.stock;
-    this.resGold = this._resRows.gold.stock;
-    this.resComp = this._resRows.comp.stock;
-    this.resRp   = this._resRows.rp.stock;
+    // Row 2: actions only. Resource economy is moved into the left sidebar for readability.
+    this.btnSupply   = this._makeBtn(w - 500, 42, '⬡ SUP',   0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
+    this.btnResearch = this._makeBtn(w - 414, 42, '⚗ RES',   0x442266, () => this._toggleResearch(), D, 'right');
+    this.btnDesigner = this._makeBtn(w - 328, 42, '🔧 DES',   0x1a3322, () => this._toggleDesigner(), D, 'right');
+    this.btnTrade    = this._makeBtn(w - 242, 42, '💱 TRADE', 0x3a2a11, () => this._toggleTrade(), D, 'right');
+    this.btnSettings = this._makeBtn(w - 140, 42, '⚙ SET',   0x222244, () => this._toggleSettings(), D, 'right');
+    this.btnSubmit   = this._makeBtn(w - 8,   42, 'END TURN',0x1a5c1a, () => this._confirmEndTurn(), D, 'right');
     if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
       this.btnPauseAI = this._makeBtn(w - 610, 8, '⏸ AI', 0x3a2a11, () => {
         this._aiAutoplayPaused = !this._aiAutoplayPaused;
@@ -2689,6 +2697,23 @@ export class GameScene extends Phaser.Scene {
       font: 'bold 12px monospace', fill: '#fff7c2',
       backgroundColor: '#3a3312', padding: { x: 8, y: 4 }
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(D + 2);
+
+    // Left-sidebar economy block
+    this.sidebarEcoBg = this.add.rectangle(68, 248, 94, 248, 0x0d120d, 0.92)
+      .setStrokeStyle(1, 0x2a3a2a).setScrollFactor(0).setDepth(D).setInteractive({ useHandCursor: true });
+    this.sidebarEcoTitle = this.add.text(6, 104, 'ECONOMY', {
+      font: 'bold 12px monospace', fill: '#d8ead8'
+    }).setScrollFactor(0).setDepth(D + 1);
+    this.sidebarEcoHint = this.add.text(6, 120, 'hover = resource', {
+      font: '9px monospace', fill: '#8ea88e'
+    }).setScrollFactor(0).setDepth(D + 1);
+    this.resIron = this._makeSidebarResIcon(10, 142, '⚙', 'Iron', D + 1);
+    this.resOil  = this._makeSidebarResIcon(10, 176, '🛢', 'Oil', D + 1);
+    this.resWood = this._makeSidebarResIcon(10, 210, '🪵', 'Wood', D + 1);
+    this.resFood = this._makeSidebarResIcon(10, 244, '🍞', 'Food', D + 1);
+    this.resGold = this._makeSidebarResIcon(10, 278, '💰', 'Gold', D + 1);
+    this.resComp = this._makeSidebarResIcon(10, 312, '🧩', 'Components', D + 1);
+    this.resRp   = this._makeSidebarResIcon(10, 346, '⚗', 'Research', D + 1);
   }
 
   _makeLabel(x, y, text, depth, center = false) {
@@ -2696,6 +2721,34 @@ export class GameScene extends Phaser.Scene {
       font: '13px monospace', fill: '#d8ead8',
       backgroundColor: '#141814', padding: { x: 8, y: 6 }, stroke: '#081008', strokeThickness: 1
     }).setOrigin(center ? 0.5 : 0, 0).setScrollFactor(0).setDepth(depth);
+  }
+
+  _makeSidebarResIcon(x, y, icon, label, depth) {
+    const t = this.add.text(x, y, icon, {
+      font: 'bold 16px monospace', fill: '#d8ead8',
+      backgroundColor: '#141814', padding: { x: 4, y: 2 }, stroke: '#081008', strokeThickness: 1
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(depth).setInteractive({ useHandCursor: true });
+    const tip = () => this._showHoverTip(`${label}`, x + 28, y + 5);
+    t.on('pointerover', tip);
+    t.on('pointermove', tip);
+    t.on('pointerout', () => this._hideHoverTip());
+    return t;
+  }
+
+  _showHoverTip(text, x, y) {
+    this._hideHoverTip();
+    this._hoverTipBg = this.add.rectangle(x + 46, y + 10, 88, 18, 0x111111, 0.92)
+      .setStrokeStyle(1, 0x444444).setScrollFactor(0).setDepth(12000);
+    this._hoverTipText = this.add.text(x + 6, y + 1, text, {
+      font: 'bold 8px monospace', fill: '#f1f1f1'
+    }).setScrollFactor(0).setDepth(12001);
+  }
+
+  _hideHoverTip() {
+    this._hoverTipBg?.destroy?.();
+    this._hoverTipText?.destroy?.();
+    this._hoverTipBg = null;
+    this._hoverTipText = null;
   }
 
   _makeBtn(x, y, label, color, cb, depth = 100, origin = 'left') {
@@ -2746,40 +2799,25 @@ export class GameScene extends Phaser.Scene {
     const ttzIron = _ttz(pl.iron, netIron);
     const ttzOil  = _ttz(pl.oil,  netOil);
     const ttzFood = _ttz(pl.food || 0, netFood);
+    const ttzSuffix = (ttz) => ttz <= 1 ? ' !!!' : ttz <= 3 ? ` (${ttz}t)` : '';
 
-    // ── Update left sidebar resource rows ──────────────────────────────────
-    const setRow = (row, stockVal, netVal, ttz) => {
-      if (!row) return;
-      row.stock.setText(fmtRes(stockVal));
-      const netStr = netVal !== undefined ? sgn(netVal) : '';
-      row.net.setText(netStr);
-      // Color: red at ≤1t, orange at ≤3t, warn color if debt, default otherwise
-      const clr = ttz <= 1 ? '#ff4422' : ttz <= 3 ? '#ffaa33' : unsupplied ? '#ffaa33' : '#e8f4e8';
-      const netClr = netVal > 0 ? '#66cc66' : netVal < 0 ? (ttz <= 3 ? '#ff8833' : '#cc6644') : '#888888';
-      row.stock.setStyle({ fill: clr, font: 'bold 15px monospace' });
-      row.net.setStyle({ fill: netClr, font: '10px monospace' });
-    };
-
-    if (this._resRows) {
-      setRow(this._resRows.iron, pl.iron,              netIron, ttzIron);
-      setRow(this._resRows.oil,  pl.oil,               netOil,  ttzOil);
-      setRow(this._resRows.wood, pl.wood || 0,          netWood, Infinity);
-      setRow(this._resRows.food, pl.food || 0,          netFood, ttzFood);
-      setRow(this._resRows.gold, pl.gold || 0,          netGold, Infinity);
-      setRow(this._resRows.comp, pl.components || 0,    undefined, Infinity);
-
-      // Research row: show tech progress or idle state
-      const resState = pl.research;
-      const activeRes = resState?.queue?.[0];
-      const activeTech = activeRes ? TECH_TREE[activeRes.techId] : null;
-      const rpPct = activeTech ? Math.floor(((activeRes.rpSpent || 0) / activeTech.cost) * 100) : 0;
-      const rpStock = inc.rp === 0 ? '—' : `+${inc.rp}/t`;
-      const rpNet   = activeTech ? `${activeTech.name.substring(0, 9)}.. ${rpPct}%` : (inc.rp > 0 ? 'idle' : 'no lab');
-      this._resRows.rp.stock.setText(rpStock);
-      this._resRows.rp.net.setText(rpNet);
-      this._resRows.rp.stock.setStyle({ fill: inc.rp > 0 ? '#cc88ff' : '#666666', font: 'bold 13px monospace' });
-      this._resRows.rp.net.setStyle({ fill: activeTech ? '#aa88dd' : '#556655', font: '10px monospace' });
-    }
+    this.resIron.setText(`⚙ ${fmtRes(pl.iron)} ${sgn(netIron)}${ttzSuffix(ttzIron)}`);
+    this.resOil.setText(`🛢 ${fmtRes(pl.oil)} ${sgn(netOil)}${ttzSuffix(ttzOil)}`);
+    this.resWood.setText(`🪵 ${fmtRes(pl.wood || 0)} ${sgn(netWood)}`);
+    this.resFood.setText(`🍞 ${fmtRes(pl.food || 0)} ${sgn(netFood)}${ttzSuffix(ttzFood)}`);
+    this.resGold.setText(`💰 ${fmtRes(pl.gold || 0)} ${sgn(netGold)}`);
+    this.resComp.setText(`🧩 ${fmtRes(pl.components || 0)} 0`);
+    // Research: show active tech name + % or "no lab"
+    const resState = pl.research;
+    const activeRes = resState?.queue?.[0];
+    const activeTech = activeRes ? TECH_TREE[activeRes.techId] : null;
+    const rpPct = activeTech ? Math.floor(((activeRes.rpSpent || 0) / activeTech.cost) * 100) : 0;
+    const rpLabel = inc.rp === 0 ? 'no lab' : activeTech ? `${activeTech.name.substring(0,12)} ${rpPct}%` : `idle (+${inc.rp}/t)`;
+    this.resRp.setText(`⚗ RESEARCH ${rpLabel}`);
+    // Color coding: debt/unsupplied = red, imminent zero = orange, healthy = default
+    this.resFood.setStyle({ fill: unsupplied ? '#ff4422' : ttzFood <= 3 ? '#ffaa33' : '#ccddcc' });
+    this.resIron.setStyle({ fill: ttzIron <= 1 ? '#ff4422' : ttzIron <= 3 ? '#ffaa33' : '#ccddcc' });
+    this.resOil.setStyle({  fill: ttzOil  <= 1 ? '#ff4422' : ttzOil  <= 3 ? '#ffaa33' : '#ccddcc' });
 
     this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  ${modeStr}`);
     this.turnBadge?.setText(`TURN ${gs.turn}`);
@@ -2882,7 +2920,8 @@ export class GameScene extends Phaser.Scene {
             const navalMax = navalMaxMap[u.type] ?? 6;
             const navalCur = u.navalSupply ?? navalMax;
             const navalWarn = navalCur <= 2 ? '⚠ ' : '';
-            status += `  ⚓ Supply: ${navalWarn}${navalCur}/${navalMax} turns`;
+            const lowReserves = navalCur <= 2 && (u.outOfSupply || 0) === 0 ? '  🔵 Low reserves' : '';
+            status += `  ⚓ Supply: ${navalWarn}${navalCur}/${navalMax} turns${lowReserves}`;
           }
         }
       }
@@ -7333,6 +7372,11 @@ export class GameScene extends Phaser.Scene {
 
   // ── Pass / Resolution screens ─────────────────────────────────────────────
   _showSplash(objects, onDismiss) {
+    // Defensive: ensure only one splash/modal is ever alive.
+    if (this._splashDismiss) {
+      try { this._splashDismiss(); } catch (e) {}
+      this._splashDismiss = null;
+    }
     this.btnSubmit?.setVisible(false);
 
     const btn = this.add.text(this.scale.width / 2, this.scale.height - 60, '[ CLICK or SPACE to continue ]', {
@@ -7401,6 +7445,7 @@ export class GameScene extends Phaser.Scene {
       this._refresh();
       // Extra anti-loop guard: after pass-screen SPACE dismiss, ignore submit SPACE for a short window.
       this._spaceGuardUntil = Math.max(this._spaceGuardUntil || 0, performance.now() + 1400);
+      this._splashDismiss = null;
     });
   }
 

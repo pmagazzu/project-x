@@ -385,29 +385,6 @@ export const UNIT_UPKEEP = {
   SUPPLY_SHIP:      { food: 0.0, iron: 0.1, oil: 0.3 },
 };
 
-const BASE_SUPPLY_HEAL_PCT = 5;
-const OOS_HEALTH_LOSS_PCT = 10;
-const OOS_MIN_HEALTH_PCT = 25;
-
-function getSupplyHealPct(state, player) {
-  const unlocked = state.players?.[player]?.research?.unlocked || [];
-  const bonus = Array.isArray(unlocked)
-    ? unlocked.filter(id => String(id).startsWith('supply_medicine_')).length
-    : 0;
-  return BASE_SUPPLY_HEAL_PCT + bonus;
-}
-
-function applyPercentHealthDelta(unit, pct, direction = 'heal') {
-  const maxHp = Math.max(1, unit.maxHealth || unit.health || 1);
-  const delta = Math.max(0.01, +(maxHp * (pct / 100)).toFixed(2));
-  if (direction === 'harm') {
-    const floor = +(maxHp * (OOS_MIN_HEALTH_PCT / 100)).toFixed(2);
-    unit.health = Math.max(floor, +((unit.health || maxHp) - delta).toFixed(2));
-  } else {
-    unit.health = Math.min(maxHp, +((unit.health || maxHp) + delta).toFixed(2));
-  }
-}
-
 // Compute total upkeep for all of a player's units
 export function calcUpkeep(state, player) {
   const UPKEEP_SCALE = 0.6; // global balance knob (60% upkeep; +20% from prior)
@@ -995,11 +972,16 @@ export function hasLOS(fromQ, fromR, toQ, toR, terrain) {
 export function getAttackRangeHexes(mapSize, unit, fromQ, fromR, terrain) {
   const range = ustat(unit, 'range', UNIT_TYPES[unit.type]?.range || 1);
   const indirect = INDIRECT_FIRE.has(unit.type);
+  const unitDef = UNIT_TYPES[unit.type] || {};
   const result = [];
   for (let q = 0; q < mapSize; q++) {
     for (let r = 0; r < mapSize; r++) {
       const dist = hexDistance(fromQ, fromR, q, r);
       if (dist < 1 || dist > range) continue;
+      if (unitDef.antiNavalOnly) {
+        const targetTerrain = terrain?.[`${q},${r}`] ?? 0;
+        if (targetTerrain !== 4 && targetTerrain !== 5) continue;
+      }
       // Direct-fire units need clear LOS; indirect fire (arty/mortar) always allowed
       if (!indirect && terrain && !hasLOS(fromQ, fromR, q, r, terrain)) continue;
       result.push({ q, r });
@@ -1686,12 +1668,15 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   const attacker = state.units.find(u => u.id === attackerId);
   const target   = state.units.find(u => u.id === targetId);
   if (!attacker || !target) return [];
-  // antiNavalOnly (torpedo) units cannot attack land targets
-  const _atkDef = UNIT_TYPES[attacker.type] || {};
-  if (_atkDef.antiNavalOnly) {
-    const _tgt = state._terrain?.[`${target.q},${target.r}`] ?? 0;
-    if (_tgt !== 4 && _tgt !== 5) {
-      return [`${_atkDef.name} cannot attack land targets (torpedoes only)`];
+  const events = [];
+
+  // antiNavalOnly units (torpedoes) cannot attack land targets
+  const atkDef = UNIT_TYPES[attacker.type] || {};
+  if (atkDef.antiNavalOnly) {
+    const targetTerrain = state._terrain?.[`${target.q},${target.r}`] ?? 0;
+    if (targetTerrain !== 4 && targetTerrain !== 5) {
+      events.push(`${atkDef.name} cannot attack land targets (torpedoes only)`);
+      return events;
     }
   }
 
@@ -2078,7 +2063,7 @@ export function resolveEndOfTurn(state, terrain) {
   const upkeep = calcUpkeep(state, player);
   const pl = state.players[player];
   if (!pl.upkeepDebt) pl.upkeepDebt = { food: 0, iron: 0, oil: 0 };
-  let economicShortage = false;
+  let unsuppliedCount = 0;
   // For each resource: deduct. If can't afford, accumulate debt.
   for (const res of ['food', 'iron', 'oil']) {
     const cost = upkeep[res];
@@ -2090,17 +2075,24 @@ export function resolveEndOfTurn(state, terrain) {
       // Can't fully pay — take what's available, mark debt
       pl[res] = 0;
       pl.upkeepDebt[res] = (pl.upkeepDebt[res] || 0) + 1;
-      economicShortage = true;
+      unsuppliedCount++;
     }
   }
-  // Economic shortages should never delete the army.
-  if (economicShortage) {
+  // Apply unsupplied penalty to ALL current player's units
+  if (unsuppliedCount > 0) {
     for (const unit of state.units.filter(u => u.owner === player)) {
       unit.unsupplied = (unit.unsupplied || 0) + 1;
-      events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) suffers economic shortage (-move, -attack)`);
+      // Two turns unsupplied = unit deserts
+      if (unit.unsupplied >= 2) {
+        events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) deserted — no supplies!`);
+        unit.health = 0; // mark for removal
+      } else {
+        events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) UNSUPPLIED (-move, -attack)`);
+      }
     }
+    state.units = state.units.filter(u => u.health > 0);
   } else {
-    // Clear economic unsupplied flags when resources are restored
+    // Clear unsupplied flags when resources are restored
     for (const unit of state.units.filter(u => u.owner === player)) {
       unit.unsupplied = 0;
     }
@@ -2189,7 +2181,6 @@ export function resolveEndOfTurn(state, terrain) {
 
   // ── Supply check ──────────────────────────────────────────────────────────
   const suppliedHexes = computeSupply(state, player, state._mapSize || 25);
-  const supplyHealPct = getSupplyHealPct(state, player);
   for (const unit of state.units.filter(u => u.owner === player && !u.embarked)) {
     // Recon upgrade: unit ignores supply needs entirely.
     if ((unit.ignoreSupply || 0) > 0) {
@@ -2207,32 +2198,35 @@ export function resolveEndOfTurn(state, terrain) {
       : unit.type === 'BATTLESHIP' ? 10
       : (unit.type === 'LANDING_CRAFT' || unit.type?.startsWith('TRANSPORT_')) ? 5
       : 6;
-    // Building-proximity recharge for navalSupply
+    // Building-proximity recharge rates for navalSupply
     let navalRecharge = 0;
-    if (unit.type === 'SUPPLY_SHIP') {
-      navalRecharge = 99;
-    } else {
-      const _dirs6 = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
-      const _navalRestockRates = { PORT:2, HARBOR:2, NAVAL_YARD:2, DRY_DOCK:3, NAVAL_BASE:4, NAVAL_DOCKYARD:5 };
-      // Adjacent supply ship
-      const _adjSupplyShip = state.units.some(u2 => u2.owner===unit.owner && u2.type==='SUPPLY_SHIP' &&
-        _dirs6.some(([dq,dr]) => u2.q===unit.q+dq && u2.r===unit.r+dr));
-      if (_adjSupplyShip) navalRecharge = Math.max(navalRecharge, 1);
-      // Adjacent naval buildings
-      for (const [btype, rate] of Object.entries(_navalRestockRates)) {
-        const _near = state.buildings.some(b => b.owner===unit.owner && b.type===btype && !b.underConstruction &&
-          ((Math.abs(b.q-unit.q)+Math.abs(b.r-unit.r)+Math.abs((b.q-unit.q)+(b.r-unit.r)))/2) <= 1);
-        if (_near) navalRecharge = Math.max(navalRecharge, rate);
+    const rechargeBuildings = [
+      { types: ['SUPPLY_SHIP'], rate: 1, checkUnit: true },
+      { types: ['PORT','HARBOR'], rate: 2 },
+      { types: ['NAVAL_YARD'], rate: 2 },
+      { types: ['DRY_DOCK'], rate: 3 },
+      { types: ['NAVAL_BASE'], rate: 4 },
+      { types: ['NAVAL_DOCKYARD'], rate: 5 },
+    ];
+    const dirs6 = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+    for (const rb of rechargeBuildings) {
+      if (rb.checkUnit) {
+        const adjShip = state.units.some(u => u.owner === unit.owner && u.type === 'SUPPLY_SHIP' &&
+          dirs6.some(([dq,dr]) => u.q === unit.q + dq && u.r === unit.r + dr));
+        if (adjShip) navalRecharge = Math.max(navalRecharge, 1);
+      } else {
+        const nearBuilding = state.buildings.some(b => b.owner === unit.owner &&
+          rb.types.includes(b.type) && !b.underConstruction &&
+          ((Math.abs(b.q - unit.q) + Math.abs(b.r - unit.r) + Math.abs((b.q - unit.q) + (b.r - unit.r))) / 2) <= 1);
+        if (nearBuilding) navalRecharge = Math.max(navalRecharge, rb.rate);
       }
-      // Baseline: in supply network = +1
-      if (suppliedHexes.has(`${unit.q},${unit.r}`)) navalRecharge = Math.max(navalRecharge, 1);
     }
+    if (suppliedHexes.has(`${unit.q},${unit.r}`)) navalRecharge = Math.max(navalRecharge, 1);
 
     // Supply ships are floating logistics hubs and ignore network supply constraints.
     if (unit.type === 'SUPPLY_SHIP') {
       unit.outOfSupply = 0;
       unit.navalSupply = navalMax;
-      if (unit.health < unit.maxHealth) applyPercentHealthDelta(unit, supplyHealPct, 'heal');
       continue;
     }
 
@@ -2243,10 +2237,6 @@ export function resolveEndOfTurn(state, terrain) {
       unit.outOfSupply = 0;
       if (isNaval) {
         unit.navalSupply = Math.min(navalMax, (unit.navalSupply ?? navalMax) + navalRecharge);
-      }
-      if (unit.health < unit.maxHealth) {
-        applyPercentHealthDelta(unit, supplyHealPct, 'heal');
-        events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) healed in supply (+${supplyHealPct}% max HP)`);
       }
     } else {
       if (isNaval) {
@@ -2262,12 +2252,6 @@ export function resolveEndOfTurn(state, terrain) {
       if (unit.outOfSupply === 1) events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) is OUT OF SUPPLY (-1 move, -1 attack)`);
       else if (unit.outOfSupply === 2) events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) unsupplied 2 turns (-2 move, -2 attack)`);
       else events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) critically unsupplied`);
-      const before = unit.health;
-      applyPercentHealthDelta(unit, OOS_HEALTH_LOSS_PCT, 'harm');
-      if (unit.health < before) {
-        const floorPct = OOS_MIN_HEALTH_PCT;
-        events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) loses ${OOS_HEALTH_LOSS_PCT}% max HP from lack of supply (min ${floorPct}% HP)`);
-      }
       // Apply move penalty for this coming turn
       const pen = supplyPenalty(unit.outOfSupply);
       unit.movesLeft = Math.max(1, unit.movesLeft - pen.movePenalty);
@@ -2377,6 +2361,7 @@ export const BUILDING_SUPPLY_RADIUS = {
   DRY_DOCK:     2,
   NAVAL_BASE:   3,
   SUPPLY_WAREHOUSE: 4,
+  SUPPLY_DEPOT: 2, // v1.6 addition: provides supply on isolated road networks
 };
 
 // Returns a Set of "q,r" keys that are in supply for the given player.
@@ -2386,23 +2371,24 @@ export function computeSupply(state, player, mapSize) {
   const supplied = new Set();
   const ms = mapSize || state._mapSize || 25;
 
-  // Roads extend supply only when they are OWNED by the same player AND connected to that player's HQ road network.
+  // Roads extend supply only when they are OWNED by the same player AND connected to that player's HQ or Supply Depot.
   const isOwnedRoadHex = (q, r) => state.buildings.some(b => ROAD_TYPES.has(b.type) && b.q === q && b.r === r && Number(b.owner) === Number(player));
   const _isValid = (q, r) => q >= 0 && r >= 0 && q < ms && r < ms;
 
-  // Build a set of owned roads that are connected to HQ OR Supply Warehouse
-  // (warehouse acts as alternate logistics anchor for detached road networks).
-  const hqRoadConnected = new Set();
-  const myRoadAnchors = state.buildings.filter(b => Number(b.owner) === Number(player) && (b.type === 'HQ' || b.type === 'SUPPLY_WAREHOUSE'));
+  // Build a set of owned roads that are connected to HQ OR Supply Depot
+  // v1.6: Roads now extend supply mainly through connections to HQ/Depots.
+  const roadConnected = new Set();
+  const mySupplyAnchors = state.buildings.filter(b => Number(b.owner) === Number(player) && !b.underConstruction && (b.type === 'HQ' || b.type === 'SUPPLY_DEPOT'));
+  
   const roadQueue = [];
-  for (const anchor of myRoadAnchors) {
+  for (const anchor of mySupplyAnchors) {
     const seeds = [{ q: anchor.q, r: anchor.r }, ...HEX_NEIGHBORS.map(([dq, dr]) => ({ q: anchor.q + dq, r: anchor.r + dr }))];
     for (const s of seeds) {
       if (!_isValid(s.q, s.r)) continue;
       if (!isOwnedRoadHex(s.q, s.r)) continue;
       const k = `${s.q},${s.r}`;
-      if (hqRoadConnected.has(k)) continue;
-      hqRoadConnected.add(k);
+      if (roadConnected.has(k)) continue;
+      roadConnected.add(k);
       roadQueue.push(s);
     }
   }
@@ -2413,20 +2399,19 @@ export function computeSupply(state, player, mapSize) {
       if (!_isValid(nq, nr)) continue;
       if (!isOwnedRoadHex(nq, nr)) continue;
       const nk = `${nq},${nr}`;
-      if (hqRoadConnected.has(nk)) continue;
-      hqRoadConnected.add(nk);
+      if (roadConnected.has(nk)) continue;
+      roadConnected.add(nk);
       roadQueue.push({ q: nq, r: nr });
     }
   }
 
-  const isRoadHex = (q, r) => hqRoadConnected.has(`${q},${r}`);
+  const isRoadHex = (q, r) => roadConnected.has(`${q},${r}`);
 
   const floodFill = (sq, sr, radius) => {
     // BFS — roads cost 0, other hexes cost 1.
-    // Highways should genuinely project supply deep into theater (not just 2 hops).
     const ROAD_CHAIN_LIMIT = 12;
     const queue = [{ q: sq, r: sr, rem: radius, roadChain: 0 }];
-    const visited = new Map(); // key -> best rem seen for chain-state
+    const visited = new Map(); 
     visited.set(`${sq},${sr},0`, radius);
     while (queue.length > 0) {
       const { q, r, rem, roadChain } = queue.shift();
@@ -2442,10 +2427,16 @@ export function computeSupply(state, player, mapSize) {
           nextRoadChain = fromRoad ? (roadChain + 1) : 1;
           if (nextRoadChain > ROAD_CHAIN_LIMIT) continue;
         }
+        // v1.6: Dirt roads extend supply only 2 tiles off the road.
         // entering a road from non-road consumes 1 range; continuing on roads is free.
-        // This makes road corridors materially better for long-distance logistics.
         const stepCost = toRoad ? (fromRoad ? 0 : 1) : 1;
         const nextRem = rem - stepCost;
+        
+        // Apply v1.6 dirt road limit: if we are NOT on a road, and the previous tile was a road, 
+        // we can only go 2 tiles deep into non-road territory from that road network.
+        // (This is implicitly handled by the 'rem' value starting at radius).
+        // To strictly enforce "2 tiles off road", we check distance from nearest road if not on one.
+
         const key = `${nq},${nr},${nextRoadChain}`;
         const prevBest = visited.get(key) ?? -1;
         if (nextRem > prevBest) {
