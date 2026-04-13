@@ -148,15 +148,15 @@ function getOpeningMilestones(gs, player) {
   };
 
   const desired = {
-    roads: turn <= 3 ? 1 : turn <= 6 ? 2 : turn <= 9 ? 4 : 6,
-    mines: turn <= 5 ? 1 : 2,
-    pumps: turn <= 6 ? 1 : 2,
-    farms: turn <= 6 ? 1 : turn <= 10 ? 2 : 3,
-    lumber: turn <= 8 ? 1 : 2,
-    labs: turn <= 8 ? 1 : 2,
-    factories: turn <= 9 ? 0 : 1,
-    barracks: turn <= 7 ? 1 : 2,
-    supplyTrucks: turn <= 8 ? 0 : 1,
+    roads:       turn <= 3 ? 1 : turn <= 6 ? 2 : turn <= 9 ? 4 : turn <= 14 ? 8 : 12,
+    mines:       turn <= 5 ? 1 : turn <= 12 ? 2 : turn <= 18 ? 3 : 4,
+    pumps:       turn <= 6 ? 1 : turn <= 12 ? 2 : turn <= 18 ? 3 : 4,
+    farms:       turn <= 6 ? 1 : turn <= 10 ? 2 : turn <= 16 ? 3 : 4,
+    lumber:      turn <= 8 ? 1 : 2,
+    labs:        turn <= 8 ? 1 : turn <= 14 ? 2 : 3,
+    factories:   turn <= 9 ? 0 : turn <= 16 ? 1 : 2,
+    barracks:    turn <= 7 ? 1 : turn <= 14 ? 2 : 3,
+    supplyTrucks: turn <= 8 ? 0 : turn <= 14 ? 1 : 2,
   };
 
   return {
@@ -1303,8 +1303,22 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             // Build priority scoring — favor the weakest link in economy/opening milestones
             const needs = [];
             const d = opening.deficits;
-            // Farms: need food for upkeep, cap at 4
-            if (onPlains && myFarms < 4 && food < 10) needs.push({ type: 'FARM', score: ((myFarms < 1 ? 20 : 12) - myFarms * 3 - food * 0.5 + d.farms * 6) * phaseWeights.economy });
+            const turn = gs.turn || 1;
+            // Farms: scale cap with turn (up to 5 late game), strong priority when food is low
+            const farmCap = turn <= 8 ? 2 : turn <= 14 ? 3 : turn <= 20 ? 4 : 5;
+            if (onPlains && myFarms < farmCap) needs.push({ type: 'FARM', score: ((myFarms < 1 ? 22 : 14) - myFarms * 2.5 - food * 0.4 + d.farms * 7) * phaseWeights.economy });
+            // Mines: scale cap to 5 late game
+            const mineCap = turn <= 8 ? 2 : turn <= 14 ? 3 : turn <= 20 ? 4 : 5;
+            if (resHex?.type !== 'OIL' && myMines < mineCap) {
+              const ironNeed = Math.max(0, 10 - resSim.iron) * 0.5;
+              needs.push({ type: 'MINE', score: ((myMines < 1 ? 20 : 12) - myMines * 2 + d.mines * 7 + ironNeed) * phaseWeights.economy });
+            }
+            // Oil pumps: scale cap to 5 late game
+            const pumpCap = turn <= 8 ? 2 : turn <= 14 ? 3 : turn <= 20 ? 4 : 5;
+            if (resHex?.type !== 'IRON' && myPumps < pumpCap) {
+              const oilNeed = Math.max(0, 6 - resSim.oil) * 0.6;
+              needs.push({ type: 'OIL_PUMP', score: ((myPumps < 1 ? 20 : 12) - myPumps * 2 + d.pumps * 7 + oilNeed) * phaseWeights.economy });
+            }
             // Lumber: only when wood-starved, hard cap by broader economy size
             if (onForest && !resHex && myLumber < maxLumber && wood < 6) {
               needs.push({ type: 'LUMBER_CAMP', score: ((myLumber < 1 ? 11 : 6) - myLumber * 4 - wood * 0.8 + d.lumber * 4) * phaseWeights.economy });
@@ -1320,23 +1334,25 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             const frontlineSpan = getFrontlineDistanceEstimate(gs, player);
             const fobPoints = getFOBChainPoints(gs, player);
             // Check if this engineer is near any uncovered FOB waypoint
-            const nearFOB = gs.turn >= 8 && fobPoints.some(fob => {
+            const nearFOB = gs.turn >= 6 && fobPoints.some(fob => {
               const dist = hexDistance(unit.q, unit.r, fob.q, fob.r);
-              if (dist > 6) return false;
+              if (dist > 8) return false;
               return !gs.buildings.some(b => b.owner === player &&
                 (b.type === 'SUPPLY_DEPOT' || b.type === 'SUPPLY_WAREHOUSE') &&
                 hexDistance(b.q, b.r, fob.q, fob.r) <= 4);
             });
             if (nearFOB) {
               const pressure = getEnemies().filter(e => hexDistance(e.q, e.r, unit.q, unit.r) <= 4).length;
-              needs.push({ type: 'SUPPLY_DEPOT', score: (20 + pressure * 2.0 + Math.floor(frontlineSpan / 4) - mySupplyDepots * 1.5) * phaseWeights.logistics });
-            } else if (gs.turn >= 9 && mySupplyDepots < 4 && (unsupplied >= 3 || roadDeficit >= 3 || frontlineSpan >= 10)) {
+              // Raised base score so FOBs compete with roads/farms
+              needs.push({ type: 'SUPPLY_DEPOT', score: (28 + pressure * 3.0 + Math.floor(frontlineSpan / 3) - mySupplyDepots * 1.5) * phaseWeights.logistics });
+            } else if (gs.turn >= 7 && mySupplyDepots < 5 && (unsupplied >= 2 || roadDeficit >= 2 || frontlineSpan >= 8)) {
               const pressure = getEnemies().filter(e => hexDistance(e.q, e.r, unit.q, unit.r) <= 4).length;
-              needs.push({ type: 'SUPPLY_DEPOT', score: (10 + unsupplied * 1.8 + pressure * 2.0 + Math.floor(frontlineSpan / 3) + roadDeficit * 1.2 - mySupplyDepots * 2) * phaseWeights.logistics });
+              needs.push({ type: 'SUPPLY_DEPOT', score: (14 + unsupplied * 2.5 + pressure * 2.5 + Math.floor(frontlineSpan / 3) + roadDeficit * 1.5 - mySupplyDepots * 2) * phaseWeights.logistics });
             }
             const warehousesEarly = gs.buildings.filter(bb => bb.owner === player && bb.type === 'SUPPLY_WAREHOUSE' && !bb.underConstruction).length;
-            if (gs.turn >= 12 && warehousesEarly < 3 && (unsupplied >= 4 || frontlineSpan >= 12)) {
-              needs.push({ type: 'SUPPLY_WAREHOUSE', score: (9 + unsupplied * 1.6 + Math.floor(frontlineSpan / 4) - warehousesEarly * 2) * phaseWeights.logistics });
+            // Warehouses earlier and at lower thresholds
+            if (gs.turn >= 10 && warehousesEarly < 3 && (unsupplied >= 2 || frontlineSpan >= 10)) {
+              needs.push({ type: 'SUPPLY_WAREHOUSE', score: (14 + unsupplied * 2.0 + Math.floor(frontlineSpan / 3) - warehousesEarly * 2) * phaseWeights.logistics });
             }
             // Science Lab: research, cap at 2 — high priority, force by turn 8
             const labUrgency = gs.turn >= 8 && myLabs < 1 ? 30 : gs.turn >= 5 && myLabs < 1 ? 18 : 8;
@@ -1390,17 +1406,20 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
               const nt = terrain[`${unit.q + dq},${unit.r + dr}`] ?? 0;
               return nt === 4 || nt === 5;
             });
-            if ((isOnCoastal || isAdjacentCoastal) && gs.turn >= 12) {
-              const nearbyOwnCB = gs.units.filter(u2 => u2.owner === player && u2.type === 'COASTAL_BATTERY' && hexDistance(u2.q, u2.r, unit.q, unit.r) <= 5).length
-                + gs.buildings.filter(b2 => b2.owner === player && b2.type === 'COASTAL_BATTERY' && hexDistance(b2.q, b2.r, unit.q, unit.r) <= 5).length;
-              if (nearbyOwnCB === 0) {
-                needs.push({ type: 'COASTAL_BATTERY', score: 14 * phaseWeights.combat });
+            if ((isOnCoastal || isAdjacentCoastal) && gs.turn >= 8) {
+              const nearbyOwnCB = gs.units.filter(u2 => u2.owner === player && u2.type === 'COASTAL_BATTERY' && hexDistance(u2.q, u2.r, unit.q, unit.r) <= 6).length
+                + gs.buildings.filter(b2 => b2.owner === player && b2.type === 'COASTAL_BATTERY' && hexDistance(b2.q, b2.r, unit.q, unit.r) <= 6).length;
+              // How many enemy naval units are nearby? Raises priority.
+              const enemyNavalNearby = getEnemies().filter(e => NAVAL_UNITS.has(e.type) && hexDistance(e.q, e.r, unit.q, unit.r) <= 10).length;
+              const maxCB = Math.max(2, 2 + Math.floor(enemyNavalNearby / 2));
+              if (nearbyOwnCB < maxCB) {
+                needs.push({ type: 'COASTAL_BATTERY', score: (18 + enemyNavalNearby * 4 - nearbyOwnCB * 3) * phaseWeights.combat });
               }
-              if (gs.turn >= 15) {
-                const nearbyOwnAA = gs.units.filter(u2 => u2.owner === player && u2.type === 'AA_EMPLACEMENT' && hexDistance(u2.q, u2.r, unit.q, unit.r) <= 5).length
-                  + gs.buildings.filter(b2 => b2.owner === player && b2.type === 'AA_EMPLACEMENT' && hexDistance(b2.q, b2.r, unit.q, unit.r) <= 5).length;
-                if (nearbyOwnAA === 0) {
-                  needs.push({ type: 'AA_EMPLACEMENT', score: 11 * phaseWeights.combat });
+              if (gs.turn >= 10) {
+                const nearbyOwnAA = gs.units.filter(u2 => u2.owner === player && u2.type === 'AA_EMPLACEMENT' && hexDistance(u2.q, u2.r, unit.q, unit.r) <= 6).length
+                  + gs.buildings.filter(b2 => b2.owner === player && b2.type === 'AA_EMPLACEMENT' && hexDistance(b2.q, b2.r, unit.q, unit.r) <= 6).length;
+                if (nearbyOwnAA < 2) {
+                  needs.push({ type: 'AA_EMPLACEMENT', score: (14 - nearbyOwnAA * 3) * phaseWeights.combat });
                 }
               }
             }
