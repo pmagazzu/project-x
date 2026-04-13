@@ -2,6 +2,15 @@
 
 ## 🔴 HIGH PRIORITY
 
+### v1.6 Supply Overhaul (Major Update)
+- [ ] Implement Network-based supply logic (HQ -> Roads -> Units)
+- [ ] Add Terrain-based road construction times (1 / 2 / 6 turns)
+- [ ] Implement Dirt Road "off-road" supply limit (2 tiles)
+- [ ] Create Supply Truck unit (Movement constraints, Fragility, Range UI)
+- [ ] Create Supply Ship unit + upgrades
+- [ ] Create Supply Depot building (Upkeep, Research req, 4-turn build)
+- [ ] Update AI to manage supply networks and logistics units
+
 ### Combat
 - [ ] **Combat calculations/logic unclear** — Pete flagged this. Need to:
   - Review `resolveImmediateAttack()` in GameState.js end-to-end

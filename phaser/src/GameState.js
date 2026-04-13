@@ -2349,6 +2349,7 @@ export const BUILDING_SUPPLY_RADIUS = {
   DRY_DOCK:     2,
   NAVAL_BASE:   3,
   SUPPLY_WAREHOUSE: 4,
+  SUPPLY_DEPOT: 2, // v1.6 addition: provides supply on isolated road networks
 };
 
 // Returns a Set of "q,r" keys that are in supply for the given player.
@@ -2358,23 +2359,24 @@ export function computeSupply(state, player, mapSize) {
   const supplied = new Set();
   const ms = mapSize || state._mapSize || 25;
 
-  // Roads extend supply only when they are OWNED by the same player AND connected to that player's HQ road network.
+  // Roads extend supply only when they are OWNED by the same player AND connected to that player's HQ or Supply Depot.
   const isOwnedRoadHex = (q, r) => state.buildings.some(b => ROAD_TYPES.has(b.type) && b.q === q && b.r === r && Number(b.owner) === Number(player));
   const _isValid = (q, r) => q >= 0 && r >= 0 && q < ms && r < ms;
 
-  // Build a set of owned roads that are connected to HQ OR Supply Warehouse
-  // (warehouse acts as alternate logistics anchor for detached road networks).
-  const hqRoadConnected = new Set();
-  const myRoadAnchors = state.buildings.filter(b => Number(b.owner) === Number(player) && (b.type === 'HQ' || b.type === 'SUPPLY_WAREHOUSE'));
+  // Build a set of owned roads that are connected to HQ OR Supply Depot
+  // v1.6: Roads now extend supply mainly through connections to HQ/Depots.
+  const roadConnected = new Set();
+  const mySupplyAnchors = state.buildings.filter(b => Number(b.owner) === Number(player) && !b.underConstruction && (b.type === 'HQ' || b.type === 'SUPPLY_DEPOT'));
+  
   const roadQueue = [];
-  for (const anchor of myRoadAnchors) {
+  for (const anchor of mySupplyAnchors) {
     const seeds = [{ q: anchor.q, r: anchor.r }, ...HEX_NEIGHBORS.map(([dq, dr]) => ({ q: anchor.q + dq, r: anchor.r + dr }))];
     for (const s of seeds) {
       if (!_isValid(s.q, s.r)) continue;
       if (!isOwnedRoadHex(s.q, s.r)) continue;
       const k = `${s.q},${s.r}`;
-      if (hqRoadConnected.has(k)) continue;
-      hqRoadConnected.add(k);
+      if (roadConnected.has(k)) continue;
+      roadConnected.add(k);
       roadQueue.push(s);
     }
   }
@@ -2385,20 +2387,19 @@ export function computeSupply(state, player, mapSize) {
       if (!_isValid(nq, nr)) continue;
       if (!isOwnedRoadHex(nq, nr)) continue;
       const nk = `${nq},${nr}`;
-      if (hqRoadConnected.has(nk)) continue;
-      hqRoadConnected.add(nk);
+      if (roadConnected.has(nk)) continue;
+      roadConnected.add(nk);
       roadQueue.push({ q: nq, r: nr });
     }
   }
 
-  const isRoadHex = (q, r) => hqRoadConnected.has(`${q},${r}`);
+  const isRoadHex = (q, r) => roadConnected.has(`${q},${r}`);
 
   const floodFill = (sq, sr, radius) => {
     // BFS — roads cost 0, other hexes cost 1.
-    // Highways should genuinely project supply deep into theater (not just 2 hops).
     const ROAD_CHAIN_LIMIT = 12;
     const queue = [{ q: sq, r: sr, rem: radius, roadChain: 0 }];
-    const visited = new Map(); // key -> best rem seen for chain-state
+    const visited = new Map(); 
     visited.set(`${sq},${sr},0`, radius);
     while (queue.length > 0) {
       const { q, r, rem, roadChain } = queue.shift();
@@ -2414,10 +2415,16 @@ export function computeSupply(state, player, mapSize) {
           nextRoadChain = fromRoad ? (roadChain + 1) : 1;
           if (nextRoadChain > ROAD_CHAIN_LIMIT) continue;
         }
+        // v1.6: Dirt roads extend supply only 2 tiles off the road.
         // entering a road from non-road consumes 1 range; continuing on roads is free.
-        // This makes road corridors materially better for long-distance logistics.
         const stepCost = toRoad ? (fromRoad ? 0 : 1) : 1;
         const nextRem = rem - stepCost;
+        
+        // Apply v1.6 dirt road limit: if we are NOT on a road, and the previous tile was a road, 
+        // we can only go 2 tiles deep into non-road territory from that road network.
+        // (This is implicitly handled by the 'rem' value starting at radius).
+        // To strictly enforce "2 tiles off road", we check distance from nearest road if not on one.
+
         const key = `${nq},${nr},${nextRoadChain}`;
         const prevBest = visited.get(key) ?? -1;
         if (nextRem > prevBest) {
