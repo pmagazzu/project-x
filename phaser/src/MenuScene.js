@@ -194,14 +194,15 @@ export class MenuScene extends Phaser.Scene {
               : (sc.key === 'ai_vs_ai_island_extreme_120' ? 120 : null));
           const customSize = sc.key === 'ai_vs_ai_island_large_80'
             ? 90
-            : (sc.key === 'ai_vs_ai_island_extreme_120' ? 135 : 120);
+            : (sc.key === 'ai_vs_ai_island_extreme_120' ? 135 : 240);
+          const procLandProfile = sc.key === 'ai_vs_ai_endless' ? 'large_islands' : 'continent';
           this.scene.start('GameScene', {
             scenario: 'custom',
             customSize,
             aiP1: true,
             aiP2: true,
             aiStrategy: 'balanced',
-            procLandProfile: 'continent',
+            procLandProfile,
             procQuickStart: true,
             debugNoFog: true,
             aiViewerMode: true,
