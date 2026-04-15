@@ -2,14 +2,21 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>Attrition</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #1a1a1a; overflow: hidden; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #1a1a1a; overflow: hidden; }
+    #game { position: relative; width: 100%; height: 100%; }
+    #bootmark { position: absolute; left: 8px; top: 8px; z-index: 9999; color: #fff; background: #c00; padding: 4px 6px; font: 12px monospace; }
     canvas { display: block; }
   </style>
-  <script type="module" crossorigin src="/project-x/assets/index-C_2k0Jjj.js"></script>
 </head>
 <body>
+  <div id="game"><div id="bootmark">BOOT OK</div></div>
+  <script type="module">
+    import '/project-x/assets/index-C_2k0Jjj.js?v=20260414';
+  </script>
 </body>
 </html>
