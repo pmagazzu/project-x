@@ -182,6 +182,7 @@ export class GameScene extends Phaser.Scene {
       this._settingsOpen = false;
       this._endTurnPending = false;
       this._splashDismiss = null;
+      this._aiAutoplayPaused = false;
     }
     this._customMapData = data.customMap || null;
     // Map sizes per scenario
@@ -4007,14 +4008,6 @@ export class GameScene extends Phaser.Scene {
     // Supply overlay hotkey intentionally disabled (was keydown-S). Use UI button only.
     this.input.keyboard.on('keydown-SPACE', () => {
       if (this._nameModalOpen) return;
-      if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
-        this._aiAutoplayPaused = !this._aiAutoplayPaused;
-        this._pushLog(this._aiAutoplayPaused ? 'AI autoplay paused.' : 'AI autoplay resumed.');
-        if (!this._aiAutoplayPaused && this.aiPlayers.has(this.gameState.currentPlayer)) {
-          this._runAITurn();
-        }
-        return;
-      }
       const now = performance.now();
       if (this._spaceGuardUntil && now < this._spaceGuardUntil) return;
       if (this._splashDismiss) {
@@ -4023,6 +4016,7 @@ export class GameScene extends Phaser.Scene {
         this._splashDismiss = null;
         return;
       }
+      if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) return;
       if (this._endTurnPending) { this._onSubmit(); this._hideEndTurnConfirm(); return; }
       this._confirmEndTurn();
     });
