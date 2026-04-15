@@ -177,7 +177,7 @@ export class MenuScene extends Phaser.Scene {
         if (sc.key === 'ai_vs_ai_two_continents') {
           this.scene.start('GameScene', {
             scenario: 'custom',
-            customSize: 135,
+            customSize: 405,
             procLandProfile: 'two_continents',
             aiP1: true,
             aiP2: true,
@@ -194,7 +194,7 @@ export class MenuScene extends Phaser.Scene {
               : (sc.key === 'ai_vs_ai_island_extreme_120' ? 120 : null));
           const customSize = sc.key === 'ai_vs_ai_island_large_80'
             ? 90
-            : (sc.key === 'ai_vs_ai_island_extreme_120' ? 135 : 40);
+            : (sc.key === 'ai_vs_ai_island_extreme_120' ? 135 : 120);
           this.scene.start('GameScene', {
             scenario: 'custom',
             customSize,
