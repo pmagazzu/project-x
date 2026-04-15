@@ -1530,7 +1530,7 @@ export class GameScene extends Phaser.Scene {
       this.highlightGfx.strokePath();
     }
 
-    // ── Auto-road standing order path preview (yellow) ────────────────────
+    // ── Auto-road standing order path preview ─────────────────────────────
     for (const u of gs.units) {
       if (!u.roadOrder || !u.roadOrder.path || u.owner !== gs.currentPlayer) continue;
       const path = u.roadOrder.path;
