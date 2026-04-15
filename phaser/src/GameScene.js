@@ -7730,7 +7730,7 @@ export class GameScene extends Phaser.Scene {
     // Profile-tuned procedural knobs
     const PROFILE = {
       islands:        { scale: 0.090, sea: 0.56, edgeFalloff: 1.25, edgeStart: 0.55, islandAmp: 0.30, islandRad: 0.18, centers: [[0.18,0.24],[0.36,0.20],[0.55,0.26],[0.74,0.22],[0.80,0.40],[0.68,0.56],[0.48,0.66],[0.30,0.62],[0.16,0.52]] },
-      large_islands:  { scale: 0.060, sea: 0.47, edgeFalloff: 1.05, edgeStart: 0.62, islandAmp: 0.50, islandRad: 0.34, centers: [[0.22,0.22],[0.50,0.18],[0.80,0.25],[0.18,0.60],[0.52,0.68],[0.78,0.58]] },
+      large_islands:  { scale: 0.070, sea: 0.50, edgeFalloff: 1.10, edgeStart: 0.60, islandAmp: 0.42, islandRad: 0.28, centers: [[0.22,0.22],[0.50,0.18],[0.80,0.25],[0.18,0.60],[0.52,0.68],[0.78,0.58]] },
       continent:      { scale: 0.045, sea: 0.36, edgeFalloff: 0.8, edgeStart: 0.70, islandAmp: 0.00, islandRad: 0.0, centers: [] },
       two_continents: { scale: 0.045, sea: 0.34, edgeFalloff: 1.2, edgeStart: 0.60, islandAmp: 0.00, islandRad: 0.0, centers: [] },
       archipelago:    { scale: 0.115, sea: 0.52, edgeFalloff: 1.35, edgeStart: 0.50, islandAmp: 0.24, islandRad: 0.13, centers: [[0.18,0.22],[0.36,0.20],[0.54,0.26],[0.72,0.24],[0.82,0.36],[0.72,0.52],[0.54,0.58],[0.34,0.62],[0.18,0.56]] },
