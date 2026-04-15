@@ -177,12 +177,6 @@ export class GameScene extends Phaser.Scene {
     this._startSupplyTruck = !!data.startSupplyTruck;
     this._aiLabTurns = [];
     if (this._mapBuilderMode) this.debugNoFog = true;
-    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
-      this._nameModalOpen = false;
-      this._settingsOpen = false;
-      this._endTurnPending = false;
-      this._splashDismiss = null;
-    }
     this._customMapData = data.customMap || null;
     // Map sizes per scenario
     const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, ai_viewer: 360, random: 40, air_test: 20, mortar_test: 20, coastal_battery_test: 20, custom: data.customSize || 40, default: 25 };
@@ -344,9 +338,6 @@ export class GameScene extends Phaser.Scene {
     // before the final visible terrain layer is attached.
     this._drawStaticLayers();
     this._refresh();
-    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
-      this._splashDismiss = null;
-    }
 
 
     // Auto-start if current player is AI (supports AI vs AI autoplay starts)
@@ -445,9 +436,6 @@ export class GameScene extends Phaser.Scene {
     this.gameState.units = snap.units.map(u => ({ ...u }));
     this._drawStaticLayers();
     this._refresh();
-    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
-      this._splashDismiss = null;
-    }
   }
 
   _builderPaint(q, r) {
@@ -476,9 +464,6 @@ export class GameScene extends Phaser.Scene {
     }
     this._drawStaticLayers();
     this._refresh();
-    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
-      this._splashDismiss = null;
-    }
   }
 
   _exportCustomMapJson() {
