@@ -129,6 +129,13 @@ export class MenuScene extends Phaser.Scene {
       font: '12px monospace', fill: '#3a4a2a',
     }).setOrigin(0.5);
 
+    this.add.rectangle(w - 120, h / 2, 160, 56, 0x122012, 0.95)
+      .setStrokeStyle(2, 0x6fbf6f)
+      .setOrigin(0.5);
+    this.add.text(w - 120, h / 2, 'hi pete', {
+      font: 'bold 16px monospace', fill: '#d8ffd8',
+    }).setOrigin(0.5);
+
     // ── Scenario list ─────────────────────────────────────────────────────
     const btnW = 500, btnH = 64, gap = 10;
     const totalH = SCENARIOS.length * (btnH + gap) - gap;
