@@ -217,13 +217,13 @@ export class MenuScene extends Phaser.Scene {
             aiP1: true,
             aiP2: true,
             aiStrategy: 'balanced',
-            procLandProfile: 'continent',
+            procLandProfile: 'two_continents',
             procQuickStart: true,
             debugNoFog: true,
             aiViewerMode: true,
             aiLabExport: true,
-            startSupplyTruck: false,
-            autoStopTurn: null,
+            startSupplyTruck: true,
+            autoStopTurn: 0,
           });
           return;
         }
