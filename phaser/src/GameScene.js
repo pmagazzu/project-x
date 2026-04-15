@@ -5296,19 +5296,7 @@ export class GameScene extends Phaser.Scene {
 
     // AI autoplay self-heal: if AI-vs-AI is active and we're idle too long, kick next AI turn.
     if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2) && !this._aiAutoplayPaused) {
-      const now = Date.now();
-      const idleMs = now - (this._aiLastProgressAt || 0);
-      const stalled = idleMs > 4000;
-      // Hard recovery if in-progress flag gets stuck.
-      if (this._aiTurnInProgress && idleMs > 9000) {
-        this._pushLog('AI autoplay hard-recover: stale in-progress flag cleared');
-        this._aiTurnInProgress = false;
-      }
-      if (stalled && !this._aiTurnInProgress && !this._nameModalOpen && !this._settingsOpen && !this._endTurnPending && this.aiPlayers.has(this.gameState.currentPlayer)) {
-        this._pushLog(`AI autoplay self-heal: restarting P${this.gameState.currentPlayer} turn`);
-        this._aiLastProgressAt = now;
-        this._runAITurn();
-      }
+      // Viewer mode is now headless, do not self-heal or auto-restart from update().
     }
 
     // Drive slide animation: redraw units every frame while slide is in progress
@@ -6947,8 +6935,10 @@ export class GameScene extends Phaser.Scene {
         };
         this._splashDismiss = dismiss;
         this.time.delayedCall(120, () => {
-          this.input.on('pointerup', dismiss);
-          this.input.keyboard?.once('keydown-SPACE', dismiss);
+          if (!this._aiViewerMode) {
+            this.input.on('pointerup', dismiss);
+            this.input.keyboard?.once('keydown-SPACE', dismiss);
+          }
         });
         this.time.delayedCall(this._simMs(900), () => { if (!done) dismiss(); });
         this.time.delayedCall(this._simMs(2500), () => { if (!done) dismiss(); });
