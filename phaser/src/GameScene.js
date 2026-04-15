@@ -177,6 +177,12 @@ export class GameScene extends Phaser.Scene {
     this._startSupplyTruck = !!data.startSupplyTruck;
     this._aiLabTurns = [];
     if (this._mapBuilderMode) this.debugNoFog = true;
+    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+      this._nameModalOpen = false;
+      this._settingsOpen = false;
+      this._endTurnPending = false;
+      this._splashDismiss = null;
+    }
     this._customMapData = data.customMap || null;
     // Map sizes per scenario
     const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, ai_viewer: 360, random: 40, air_test: 20, mortar_test: 20, coastal_battery_test: 20, custom: data.customSize || 40, default: 25 };
@@ -258,6 +264,18 @@ export class GameScene extends Phaser.Scene {
     this._createTopBar();
     this._createBottomPanel();
     this._createRecruitPanel();
+    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+      this.btnMenu?.setVisible(false);
+      this.btnEconomy?.setVisible(false);
+      this.btnSupply?.setVisible(false);
+      this.btnResearch?.setVisible(false);
+      this.btnDesigner?.setVisible(false);
+      this.btnTrade?.setVisible(false);
+      this.btnSettings?.setVisible(false);
+      this.btnSubmit?.setVisible(false);
+      this.btnPauseAI?.setVisible(false);
+      this.btnStatsAI?.setVisible(false);
+    }
     this.add.text(16, 16, 'GS BOOT', { font: 'bold 16px monospace', fill: '#ff4444', backgroundColor: '#000000' }).setScrollFactor(0).setDepth(5000);
     if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
       const labelFor = (s) => s >= 4 ? 'TURBO' : (s >= 2 ? 'FAST' : 'NORMAL');
@@ -326,6 +344,9 @@ export class GameScene extends Phaser.Scene {
     // before the final visible terrain layer is attached.
     this._drawStaticLayers();
     this._refresh();
+    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+      this._splashDismiss = null;
+    }
 
 
     // Auto-start if current player is AI (supports AI vs AI autoplay starts)
@@ -424,6 +445,9 @@ export class GameScene extends Phaser.Scene {
     this.gameState.units = snap.units.map(u => ({ ...u }));
     this._drawStaticLayers();
     this._refresh();
+    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+      this._splashDismiss = null;
+    }
   }
 
   _builderPaint(q, r) {
@@ -452,6 +476,9 @@ export class GameScene extends Phaser.Scene {
     }
     this._drawStaticLayers();
     this._refresh();
+    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+      this._splashDismiss = null;
+    }
   }
 
   _exportCustomMapJson() {
@@ -5264,7 +5291,7 @@ export class GameScene extends Phaser.Scene {
     const shiftHeld = this._shiftKey?.isDown ?? false;
     const speed = (6 / cam.zoom) * (shiftHeld ? 2.5 : 1);
     const W = this.wasd;
-    const keyboardBlocked = !!this._nameModalOpen;
+    const keyboardBlocked = !!this._nameModalOpen && !(this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2));
     if (!keyboardBlocked && (W.W.isDown || W.UP.isDown))    cam.scrollY -= speed;
     if (!keyboardBlocked && (W.S.isDown || W.DOWN.isDown))  cam.scrollY += speed;
     if (!keyboardBlocked && (W.A.isDown || W.LEFT.isDown))  cam.scrollX -= speed;
