@@ -220,9 +220,10 @@ export class MenuScene extends Phaser.Scene {
             procLandProfile: 'continent',
             procQuickStart: true,
             debugNoFog: true,
-            aiViewerMode: false,
-            aiLabExport: false,
+            aiViewerMode: true,
+            aiLabExport: true,
             startSupplyTruck: false,
+            autoStopTurn: null,
           });
           return;
         }
