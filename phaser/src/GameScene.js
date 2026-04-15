@@ -5278,7 +5278,7 @@ export class GameScene extends Phaser.Scene {
     if (moving && this._contextMenuObjs) this._hideContextMenu();
 
     // AI autoplay self-heal: if AI-vs-AI is active and we're idle too long, kick next AI turn.
-    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2) && !this._aiAutoplayPaused) {
+    if (this.aiPlayers.has(1) && this.aiPlayers.has(2) && !this._aiAutoplayPaused) {
       const now = Date.now();
       const idleMs = now - (this._aiLastProgressAt || 0);
       const stalled = idleMs > 4000;
@@ -6722,7 +6722,7 @@ export class GameScene extends Phaser.Scene {
     this._refresh();
 
     // If AI-vs-AI spectator mode, never show pass screens, just keep autoplaying.
-    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+    if (this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
       if (!this._aiAutoplayPaused && this.aiPlayers.has(gs.currentPlayer)) this._runAITurn();
       return;
     }
@@ -7365,7 +7365,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setScrollFactor(0).setDepth(202).setInteractive({ useHandCursor: true });
     this._addToUI([btn]);
 
-    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+    if (this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
       try { btn.destroy(); } catch(e) {}
       onDismiss();
       return;
