@@ -6929,9 +6929,7 @@ export class GameScene extends Phaser.Scene {
           this.input.on('pointerup', dismiss);
           this.input.keyboard?.once('keydown-SPACE', dismiss);
         });
-        if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
-          this.time.delayedCall(this._simMs(900), () => { if (!done) dismiss(); });
-        }
+        this.time.delayedCall(this._simMs(900), () => { if (!done) dismiss(); });
         this.time.delayedCall(this._simMs(2500), () => { if (!done) dismiss(); });
       } else {
         this._pushLog('AI attack resolved with no combat log entry');
