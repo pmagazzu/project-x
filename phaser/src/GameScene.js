@@ -7405,16 +7405,14 @@ export class GameScene extends Phaser.Scene {
     // Center card
     const card = this.add.rectangle(w/2, h/2, 440, 120, 0x0a0d0a, 0.98).setScrollFactor(0).setDepth(200);
     card.setStrokeStyle(2, p === 1 ? 0x2255aa : 0xaa2222);
-    // Top accent
-    const accent = this.add.rectangle(w/2, h/2 - 58, 440, 4, p === 1 ? 0x2255aa : 0xaa2222, 1).setScrollFactor(0).setDepth(201);
     const playerLbl = this.add.text(w/2, h/2 - 22, `PLAYER ${p}`, {
       font: 'bold 28px monospace', fill: PC_HEX
     }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
     const subLbl = this.add.text(w/2, h/2 + 16, 'TAKE THE CONTROLS  ·  CLICK TO CONTINUE', {
       font: '11px monospace', fill: '#334433'
     }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
-    this._addToUI([overlay, card, accent, playerLbl, subLbl]);
-    this._showSplash([overlay, card, accent, playerLbl, subLbl], () => {
+    this._addToUI([overlay, card, playerLbl, subLbl]);
+    this._showSplash([overlay, card, playerLbl, subLbl], () => {
       this._focusPlayerHQ(p, true);
       this._freezeFog();
       this._refresh();
@@ -7429,12 +7427,6 @@ export class GameScene extends Phaser.Scene {
     const overlay = this.add.rectangle(w/2, h/2, w, h, 0x0a0a0a, 0.93).setScrollFactor(0).setDepth(200);
     const combatLog = this.gameState._lastCombatLog || [];
     const objects = [overlay];
-
-    // ── Header ──
-    const header = this.add.text(w/2, 28, `── TURN ${this.gameState.turn - 1} RESOLUTION ──`, {
-      font: 'bold 16px monospace', fill: '#ffdd44'
-    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(201);
-    objects.push(header);
 
     // ── Combat Breakdowns ──
     const TIER_COLOR = {
