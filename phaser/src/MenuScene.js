@@ -212,13 +212,19 @@ export class MenuScene extends Phaser.Scene {
           return;
         } else if (sc.key === 'ai_vs_ai_endless') {
           this.scene.start('GameScene', {
-            scenario: 'ai_viewer',
+            scenario: 'custom',
+            customSize: 120,
             aiP1: true,
             aiP2: true,
             aiStrategy: 'balanced',
-            aiViewerMode: true,
-            aiLabExport: true,
+            procLandProfile: 'two_continents',
+            procQuickStart: true,
             debugNoFog: true,
+            aiViewerMode: true,
+            aiLabExport: false,
+            startSupplyTruck: true,
+            autoStopTurn: 0,
+            aiSimSpeed: 1,
           });
           return;
         }
