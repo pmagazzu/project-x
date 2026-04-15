@@ -2427,15 +2427,15 @@ export function computeSupply(state, player, mapSize) {
           nextRoadChain = fromRoad ? (roadChain + 1) : 1;
           if (nextRoadChain > ROAD_CHAIN_LIMIT) continue;
         }
-        // v1.6: Dirt roads extend supply only 2 tiles off the road.
+        // v1.6: Dirt roads extend supply only 1 tile off the road.
         // entering a road from non-road consumes 1 range; continuing on roads is free.
         const stepCost = toRoad ? (fromRoad ? 0 : 1) : 1;
         const nextRem = rem - stepCost;
         
         // Apply v1.6 dirt road limit: if we are NOT on a road, and the previous tile was a road, 
-        // we can only go 2 tiles deep into non-road territory from that road network.
+        // we can only go 1 tile deep into non-road territory from that road network.
         // (This is implicitly handled by the 'rem' value starting at radius).
-        // To strictly enforce "2 tiles off road", we check distance from nearest road if not on one.
+        // To strictly enforce "1 tile off road", we check distance from nearest road if not on one.
 
         const key = `${nq},${nr},${nextRoadChain}`;
         const prevBest = visited.get(key) ?? -1;
