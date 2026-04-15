@@ -6718,7 +6718,11 @@ export class GameScene extends Phaser.Scene {
     this._freezeFog();
     this._refresh();
 
-    // If the next player is AI-controlled, skip the pass screen and run AI automatically
+    // If AI-vs-AI spectator mode, never show pass screens, just keep autoplaying.
+    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+      if (!this._aiAutoplayPaused && this.aiPlayers.has(gs.currentPlayer)) this._runAITurn();
+      return;
+    }
     if (this.aiPlayers.has(gs.currentPlayer)) {
       if (this._aiAutoplayPaused) {
         this._pushLog('AI autoplay paused. Press SPACE to resume.');
@@ -7359,6 +7363,12 @@ export class GameScene extends Phaser.Scene {
       backgroundColor: '#334433', padding: { x: 16, y: 8 }
     }).setOrigin(0.5).setScrollFactor(0).setDepth(202).setInteractive({ useHandCursor: true });
     this._addToUI([btn]);
+
+    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+      try { btn.destroy(); } catch(e) {}
+      onDismiss();
+      return;
+    }
 
     const dismiss = () => {
       this._spaceGuardUntil = performance.now() + 380;
