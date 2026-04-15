@@ -6744,19 +6744,6 @@ export class GameScene extends Phaser.Scene {
     const w   = this.scale.width, h = this.scale.height;
     const stratLabel = AI_STRATEGIES[this.aiStrategy]?.label || 'Balanced';
 
-    // Status bar (replaces pass screen for AI turn)
-    const preKPI = getAIKPIReport(gs, gs.currentPlayer);
-    let overlay = null, lbl = null, kpiLbl = null;
-    const spectatorMode = this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2);
-    if (!spectatorMode) {
-      overlay = this.add.rectangle(w/2, 34, w, 68, 0x1a1200, 0.92)
-        .setScrollFactor(0).setDepth(200);
-      kpiLbl = this.add.text(w/2, 44, preKPI.summary, {
-        font: '12px monospace', fill: preKPI.health === 'POOR' ? '#ff6666' : (preKPI.health === 'WARN' ? '#ffcc66' : '#99ff99'),
-      }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(201);
-      this._addToUI([overlay, lbl, kpiLbl]);
-    }
-
     // Plan all actions (does NOT execute — pure data)
     let actions = [];
     try {
