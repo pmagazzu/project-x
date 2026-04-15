@@ -213,13 +213,13 @@ export class MenuScene extends Phaser.Scene {
         } else if (sc.key === 'ai_vs_ai_endless') {
           this.scene.start('GameScene', {
             scenario: 'custom',
-            customSize: 120,
+            customSize: 240,
             aiP1: true,
             aiP2: true,
             aiStrategy: 'balanced',
-            procLandProfile: 'continent',
+            procLandProfile: 'large_islands',
             procQuickStart: true,
-            debugNoFog: true,
+            debugNoFog: false,
             aiViewerMode: true,
             aiLabExport: true,
             startSupplyTruck: true,
