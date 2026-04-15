@@ -258,6 +258,7 @@ export class GameScene extends Phaser.Scene {
     this._createTopBar();
     this._createBottomPanel();
     this._createRecruitPanel();
+    this.add.text(16, 16, 'GS BOOT', { font: 'bold 16px monospace', fill: '#ff4444', backgroundColor: '#000000' }).setScrollFactor(0).setDepth(5000);
     if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
       const labelFor = (s) => s >= 4 ? 'TURBO' : (s >= 2 ? 'FAST' : 'NORMAL');
       this._aiSpeedBtn = this.add.text(this.scale.width - 12, 54, `[AI SPEED: ${labelFor(this._aiSimSpeed)}]`, {
