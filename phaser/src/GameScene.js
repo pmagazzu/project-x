@@ -6751,9 +6751,6 @@ export class GameScene extends Phaser.Scene {
     if (!spectatorMode) {
       overlay = this.add.rectangle(w/2, 34, w, 68, 0x1a1200, 0.92)
         .setScrollFactor(0).setDepth(200);
-      lbl = this.add.text(w/2, 20, `⚙  AI Player ${gs.currentPlayer} — ${stratLabel} — acting…`, {
-        font: 'bold 14px monospace', fill: '#ffcc44',
-      }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(201);
       kpiLbl = this.add.text(w/2, 44, preKPI.summary, {
         font: '12px monospace', fill: preKPI.health === 'POOR' ? '#ff6666' : (preKPI.health === 'WARN' ? '#ffcc66' : '#99ff99'),
       }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(201);
