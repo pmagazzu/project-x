@@ -120,6 +120,10 @@ export class MenuScene extends Phaser.Scene {
       font: 'bold 58px monospace', fill: '#b8922a',
     }).setOrigin(0.5);
 
+    this.add.text(w/2, 104, 'v1.6.1 · fresh deploy marker', {
+      font: '12px monospace', fill: '#7fbf7f', backgroundColor: '#102010', padding: { x: 8, y: 4 }
+    }).setOrigin(0.5);
+
     // Subtitle rule
     this.add.text(w/2, 120, '──  TURN-BASED MILITARY STRATEGY  ──', {
       font: '12px monospace', fill: '#3a4a2a',
