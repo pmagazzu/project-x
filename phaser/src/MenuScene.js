@@ -186,7 +186,7 @@ export class MenuScene extends Phaser.Scene {
             autoStopTurn: 250,
             aiViewerMode: true,
           });
-        } else if (sc.key === 'ai_vs_ai_island_medium' || sc.key === 'ai_vs_ai_island_medium_40' || sc.key === 'ai_vs_ai_island_large_80' || sc.key === 'ai_vs_ai_island_extreme_120' || sc.key === 'ai_vs_ai_endless') {
+        } else if (sc.key === 'ai_vs_ai_island_medium' || sc.key === 'ai_vs_ai_island_medium_40' || sc.key === 'ai_vs_ai_island_large_80' || sc.key === 'ai_vs_ai_island_extreme_120') {
           const autoStopTurn = sc.key === 'ai_vs_ai_island_medium_40'
             ? 40
             : (sc.key === 'ai_vs_ai_island_large_80'
@@ -195,18 +195,32 @@ export class MenuScene extends Phaser.Scene {
           const customSize = sc.key === 'ai_vs_ai_island_large_80'
             ? 90
             : (sc.key === 'ai_vs_ai_island_extreme_120' ? 135 : 240);
-          const procLandProfile = sc.key === 'ai_vs_ai_endless' ? 'large_islands' : 'continent';
           this.scene.start('GameScene', {
             scenario: 'custom',
             customSize,
             aiP1: true,
             aiP2: true,
             aiStrategy: 'balanced',
-            procLandProfile,
+            procLandProfile: 'continent',
             procQuickStart: true,
             debugNoFog: true,
             aiViewerMode: true,
             ...(autoStopTurn == null ? {} : { autoStopTurn }),
+            aiLabExport: true,
+            startSupplyTruck: true,
+          });
+          return;
+        } else if (sc.key === 'ai_vs_ai_endless') {
+          this.scene.start('GameScene', {
+            scenario: 'custom',
+            customSize: 360,
+            aiP1: true,
+            aiP2: true,
+            aiStrategy: 'balanced',
+            procLandProfile: 'large_islands',
+            procQuickStart: true,
+            debugNoFog: true,
+            aiViewerMode: true,
             aiLabExport: true,
             startSupplyTruck: true,
           });
