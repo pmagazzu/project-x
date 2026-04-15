@@ -7106,11 +7106,6 @@ export class GameScene extends Phaser.Scene {
     const moveAnims = gs._lastMoveLog || [];
 
     if (moveAnims.length > 0) {
-      // Flash "MOVES" banner
-      const banner = this._makeBanner('⟶  MOVES RESOLVE');
-      await this._wait(600);
-      banner.destroy();
-
       const MOVE_COLORS = { 1: 0x4488ff, 2: 0xff4444 };
       const tweenPromises = moveAnims.map(m => new Promise(resolve => {
         const from = hexToWorld(m.from.q, m.from.r);
@@ -7132,11 +7127,6 @@ export class GameScene extends Phaser.Scene {
     // ── Phase 2: Animate attacks ─────────────────────────────────────────────
     const combatLog = gs._lastCombatLog || [];
     if (combatLog.length > 0) {
-      const banner = this._makeBanner('⚔  COMBAT RESOLVES — SPACE/CLICK TO STEP', 0x221100);
-      await this._wait(600);
-      banner.destroy();
-      await this._wait(1000);
-
       // Ensure combat playback starts from post-move (pre-damage) snapshot.
       gs.units = playbackUnits;
       this._redrawUnits();
@@ -7297,7 +7287,7 @@ export class GameScene extends Phaser.Scene {
     portrait(lCX, 'ATTACKER', entry.attackerType, entry.attackerOwner, entry.attackerName, atkHP0, atkHP1, entry.attackerDmg || 0);
     portrait(rCX, 'DEFENDER', entry.targetType, entry.targetOwner, entry.targetName, defHP0, defHP1, entry.dmg || 0);
 
-    // Outcome banner
+    // Outcome card
     const outY = pY + pH/2 + 26;
     const outcome = entry.attackerDmg > (entry.dmg || 0) ? 'ATTACK REPELLED' : ((entry.dmg || 0) > entry.attackerDmg ? 'ATTACK SUCCESSFUL' : 'EXCHANGE');
     box(cX, outY, cW - 24, 44, outcome === 'ATTACK SUCCESSFUL' ? 0x1a3a1a : outcome === 'ATTACK REPELLED' ? 0x3a1a1a : 0x2a2200, 1, 0x445566);
