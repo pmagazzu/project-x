@@ -258,30 +258,7 @@ export class GameScene extends Phaser.Scene {
     this._createTopBar();
     this._createBottomPanel();
     this._createRecruitPanel();
-    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
-      this.btnMenu?.setVisible(false);
-      this.btnEconomy?.setVisible(false);
-      this.btnSupply?.setVisible(false);
-      this.btnResearch?.setVisible(false);
-      this.btnDesigner?.setVisible(false);
-      this.btnTrade?.setVisible(false);
-      this.btnSettings?.setVisible(false);
-      this.btnSubmit?.setVisible(false);
-      this.btnPauseAI?.setVisible(false);
-      this.btnStatsAI?.setVisible(false);
-    }
     this.add.text(16, 16, 'GS BOOT', { font: 'bold 16px monospace', fill: '#ff4444', backgroundColor: '#000000' }).setScrollFactor(0).setDepth(5000);
-    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
-      const labelFor = (s) => s >= 4 ? 'TURBO' : (s >= 2 ? 'FAST' : 'NORMAL');
-      this._aiSpeedBtn = this.add.text(this.scale.width - 12, 54, `[AI SPEED: ${labelFor(this._aiSimSpeed)}]`, {
-        font: 'bold 11px monospace', fill: '#88ffcc', backgroundColor: '#102018', padding: { x: 8, y: 5 }
-      }).setOrigin(1, 0).setScrollFactor(0).setDepth(210).setInteractive({ useHandCursor: true });
-      this._aiSpeedBtn.on('pointerdown', () => {
-        this._aiSimSpeed = this._aiSimSpeed >= 4 ? 1 : (this._aiSimSpeed >= 2 ? 4 : 2);
-        this._aiSpeedBtn.setText(`[AI SPEED: ${labelFor(this._aiSimSpeed)}]`);
-      });
-      this._addToUI([this._aiSpeedBtn]);
-    }
 
     // Move all scroll-factor-0 objects created so far into _uiLayer
     // (catches top bar, bottom panel, buttons, etc. without touching each line)
@@ -339,11 +316,14 @@ export class GameScene extends Phaser.Scene {
     this._drawStaticLayers();
     this._refresh();
 
+    // Let the first frame settle before autoplay / UI actions begin.
+    this._startupSettled = false;
+    this.time.delayedCall(40, () => { this._startupSettled = true; });
 
     // Auto-start if current player is AI (supports AI vs AI autoplay starts)
     if (this.aiPlayers.has(this.gameState.currentPlayer)) {
-      this.time.delayedCall(120, () => {
-        if (!this._aiAutoplayPaused && this.aiPlayers.has(this.gameState.currentPlayer)) this._runAITurn();
+      this.time.delayedCall(180, () => {
+        if (this._startupSettled && !this._aiAutoplayPaused && this.aiPlayers.has(this.gameState.currentPlayer)) this._runAITurn();
       });
     }
   }
