@@ -6737,8 +6737,10 @@ export class GameScene extends Phaser.Scene {
 
     // Plan all actions (does NOT execute — pure data)
     let actions = [];
+    console.log('AI PLAN TRACE BEFORE', { player: gs.currentPlayer, turn: gs.turn, units: gs.units.length, buildings: gs.buildings.length });
     try {
       actions = planAITurn(gs, this.terrain, this.mapSize, this.aiStrategy);
+      console.log('AI PLAN TRACE AFTER', { player: gs.currentPlayer, turn: gs.turn, actions: actions.length });
     } catch (e) {
       this._pushLog(`AI planner crash: ${e?.message || e}`);
       this._aiTelemetry = this._aiTelemetry || {};
