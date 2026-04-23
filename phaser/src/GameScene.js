@@ -176,6 +176,7 @@ export class GameScene extends Phaser.Scene {
     this._aiLabExport = !!data.aiLabExport;
     this._startSupplyTruck = !!data.startSupplyTruck;
     this._aiLabTurns = [];
+    this._aiDebugSkipExecute = !!data.aiDebugSkipExecute;
     if (this._mapBuilderMode) this.debugNoFog = true;
     this._customMapData = data.customMap || null;
     // Map sizes per scenario
@@ -310,6 +311,7 @@ export class GameScene extends Phaser.Scene {
     if (this._mapBuilderMode) this._initMapBuilder();
     this._drawStaticLayers();
     this._freezeFog(); // lock fog for P1's first planning phase
+    console.log('GS CREATE TRACE', { scenario: this.scenario, aiP1: this.aiPlayers.has(1), aiP2: this.aiPlayers.has(2), debugSkip: this._aiDebugSkipExecute });
     this._refresh();
     // Rebuild terrain art once more after initial refresh so generated maps and overlays settle
     // before the final visible terrain layer is attached.
@@ -6825,6 +6827,11 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
+    if (this._aiDebugSkipExecute) {
+      this._pushLog(`AI DEBUG: skipping execution of ${actions.length} planned actions`);
+      this.time.delayedCall(80, finishAITurn);
+      return;
+    }
     this._executeAIActions(actions, 0, finishAITurn);
   }
 

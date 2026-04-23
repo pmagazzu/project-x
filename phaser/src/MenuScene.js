@@ -196,6 +196,7 @@ export class MenuScene extends Phaser.Scene {
             aiLabExport: true,
             autoStopTurn: 250,
             aiViewerMode: true,
+            aiDebugSkipExecute: true,
           });
         } else if (sc.key === 'ai_vs_ai_island_medium' || sc.key === 'ai_vs_ai_island_medium_40' || sc.key === 'ai_vs_ai_island_large_80' || sc.key === 'ai_vs_ai_island_extreme_120') {
           const autoStopTurn = sc.key === 'ai_vs_ai_island_medium_40'
@@ -236,6 +237,7 @@ export class MenuScene extends Phaser.Scene {
             startSupplyTruck: true,
             autoStopTurn: 0,
             aiSimSpeed: 1,
+            aiDebugSkipExecute: true,
           });
           return;
         }
