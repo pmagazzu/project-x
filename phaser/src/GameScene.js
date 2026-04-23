@@ -323,7 +323,10 @@ export class GameScene extends Phaser.Scene {
     // Auto-start if current player is AI (supports AI vs AI autoplay starts)
     if (this.aiPlayers.has(this.gameState.currentPlayer)) {
       this.time.delayedCall(180, () => {
-        if (this._startupSettled && !this._aiAutoplayPaused && this.aiPlayers.has(this.gameState.currentPlayer)) this._runAITurn();
+        if (this._startupSettled && !this._aiAutoplayPaused && this.aiPlayers.has(this.gameState.currentPlayer)) {
+          console.log('AI START TRACE', { player: this.gameState.currentPlayer, turn: this.gameState.turn, aiViewerMode: this._aiViewerMode });
+          this._runAITurn();
+        }
       });
     }
   }
@@ -6898,22 +6901,14 @@ export class GameScene extends Phaser.Scene {
       this._showAICombatFlash(action.attackerQ, action.attackerR, action.targetQ, action.targetR);
       if (log.length > 0) {
         const card = this._showCombatCard(log[0], 1, 1);
-        let done = false;
         const dismiss = () => {
-          if (done) return;
-          done = true;
           card.forEach(o => { try { o.destroy(); } catch(e){} });
           this._splashDismiss = null;
           this.input.off('pointerup', dismiss);
           next();
         };
         this._splashDismiss = dismiss;
-        this.time.delayedCall(120, () => {
-          this.input.on('pointerup', dismiss);
-          this.input.keyboard?.once('keydown-SPACE', dismiss);
-        });
-        this.time.delayedCall(this._simMs(900), () => { if (!done) dismiss(); });
-        this.time.delayedCall(this._simMs(2500), () => { if (!done) dismiss(); });
+        this.time.delayedCall(60, dismiss);
       } else {
         this._pushLog('AI attack resolved with no combat log entry');
         this.time.delayedCall(200, next);
@@ -7347,7 +7342,7 @@ export class GameScene extends Phaser.Scene {
 
     if (this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
       try { btn.destroy(); } catch(e) {}
-      onDismiss();
+      this.time.delayedCall(20, onDismiss);
       return;
     }
 
