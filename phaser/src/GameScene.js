@@ -320,13 +320,12 @@ export class GameScene extends Phaser.Scene {
     this._startupSettled = false;
     this.time.delayedCall(40, () => { this._startupSettled = true; });
 
-    // Auto-start if current player is AI (supports AI vs AI autoplay starts)
+    // Auto-start if current player is AI (single debounced kickoff only)
     if (this.aiPlayers.has(this.gameState.currentPlayer)) {
       this.time.delayedCall(180, () => {
-        if (this._startupSettled && !this._aiAutoplayPaused && this.aiPlayers.has(this.gameState.currentPlayer)) {
-          console.log('AI START TRACE', { player: this.gameState.currentPlayer, turn: this.gameState.turn, aiViewerMode: this._aiViewerMode });
-          this._runAITurn();
-        }
+        if (!this._startupSettled || this._aiAutoplayPaused || !this.aiPlayers.has(this.gameState.currentPlayer) || this._aiTurnInProgress) return;
+        console.log('AI START TRACE', { player: this.gameState.currentPlayer, turn: this.gameState.turn, aiViewerMode: this._aiViewerMode });
+        this._runAITurn();
       });
     }
   }
@@ -5259,22 +5258,6 @@ export class GameScene extends Phaser.Scene {
     const moving = !keyboardBlocked && (W.W.isDown || W.S.isDown || W.A.isDown || W.D.isDown ||
                    W.UP.isDown || W.DOWN.isDown || W.LEFT.isDown || W.RIGHT.isDown);
     if (moving && this._contextMenuObjs) this._hideContextMenu();
-
-    // AI autoplay self-heal: if AI-vs-AI is active and we're idle too long, kick next AI turn.
-    if (this.aiPlayers.has(1) && this.aiPlayers.has(2) && !this._aiAutoplayPaused) {
-      const now = Date.now();
-      const idleMs = now - (this._aiLastProgressAt || 0);
-      const stalled = idleMs > 4000;
-      if (this._aiTurnInProgress && idleMs > 9000) {
-        this._pushLog('AI autoplay hard-recover: stale in-progress flag cleared');
-        this._aiTurnInProgress = false;
-      }
-      if (stalled && !this._aiTurnInProgress && !this._nameModalOpen && !this._settingsOpen && !this._endTurnPending && this.aiPlayers.has(this.gameState.currentPlayer)) {
-        this._pushLog(`AI autoplay self-heal: restarting P${this.gameState.currentPlayer} turn`);
-        this._aiLastProgressAt = now;
-        this._runAITurn();
-      }
-    }
 
     // Drive slide animation: redraw units every frame while slide is in progress
     if (this._slideState) {
