@@ -258,6 +258,10 @@ export class MenuScene extends Phaser.Scene {
       font: 'bold 26px monospace', fill: '#6f8f5a', stroke: '#111611', strokeThickness: 4
     }).setOrigin(0.5);
 
+    this.add.text(w/2, h - 84, 'Custom games default to P2 AI when the toggle says AI', {
+      font: '11px monospace', fill: '#4d6a4d'
+    }).setOrigin(0.5);
+
     // ── AI Toggle — top-right ─────────────────────────────────────────────
     this._aiToggleBtn = this.add.text(w - 14, 14, '[ P2: AI  🤖 ]', {
       font: 'bold 12px monospace', fill: '#556655',
@@ -385,7 +389,7 @@ export class MenuScene extends Phaser.Scene {
           this.scene.start('GameScene', {
             scenario: 'custom',
             customSize: tier.size,
-            aiP2: false,
+            aiP2: this._aiP2,
             aiStrategy: 'balanced',
             mapBuilder: true,
           });
