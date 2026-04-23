@@ -6727,6 +6727,7 @@ export class GameScene extends Phaser.Scene {
     this._aiTurnInProgress = true;
     this._aiLastProgressAt = Date.now();
     const gs  = this.gameState;
+    console.log('AI RUN TRACE START', { player: gs.currentPlayer, turn: gs.turn, aiViewerMode: this._aiViewerMode, paused: this._aiAutoplayPaused });
     const preUnitsByOwner = {
       1: gs.units.filter(u => Number(u.owner) === 1).length,
       2: gs.units.filter(u => Number(u.owner) === 2).length,
