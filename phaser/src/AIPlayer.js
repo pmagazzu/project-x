@@ -195,6 +195,11 @@ function getRoadFloor(turn = 1) {
   return 12;
 }
 
+/** Road-like segments for logistics targets (matches supply / ROAD_TYPES). */
+function countPlayerRoadLike(gs, player) {
+  return gs.buildings.filter(b => Number(b.owner) === Number(player) && ROAD_TYPES.has(b.type)).length;
+}
+
 function getFrontlineDistanceEstimate(gs, player) {
   const myHQs = gs.buildings.filter(b => b.type === 'HQ' && Number(b.owner) === Number(player));
   const enemyUnits = gs.units.filter(u => Number(u.owner) !== Number(player) && !u.embarked);
@@ -221,8 +226,8 @@ function getDynamicRoadTarget(gs, player) {
   const unitPressure = Math.ceil(myUnits.length / 6);
   const supplyPressure = unsupplied >= 1 ? (1 + Math.ceil(unsupplied / 2)) : 0;
   const spanPressure = Math.ceil(frontlineDist / 6);
-  const mapPressure = Math.max(0, Math.ceil((mapN - 40) / 12));
-  const cap = Math.max(26, Math.floor(mapN * 0.75));
+  const mapPressure = Math.max(0, Math.ceil((mapN - 40) / 18));
+  const cap = Math.min(48, Math.max(20, Math.floor(mapN * 0.30) + 12));
 
   return Math.max(base, Math.min(cap, base + unitPressure + supplyPressure + spanPressure + mapPressure));
 }
@@ -320,7 +325,7 @@ function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits
   gs._aiStrategicMemory = gs._aiStrategicMemory || {};
   const prev = gs._aiStrategicMemory[player] || {};
 
-  const roadsNow = gs.buildings.filter(b => b.owner === player && b.type === 'ROAD').length;
+  const roadsNow = countPlayerRoadLike(gs, player);
   const dynamicRoadTarget = getDynamicRoadTarget(gs, player);
   const roadDeficit = Math.max(0, dynamicRoadTarget - roadsNow);
   const myUnits = gs.units.filter(u => u.owner === player && !u.embarked);
@@ -496,7 +501,7 @@ function scoreRoadUtility(gs, player, q, r) {
       }
     }
     // Penalize going behind the current road frontier
-    const myRoads = gs.buildings.filter(b => b.owner === player && b.type === 'ROAD');
+    const myRoads = gs.buildings.filter(b => b.owner === player && ROAD_TYPES.has(b.type));
     if (myRoads.length > 0) {
       const maxProgress = Math.max(...myRoads.map(road => {
         const d = hexDistance(myHQ.q, myHQ.r, road.q, road.r);
@@ -969,12 +974,14 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const opening = getOpeningMilestones(gs, player);
   const roadFloor = getRoadFloor(gs.turn || 1);
   const dynamicRoadTarget = getDynamicRoadTarget(gs, player);
-  const roadsNow = gs.buildings.filter(bb => bb.owner === player && bb.type === 'ROAD').length;
+  const roadsNow = countPlayerRoadLike(gs, player);
   const roadDeficitGlobal = Math.max(0, dynamicRoadTarget - roadsNow);
   const myUnitsNow = gs.units.filter(u => u.owner === player && !u.embarked);
   const unsuppliedNow = myUnitsNow.filter(u => (u.outOfSupply || 0) > 0).length;
+  const unsuppliedCombatNow = myUnitsNow.filter(u => (u.outOfSupply || 0) > 0 && u.type !== 'ENGINEER').length;
   const logisticsPressure = unsuppliedNow >= Math.max(2, Math.floor(myUnitsNow.length * 0.2));
-  const logisticsEmergency = unsuppliedNow >= Math.max(3, Math.floor(myUnitsNow.length * 0.3));
+  // Engineers alone going out of supply should not freeze the entire barracks production tree.
+  const logisticsEmergency = unsuppliedCombatNow >= Math.max(3, Math.floor(myUnitsNow.length * 0.28));
   const myEngineersNow = gs.units.filter(u => u.owner === player && !u.embarked && u.type === 'ENGINEER');
   const roadCaptainId = myEngineersNow.length > 0 ? myEngineersNow.sort((a,b) => a.id - b.id)[0].id : null;
   const aiCtx = {
@@ -1235,13 +1242,16 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
         // Always allow ROAD consideration even if a non-road building exists on this tile.
         // Roads are intended to coexist with buildings and form supply corridors.
-        const roadsNowForEng = gs.buildings.filter(b => b.owner === player && b.type === 'ROAD').length;
+        const roadsNowForEng = countPlayerRoadLike(gs, player);
         const roadDeficitForEng = Math.max(0, dynamicRoadTarget - roadsNowForEng);
         if (!hasRoad && gs.turn >= 3) {
           const unsupplied = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0).length;
           const roadUtilityHere = scoreRoadUtility(gs, player, unit.q, unit.r);
           const roadScoreNow = (8 - roadsNowForEng * 0.2 + unsupplied * 6.0 + opening.deficits.roads * 5 + roadDeficitForEng * 2 + Math.max(0, roadUtilityHere) * 0.6) * phaseWeights.logistics;
-          if ((roadDeficitForEng >= 2 || roadScoreNow >= 18) && maybeBuild('ROAD')) continue;
+          const barracksDone = gs.buildings.filter(bb => bb.owner === player && bb.type === 'BARRACKS' && !bb.underConstruction).length;
+          const barracksUrgent = (gs.turn >= 6 && barracksDone < 1) || (gs.turn >= 10 && barracksDone < 2 && myCombatUnits.length < 5);
+          const deferWebRoad = barracksUrgent && roadDeficitForEng < 14;
+          if (!deferWebRoad && (roadDeficitForEng >= 2 || roadScoreNow >= 18) && maybeBuild('ROAD')) continue;
         }
 
         if (!hasNonRoadBuilding) {
@@ -1252,7 +1262,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           const myFarms  = gs.buildings.filter(b => b.owner === player && b.type === 'FARM' && !b.underConstruction).length;
           const myLabs   = gs.buildings.filter(b => b.owner === player && b.type === 'SCIENCE_LAB' && !b.underConstruction).length;
           const myFactories = gs.buildings.filter(b => b.owner === player && b.type === 'FACTORY' && !b.underConstruction).length;
-          const myRoads  = gs.buildings.filter(b => b.owner === player && b.type === 'ROAD').length;
+          const myRoads  = countPlayerRoadLike(gs, player);
           const myAdvBarracks = gs.buildings.filter(b => b.owner === player && b.type === 'ADV_BARRACKS' && !b.underConstruction).length;
           const myArmorWorks = gs.buildings.filter(b => b.owner === player && b.type === 'ARMOR_WORKS' && !b.underConstruction).length;
           const myAdvAirfield = gs.buildings.filter(b => b.owner === player && b.type === 'ADV_AIRFIELD' && !b.underConstruction).length;
@@ -1660,7 +1670,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     // Opening milestone controller (T1–T12): ensure baseline macro tools come online.
     if (opening.turn <= 12) {
       const enforce = [];
-      const roadsNow = gs.buildings.filter(bb => bb.owner === player && bb.type === 'ROAD').length;
+      const roadsNow = countPlayerRoadLike(gs, player);
       const roadDeficit = Math.max(0, dynamicRoadTarget - roadsNow);
       const macroDeficit = opening.deficits.roads + opening.deficits.mines + opening.deficits.pumps + opening.deficits.farms + opening.deficits.labs + opening.deficits.factories + roadDeficit;
       if (macroDeficit > 0 && sorted.includes('ENGINEER')) enforce.push('ENGINEER');
@@ -1676,14 +1686,22 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const buildingCanRecruitAny = (set) => sorted.some(t => set.has(t));
     for (const unitType of sorted) {
       const totals = plannedTotals();
-      if (logisticsEmergency && !logisticsCriticalRecruits.has(unitType)) continue;
+      const barracksCombatRescue = ['INFANTRY', 'ANTI_TANK', 'MORTAR', 'MEDIC'];
+      const armyCriticallyLow = myCombatUnits.length < 4 || (gs.turn >= 12 && myCombatUnits.length < 7);
+      if (logisticsEmergency && !logisticsCriticalRecruits.has(unitType)) {
+        if (!(armyCriticallyLow && barracksCombatRescue.includes(unitType))) continue;
+      }
       if (logisticsPressure && (UNIT_TYPES[unitType]?.cost?.oil || 0) >= 2 && !logisticsCriticalRecruits.has(unitType)) continue;
 
-      // Strategic doctrine gate: during expand/stabilize, suppress tier-0 flood unless logistics-critical.
+      // Strategic doctrine gate: during expand/stabilize, suppress cheap recon spam — but keep infantry
+      // online when the army is thin so an AI cannot stall with roads/engineers and zero combat output.
       const strategicPhase = aiCtx?.strategic?.phase || 'expand';
       const tier = UNIT_TYPES[unitType]?.tier || 0;
       const isCoreTier0 = tier <= 0 && ['INFANTRY','RECON','MOTORCYCLE'].includes(unitType);
-      if ((strategicPhase === 'expand' || strategicPhase === 'stabilize') && isCoreTier0 && !logisticsCriticalRecruits.has(unitType)) continue;
+      const allowEarlyInfantry = unitType === 'INFANTRY' && myCombatUnits.length < 6;
+      if ((strategicPhase === 'expand' || strategicPhase === 'stabilize') && isCoreTier0 && !logisticsCriticalRecruits.has(unitType)) {
+        if (!allowEarlyInfantry) continue;
+      }
 
       const compStock = resSim.components || 0;
       const desiredVehicleMin = (gs.turn >= 16) ? Math.max(3, Math.floor(totals.combat * (compStock >= 4 ? 0.30 : 0.24))) : 0;
