@@ -2364,6 +2364,18 @@ export const BUILDING_SUPPLY_RADIUS = {
   SUPPLY_DEPOT: 2, // v1.6 addition: provides supply on isolated road networks
 };
 
+/** Max roadTier on a hex for this player's roads (dirt=0, concrete=1, rail=2). */
+function maxRoadSupplyTierAt(state, player, q, r) {
+  let max = -1;
+  for (const b of state.buildings) {
+    if (!ROAD_TYPES.has(b.type) || Number(b.owner) !== Number(player)) continue;
+    if (b.q !== q || b.r !== r) continue;
+    const t = BUILDING_TYPES[b.type]?.roadTier ?? 0;
+    if (t > max) max = t;
+  }
+  return max;
+}
+
 // Returns a Set of "q,r" keys that are in supply for the given player.
 // Roads consume 1 range when first entered from non-road, then chain for free while on-road.
 // Only SAME-OWNER roads count, so extension must be connected to your own supply network.
@@ -2375,10 +2387,10 @@ export function computeSupply(state, player, mapSize) {
   const isOwnedRoadHex = (q, r) => state.buildings.some(b => ROAD_TYPES.has(b.type) && b.q === q && b.r === r && Number(b.owner) === Number(player));
   const _isValid = (q, r) => q >= 0 && r >= 0 && q < ms && r < ms;
 
-  // Build a set of owned roads that are connected to HQ OR Supply Depot
-  // v1.6: Roads now extend supply mainly through connections to HQ/Depots.
+  // Build a set of owned roads connected to HQ, Supply Depot, or Supply Warehouse (same-owner graph).
   const roadConnected = new Set();
-  const mySupplyAnchors = state.buildings.filter(b => Number(b.owner) === Number(player) && !b.underConstruction && (b.type === 'HQ' || b.type === 'SUPPLY_DEPOT'));
+  const mySupplyAnchors = state.buildings.filter(b => Number(b.owner) === Number(player) && !b.underConstruction &&
+    (b.type === 'HQ' || b.type === 'SUPPLY_DEPOT' || b.type === 'SUPPLY_WAREHOUSE'));
   
   const roadQueue = [];
   for (const anchor of mySupplyAnchors) {
@@ -2409,12 +2421,13 @@ export function computeSupply(state, player, mapSize) {
 
   const floodFill = (sq, sr, radius) => {
     // BFS — roads cost 0, other hexes cost 1.
+    // dirtLandHop: stepped from a dirt-tier (0) road onto land — cannot chain further off-road until re-entering a road.
     const ROAD_CHAIN_LIMIT = 12;
-    const queue = [{ q: sq, r: sr, rem: radius, roadChain: 0 }];
-    const visited = new Map(); 
-    visited.set(`${sq},${sr},0`, radius);
+    const queue = [{ q: sq, r: sr, rem: radius, roadChain: 0, dirtLandHop: 0 }];
+    const visited = new Map();
+    visited.set(`${sq},${sr},0,0`, radius);
     while (queue.length > 0) {
-      const { q, r, rem, roadChain } = queue.shift();
+      const { q, r, rem, roadChain, dirtLandHop } = queue.shift();
       supplied.add(`${q},${r}`);
       if (rem <= 0) continue;
       for (const [dq, dr] of HEX_NEIGHBORS) {
@@ -2422,26 +2435,29 @@ export function computeSupply(state, player, mapSize) {
         if (!_isValid(nq, nr)) continue;
         const fromRoad = isRoadHex(q, r);
         const toRoad = isRoadHex(nq, nr);
+        if (!fromRoad && dirtLandHop >= 1 && !toRoad) continue;
+
         let nextRoadChain = 0;
         if (toRoad) {
           nextRoadChain = fromRoad ? (roadChain + 1) : 1;
           if (nextRoadChain > ROAD_CHAIN_LIMIT) continue;
         }
-        // v1.6: Dirt roads extend supply only 1 tile off the road.
-        // entering a road from non-road consumes 1 range; continuing on roads is free.
+        let nextDirtHop = dirtLandHop;
+        if (toRoad) {
+          nextDirtHop = 0;
+        } else if (fromRoad) {
+          const tier = maxRoadSupplyTierAt(state, player, q, r);
+          nextDirtHop = tier <= 0 ? 1 : 0;
+        }
+
         const stepCost = toRoad ? (fromRoad ? 0 : 1) : 1;
         const nextRem = rem - stepCost;
-        
-        // Apply v1.6 dirt road limit: if we are NOT on a road, and the previous tile was a road, 
-        // we can only go 1 tile deep into non-road territory from that road network.
-        // (This is implicitly handled by the 'rem' value starting at radius).
-        // To strictly enforce "1 tile off road", we check distance from nearest road if not on one.
 
-        const key = `${nq},${nr},${nextRoadChain}`;
+        const key = `${nq},${nr},${nextRoadChain},${nextDirtHop}`;
         const prevBest = visited.get(key) ?? -1;
         if (nextRem > prevBest) {
           visited.set(key, nextRem);
-          queue.push({ q: nq, r: nr, rem: nextRem, roadChain: nextRoadChain });
+          queue.push({ q: nq, r: nr, rem: nextRem, roadChain: nextRoadChain, dirtLandHop: nextDirtHop });
         }
       }
     }

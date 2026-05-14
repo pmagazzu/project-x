@@ -27,7 +27,7 @@ export const AI_STRATEGIES = {
   aggressive: {
     label:         'Aggressive',
     recruitPrio:   ['TANK','INFANTRY','MORTAR','ARTILLERY','ANTI_TANK','SUPPLY_TRUCK','HALFTRACK'],
-    navalPrio:     ['SUPPLY_SHIP','DESTROYER','MTB','CRUISER_LT','PATROL_BOAT'],
+    navalPrio:     ['SUPPLY_SHIP','DESTROYER','MTB','TRANSPORT_MD','CRUISER_LT','PATROL_BOAT'],
     airPrio:       ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE'],
     attackBonus:   20,   // extra score for attack-after-move
     captureBonus:  20,   // bonus for moving toward HQ or flag position
@@ -37,7 +37,7 @@ export const AI_STRATEGIES = {
   defensive: {
     label:         'Defensive',
     recruitPrio:   ['ANTI_TANK','ARTILLERY','INFANTRY','MORTAR','MEDIC','SUPPLY_TRUCK'],
-    navalPrio:     ['SUPPLY_SHIP','COASTAL_BATTERY','DESTROYER','PATROL_BOAT'],
+    navalPrio:     ['SUPPLY_SHIP','COASTAL_BATTERY','DESTROYER','TRANSPORT_MD','PATROL_BOAT'],
     airPrio:       ['BIPLANE_FIGHTER','OBS_PLANE','LIGHT_BOMBER'],
     attackBonus:   0,
     captureBonus:  40,
@@ -47,7 +47,7 @@ export const AI_STRATEGIES = {
   balanced: {
     label:         'Balanced',
     recruitPrio:   ['INFANTRY','ANTI_TANK','TANK','ARTILLERY','MORTAR','SUPPLY_TRUCK','HALFTRACK'],
-    navalPrio:     ['SUPPLY_SHIP','DESTROYER','PATROL_BOAT','MTB','TRANSPORT_SM'],
+    navalPrio:     ['SUPPLY_SHIP','TRANSPORT_MD','DESTROYER','PATROL_BOAT','MTB','TRANSPORT_SM'],
     airPrio:       ['BIPLANE_FIGHTER','OBS_PLANE','LIGHT_BOMBER'],
     attackBonus:   10,
     captureBonus:  30,
@@ -57,7 +57,7 @@ export const AI_STRATEGIES = {
   adaptive: {
     label:         'Adaptive',
     recruitPrio:   ['INFANTRY','ANTI_TANK','TANK','ARTILLERY','MORTAR','HALFTRACK','SUPPLY_TRUCK'],
-    navalPrio:     ['SUPPLY_SHIP','DESTROYER','PATROL_BOAT','MTB','TRANSPORT_SM'],
+    navalPrio:     ['SUPPLY_SHIP','TRANSPORT_MD','DESTROYER','PATROL_BOAT','MTB','TRANSPORT_SM'],
     airPrio:       ['BIPLANE_FIGHTER','OBS_PLANE','LIGHT_BOMBER'],
     attackBonus:   12,
     captureBonus:  34,
@@ -156,7 +156,7 @@ function getOpeningMilestones(gs, player) {
     labs:        turn <= 8 ? 1 : turn <= 14 ? 2 : 3,
     factories:   turn <= 9 ? 0 : turn <= 16 ? 1 : 2,
     barracks:    turn <= 7 ? 1 : turn <= 14 ? 2 : 3,
-    supplyTrucks: turn <= 8 ? 0 : turn <= 14 ? 1 : 2,
+    supplyTrucks: turn <= 12 ? 0 : turn <= 22 ? 1 : 2,
   };
 
   return {
@@ -563,6 +563,42 @@ function getEnemyThreatAt(gs, owner, q, r) {
   return threat;
 }
 
+const _CHOKE_DIRS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+
+/** Land tiles bordering water/mountain/map edge read as choke-worthy control points. */
+function chokepointLandValue(terrain, mapSize, q, r) {
+  const k = `${q},${r}`;
+  const t = terrain?.[k] ?? 0;
+  if (t === 4 || t === 5 || t === 2) return 0;
+  let walls = 0;
+  for (const [dq, dr] of _CHOKE_DIRS) {
+    const nq = q + dq, nr = r + dr;
+    if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) { walls++; continue; }
+    const nt = terrain?.[`${nq},${nr}`] ?? 0;
+    if (nt === 4 || nt === 5 || nt === 2) walls++;
+  }
+  if (walls >= 4) return 5;
+  if (walls >= 3) return 3;
+  if (walls === 2) return 1;
+  return 0;
+}
+
+/** Naval straits / tight water tiles touching multiple land masses. */
+function waterChokeValue(terrain, mapSize, q, r) {
+  const t = terrain?.[`${q},${r}`] ?? 0;
+  if (t !== 4 && t !== 5) return 0;
+  let landn = 0;
+  for (const [dq, dr] of _CHOKE_DIRS) {
+    const nq = q + dq, nr = r + dr;
+    if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) continue;
+    const nt = terrain?.[`${nq},${nr}`] ?? 0;
+    if (nt !== 4 && nt !== 5) landn++;
+  }
+  if (landn >= 4) return 6;
+  if (landn >= 3) return 4;
+  return 0;
+}
+
 function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx = {}) {
   const cfg = AI_STRATEGIES[strat] ?? AI_STRATEGIES.balanced;
   const role = getUnitRole(unit.type);
@@ -824,6 +860,8 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
         const nearEnemy = Math.min(...enemies.map(e => hexDistance(q,r,e.q,e.r)));
         if (nearEnemy <= 3) score += 12 * phase.combat;
       }
+      const wcNav = waterChokeValue(terrain, ctx.mapSize || gs._mapSize || 40, q, r);
+      if (wcNav > 0) score += wcNav * (0.5 + phase.raiding * 0.28);
     }
 
     // Doctrine 2: Anti-submarine — Destroyers hunt subs when enemy has 2+
@@ -881,6 +919,19 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   } else if ((unit.outOfSupply || 0) > 0) {
     // Recovery bias: nudge unsupplied units back onto the network.
     score += 8;
+  }
+
+  const msChoke = ctx.mapSize || gs._mapSize || 40;
+  const chokeVal = chokepointLandValue(terrain, msChoke, q, r);
+  if (chokeVal > 0) {
+    if (role === 'line' || role === 'assault' || role === 'indirect' || role === 'recon') {
+      score += chokeVal * (0.55 + phase.combat * 0.22);
+    }
+    if (unit.type === 'ENGINEER') score += chokeVal * 0.7 * phase.logistics;
+  }
+  const wChoke = waterChokeValue(terrain, msChoke, q, r);
+  if (unit.type === 'SUPPLY_SHIP' && wChoke > 0) {
+    score += wChoke * (1.35 + phase.logistics * 0.5);
   }
 
   // Phase 2 anti-blob: penalize over-clustering unless already in close contact.
@@ -1515,12 +1566,13 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     if (choices.length > 0) {
       const rank = (t) => {
         let s = 0;
-        if (t.branch === 'industrial') s += 9;
+        const turn = gs.turn || 1;
+        if (t.branch === 'industrial') s += 12 + (turn >= 14 ? 2 : 0);
         if (t.branch === 'science') s += 5;
         if (t.branch === 'engineering') s += 2 + Math.min(5, unsupNow);
         if (t.branch === 'vehicles') s += myVehicleDepots > 0 ? 7 : 4;
         if (t.branch === 'air') s += myAirfields > 0 ? 7 : 3;
-        if (t.kind === 'economy') s += 4;
+        if (t.kind === 'economy') s += 4 + (turn >= 10 ? 1 : 0);
         if (t.kind === 'research') s += 3;
         s -= (t.tier || 0) * 1.5;
         s -= (t.cost || 0) * 0.08;
@@ -1584,10 +1636,15 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   {
     const myTrucksNow = gs.units.filter(u => u.owner === player && u.type === 'SUPPLY_TRUCK' && !u.embarked).length;
     const frontlineSpanNow = getFrontlineDistanceEstimate(gs, player);
-    const desiredTrucksNow = Math.max(2, Math.min(8, Math.ceil((gs.units.filter(u => u.owner === player && !u.embarked).length) / 14) + Math.floor(frontlineSpanNow / 10) + (unsuppliedGroundNow >= 3 ? 1 : 0)));
+    const groundCombat = gs.units.filter(u => u.owner === player && !u.embarked && !NAVAL_UNITS.has(u.type)).filter(u => {
+      const d = UNIT_TYPES[u.type] || {};
+      return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
+    }).length;
+    const desiredTrucksNow = Math.min(5, Math.max(1, 1 + Math.floor(groundCombat / 6) + Math.floor(frontlineSpanNow / 14) + (unsuppliedGroundNow >= 4 ? 1 : 0)));
     const truckGapNow = Math.max(0, desiredTrucksNow - myTrucksNow);
-    if (unsuppliedGroundNow >= 2 || truckGapNow > 0) {
-      for (let i = 0; i < Math.min(2, truckGapNow || 1); i++) {
+    const maxPerTurn = unsuppliedGroundNow >= 4 ? 2 : 1;
+    if (unsuppliedGroundNow >= 3 || truckGapNow >= 2) {
+      for (let i = 0; i < Math.min(maxPerTurn, truckGapNow); i++) {
         const b = myBuildings.find(bb => (BUILDING_TYPES[bb.type]?.canRecruit || []).includes('SUPPLY_TRUCK') && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player) && !actions.some(a => a.type === 'recruit' && a.buildingId === bb.id));
         if (!b) break;
         const c = UNIT_TYPES['SUPPLY_TRUCK']?.cost || {};
@@ -1739,8 +1796,14 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       if (unitType === 'SUPPLY_TRUCK') {
         const myTrucks = gs.units.filter(u => u.owner === player && u.type === 'SUPPLY_TRUCK').length;
         const frontlineSpan = getFrontlineDistanceEstimate(gs, player);
-        const truckCap = Math.max(3, Math.min(10, 3 + Math.floor(frontlineSpan / 8) + Math.floor(Math.max(0, unsuppliedGround) / 3)));
+        const groundCombat = gs.units.filter(u => u.owner === player && !u.embarked && !NAVAL_UNITS.has(u.type)).filter(u => {
+          const d = UNIT_TYPES[u.type] || {};
+          return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
+        }).length;
+        const truckCap = Math.max(1, Math.min(5, 1 + Math.floor(frontlineSpan / 10) + Math.floor(Math.max(0, unsuppliedGround) / 4)));
+        const ratioCap = Math.max(1, Math.ceil(groundCombat / 4));
         if (myTrucks >= truckCap) continue;
+        if (myTrucks >= ratioCap && unsuppliedGround < 2) continue;
         // Barracks gate: don't build 2nd+ truck until a barracks is online
         if (myTrucks >= 1) {
           const hasBarracks = gs.buildings.some(bb => bb.owner === player && (bb.type === 'BARRACKS' || bb.type === 'ADV_BARRACKS') && !bb.underConstruction);

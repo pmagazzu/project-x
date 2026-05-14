@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.7.3';
+export const GAME_VERSION = 'v1.7.4';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -7896,8 +7896,10 @@ export class GameScene extends Phaser.Scene {
         const rough = this._fbm(q * 0.16 + 740, r * 0.16 + 260, seed + 6666, 2);
 
         // Mountains: rarer and more range-like; not blanket coverage.
-        const mtnV = isContinentLike ? (MTN_LV + 0.02) : MTN_LV;
-        const isMountain = (v > mtnV && ridge > 0.60) || (v > mtnV + 0.03 && ridge > 0.54);
+        const mtnV = isContinentLike ? (MTN_LV + 0.025) : MTN_LV;
+        const ridgeMtn = isContinentLike ? 0.62 : 0.60;
+        const ridgeMtn2 = isContinentLike ? 0.56 : 0.54;
+        const isMountain = (v > mtnV && ridge > ridgeMtn) || (v > mtnV + 0.04 && ridge > ridgeMtn2);
         if (isMountain) { map[`${q},${r}`] = 2; continue; }
 
         // Hills: tone down on continent profiles to avoid hill carpets.
@@ -7938,6 +7940,55 @@ export class GameScene extends Phaser.Scene {
               const roll = this._fbm((q+dq) * 0.31 + 90, (r+dr) * 0.31 + 210, seed + 777, 2);
               if (roll > 0.35) map[k] = 3; // hill shoulder around mountain
             }
+          }
+        }
+      }
+    }
+
+    // Break up continent-scale mountain megablobs (one huge impassable spine).
+    {
+      const NEI = NEIGHBORS;
+      let landCount = 0;
+      for (let q = 0; q < ms; q++) {
+        for (let r = 0; r < ms; r++) {
+          const t = map[`${q},${r}`];
+          if (t !== 4 && t !== 5) landCount++;
+        }
+      }
+      const maxBlob = Math.max(22, Math.floor(landCount * 0.045));
+      const seenMt = new Set();
+      for (let q0 = 0; q0 < ms; q0++) {
+        for (let r0 = 0; r0 < ms; r0++) {
+          const sk = `${q0},${r0}`;
+          if (map[sk] !== 2 || seenMt.has(sk)) continue;
+          const comp = [];
+          const stack = [{ q: q0, r: r0 }];
+          while (stack.length) {
+            const { q, r } = stack.pop();
+            const k = `${q},${r}`;
+            if (seenMt.has(k) || map[k] !== 2) continue;
+            seenMt.add(k);
+            comp.push({ q, r });
+            for (const [dq, dr] of NEI) {
+              const nq = q + dq, nr = r + dr;
+              if (!isValid(nq, nr, ms)) continue;
+              stack.push({ q: nq, r: nr });
+            }
+          }
+          if (comp.length <= maxBlob) continue;
+          const interior = (q, r) => {
+            let n = 0;
+            for (const [dq, dr] of NEI) {
+              const k2 = `${q + dq},${r + dr}`;
+              if (map[k2] === 2) n++;
+            }
+            return n;
+          };
+          comp.sort((a, b) => interior(b.q, b.r) - interior(a.q, a.r));
+          const cut = Math.floor(comp.length * 0.38);
+          for (let i = 0; i < cut; i++) {
+            const { q, r } = comp[i];
+            map[`${q},${r}`] = 3;
           }
         }
       }
@@ -8373,7 +8424,8 @@ export class GameScene extends Phaser.Scene {
     }
     const landScale = Math.max(0.35, landTiles / (40 * 40 * 0.55)); // normalize to ~55% land baseline
     const MIN_IRON = Math.max(10, Math.round(14 * landScale));
-    const MIN_OIL  = Math.max(6,  Math.round(8  * landScale));
+    // Oil: keep scarce on procedural maps so it stays strategically valuable.
+    const MIN_OIL  = Math.max(3,  Math.round(4 * landScale));
 
     const free = (q, r) =>
       !gs.resourceHexes[`${q},${r}`] &&
@@ -8389,7 +8441,7 @@ export class GameScene extends Phaser.Scene {
         if (!isLandType(t)) continue;
         if (IRON_PREFER.has(t) && rng() < 0.22) {
           gs.resourceHexes[`${q},${r}`] = { type: 'IRON' };
-        } else if (OIL_TERRAIN.has(t) && rng() < 0.08) {
+        } else if (OIL_TERRAIN.has(t) && rng() < 0.04) {
           gs.resourceHexes[`${q},${r}`] = { type: 'OIL' };
         }
       }
