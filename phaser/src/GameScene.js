@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.8.1';
+export const GAME_VERSION = 'v1.8.2';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -3864,7 +3864,7 @@ export class GameScene extends Phaser.Scene {
       const factor = dir > 0 ? step : (1 / step);
       if (this._zoomTarget === undefined) this._zoomTarget = cam.zoom;
       this._zoomTarget = Phaser.Math.Clamp(this._zoomTarget * factor, 0.2, 4.0);
-      this._zoomPointer = { x: this.scale.width / 2, y: this.scale.height / 2 };
+      this._zoomPointer = this._cameraScreenCenter(cam);
       this._zoomLastInputAt = performance.now();
     });
 
@@ -3877,7 +3877,7 @@ export class GameScene extends Phaser.Scene {
       const factor = zoomIn ? step : (1 / step);
       if (this._zoomTarget === undefined) this._zoomTarget = cam.zoom;
       this._zoomTarget = Phaser.Math.Clamp(this._zoomTarget * factor, 0.2, 4.0);
-      this._zoomPointer = { x: this.scale.width / 2, y: this.scale.height / 2 };
+      this._zoomPointer = this._cameraScreenCenter(cam);
       this._zoomLastInputAt = performance.now();
     };
 
@@ -4008,6 +4008,20 @@ export class GameScene extends Phaser.Scene {
       x: (wx - cam.scrollX) * cam.zoom + cam.x,
       y: (wy - cam.scrollY) * cam.zoom + cam.y,
     };
+  }
+
+  /** Screen coords for the center of the main world camera viewport. */
+  _cameraScreenCenter(cam = this.cameras.main) {
+    return { x: cam.x + cam.width * 0.5, y: cam.y + cam.height * 0.5 };
+  }
+
+  /** Set zoom while keeping the world point under (screenX, screenY) fixed. */
+  _setCameraZoomAtScreen(cam, screenX, screenY, zoom) {
+    const wx = cam.scrollX + (screenX - cam.x) / cam.zoom;
+    const wy = cam.scrollY + (screenY - cam.y) / cam.zoom;
+    cam.setZoom(Phaser.Math.Clamp(zoom, 0.2, 4.0));
+    cam.scrollX = wx - (screenX - cam.x) / cam.zoom;
+    cam.scrollY = wy - (screenY - cam.y) / cam.zoom;
   }
 
   // ── Smart build shortcut ──────────────────────────────────────────────────
@@ -5253,13 +5267,8 @@ export class GameScene extends Phaser.Scene {
       if (Math.abs(dz) > 0.0005) {
         const ramp = 0.14 + Math.min(0.26, Math.abs(dz) * 0.35); // soft acceleration
         const nextZoom = cam.zoom + dz * ramp;
-        const px = this._zoomPointer?.x ?? (this.scale.width / 2);
-        const py = this._zoomPointer?.y ?? (this.scale.height / 2);
-        const before = cam.getWorldPoint(px, py);
-        cam.setZoom(Phaser.Math.Clamp(nextZoom, 0.2, 4.0));
-        const after = cam.getWorldPoint(px, py);
-        cam.scrollX += before.x - after.x;
-        cam.scrollY += before.y - after.y;
+        const center = this._zoomPointer || this._cameraScreenCenter(cam);
+        this._setCameraZoomAtScreen(cam, center.x, center.y, nextZoom);
       } else {
         this._zoomTarget = cam.zoom;
       }
