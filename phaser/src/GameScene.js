@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.8.0';
+export const GAME_VERSION = 'v1.8.1';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -7047,6 +7047,56 @@ export class GameScene extends Phaser.Scene {
           this._pushLog(`AI P${gs.currentPlayer}: queued research ${action.techId}`);
         }
       }
+      next();
+
+    } else if (action.type === 'transport_load') {
+      const transport = gs.units.find(u => u.id === action.transportId);
+      const cargoUnit = gs.units.find(u => u.id === action.cargoUnitId);
+      if (transport && cargoUnit && cargoUnit.owner === gs.currentPlayer) {
+        const dist = hexDistance(transport.q, transport.r, cargoUnit.q, cargoUnit.r);
+        if (dist <= 1) {
+          const def = UNIT_TYPES[transport.type];
+          const cap = def?.capacity;
+          if (cap) {
+            if (!transport.cargo) transport.cargo = [];
+            const loadedInf = (transport.cargo || []).filter(id => {
+              const u2 = gs.units.find(u => u.id === id);
+              return u2 && !['TANK', 'ARTILLERY', 'ANTI_TANK'].includes(u2.type);
+            }).length;
+            const loadedVeh = transport.cargo.length - loadedInf;
+            const isVehicle = ['TANK', 'ARTILLERY', 'ANTI_TANK'].includes(cargoUnit.type);
+            const ok = isVehicle ? loadedVeh < cap.vehicle : loadedInf < cap.infantry;
+            if (ok) {
+              transport.cargo.push(cargoUnit.id);
+              cargoUnit.embarked = true;
+              this._pushLog(`AI P${gs.currentPlayer}: loaded ${cargoUnit.type} onto transport`);
+            }
+          }
+        }
+      }
+      this._refresh();
+      next();
+
+    } else if (action.type === 'transport_unload') {
+      const transport = gs.units.find(u => u.id === action.transportId);
+      if (transport && transport.cargo?.length > 0) {
+        const dist = hexDistance(transport.q, transport.r, action.toQ, action.toR);
+        if (dist <= 1) {
+          const ttype = this.terrain[`${action.toQ},${action.toR}`] ?? 0;
+          if ((ttype <= 3 || ttype === 6) && !unitAt(gs, action.toQ, action.toR)) {
+            const unitId = transport.cargo.shift();
+            const cargoUnit = gs.units.find(u => u.id === unitId);
+            if (cargoUnit) {
+              cargoUnit.q = action.toQ;
+              cargoUnit.r = action.toR;
+              cargoUnit.embarked = false;
+              cargoUnit.moved = true;
+              this._pushLog(`AI P${gs.currentPlayer}: unloaded ${cargoUnit.type}`);
+            }
+          }
+        }
+      }
+      this._refresh();
       next();
 
     } else {

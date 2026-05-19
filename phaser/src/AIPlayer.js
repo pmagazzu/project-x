@@ -17,8 +17,10 @@ import {
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, computeDesignStats,
   getReachableHexes, getAttackableHexes, hexDistance, buildingAt, roadAt, computeSupply, getRecruitFoodCost,
-  ROAD_TYPES,
+  ROAD_TYPES, unitAt,
 } from './GameState.js';
+
+const AI_TRANSPORT_TYPES = new Set(['LANDING_CRAFT', 'TRANSPORT_SM', 'TRANSPORT_MD', 'TRANSPORT_LG']);
 import { TECH_TREE } from './ResearchData.js';
 
 // ── Strategy definitions ───────────────────────────────────────────────────
@@ -256,6 +258,17 @@ function pickEngineerTask(gs, player, engineer, strategic, mapSize, claimedTasks
 
   // Push toward the most forward corridor objective (furthest from own HQ, not nearest to engineer).
   // This drives engineers east/west toward the enemy rather than clustering near HQ.
+  const expansions = strategic?.territorial?.expansions || [];
+  if (expansions.length > 0) {
+    const nearest = expansions.reduce((a, b) =>
+      hexDistance(engineer.q, engineer.r, a.q, a.r) <= hexDistance(engineer.q, engineer.r, b.q, b.r) ? a : b);
+    const tk = `${nearest.q},${nearest.r}`;
+    if (!claimedTasks || !claimedTasks.has(tk)) {
+      if (claimedTasks) claimedTasks.add(tk);
+      return { type: 'expansion', q: nearest.q, r: nearest.r };
+    }
+  }
+
   const corridor = strategic?.objectives?.corridor || [];
   const myHQ = gs.buildings.find(b => b.type === 'HQ' && b.owner === player);
   if (corridor.length > 0 && myHQ) {
@@ -599,6 +612,251 @@ function waterChokeValue(terrain, mapSize, q, r) {
   return 0;
 }
 
+function isCoastalLand(terrain, mapSize, q, r) {
+  const t = terrain?.[`${q},${r}`] ?? 0;
+  if (t === 4 || t === 5 || t === 2) return false;
+  for (const [dq, dr] of _CHOKE_DIRS) {
+    const nq = q + dq, nr = r + dr;
+    if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) return true;
+    const nt = terrain?.[`${nq},${nr}`] ?? 0;
+    if (nt === 4 || nt === 5) return true;
+  }
+  return false;
+}
+
+/** Scan map for chokepoints, coastal control sites, and expansion anchors. */
+function buildTerritorialIntel(terrain, mapSize, gs, player, strategic, resourceTargets) {
+  const myHQ = gs.buildings.find(b => b.type === 'HQ' && b.owner === player);
+  const chokes = [];
+  const coastal = [];
+  const expansions = [];
+
+  for (let q = 0; q < mapSize; q++) {
+    for (let r = 0; r < mapSize; r++) {
+      const cv = chokepointLandValue(terrain, mapSize, q, r);
+      if (cv >= 3) {
+        let score = cv;
+        if (myHQ) score += Math.max(0, 10 - hexDistance(q, r, myHQ.q, myHQ.r) * 0.12);
+        if (strategic?.primaryLane && getLaneForR(r, mapSize) === strategic.primaryLane) score += 2.5;
+        const enemyNear = gs.units.some(u => Number(u.owner) !== Number(player) && !u.embarked &&
+          hexDistance(q, r, u.q, u.r) <= 10);
+        if (enemyNear) score += 5;
+        const friendlyHere = gs.units.filter(u => u.owner === player && !u.embarked && hexDistance(q, r, u.q, u.r) <= 2).length;
+        if (friendlyHere >= 2) score -= 2;
+        chokes.push({ q, r, score, kind: 'choke' });
+      }
+      if (isCoastalLand(terrain, mapSize, q, r)) {
+        let cScore = 2;
+        const nearNaval = gs.buildings.some(b => b.owner === player &&
+          ['NAVAL_YARD', 'HARBOR', 'PORT', 'NAVAL_BASE'].includes(b.type) &&
+          hexDistance(q, r, b.q, b.r) <= 14);
+        if (nearNaval) cScore += 4;
+        const enemyNear = gs.units.some(u => Number(u.owner) !== Number(player) && !u.embarked &&
+          hexDistance(q, r, u.q, u.r) <= 12);
+        if (enemyNear) cScore += 3;
+        const wc = waterChokeValue(terrain, mapSize, q, r);
+        if (wc > 0) cScore += wc * 0.4;
+        coastal.push({ q, r, score: cScore, kind: 'coast' });
+      }
+    }
+  }
+
+  chokes.sort((a, b) => b.score - a.score);
+  coastal.sort((a, b) => b.score - a.score);
+
+  for (const t of (resourceTargets || [])) {
+    expansions.push({ q: t.q, r: t.r, score: t.type === 'OIL' ? 5 : 3.5, type: 'resource' });
+  }
+  for (const o of (strategic?.objectives?.corridor || [])) {
+    if (o.type === 'forward' || o.type === 'resource') {
+      expansions.push({ q: o.q, r: o.r, score: o.type === 'forward' ? 6 : 4, type: o.type });
+    }
+  }
+  if (strategic?.objectives?.flank) {
+    const f = strategic.objectives.flank;
+    expansions.push({ q: f.q, r: f.r, score: 5.5, type: 'flank' });
+  }
+  expansions.sort((a, b) => b.score - a.score);
+
+  return {
+    chokes: chokes.slice(0, 18),
+    coastal: coastal.slice(0, 24),
+    expansions: expansions.slice(0, 16),
+  };
+}
+
+function assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjective, combatUnits, flankCount) {
+  const turn = gs.turn || 1;
+  if (!territorial || turn < 8 || !combatUnits?.length) return;
+
+  const chokes = territorial.chokes || [];
+  const coasts = territorial.coastal || [];
+  const flankPool = combatUnits.slice(0, Math.max(2, flankCount || Math.floor(combatUnits.length * 0.35)));
+  const garrisonCap = Math.min(chokes.length, Math.max(2, Math.floor(flankPool.length * 0.4)));
+
+  let chokeIdx = 0;
+  for (const u of flankPool) {
+    if (chokeIdx >= garrisonCap) break;
+    const role = getUnitRole(u.type);
+    if (role !== 'line' && u.type !== 'ANTI_TANK' && u.type !== 'MORTAR') continue;
+    const choke = chokes[chokeIdx % chokes.length];
+    if (!choke) break;
+    unitObjective[u.id] = { q: choke.q, r: choke.r, kind: 'choke', role: 'garrison' };
+    chokeIdx++;
+  }
+
+  const patrols = gs.units.filter(u => u.owner === player && u.type === 'PATROL_BOAT' && !u.embarked);
+  for (let i = 0; i < patrols.length; i++) {
+    const coast = coasts[i % Math.max(1, coasts.length)];
+    if (coast) unitObjective[patrols[i].id] = { q: coast.q, r: coast.r, kind: 'coast', role: 'patrol' };
+  }
+}
+
+function transportCargoStats(transport, gs) {
+  const def = UNIT_TYPES[transport.type] || {};
+  const cap = def.capacity || { infantry: 0, vehicle: 0 };
+  const cargo = transport.cargo || [];
+  let loadedInf = 0;
+  let loadedVeh = 0;
+  for (const id of cargo) {
+    const u = gs.units.find(x => x.id === id);
+    if (!u) continue;
+    if (['TANK', 'ARTILLERY', 'ANTI_TANK'].includes(u.type)) loadedVeh++;
+    else loadedInf++;
+  }
+  return {
+    loadedInf, loadedVeh, cap,
+    hasRoom: loadedInf < cap.infantry || loadedVeh < cap.vehicle,
+  };
+}
+
+function canLoadOnTransport(transport, cargoUnit, gs) {
+  const stats = transportCargoStats(transport, gs);
+  const isVehicle = ['TANK', 'ARTILLERY', 'ANTI_TANK'].includes(cargoUnit.type);
+  return isVehicle ? stats.loadedVeh < stats.cap.vehicle : stats.loadedInf < stats.cap.infantry;
+}
+
+function projectedPosFromActions(gs, unitId, actions) {
+  const u = gs.units.find(x => x.id === unitId);
+  if (!u) return null;
+  let q = u.q, r = u.r;
+  for (const a of actions) {
+    if (a.type === 'move' && a.unitId === unitId) { q = a.toQ; r = a.toR; }
+  }
+  return { q, r };
+}
+
+function findAdjacentLoadCandidates(gs, tq, tr, player, actions = []) {
+  return gs.units.filter(u => {
+    if (u.owner !== player || u.embarked) return false;
+    if (NAVAL_UNITS.has(u.type) || AIR_UNITS.has(u.type)) return false;
+    if (getUnitRole(u.type) === 'support' || u.type === 'ENGINEER') return false;
+    const pos = projectedPosFromActions(gs, u.id, actions) || { q: u.q, r: u.r };
+    return hexDistance(tq, tr, pos.q, pos.r) <= 1;
+  });
+}
+
+function findBestUnloadHex(gs, terrain, mapSize, tq, tr, player, strategic, territorial) {
+  const dropTargets = [
+    ...(territorial?.expansions || []).slice(0, 8),
+    ...(territorial?.chokes || []).slice(0, 6),
+    strategic?.objectives?.flank,
+    strategic?.objectives?.main,
+  ].filter(Boolean);
+
+  let best = null;
+  let bestScore = -999;
+  for (const [dq, dr] of _CHOKE_DIRS) {
+    const uq = tq + dq, ur = tr + dr;
+    const tt = terrain?.[`${uq},${ur}`] ?? 0;
+    if (!(tt <= 3 || tt === 6)) continue;
+    if (unitAt(gs, uq, ur)) continue;
+    let score = 0;
+    for (const t of dropTargets) {
+      score += Math.max(0, 16 - hexDistance(uq, ur, t.q, t.r) * 2);
+    }
+    score += chokepointLandValue(terrain, mapSize, uq, ur) * 1.8;
+    if (isCoastalLand(terrain, mapSize, uq, ur)) score += 4;
+    const enemies = gs.units.filter(e => Number(e.owner) !== Number(player) && !e.embarked);
+    const nearEnemy = enemies.length ? Math.min(...enemies.map(e => hexDistance(uq, ur, e.q, e.r))) : 99;
+    if (nearEnemy >= 3 && nearEnemy <= 9) score += 6;
+    if (nearEnemy <= 1) score -= 10;
+    if (score > bestScore) { bestScore = score; best = { q: uq, r: ur }; }
+  }
+  return best;
+}
+
+function planTransportMissions(gs, terrain, mapSize, player, strategic, territorial) {
+  const missions = {};
+  const transports = gs.units.filter(u => u.owner === player && AI_TRANSPORT_TYPES.has(u.type) && !u.embarked);
+  if ((gs.turn || 1) < 10 || transports.length === 0) return missions;
+
+  const pickupZones = [];
+  const yards = gs.buildings.filter(b => b.owner === player && b.type === 'NAVAL_YARD' && !b.underConstruction);
+  for (const y of yards) pickupZones.push({ q: y.q, r: y.r, score: 5 });
+  for (const u of gs.units.filter(x => x.owner === player && !x.embarked && !NAVAL_UNITS.has(x.type) && getUnitRole(x.type) === 'line')) {
+    if (isCoastalLand(terrain, mapSize, u.q, u.r)) pickupZones.push({ q: u.q, r: u.r, score: 7 });
+  }
+
+  const dropZones = [
+    ...(territorial?.expansions || []).slice(0, 8),
+    ...(territorial?.chokes || []).slice(0, 5),
+  ].filter(Boolean);
+  if (!dropZones.length && strategic?.objectives?.flank) dropZones.push(strategic.objectives.flank);
+
+  for (const tr of transports) {
+    const cargoN = (tr.cargo || []).length;
+    if (cargoN > 0 && dropZones.length > 0) {
+      const best = dropZones.reduce((a, b) =>
+        hexDistance(tr.q, tr.r, a.q, a.r) <= hexDistance(tr.q, tr.r, b.q, b.r) ? a : b);
+      missions[tr.id] = { q: best.q, r: best.r, mode: 'drop' };
+    } else if (pickupZones.length > 0) {
+      const best = pickupZones.reduce((a, b) =>
+        hexDistance(tr.q, tr.r, a.q, a.r) <= hexDistance(tr.q, tr.r, b.q, b.r) ? a : b);
+      missions[tr.id] = { q: best.q, r: best.r, mode: 'pickup' };
+    }
+  }
+  return missions;
+}
+
+function planTransportOperations(gs, terrain, mapSize, player, strategic, territorial, actions) {
+  const out = [];
+  const turn = gs.turn || 1;
+  if (turn < 10) return out;
+  const hasYard = gs.buildings.some(b => b.owner === player && b.type === 'NAVAL_YARD' && !b.underConstruction);
+  if (!hasYard) return out;
+
+  const transports = gs.units.filter(u => u.owner === player && AI_TRANSPORT_TYPES.has(u.type) && !u.embarked);
+  for (const tr of transports) {
+    const pos = projectedPosFromActions(gs, tr.id, actions);
+    if (!pos) continue;
+    const { q: tq, r: trr } = pos;
+    const cargo = tr.cargo || [];
+
+    if (cargo.length > 0) {
+      const unloadHex = findBestUnloadHex(gs, terrain, mapSize, tq, trr, player, strategic, territorial);
+      if (unloadHex && hexDistance(tq, trr, unloadHex.q, unloadHex.r) <= 1) {
+        out.push({ type: 'transport_unload', transportId: tr.id, toQ: unloadHex.q, toR: unloadHex.r });
+        continue;
+      }
+    }
+
+    const stats = transportCargoStats(tr, gs);
+    if (stats.hasRoom) {
+      const candidates = findAdjacentLoadCandidates(gs, tq, trr, player, actions)
+        .filter(u => canLoadOnTransport(tr, u, gs))
+        .sort((a, b) => {
+          const pri = (t) => (t === 'INFANTRY' ? 3 : t === 'ANTI_TANK' ? 2 : 1);
+          return pri(b.type) - pri(a.type);
+        });
+      if (candidates.length > 0) {
+        out.push({ type: 'transport_load', transportId: tr.id, cargoUnitId: candidates[0].id });
+      }
+    }
+  }
+  return out;
+}
+
 function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx = {}) {
   const cfg = AI_STRATEGIES[strat] ?? AI_STRATEGIES.balanced;
   const role = getUnitRole(unit.type);
@@ -647,7 +905,25 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
 
   // Phase 2: task-group objective pressure (main force vs flank force)
   const obj = ctx.unitObjective?.[unit.id];
-  if (obj && role !== 'engineer' && role !== 'support') {
+  if (obj?.kind === 'choke' || obj?.role === 'garrison') {
+    const dNew = hexDistance(q, r, obj.q, obj.r);
+    const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
+    if (dNew < dCur) score += 14 * (phase.combat * 0.7 + 0.35);
+    if (dNew <= 3) score += 10;
+    if (dNew <= 1) {
+      score += chokepointLandValue(terrain, ctx.mapSize || gs._mapSize || 40, q, r) * 2.2;
+    }
+    if (enemies.length > 0) {
+      const nearEnemy = Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r)));
+      if (nearEnemy <= 2 && dNew > 4) score -= 14;
+    }
+  } else if (obj?.kind === 'coast' && unit.type === 'PATROL_BOAT') {
+    const dNew = hexDistance(q, r, obj.q, obj.r);
+    const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
+    if (dNew < dCur) score += 12;
+    if (dNew <= 6) score += 7;
+    if (dNew <= 2) score += 8;
+  } else if (obj && role !== 'engineer' && role !== 'support') {
     const dNew = hexDistance(q, r, obj.q, obj.r);
     const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
     if (dNew < dCur) score += 18 * phase.combat;  // doubled — make assignments actually stick
@@ -934,6 +1210,22 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
     score += wChoke * (1.35 + phase.logistics * 0.5);
   }
 
+  if (AI_TRANSPORT_TYPES.has(unit.type) && ctx.transportMission?.[unit.id]) {
+    const mission = ctx.transportMission[unit.id];
+    const dNew = hexDistance(q, r, mission.q, mission.r);
+    const dCur = hexDistance(unit.q, unit.r, mission.q, mission.r);
+    if (dNew < dCur) score += mission.mode === 'drop' ? 24 : 18;
+    if (dNew <= 2) score += 10;
+    const wcTr = waterChokeValue(terrain, msChoke, q, r);
+    if (wcTr > 0) score += wcTr * 0.8;
+  }
+
+  if (ctx.territorial?.expansions?.length && unit.type === 'ENGINEER') {
+    const dNew = Math.min(...ctx.territorial.expansions.map(t => hexDistance(q, r, t.q, t.r)));
+    const dCur = Math.min(...ctx.territorial.expansions.map(t => hexDistance(unit.q, unit.r, t.q, t.r)));
+    if (dNew < dCur) score += 12 * phase.economy;
+  }
+
   // Phase 2 anti-blob: penalize over-clustering unless already in close contact.
   if (role !== 'engineer' && role !== 'support') {
     const nearbyFriendlies = gs.units.filter(u => u.owner === unit.owner && u.id !== unit.id && !u.embarked)
@@ -975,7 +1267,18 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       return role !== 'engineer' && role !== 'support' && ((d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0);
     });
   const strategic = buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits, enemyHQs);
+  const territorial = buildTerritorialIntel(terrain, mapSize, gs, player, strategic, resourceTargets);
+  strategic.territorial = territorial;
+  const transportMission = planTransportMissions(gs, terrain, mapSize, player, strategic, territorial);
+
+  const sortedCombat = [...myCombatUnits].sort((a, b) => {
+    const ra = getUnitRole(a.type), rb = getUnitRole(b.type);
+    const pr = (r) => r === 'recon' ? 0 : r === 'assault' ? 1 : r === 'line' ? 2 : r === 'indirect' ? 3 : 4;
+    return pr(ra) - pr(rb);
+  });
+
   const unitObjective = {};
+  let flankCountForGarrison = 0;
   if (enemyHQs.length > 0 && myCombatUnits.length >= 6) {
     const centerEnemy = enemyHQs.reduce((a, b) => Math.abs(a.r - strategic.laneCenters.center) <= Math.abs(b.r - strategic.laneCenters.center) ? a : b);
     const laneEnemy = enemyHQs.reduce((a, b) => Math.abs(a.r - strategic.laneCenters[strategic.primaryLane]) <= Math.abs(b.r - strategic.laneCenters[strategic.primaryLane]) ? a : b);
@@ -988,12 +1291,6 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         flankObj = laneRes.reduce((a, b) => hexDistance(a.q, a.r, mainObj.q, mainObj.r) >= hexDistance(b.q, b.r, mainObj.q, mainObj.r) ? a : b);
       }
     }
-
-    const sortedCombat = [...myCombatUnits].sort((a, b) => {
-      const ra = getUnitRole(a.type), rb = getUnitRole(b.type);
-      const pr = (r) => r === 'recon' ? 0 : r === 'assault' ? 1 : r === 'line' ? 2 : r === 'indirect' ? 3 : 4;
-      return pr(ra) - pr(rb);
-    });
 
     // Phase 5: exploitation doctrine — if one side has centroid advantage in a lane, reinforce it
     const myCenter = {
@@ -1015,12 +1312,14 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const phaseFlankShare = winningNow && strategic.phase === 'pressure' ? 0.25 :
       strategic.phase === 'pressure' ? 0.35 :
       strategic.phase === 'stabilize' ? 0.45 : 0.5;
-    const flankCount = Math.max(2, Math.floor(sortedCombat.length * phaseFlankShare));
+    flankCountForGarrison = Math.max(2, Math.floor(sortedCombat.length * phaseFlankShare));
     for (let i = 0; i < sortedCombat.length; i++) {
       const u = sortedCombat[i];
-      unitObjective[u.id] = i < flankCount ? { q: flankObj.q, r: flankObj.r } : { q: mainObj.q, r: mainObj.r };
+      unitObjective[u.id] = i < flankCountForGarrison ? { q: flankObj.q, r: flankObj.r } : { q: mainObj.q, r: mainObj.r };
     }
   }
+
+  assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjective, sortedCombat, flankCountForGarrison);
 
   const opening = getOpeningMilestones(gs, player);
   const roadFloor = getRoadFloor(gs.turn || 1);
@@ -1039,7 +1338,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     deceptionTurn, resourceTargets, unitObjective, phaseWeights,
     roadDeficit: roadDeficitGlobal, roadCaptainId,
     logisticsPressure, logisticsEmergency, dynamicRoadTarget,
-    strategic,
+    strategic, territorial, transportMission,
     mapSize,
   };
 
@@ -1064,6 +1363,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     engineerTaskLocks: 0,
     engineersStalled: 0,
     recruitMix: { tier0: 0, tier1plus: 0, support: 0, naval: 0, air: 0 },
+    transportOps: 0,
+    territorial: { chokes: territorial?.chokes?.length || 0, coastal: territorial?.coastal?.length || 0, expansions: territorial?.expansions?.length || 0 },
     forceSplit: { assigned: { north: 0, center: 0, south: 0 }, current: { north: 0, center: 0, south: 0 } },
     centerBiasScore: 0,
     unsuppliedClusters: summarizeUnsuppliedClusters(gs, player),
@@ -2162,6 +2463,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       south: (aiDebug.forceSplit.current.south || 0) - enemyCombatNow.filter(u => getLaneForR(u.r, mapSize) === 'south').length,
     },
   };
+
+  const transportActions = planTransportOperations(gs, terrain, mapSize, player, strategic, territorial, actions);
+  actions.push(...transportActions);
+  aiDebug.transportOps = transportActions.length;
 
   gs._aiDebug = gs._aiDebug || {};
   gs._aiDebug[player] = aiDebug;
