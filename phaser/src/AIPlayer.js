@@ -136,7 +136,7 @@ function getOpeningMilestones(gs, player) {
   const unitCount = (types) => myUnits.filter(u => types.includes(u.type)).length;
 
   const counts = {
-    roads: count(['ROAD','CONCRETE_ROAD','RAILWAY']),
+    roads: count(['ROAD','GRAVEL_ROAD','CONCRETE_ROAD','RAILWAY']),
     mines: count(['MINE']),
     pumps: count(['OIL_PUMP']),
     farms: count(['FARM']),
@@ -1570,6 +1570,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         if (t.branch === 'industrial') s += 12 + (turn >= 14 ? 2 : 0);
         if (t.branch === 'science') s += 5;
         if (t.branch === 'engineering') s += 2 + Math.min(5, unsupNow);
+        if (t.id === 'gravel_roads' || t.id === 'concrete_roads' || t.id === 'railways') s += 6;
         if (t.branch === 'vehicles') s += myVehicleDepots > 0 ? 7 : 4;
         if (t.branch === 'air') s += myAirfields > 0 ? 7 : 3;
         if (t.kind === 'economy') s += 4 + (turn >= 10 ? 1 : 0);

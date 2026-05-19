@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.7.4';
+export const GAME_VERSION = 'v1.8.0';
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -1190,20 +1190,21 @@ export class GameScene extends Phaser.Scene {
     const discovered = this._discovered?.[curP] || new Set();
     const showAllRoads = !!this.debugNoFog;
     for (const b of gs.buildings) {
-      if (b.type === 'ROAD' || b.type === 'CONCRETE_ROAD' || b.type === 'RAILWAY') {
+      if (ROAD_TYPES.has(b.type)) {
         const key = `${b.q},${b.r}`;
         const isOwn = Number(b.owner) === curP;
         if (!showAllRoads && !isOwn && !discovered.has(key)) continue;
-        const tier = b.type === 'RAILWAY' ? 2 : b.type === 'CONCRETE_ROAD' ? 1 : 0;
+        const tier = BUILDING_TYPES[b.type]?.roadTier ?? 0;
         roadMap.set(key, { tier, b });
       }
     }
 
     // Road tier styling
     const TIER_STYLE = [
-      { color: 0xb89a6a, width: 3, alpha: 0.85 },  // 0: dirt — warm tan
-      { color: 0xaaaaaa, width: 4, alpha: 0.90 },  // 1: concrete — grey
-      { color: 0x555566, width: 5, alpha: 0.95 },  // 2: railway — dark steel
+      { color: 0xb89a6a, width: 3, alpha: 0.85 },  // 0: dirt
+      { color: 0x998877, width: 3, alpha: 0.88 },  // 1: gravel
+      { color: 0xaaaaaa, width: 4, alpha: 0.90 },  // 2: concrete
+      { color: 0x555566, width: 5, alpha: 0.95 },  // 3: railway
     ];
 
     // Seeded jitter helper (deterministic per hex pair so it's stable)
@@ -1258,7 +1259,7 @@ export class GameScene extends Phaser.Scene {
         this.roadGfx.strokePath();
 
         // Railway ties
-        if (drawTier === 2) {
+        if (drawTier === 3) {
           const steps = 4;
           this.roadGfx.lineStyle(2, 0x7a6a55, 0.7);
           for (let i = 1; i < steps; i++) {
@@ -4266,15 +4267,19 @@ export class GameScene extends Phaser.Scene {
       // Road building — show upgrade option if existing road is lower tier
       const existingRoad = roadAt(gs, unit.q, unit.r);
       const existingTier = existingRoad ? (BUILDING_TYPES[existingRoad.type]?.roadTier ?? 0) : -1;
-      const unlocked = gs.players[p].research?.unlocked || [];
-      const hasConcreteTech = unlocked.includes('CONCRETE_ROADS');
-      const hasRailTech     = unlocked.includes('RAILWAYS');
+      const unlocked = new Set(gs.players[p].research?.unlocked || []);
+      const hasGravelTech   = unlocked.has('gravel_roads');
+      const hasConcreteTech = unlocked.has('concrete_roads');
+      const hasRailTech     = unlocked.has('railways');
       if (!existingRoad) {
         allOpts.push({ label: `Dirt Road   1🪵`,  cost: { iron:0, oil:0, wood:1 }, enabled: wood>=1,  cb: () => this._onBuildRoad('ROAD') });
-      } else if (existingTier < 1 && hasConcreteTech) {
+      } else if (existingTier < 1 && hasGravelTech) {
+        allOpts.push({ label: `Upgrade→Gravel  1⚙ 1🪵`, cost: { iron:1,oil:0,wood:1 }, enabled: iron>=1 && wood>=1,
+          cb: () => this._onUpgradeRoad(unit, 'GRAVEL_ROAD') });
+      } else if (existingTier < 2 && hasConcreteTech) {
         allOpts.push({ label: `Upgrade→Concrete  2⚙`, cost: { iron:2,oil:0,wood:0 }, enabled: iron>=2,
           cb: () => this._onUpgradeRoad(unit, 'CONCRETE_ROAD') });
-      } else if (existingTier < 2 && hasRailTech) {
+      } else if (existingTier < 3 && hasRailTech) {
         allOpts.push({ label: `Upgrade→Railway  4⚙ 1🛢 2🪵`, cost: { iron:4,oil:1,wood:2 },
           enabled: iron>=4 && oil>=1 && wood>=2,
           cb: () => this._onUpgradeRoad(unit, 'RAILWAY') });
@@ -6434,8 +6439,7 @@ export class GameScene extends Phaser.Scene {
         if (roadB) {
           const tier = BUILDING_TYPES[roadB.type]?.roadTier ?? 0;
           if (tier > 0) {
-            // Downgrade: railway → concrete → dirt
-            const downgradeType = tier === 2 ? 'CONCRETE_ROAD' : 'ROAD';
+            const downgradeType = tier >= 3 ? 'CONCRETE_ROAD' : tier >= 2 ? 'GRAVEL_ROAD' : 'ROAD';
             const idx = gs.buildings.indexOf(roadB);
             if (idx >= 0) {
               gs.buildings.splice(idx, 1, createBuilding(downgradeType, roadB.owner, roadB.q, roadB.r));

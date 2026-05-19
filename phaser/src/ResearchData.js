@@ -96,12 +96,26 @@ export const TECH_TREE = {
     cost:15, prereqs:[],
     effect:{ unitStatBonus:{ RECON:{ terrainIgnore:1 }, ARMORED_CAR:{ terrainIgnore:1 } } },
   },
+  gravel_roads: {
+    id:'gravel_roads', branch:'industrial', tier:1, kind:'building',
+    name:'Gravel Roads',
+    desc:'🏗 BUILDING — Upgrade dirt roads to gravel. Supply reaches 2 hexes off the road network.',
+    cost:18, prereqs:['improved_mines'],
+    effect:{ unlockBuilding:'GRAVEL_ROAD' },
+  },
   concrete_roads: {
-    id:'concrete_roads', branch:'industrial', tier:1, kind:'building',
+    id:'concrete_roads', branch:'industrial', tier:2, kind:'building',
     name:'Concrete Roads',
-    desc:'🏗 BUILDING — Engineers can upgrade Dirt Roads to faster Concrete Roads.',
-    cost:25, prereqs:['improved_mines'],
+    desc:'🏗 BUILDING — Upgrade to concrete roads. Faster movement and 4 hex off-road supply reach.',
+    cost:28, prereqs:['gravel_roads'],
     effect:{ unlockBuilding:'CONCRETE_ROAD' },
+  },
+  railways: {
+    id:'railways', branch:'industrial', tier:3, kind:'building',
+    name:'Railways',
+    desc:'🏗 BUILDING — Rail lines for fastest movement and long supply tendrils from the network.',
+    cost:40, prereqs:['concrete_roads'],
+    effect:{ unlockBuilding:'RAILWAY' },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════

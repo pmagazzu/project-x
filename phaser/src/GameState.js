@@ -281,9 +281,10 @@ export const BUILDING_TYPES = {
   VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['TANK','ARTILLERY','SUPPLY_TRUCK','MEDIUM_TANK','SPG','ARMORED_CAR','HALFTRACK'],        buildCost: { iron: 8, oil: 2 }, color: 0x557799, sight: 2 },
   BUNKER:        { name: 'Bunker',         ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 2 }, color: 0x888866, sight: 2 },
   OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 0 }, color: 0x88aacc, sight: 4 },
-  ROAD:          { name: 'Dirt Road',      ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xccbbaa, sight: 0, roadTier: 0, moveCost: 0.5 },
-  CONCRETE_ROAD: { name: 'Concrete Road',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 0 }, color: 0xaaaaaa, sight: 0, roadTier: 1, moveCost: 0.25, requiresTech: 'CONCRETE_ROADS' },
-  RAILWAY:       { name: 'Railway',        ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: [], buildCost: { iron: 4, oil: 1, wood: 2 }, color: 0x555566, sight: 0, roadTier: 2, moveCost: 0.1,  requiresTech: 'RAILWAYS', tier: 3 },
+  ROAD:          { name: 'Dirt Road',      ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xccbbaa, sight: 0, roadTier: 0, moveCost: 0.5, supplyOffRoad: 1 },
+  GRAVEL_ROAD:   { name: 'Gravel Road',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 1, oil: 0, wood: 1 }, color: 0x998877, sight: 0, roadTier: 1, moveCost: 0.35, supplyOffRoad: 2, requiresTech: 'gravel_roads' },
+  CONCRETE_ROAD: { name: 'Concrete Road',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 0 }, color: 0xaaaaaa, sight: 0, roadTier: 2, moveCost: 0.25, supplyOffRoad: 4, requiresTech: 'concrete_roads' },
+  RAILWAY:       { name: 'Railway',        ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: [], buildCost: { iron: 4, oil: 1, wood: 2 }, color: 0x555566, sight: 0, roadTier: 3, moveCost: 0.1,  supplyOffRoad: 8, requiresTech: 'railways', tier: 3 },
   LUMBER_CAMP:   { name: 'Lumber Camp',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 2, buildTurns: 1, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 0 }, color: 0x7a5020, sight: 2 },
   // Naval buildings
   NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['SUPPLY_SHIP','PATROL_BOAT','SUBMARINE','DESTROYER','LANDING_CRAFT','TRANSPORT_MD','TORPEDO_BOAT','MOTOR_GUNBOAT'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 2 },
@@ -710,7 +711,10 @@ export function unitAt(state, q, r) {
 export function buildingAt(state, q, r) {
   return state.buildings.find(b => b.q === q && b.r === r) || null;
 }
-export const ROAD_TYPES = new Set(['ROAD', 'CONCRETE_ROAD', 'RAILWAY']);
+export const ROAD_TYPES = new Set(['ROAD', 'GRAVEL_ROAD', 'CONCRETE_ROAD', 'RAILWAY']);
+
+/** Buildings that seed the road supply network (must connect roads to these). */
+export const SUPPLY_ANCHOR_TYPES = new Set(['HQ', 'SUPPLY_DEPOT', 'SUPPLY_WAREHOUSE']);
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 export function roadAt(state, q, r) {
   return state.buildings.find(b => ROAD_TYPES.has(b.type) && b.q === q && b.r === r) || null;
@@ -2364,8 +2368,8 @@ export const BUILDING_SUPPLY_RADIUS = {
   SUPPLY_DEPOT: 2, // v1.6 addition: provides supply on isolated road networks
 };
 
-/** Max roadTier on a hex for this player's roads (dirt=0, concrete=1, rail=2). */
-function maxRoadSupplyTierAt(state, player, q, r) {
+/** Max roadTier on a hex for this player's roads (dirt=0 … railway=3). */
+export function maxRoadSupplyTierAt(state, player, q, r) {
   let max = -1;
   for (const b of state.buildings) {
     if (!ROAD_TYPES.has(b.type) || Number(b.owner) !== Number(player)) continue;
@@ -2376,9 +2380,34 @@ function maxRoadSupplyTierAt(state, player, q, r) {
   return max;
 }
 
+/** How many land hexes of off-road supply reach extend from a road of this tier. */
+export function getRoadSupplyOffRoad(tier) {
+  const t = BUILDING_TYPES;
+  for (const type of ROAD_TYPES) {
+    if ((t[type]?.roadTier ?? 0) === tier) return t[type]?.supplyOffRoad ?? 1;
+  }
+  if (tier <= 0) return 1;
+  if (tier === 1) return 2;
+  if (tier === 2) return 4;
+  return 8;
+}
+
+function maxRoadSupplyOffRoadAt(state, player, q, r) {
+  let max = 0;
+  for (const b of state.buildings) {
+    if (!ROAD_TYPES.has(b.type) || Number(b.owner) !== Number(player)) continue;
+    if (b.q !== q || b.r !== r) continue;
+    const off = BUILDING_TYPES[b.type]?.supplyOffRoad ?? getRoadSupplyOffRoad(BUILDING_TYPES[b.type]?.roadTier ?? 0);
+    if (off > max) max = off;
+  }
+  return max;
+}
+
 // Returns a Set of "q,r" keys that are in supply for the given player.
-// Roads consume 1 range when first entered from non-road, then chain for free while on-road.
-// Only SAME-OWNER roads count, so extension must be connected to your own supply network.
+// Ground supply: HQ / Supply Depot / Supply Warehouse seed a same-owner road graph;
+// off-road reach depends on road tier (dirt 1 hex, gravel 2, concrete 4, rail 8).
+// Barracks and mines do NOT project their own supply bubbles — connect them with roads.
+// Trucks, ships, and naval bases still use their own radius rules.
 export function computeSupply(state, player, mapSize) {
   const supplied = new Set();
   const ms = mapSize || state._mapSize || 25;
@@ -2389,8 +2418,8 @@ export function computeSupply(state, player, mapSize) {
 
   // Build a set of owned roads connected to HQ, Supply Depot, or Supply Warehouse (same-owner graph).
   const roadConnected = new Set();
-  const mySupplyAnchors = state.buildings.filter(b => Number(b.owner) === Number(player) && !b.underConstruction &&
-    (b.type === 'HQ' || b.type === 'SUPPLY_DEPOT' || b.type === 'SUPPLY_WAREHOUSE'));
+  const mySupplyAnchors = state.buildings.filter(b =>
+    Number(b.owner) === Number(player) && !b.underConstruction && SUPPLY_ANCHOR_TYPES.has(b.type));
   
   const roadQueue = [];
   for (const anchor of mySupplyAnchors) {
@@ -2419,63 +2448,87 @@ export function computeSupply(state, player, mapSize) {
 
   const isRoadHex = (q, r) => roadConnected.has(`${q},${r}`);
 
-  const floodFill = (sq, sr, radius) => {
-    // BFS — roads cost 0, other hexes cost 1.
-    // dirtLandHop: stepped from a dirt-tier (0) road onto land — cannot chain further off-road until re-entering a road.
-    const ROAD_CHAIN_LIMIT = 12;
-    const queue = [{ q: sq, r: sr, rem: radius, roadChain: 0, dirtLandHop: 0 }];
+  // Anchor tiles are always in supply.
+  for (const anchor of mySupplyAnchors) {
+    supplied.add(`${anchor.q},${anchor.r}`);
+  }
+
+  // All road segments connected to anchors are in supply.
+  for (const key of roadConnected) supplied.add(key);
+
+  // Extend onto adjacent land based on road tier (dirt = 1 hex off-road, etc.).
+  const landReach = new Map(); // "q,r" -> remaining off-road steps
+  const landQueue = [];
+  const seedLandFromRoad = (rq, rr) => {
+    const off = maxRoadSupplyOffRoadAt(state, player, rq, rr);
+    if (off <= 0) return;
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const nq = rq + dq, nr = rr + dr;
+      if (!_isValid(nq, nr)) continue;
+      if (isRoadHex(nq, nr)) continue;
+      const nk = `${nq},${nr}`;
+      const rem = off - 1;
+      if (rem < 0) continue;
+      const prev = landReach.get(nk) ?? -1;
+      if (rem > prev) {
+        landReach.set(nk, rem);
+        landQueue.push({ q: nq, r: nr, rem });
+      }
+    }
+  };
+  for (const key of roadConnected) {
+    const [rq, rr] = key.split(',').map(Number);
+    seedLandFromRoad(rq, rr);
+  }
+  while (landQueue.length > 0) {
+    const { q, r, rem } = landQueue.shift();
+    supplied.add(`${q},${r}`);
+    if (rem <= 0) continue;
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const nq = q + dq, nr = r + dr;
+      if (!_isValid(nq, nr)) continue;
+      const nk = `${nq},${nr}`;
+      if (isRoadHex(nq, nr)) {
+        seedLandFromRoad(nq, nr);
+        continue;
+      }
+      const nextRem = rem - 1;
+      if (nextRem < 0) continue;
+      const prev = landReach.get(nk) ?? -1;
+      if (nextRem > prev) {
+        landReach.set(nk, nextRem);
+        landQueue.push({ q: nq, r: nr, rem: nextRem });
+      }
+    }
+  }
+
+  // Mobile supply nodes (trucks/ships) project a local radius — independent of roads.
+  const mobileFlood = (sq, sr, radius) => {
+    const queue = [{ q: sq, r: sr, rem: radius }];
     const visited = new Map();
-    visited.set(`${sq},${sr},0,0`, radius);
+    visited.set(`${sq},${sr}`, radius);
     while (queue.length > 0) {
-      const { q, r, rem, roadChain, dirtLandHop } = queue.shift();
+      const { q, r, rem } = queue.shift();
       supplied.add(`${q},${r}`);
       if (rem <= 0) continue;
       for (const [dq, dr] of HEX_NEIGHBORS) {
         const nq = q + dq, nr = r + dr;
         if (!_isValid(nq, nr)) continue;
-        const fromRoad = isRoadHex(q, r);
-        const toRoad = isRoadHex(nq, nr);
-        if (!fromRoad && dirtLandHop >= 1 && !toRoad) continue;
-
-        let nextRoadChain = 0;
-        if (toRoad) {
-          nextRoadChain = fromRoad ? (roadChain + 1) : 1;
-          if (nextRoadChain > ROAD_CHAIN_LIMIT) continue;
-        }
-        let nextDirtHop = dirtLandHop;
-        if (toRoad) {
-          nextDirtHop = 0;
-        } else if (fromRoad) {
-          const tier = maxRoadSupplyTierAt(state, player, q, r);
-          nextDirtHop = tier <= 0 ? 1 : 0;
-        }
-
-        const stepCost = toRoad ? (fromRoad ? 0 : 1) : 1;
-        const nextRem = rem - stepCost;
-
-        const key = `${nq},${nr},${nextRoadChain},${nextDirtHop}`;
+        const nextRem = rem - 1;
+        const key = `${nq},${nr}`;
         const prevBest = visited.get(key) ?? -1;
         if (nextRem > prevBest) {
           visited.set(key, nextRem);
-          queue.push({ q: nq, r: nr, rem: nextRem, roadChain: nextRoadChain, dirtLandHop: nextDirtHop });
+          queue.push({ q: nq, r: nr, rem: nextRem });
         }
       }
     }
   };
-
-  // Flood from owned non-under-construction buildings
-  for (const b of state.buildings) {
-    if (b.owner !== player || b.underConstruction) continue;
-    const radius = Math.max(0, Math.floor((BUILDING_SUPPLY_RADIUS[b.type] || 0) * SUPPLY_RANGE_SCALE));
-    if (radius > 0) floodFill(b.q, b.r, radius);
-  }
-
-  // Flood from mobile supply nodes (truck + supply ship)
   for (const u of state.units) {
     if (u.owner !== player || u.embarked) continue;
     if (u.type !== 'SUPPLY_TRUCK' && u.type !== 'SUPPLY_SHIP') continue;
     const rad = UNIT_TYPES[u.type]?.supplyRadius || (u.type === 'SUPPLY_SHIP' ? 2 : 3);
-    floodFill(u.q, u.r, rad);
+    mobileFlood(u.q, u.r, rad);
   }
 
   // Naval buildings project supply across water by default (6 tiles).
