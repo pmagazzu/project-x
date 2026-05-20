@@ -414,7 +414,12 @@ export function createUnit(type, owner, q, r) {
 }
 
 export function createBuilding(type, owner, q, r) {
-  return { id: _nextId++, type, owner, q, r };
+  const b = { id: _nextId++, type, owner, q, r };
+  if (type === 'SUPPLY_DEPOT' || type === 'SUPPLY_WAREHOUSE') {
+    b.supplyReserve = 0;
+    b.supplyLinked = false;
+  }
+  return b;
 }
 
 export function createGameState(scenario = 'default') {
@@ -713,8 +718,14 @@ export function buildingAt(state, q, r) {
 }
 export const ROAD_TYPES = new Set(['ROAD', 'GRAVEL_ROAD', 'CONCRETE_ROAD', 'RAILWAY']);
 
-/** Buildings that seed the road supply network (must connect roads to these). */
-export const SUPPLY_ANCHOR_TYPES = new Set(['HQ', 'SUPPLY_DEPOT', 'SUPPLY_WAREHOUSE']);
+/** Only HQ seeds the road supply network; depots extend bubbles when road-linked to HQ. */
+export const SUPPLY_ANCHOR_TYPES = new Set(['HQ']);
+
+export const HQ_SUPPLY_RADIUS = 6;
+export const DEPOT_SUPPLY_RADIUS = 4;
+export const WAREHOUSE_SUPPLY_RADIUS = 5;
+/** Turns a depot keeps projecting supply after its road link to HQ is cut. */
+export const DEPOT_SUPPLY_DRAIN_MAX = 3;
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 export function roadAt(state, q, r) {
   return state.buildings.find(b => ROAD_TYPES.has(b.type) && b.q === q && b.r === r) || null;
@@ -2183,6 +2194,10 @@ export function resolveEndOfTurn(state, terrain) {
     delete unit._origQ; delete unit._origR;
   }
 
+  // ── Supply depots: drain when severed from HQ road net ───────────────────
+  const hqRoadNet = buildHQRoadNetwork(state, player, state._mapSize || 25);
+  events.push(...tickSupplyDepotReserves(state, player, hqRoadNet));
+
   // ── Supply check ──────────────────────────────────────────────────────────
   const suppliedHexes = computeSupply(state, player, state._mapSize || 25);
   for (const unit of state.units.filter(u => u.owner === player && !u.embarked)) {
@@ -2346,26 +2361,23 @@ export function checkWinner(state) {
 const HEX_NEIGHBORS = [[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];
 
 // ── Supply system ─────────────────────────────────────────────────────────
-// Global supply range scale (0.65 = 35% shorter reach overall for buildings/road networks).
-const SUPPLY_RANGE_SCALE = 0.65;
-
-// Base supply radius per building type (hexes). Roads use an entry tax then free chaining.
+// HQ projects a fixed land bubble; roads chain from HQ only; depots need HQ road link.
 export const BUILDING_SUPPLY_RADIUS = {
-  HQ:           8,
-  BARRACKS:     4,
-  VEHICLE_DEPOT:4,
-  AIRFIELD:     3,
-  SCIENCE_LAB:  3,
-  MINE:         2,
-  OIL_PUMP:     2,
-  FARM:         2,
-  MARKET:       2,
-  HARBOR:       3,
-  NAVAL_YARD:   3,
-  DRY_DOCK:     2,
-  NAVAL_BASE:   3,
-  SUPPLY_WAREHOUSE: 4,
-  SUPPLY_DEPOT: 2, // v1.6 addition: provides supply on isolated road networks
+  HQ: HQ_SUPPLY_RADIUS,
+  SUPPLY_DEPOT: DEPOT_SUPPLY_RADIUS,
+  SUPPLY_WAREHOUSE: WAREHOUSE_SUPPLY_RADIUS,
+  BARRACKS: 4,
+  VEHICLE_DEPOT: 4,
+  AIRFIELD: 3,
+  SCIENCE_LAB: 3,
+  MINE: 2,
+  OIL_PUMP: 2,
+  FARM: 2,
+  MARKET: 2,
+  HARBOR: 3,
+  NAVAL_YARD: 3,
+  DRY_DOCK: 2,
+  NAVAL_BASE: 3,
 };
 
 /** Max roadTier on a hex for this player's roads (dirt=0 … railway=3). */
@@ -2403,27 +2415,45 @@ function maxRoadSupplyOffRoadAt(state, player, q, r) {
   return max;
 }
 
-// Returns a Set of "q,r" keys that are in supply for the given player.
-// Ground supply: HQ / Supply Depot / Supply Warehouse seed a same-owner road graph;
-// off-road reach depends on road tier (dirt 1 hex, gravel 2, concrete 4, rail 8).
-// Barracks and mines do NOT project their own supply bubbles — connect them with roads.
-// Trucks, ships, and naval bases still use their own radius rules.
-export function computeSupply(state, player, mapSize) {
-  const supplied = new Set();
-  const ms = mapSize || state._mapSize || 25;
+function hexRadiusFlood(supplied, sq, sr, radius, isValid) {
+  const queue = [{ q: sq, r: sr, rem: radius }];
+  const visited = new Map();
+  visited.set(`${sq},${sr}`, radius);
+  while (queue.length > 0) {
+    const { q, r, rem } = queue.shift();
+    supplied.add(`${q},${r}`);
+    if (rem <= 0) continue;
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const nq = q + dq, nr = r + dr;
+      if (!isValid(nq, nr)) continue;
+      const nextRem = rem - 1;
+      const key = `${nq},${nr}`;
+      const prevBest = visited.get(key) ?? -1;
+      if (nextRem > prevBest) {
+        visited.set(key, nextRem);
+        queue.push({ q: nq, r: nr, rem: nextRem });
+      }
+    }
+  }
+}
 
-  // Roads extend supply only when they are OWNED by the same player AND connected to that player's HQ or Supply Depot.
-  const isOwnedRoadHex = (q, r) => state.buildings.some(b => ROAD_TYPES.has(b.type) && b.q === q && b.r === r && Number(b.owner) === Number(player));
+/** Same-owner road tiles connected to at least one HQ (depots do not seed roads). */
+export function buildHQRoadNetwork(state, player, mapSize) {
+  const ms = mapSize || state._mapSize || 25;
+  const isOwnedRoadHex = (q, r) => state.buildings.some(b =>
+    ROAD_TYPES.has(b.type) && b.q === q && b.r === r && Number(b.owner) === Number(player));
   const _isValid = (q, r) => q >= 0 && r >= 0 && q < ms && r < ms;
 
-  // Build a set of owned roads connected to HQ, Supply Depot, or Supply Warehouse (same-owner graph).
   const roadConnected = new Set();
-  const mySupplyAnchors = state.buildings.filter(b =>
-    Number(b.owner) === Number(player) && !b.underConstruction && SUPPLY_ANCHOR_TYPES.has(b.type));
-  
+  const hqs = state.buildings.filter(b =>
+    b.type === 'HQ' && Number(b.owner) === Number(player) && !b.underConstruction);
+
   const roadQueue = [];
-  for (const anchor of mySupplyAnchors) {
-    const seeds = [{ q: anchor.q, r: anchor.r }, ...HEX_NEIGHBORS.map(([dq, dr]) => ({ q: anchor.q + dq, r: anchor.r + dr }))];
+  for (const hq of hqs) {
+    const seeds = [
+      { q: hq.q, r: hq.r },
+      ...HEX_NEIGHBORS.map(([dq, dr]) => ({ q: hq.q + dq, r: hq.r + dr })),
+    ];
     for (const s of seeds) {
       if (!_isValid(s.q, s.r)) continue;
       if (!isOwnedRoadHex(s.q, s.r)) continue;
@@ -2445,15 +2475,59 @@ export function computeSupply(state, player, mapSize) {
       roadQueue.push({ q: nq, r: nr });
     }
   }
+  return roadConnected;
+}
 
+export function isDepotLinkedToHQRoad(building, roadConnected) {
+  const keys = [`${building.q},${building.r}`];
+  for (const [dq, dr] of HEX_NEIGHBORS) keys.push(`${building.q + dq},${building.r + dr}`);
+  return keys.some(k => roadConnected.has(k));
+}
+
+/** End-of-turn: refill depots on HQ road net; drain reserve when severed. */
+export function tickSupplyDepotReserves(state, player, roadConnected) {
+  const events = [];
+  for (const b of state.buildings) {
+    if (b.type !== 'SUPPLY_DEPOT' && b.type !== 'SUPPLY_WAREHOUSE') continue;
+    if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
+
+    const linked = isDepotLinkedToHQRoad(b, roadConnected);
+    const prevReserve = b.supplyReserve ?? 0;
+    if (linked) {
+      b.supplyReserve = DEPOT_SUPPLY_DRAIN_MAX;
+      b.supplyLinked = true;
+    } else {
+      b.supplyLinked = false;
+      if (prevReserve > 0) {
+        b.supplyReserve = Math.max(0, prevReserve - 1);
+        if (b.supplyReserve === 0) {
+          const label = BUILDING_TYPES[b.type]?.name || b.type;
+          events.push(`${label} (P${player}) exhausted — no road link to HQ`);
+        }
+      }
+    }
+  }
+  return events;
+}
+
+// Returns a Set of "q,r" keys that are in supply for the given player.
+// HQ: 6-hex bubble + roads chained from HQ; off-road reach by road tier.
+// Supply depots/warehouses: 4–5 hex bubble only while linked to HQ roads or draining reserves.
+export function computeSupply(state, player, mapSize) {
+  const supplied = new Set();
+  const ms = mapSize || state._mapSize || 25;
+  const _isValid = (q, r) => q >= 0 && r >= 0 && q < ms && r < ms;
+
+  const roadConnected = buildHQRoadNetwork(state, player, ms);
   const isRoadHex = (q, r) => roadConnected.has(`${q},${r}`);
 
-  // Anchor tiles are always in supply.
-  for (const anchor of mySupplyAnchors) {
-    supplied.add(`${anchor.q},${anchor.r}`);
+  const hqs = state.buildings.filter(b =>
+    b.type === 'HQ' && Number(b.owner) === Number(player) && !b.underConstruction);
+  for (const hq of hqs) {
+    supplied.add(`${hq.q},${hq.r}`);
+    hexRadiusFlood(supplied, hq.q, hq.r, HQ_SUPPLY_RADIUS, _isValid);
   }
 
-  // All road segments connected to anchors are in supply.
   for (const key of roadConnected) supplied.add(key);
 
   // Extend onto adjacent land based on road tier (dirt = 1 hex off-road, etc.).
@@ -2502,33 +2576,24 @@ export function computeSupply(state, player, mapSize) {
     }
   }
 
+  // Forward supply depots: road-linked to HQ, or draining onboard reserves after a cut.
+  for (const b of state.buildings) {
+    if (b.type !== 'SUPPLY_DEPOT' && b.type !== 'SUPPLY_WAREHOUSE') continue;
+    if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
+    const linked = isDepotLinkedToHQRoad(b, roadConnected);
+    const reserve = linked ? DEPOT_SUPPLY_DRAIN_MAX : Math.max(0, b.supplyReserve ?? 0);
+    if (reserve <= 0) continue;
+    const rad = b.type === 'SUPPLY_WAREHOUSE' ? WAREHOUSE_SUPPLY_RADIUS : DEPOT_SUPPLY_RADIUS;
+    supplied.add(`${b.q},${b.r}`);
+    hexRadiusFlood(supplied, b.q, b.r, rad, _isValid);
+  }
+
   // Mobile supply nodes (trucks/ships) project a local radius — independent of roads.
-  const mobileFlood = (sq, sr, radius) => {
-    const queue = [{ q: sq, r: sr, rem: radius }];
-    const visited = new Map();
-    visited.set(`${sq},${sr}`, radius);
-    while (queue.length > 0) {
-      const { q, r, rem } = queue.shift();
-      supplied.add(`${q},${r}`);
-      if (rem <= 0) continue;
-      for (const [dq, dr] of HEX_NEIGHBORS) {
-        const nq = q + dq, nr = r + dr;
-        if (!_isValid(nq, nr)) continue;
-        const nextRem = rem - 1;
-        const key = `${nq},${nr}`;
-        const prevBest = visited.get(key) ?? -1;
-        if (nextRem > prevBest) {
-          visited.set(key, nextRem);
-          queue.push({ q: nq, r: nr, rem: nextRem });
-        }
-      }
-    }
-  };
   for (const u of state.units) {
     if (u.owner !== player || u.embarked) continue;
     if (u.type !== 'SUPPLY_TRUCK' && u.type !== 'SUPPLY_SHIP') continue;
     const rad = UNIT_TYPES[u.type]?.supplyRadius || (u.type === 'SUPPLY_SHIP' ? 2 : 3);
-    mobileFlood(u.q, u.r, rad);
+    hexRadiusFlood(supplied, u.q, u.r, rad, _isValid);
   }
 
   // Naval buildings project supply across water by default (6 tiles).

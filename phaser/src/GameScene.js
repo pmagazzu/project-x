@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.8.3';
+export const GAME_VERSION = 'v1.9.0';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -4345,7 +4345,7 @@ export class GameScene extends Phaser.Scene {
       if (unlocked.includes('sandbag_improved') && noBuilding)
         allOpts.push({ label: `Sandbag Post 1🪵`, cost:{iron:0,oil:0,wood:1}, enabled: wood>=1,    cb: () => this._onBuildStructure('SANDBAG',0,0,1) });
       if (unlocked.includes('supply_depot') && noBuilding)
-        allOpts.push({ label: `Supply Depot 3⚙ 1🛢 1🪵`, cost:{iron:3,oil:1,wood:1}, enabled: iron>=3&&oil>=1&&wood>=1, cb: () => this._onBuildStructure('SUPPLY_DEPOT',3,1,1) });
+        allOpts.push({ label: `Supply Depot 3⚙ 1🛢 1🪵 (HQ road, +4)`, cost:{iron:3,oil:1,wood:1}, enabled: iron>=3&&oil>=1&&wood>=1, cb: () => this._onBuildStructure('SUPPLY_DEPOT',3,1,1) });
       addHeader('ECONOMY & RESEARCH');
       const foodGold = gs.players[p].food || 0;
       const gold = gs.players[p].gold || 0;
