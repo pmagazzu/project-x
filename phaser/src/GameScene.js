@@ -35,7 +35,10 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.8.2';
+export const GAME_VERSION = 'v1.8.3';
+
+/** HUD chrome — map zoom anchors to the playfield between these insets. */
+const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 
 // Terrain type index → user_art filename key
@@ -3864,7 +3867,7 @@ export class GameScene extends Phaser.Scene {
       const factor = dir > 0 ? step : (1 / step);
       if (this._zoomTarget === undefined) this._zoomTarget = cam.zoom;
       this._zoomTarget = Phaser.Math.Clamp(this._zoomTarget * factor, 0.2, 4.0);
-      this._zoomPointer = this._cameraScreenCenter(cam);
+      this._zoomPointer = this._playfieldScreenCenter();
       this._zoomLastInputAt = performance.now();
     });
 
@@ -3877,7 +3880,7 @@ export class GameScene extends Phaser.Scene {
       const factor = zoomIn ? step : (1 / step);
       if (this._zoomTarget === undefined) this._zoomTarget = cam.zoom;
       this._zoomTarget = Phaser.Math.Clamp(this._zoomTarget * factor, 0.2, 4.0);
-      this._zoomPointer = this._cameraScreenCenter(cam);
+      this._zoomPointer = this._playfieldScreenCenter();
       this._zoomLastInputAt = performance.now();
     };
 
@@ -4010,18 +4013,26 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
-  /** Screen coords for the center of the main world camera viewport. */
-  _cameraScreenCenter(cam = this.cameras.main) {
-    return { x: cam.x + cam.width * 0.5, y: cam.y + cam.height * 0.5 };
+  /** Center of the visible map area (between top bar, bottom panel, left sidebar). */
+  _playfieldScreenCenter() {
+    const w = this.scale.width;
+    const h = this.scale.height;
+    return {
+      x: PLAYFIELD_UI.left + (w - PLAYFIELD_UI.left) * 0.5,
+      y: PLAYFIELD_UI.top + (h - PLAYFIELD_UI.top - PLAYFIELD_UI.bottom) * 0.5,
+    };
   }
 
   /** Set zoom while keeping the world point under (screenX, screenY) fixed. */
   _setCameraZoomAtScreen(cam, screenX, screenY, zoom) {
-    const wx = cam.scrollX + (screenX - cam.x) / cam.zoom;
-    const wy = cam.scrollY + (screenY - cam.y) / cam.zoom;
+    if (typeof cam.preRender === 'function') cam.preRender();
+    const before = cam.getWorldPoint(screenX, screenY);
     cam.setZoom(Phaser.Math.Clamp(zoom, 0.2, 4.0));
-    cam.scrollX = wx - (screenX - cam.x) / cam.zoom;
-    cam.scrollY = wy - (screenY - cam.y) / cam.zoom;
+    if (typeof cam.preRender === 'function') cam.preRender();
+    const after = cam.getWorldPoint(screenX, screenY);
+    cam.scrollX += before.x - after.x;
+    cam.scrollY += before.y - after.y;
+    if (typeof cam.preRender === 'function') cam.preRender();
   }
 
   // ── Smart build shortcut ──────────────────────────────────────────────────
@@ -5267,7 +5278,7 @@ export class GameScene extends Phaser.Scene {
       if (Math.abs(dz) > 0.0005) {
         const ramp = 0.14 + Math.min(0.26, Math.abs(dz) * 0.35); // soft acceleration
         const nextZoom = cam.zoom + dz * ramp;
-        const center = this._zoomPointer || this._cameraScreenCenter(cam);
+        const center = this._zoomPointer || this._playfieldScreenCenter();
         this._setCameraZoomAtScreen(cam, center.x, center.y, nextZoom);
       } else {
         this._zoomTarget = cam.zoom;
