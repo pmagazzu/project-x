@@ -182,12 +182,12 @@ function getOpeningMilestones(gs, player) {
 function getPhaseWeights(turn = 1) {
   // Multi-objective AI doctrine: supply/econ + recon early, balanced mid, decisive combat late.
   if (turn <= 8) {
-    return { economy: 1.35, logistics: 1.45, recon: 1.25, research: 1.1, combat: 0.8, raiding: 0.75 };
+    return { economy: 1.35, logistics: 1.45, recon: 1.35, research: 1.15, combat: 0.75, raiding: 0.8, naval: 0.9, air: 0.85 };
   }
   if (turn <= 16) {
-    return { economy: 1.15, logistics: 1.25, recon: 1.1, research: 1.2, combat: 1.0, raiding: 1.0 };
+    return { economy: 1.15, logistics: 1.25, recon: 1.15, research: 1.25, combat: 1.0, raiding: 1.05, naval: 1.05, air: 1.0 };
   }
-  return { economy: 0.95, logistics: 1.05, recon: 0.9, research: 1.05, combat: 1.3, raiding: 1.25 };
+  return { economy: 0.95, logistics: 1.05, recon: 0.95, research: 1.1, combat: 1.3, raiding: 1.25, naval: 1.15, air: 1.2 };
 }
 
 function getRoadFloor(turn = 1) {
@@ -685,6 +685,125 @@ function buildTerritorialIntel(terrain, mapSize, gs, player, strategic, resource
   };
 }
 
+/** Multi-mission doctrine: scouts, probes, diversions, main push, expand — not one blob to HQ. */
+function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemyHQs, myCombatUnits, resourceTargets) {
+  const unitObjective = {};
+  const missionCounts = {};
+  const turn = gs.turn || 1;
+  const phase = strategic?.phase || 'expand';
+  const myHQ = gs.buildings.find(b => b.type === 'HQ' && b.owner === player);
+  const enemyHQ = enemyHQs[0];
+  if (!myHQ || !enemyHQ || myCombatUnits.length < 3) {
+    return { unitObjective, deceptionActive: false, missionCounts };
+  }
+
+  gs._aiStrategicMemory = gs._aiStrategicMemory || {};
+  const mem = gs._aiStrategicMemory[player] || {};
+  let deceptionActive = (mem.deceptionTurnsLeft || 0) > 0;
+  if (!deceptionActive && Math.random() < (phase === 'pressure' ? 0.14 : 0.24)) {
+    deceptionActive = true;
+    mem.deceptionTurnsLeft = 2 + Math.floor(Math.random() * 2);
+  } else if (deceptionActive) {
+    mem.deceptionTurnsLeft = Math.max(0, (mem.deceptionTurnsLeft || 1) - 1);
+  }
+  gs._aiStrategicMemory[player] = { ...gs._aiStrategicMemory[player], deceptionTurnsLeft: mem.deceptionTurnsLeft };
+
+  const primaryLane = strategic?.primaryLane || 'center';
+  const secondaryLane = strategic?.secondaryLane || 'north';
+  const laneEnemy = enemyHQs.find(h => getLaneForR(h.r, mapSize) === primaryLane) || enemyHQ;
+  const offLaneEnemy = enemyHQs.find(h => getLaneForR(h.r, mapSize) !== primaryLane) || laneEnemy;
+
+  const forwardAnchor = strategic?.objectives?.corridor?.find(o => o.type === 'forward');
+  const resourceAnchor = strategic?.objectives?.flank
+    || resourceTargets.find(t => getLaneForR(t.r, mapSize) === primaryLane)
+    || resourceTargets[0];
+
+  const diversionTarget = resourceTargets.find(t => getLaneForR(t.r, mapSize) === secondaryLane)
+    || { q: offLaneEnemy.q, r: offLaneEnemy.r, type: 'feint' };
+  const scoutTarget = territorial?.expansions?.[0] || territorial?.chokes?.[2]
+    || forwardAnchor || resourceAnchor || { q: Math.round((myHQ.q + laneEnemy.q) / 2), r: myHQ.r };
+  const expandTarget = resourceAnchor || forwardAnchor
+    || { q: Math.round(myHQ.q + (laneEnemy.q - myHQ.q) * 0.45), r: Math.round(myHQ.r + (laneEnemy.r - myHQ.r) * 0.25) };
+
+  let probeTarget = expandTarget;
+  if (forwardAnchor) {
+    probeTarget = {
+      q: Math.round(forwardAnchor.q + (laneEnemy.q - forwardAnchor.q) * 0.35),
+      r: Math.round(forwardAnchor.r + (laneEnemy.r - forwardAnchor.r) * 0.35),
+    };
+  }
+
+  const pools = { scout: [], line: [], assault: [], indirect: [], anti: [] };
+  for (const u of myCombatUnits) {
+    if (AIR_UNITS.has(u.type)) {
+      unitObjective[u.id] = { q: laneEnemy.q, r: laneEnemy.r, mission: 'air_patrol', kind: 'air' };
+      missionCounts.air_patrol = (missionCounts.air_patrol || 0) + 1;
+      continue;
+    }
+    if (NAVAL_UNITS.has(u.type) && !['COASTAL_BATTERY'].includes(u.type)) {
+      const coast = territorial?.coastal?.[0];
+      unitObjective[u.id] = coast
+        ? { q: coast.q, r: coast.r, mission: 'naval_screen', kind: 'coast' }
+        : { q: laneEnemy.q, r: laneEnemy.r, mission: 'naval_raid', kind: 'coast' };
+      missionCounts.naval = (missionCounts.naval || 0) + 1;
+      continue;
+    }
+    const role = getUnitRole(u.type);
+    if (role === 'recon') pools.scout.push(u);
+    else if (role === 'indirect') pools.indirect.push(u);
+    else if (u.type === 'ANTI_TANK') pools.anti.push(u);
+    else if (role === 'assault') pools.assault.push(u);
+    else pools.line.push(u);
+  }
+
+  const landCombat = [...pools.scout, ...pools.line, ...pools.assault, ...pools.indirect, ...pools.anti];
+  const n = Math.max(1, landCombat.length);
+  const quotas = {
+    diversion: deceptionActive ? Math.max(3, Math.floor(n * 0.22)) : Math.max(1, Math.floor(n * 0.10)),
+    probe: Math.max(1, Math.floor(n * (phase === 'expand' ? 0.14 : 0.08))),
+    expand: (phase === 'expand' || phase === 'stabilize') ? Math.max(3, Math.floor(n * 0.30)) : Math.max(1, Math.floor(n * 0.12)),
+    main: phase === 'pressure' ? Math.max(2, Math.floor(n * 0.30)) : Math.max(0, Math.floor(n * 0.10)),
+  };
+
+  const assign = (u, mission, target) => {
+    unitObjective[u.id] = { q: target.q, r: target.r, mission, kind: mission };
+    missionCounts[mission] = (missionCounts[mission] || 0) + 1;
+  };
+
+  for (const u of pools.scout) assign(u, 'scout', scoutTarget);
+
+  const remaining = [...pools.assault, ...pools.line];
+  let s = (turn * 997 + player * 131) >>> 0;
+  const rng = () => { s = (s * 1664525 + 1013904223) >>> 0; return (s & 0xffffff) / 0x1000000; };
+  for (let i = remaining.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
+  }
+
+  let idx = 0;
+  const batch = (count, mission, target) => {
+    for (let i = 0; i < count && idx < remaining.length; i++, idx++) assign(remaining[idx], mission, target);
+  };
+  batch(quotas.diversion, 'diversion', diversionTarget);
+  batch(quotas.probe, 'probe', probeTarget);
+  batch(quotas.expand, 'expand', expandTarget);
+  batch(quotas.main, 'main', { q: laneEnemy.q, r: laneEnemy.r });
+
+  for (const u of pools.indirect) {
+    assign(u, phase === 'pressure' ? 'main' : 'expand', forwardAnchor || expandTarget);
+  }
+  const chokes = territorial?.chokes || [];
+  pools.anti.forEach((u, i) => {
+    const choke = chokes[i % Math.max(1, chokes.length)];
+    assign(u, 'garrison', choke || expandTarget);
+  });
+  while (idx < remaining.length) {
+    assign(remaining[idx++], phase === 'pressure' ? 'probe' : 'expand', expandTarget);
+  }
+
+  return { unitObjective, deceptionActive, missionCounts };
+}
+
 function assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjective, combatUnits, flankCount) {
   const turn = gs.turn || 1;
   if (!territorial || turn < 8 || !combatUnits?.length) return;
@@ -697,11 +816,13 @@ function assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjec
   let chokeIdx = 0;
   for (const u of flankPool) {
     if (chokeIdx >= garrisonCap) break;
+    const existing = unitObjective[u.id]?.mission;
+    if (existing && !['expand', 'probe', 'garrison'].includes(existing)) continue;
     const role = getUnitRole(u.type);
     if (role !== 'line' && u.type !== 'ANTI_TANK' && u.type !== 'MORTAR') continue;
     const choke = chokes[chokeIdx % chokes.length];
     if (!choke) break;
-    unitObjective[u.id] = { q: choke.q, r: choke.r, kind: 'choke', role: 'garrison' };
+    unitObjective[u.id] = { q: choke.q, r: choke.r, kind: 'choke', role: 'garrison', mission: 'garrison' };
     chokeIdx++;
   }
 
@@ -864,22 +985,33 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   let score = 0;
 
   const nearestEnemy = enemies.length > 0 ? Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r))) : 99;
+  const obj = ctx.unitObjective?.[unit.id];
+  const mission = obj?.mission || obj?.kind || 'expand';
+  const rushMissions = new Set(['main']);
+  const probeMissions = new Set(['probe', 'diversion']);
+  const passiveMissions = new Set(['scout', 'expand', 'garrison']);
 
   // Attack/pressure scoring (de-emphasized for engineers/support)
   if (unit.type !== 'ENGINEER' && role !== 'support') {
     const attackable = getAttackableHexes(gs, unit, q, r, null);
-    if (attackable.length > 0) {
-      score += ((cfg.attackBonus + 10) + attackable.length * 3) * phase.combat;
+    if (attackable.length > 0 && (rushMissions.has(mission) || mission === 'probe' || mission === 'diversion')) {
+      const atkScale = rushMissions.has(mission) ? 1 : 0.45;
+      score += ((cfg.attackBonus + 10) + attackable.length * 3) * phase.combat * atkScale;
       for (const h of attackable) {
         const t = gs.units.find(u => u.q === h.q && u.r === h.r && u.owner !== unit.owner);
-        if (t && t.health <= 1) score += 25; // kill-shot bonus
+        if (t && t.health <= 1) score += 25 * atkScale;
+      }
+    }
+    if (mission === 'scout' && attackable.length > 0) {
+      for (const h of attackable) {
+        const t = gs.units.find(u => u.q === h.q && u.r === h.r && u.owner !== unit.owner);
+        if (t && t.health <= 1) score += 18;
       }
     }
 
-    // Advance toward nearest enemy (or retreat if defensive)
-    if (enemies.length > 0) {
-      const nearestEnemy = Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r)));
-      const currentDist  = Math.min(...enemies.map(e => hexDistance(unit.q, unit.r, e.q, e.r)));
+    // Blob rush: only main-push units chase nearest enemy every turn.
+    if (enemies.length > 0 && rushMissions.has(mission)) {
+      const currentDist = Math.min(...enemies.map(e => hexDistance(unit.q, unit.r, e.q, e.r)));
       if (cfg.retreatToHQ) {
         if (nearestEnemy > currentDist) score += cfg.captureBonus;
       } else {
@@ -887,25 +1019,35 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
         score += Math.max(0, 8 - nearestEnemy) * phase.combat;
       }
     }
-  }
-
-  // Strategic pressure: progress toward enemy HQs so AI doesn't stall mid-game.
-  const enemyHQs = gs.buildings.filter(b => b.type === 'HQ' && b.owner !== unit.owner);
-  if (enemyHQs.length > 0 && !cfg.retreatToHQ) {
-    const nd = Math.min(...enemyHQs.map(b => hexDistance(q, r, b.q, b.r)));
-    const cd = Math.min(...enemyHQs.map(b => hexDistance(unit.q, unit.r, b.q, b.r)));
-    if (nd < cd) score += (unit.type === 'ENGINEER' ? 2 : 7);
-    // Occasional deception route: allow wider flank pathing instead of pure shortest-line pressure.
-    if (ctx.deceptionTurn && role !== 'engineer' && role !== 'support') {
-      const nearest = enemyHQs.reduce((a,b) => hexDistance(q,r,a.q,a.r) < hexDistance(q,r,b.q,b.r) ? a : b);
-      const lateral = Math.abs((q - nearest.q) - (r - nearest.r));
-      score += Math.min(6, lateral * 0.6);
+    if (probeMissions.has(mission) && enemies.length > 0) {
+      const currentDist = Math.min(...enemies.map(e => hexDistance(unit.q, unit.r, e.q, e.r)));
+      if (nearestEnemy < currentDist && nearestEnemy >= 4) score += 6 * phase.recon;
+      if (nearestEnemy <= 2) score -= 12;
+    }
+    if (mission === 'scout' && enemies.length > 0) {
+      if (nearestEnemy >= 3 && nearestEnemy <= 8) score += 10 * phase.recon;
+      if (nearestEnemy < 3) score -= 14;
+      if (nearestEnemy > 10) score -= 4;
     }
   }
 
-  // Phase 2: task-group objective pressure (main force vs flank force)
-  const obj = ctx.unitObjective?.[unit.id];
-  if (obj?.kind === 'choke' || obj?.role === 'garrison') {
+  // HQ rush: main assault only (stops the straight-line deathball).
+  const enemyHQs = gs.buildings.filter(b => b.type === 'HQ' && b.owner !== unit.owner);
+  if (enemyHQs.length > 0 && !cfg.retreatToHQ && rushMissions.has(mission)) {
+    const nd = Math.min(...enemyHQs.map(b => hexDistance(q, r, b.q, b.r)));
+    const cd = Math.min(...enemyHQs.map(b => hexDistance(unit.q, unit.r, b.q, b.r)));
+    if (nd < cd) score += (unit.type === 'ENGINEER' ? 2 : 7);
+  }
+  if (ctx.deceptionTurn && probeMissions.has(mission)) {
+    const nearest = enemyHQs[0];
+    if (nearest) {
+      const lateral = Math.abs((q - nearest.q) - (r - nearest.r));
+      score += Math.min(14, lateral * 0.9);
+    }
+  }
+
+  // Mission objective pressure (scout / probe / diversion / main / expand / garrison)
+  if (obj?.kind === 'choke' || obj?.role === 'garrison' || mission === 'garrison') {
     const dNew = hexDistance(q, r, obj.q, obj.r);
     const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
     if (dNew < dCur) score += 14 * (phase.combat * 0.7 + 0.35);
@@ -917,18 +1059,40 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
       const nearEnemy = Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r)));
       if (nearEnemy <= 2 && dNew > 4) score -= 14;
     }
-  } else if (obj?.kind === 'coast' && unit.type === 'PATROL_BOAT') {
+  } else if ((obj?.kind === 'coast' || mission === 'naval_screen' || mission === 'naval_raid') && NAVAL_UNITS.has(unit.type)) {
     const dNew = hexDistance(q, r, obj.q, obj.r);
     const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
-    if (dNew < dCur) score += 12;
-    if (dNew <= 6) score += 7;
-    if (dNew <= 2) score += 8;
+    const navalW = phase.naval || 1;
+    if (dNew < dCur) score += 14 * navalW;
+    if (dNew <= 6) score += 8 * navalW;
+    if (dNew <= 2) score += 10 * navalW;
+    if (isCoastalLand(terrain, ctx.mapSize || gs._mapSize || 40, q, r)) score += 5 * navalW;
+  } else if ((mission === 'air_patrol' || AIR_UNITS.has(unit.type)) && obj) {
+    const dNew = hexDistance(q, r, obj.q, obj.r);
+    const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
+    const airW = phase.air || 1;
+    if (dNew < dCur) score += 12 * airW;
+    if (dNew <= 5) score += 8 * airW;
   } else if (obj && role !== 'engineer' && role !== 'support') {
     const dNew = hexDistance(q, r, obj.q, obj.r);
     const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
-    if (dNew < dCur) score += 18 * phase.combat;  // doubled — make assignments actually stick
-    if (dNew <= 4) score += 6 * phase.combat;
-    if (dNew <= 1) score += 10 * phase.combat;
+    let pull = 18;
+    if (mission === 'scout') pull = 22 * (phase.recon || 1);
+    else if (mission === 'probe') pull = 16 * (phase.recon || 1);
+    else if (mission === 'diversion') pull = 24 * (ctx.deceptionTurn ? 1.25 : 1);
+    else if (mission === 'expand') pull = 20 * (phase.economy || 1);
+    else if (mission === 'main') pull = 20 * phase.combat;
+    else if (passiveMissions.has(mission)) pull = 14;
+
+    if (dNew < dCur) score += pull;
+    if (dNew <= 4) score += pull * 0.35;
+    if (dNew <= 1) score += pull * 0.55;
+
+    if (mission === 'expand' || mission === 'scout') {
+      const resHex = ctx.resourceTargets?.find(t => t.q === obj.q && t.r === obj.r);
+      if (resHex) score += 8 * (phase.economy || 1);
+    }
+    if (passiveMissions.has(mission) && enemies.length > 0 && nearestEnemy < 3) score -= 10;
   }
 
   // Strategic lane pressure from persistent planner memory.
@@ -1249,7 +1413,6 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const getMyHQs   = () => gs.buildings.filter(b => b.owner === player && b.type === 'HQ');
   const mySupply   = computeSupply(gs, player, mapSize);
   const phaseWeights = getPhaseWeights(gs.turn || 1);
-  const deceptionTurn = Math.random() < 0.18;
   const resourceTargets = Object.entries(gs.resourceHexes || {})
     .map(([k, v]) => ({ k, q: Number(k.split(',')[0]), r: Number(k.split(',')[1]), type: v?.type }))
     .filter(t => {
@@ -1277,48 +1440,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     return pr(ra) - pr(rb);
   });
 
-  const unitObjective = {};
-  let flankCountForGarrison = 0;
-  if (enemyHQs.length > 0 && myCombatUnits.length >= 6) {
-    const centerEnemy = enemyHQs.reduce((a, b) => Math.abs(a.r - strategic.laneCenters.center) <= Math.abs(b.r - strategic.laneCenters.center) ? a : b);
-    const laneEnemy = enemyHQs.reduce((a, b) => Math.abs(a.r - strategic.laneCenters[strategic.primaryLane]) <= Math.abs(b.r - strategic.laneCenters[strategic.primaryLane]) ? a : b);
-
-    const mainObj = strategic?.objectives?.main || (strategic.phase === 'pressure' ? laneEnemy : centerEnemy);
-    let flankObj = strategic?.objectives?.flank || laneEnemy;
-    if (resourceTargets.length > 0) {
-      const laneRes = resourceTargets.filter(t => getLaneForR(t.r, mapSize) === strategic.secondaryLane);
-      if (laneRes.length > 0) {
-        flankObj = laneRes.reduce((a, b) => hexDistance(a.q, a.r, mainObj.q, mainObj.r) >= hexDistance(b.q, b.r, mainObj.q, mainObj.r) ? a : b);
-      }
-    }
-
-    // Phase 5: exploitation doctrine — if one side has centroid advantage in a lane, reinforce it
-    const myCenter = {
-      q: myCombatUnits.reduce((s, u) => s + u.q, 0) / Math.max(1, myCombatUnits.length),
-      r: myCombatUnits.reduce((s, u) => s + u.r, 0) / Math.max(1, myCombatUnits.length),
-    };
-    const enemyCenter = {
-      q: gs.units.filter(u => u.owner !== player && !u.embarked).reduce((s,u,_,a) => s + u.q/a.length, 0),
-      r: gs.units.filter(u => u.owner !== player && !u.embarked).reduce((s,u,_,a) => s + u.r/a.length, 0),
-    };
-    const myHQPos = gs.buildings.find(b => b.type === 'HQ' && b.owner === player);
-    const enemyHQPos = gs.buildings.find(b => b.type === 'HQ' && b.owner !== player);
-    // Winning = my centroid is closer to enemy HQ than enemy centroid is to mine
-    const winningNow = myHQPos && enemyHQPos && enemyCenter.q != null &&
-      hexDistance(myCenter.q, myCenter.r, enemyHQPos.q, enemyHQPos.r) <
-      hexDistance(enemyCenter.q, enemyCenter.r, myHQPos.q, myHQPos.r);
-    // In pressure phase with advantage: concentrate 65% on main push, 35% on flank containment
-    // Otherwise use the standard split
-    const phaseFlankShare = winningNow && strategic.phase === 'pressure' ? 0.25 :
-      strategic.phase === 'pressure' ? 0.35 :
-      strategic.phase === 'stabilize' ? 0.45 : 0.5;
-    flankCountForGarrison = Math.max(2, Math.floor(sortedCombat.length * phaseFlankShare));
-    for (let i = 0; i < sortedCombat.length; i++) {
-      const u = sortedCombat[i];
-      unitObjective[u.id] = i < flankCountForGarrison ? { q: flankObj.q, r: flankObj.r } : { q: mainObj.q, r: mainObj.r };
-    }
-  }
-
+  const { unitObjective, deceptionActive, missionCounts } = assignCombatMissions(
+    gs, player, mapSize, strategic, territorial, enemyHQs, sortedCombat, resourceTargets
+  );
+  const flankCountForGarrison = missionCounts.garrison || missionCounts.diversion || 2;
   assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjective, sortedCombat, flankCountForGarrison);
 
   const opening = getOpeningMilestones(gs, player);
@@ -1335,7 +1460,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const myEngineersNow = gs.units.filter(u => u.owner === player && !u.embarked && u.type === 'ENGINEER');
   const roadCaptainId = myEngineersNow.length > 0 ? myEngineersNow.sort((a,b) => a.id - b.id)[0].id : null;
   const aiCtx = {
-    deceptionTurn, resourceTargets, unitObjective, phaseWeights,
+    deceptionTurn: deceptionActive, resourceTargets, unitObjective, phaseWeights,
     roadDeficit: roadDeficitGlobal, roadCaptainId,
     logisticsPressure, logisticsEmergency, dynamicRoadTarget,
     strategic, territorial, transportMission,
@@ -1366,6 +1491,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     transportOps: 0,
     territorial: { chokes: territorial?.chokes?.length || 0, coastal: territorial?.coastal?.length || 0, expansions: territorial?.expansions?.length || 0 },
     forceSplit: { assigned: { north: 0, center: 0, south: 0 }, current: { north: 0, center: 0, south: 0 } },
+    missions: missionCounts || {},
+    deceptionActive: !!deceptionActive,
     centerBiasScore: 0,
     unsuppliedClusters: summarizeUnsuppliedClusters(gs, player),
   };
@@ -1431,16 +1558,23 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     unit._aiOrigQ = unit.q; unit._aiOrigR = unit.r;
 
     // A) Attack from current position
+    const unitMission = unitObjective[unit.id]?.mission || 'expand';
     const unitInSupply = mySupply?.has?.(`${unit.q},${unit.r}`);
     const preMoveTargets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
     const preMoveTarget  = chooseBestTarget(gs, unit, preMoveTargets);
     const preTrade = preMoveTarget ? estimateAttackCommitScore(gs, unit, preMoveTarget) : -999;
-    const frontlineCommit = (gs.turn || 1) >= 10 && preMoveTarget && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 3 && preTrade >= 0;
-    // Phase 5: commit threshold — require friendly nearby mass before engaging (anti-suicide-rush)
+    const frontlineCommit = unitMission === 'main' && (gs.turn || 1) >= 10 && preMoveTarget && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 3 && preTrade >= 0;
     const nearbyFriendliesForCommit = gs.units.filter(u => u.owner === unit.owner && u.id !== unit.id && !u.embarked && hexDistance(u.q, u.r, unit.q, unit.r) <= 3).length;
-    const hasCommitMass = nearbyFriendliesForCommit >= 2 || (preMoveTarget && (preMoveTarget.health || 99) <= 1);
-    const canRiskAttack = (!!unitInSupply && hasCommitMass) || frontlineCommit || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && preMoveTarget && (preMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
-    const preThreshold = getUnitRole(unit.type) === 'recon' ? 2 : 0;
+    const hasCommitMass = unitMission === 'main'
+      ? (nearbyFriendliesForCommit >= 2 || (preMoveTarget && (preMoveTarget.health || 99) <= 1))
+      : (nearbyFriendliesForCommit >= 3 || (preMoveTarget && (preMoveTarget.health || 99) <= 1));
+    const killShot = preMoveTarget && (preMoveTarget.health || 99) <= 1;
+    const scoutOk = unitMission === 'scout' && killShot;
+    const probeOk = (unitMission === 'probe' || unitMission === 'diversion') && (killShot || preTrade >= 5);
+    const mainOk = unitMission === 'main' && ((!!unitInSupply && hasCommitMass) || frontlineCommit);
+    const canRiskAttack = scoutOk || probeOk || mainOk
+      || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && killShot && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
+    const preThreshold = unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 4 : (unitMission === 'main' ? 0 : 6));
     if (preMoveTarget && canRiskAttack && preTrade >= preThreshold) {
       actions.push({
         type:       'attack',
@@ -1544,12 +1678,17 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const postMoveTarget  = chooseBestTarget(gs, unit, postMoveTargets);
         const postInSupply = mySupply?.has?.(`${unit.q},${unit.r}`);
         const postTrade = postMoveTarget ? estimateAttackCommitScore(gs, unit, postMoveTarget) : -999;
-        const frontlineCommitPost = (gs.turn || 1) >= 10 && postMoveTarget && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 3 && postTrade >= 0;
-        // Phase 5: commit threshold for post-move attacks
+        const frontlineCommitPost = unitMission === 'main' && (gs.turn || 1) >= 10 && postMoveTarget && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 3 && postTrade >= 0;
         const nearbyFriendliesPost = gs.units.filter(u => u.owner === unit.owner && u.id !== unit.id && !u.embarked && hexDistance(u.q, u.r, unit.q, unit.r) <= 3).length;
-        const hasCommitMassPost = nearbyFriendliesPost >= 2 || (postMoveTarget && (postMoveTarget.health || 99) <= 1);
-        const canRiskPostAttack = (!!postInSupply && hasCommitMassPost) || frontlineCommitPost || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && postMoveTarget && (postMoveTarget.health || 99) <= 1 && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
-        const postThreshold = getUnitRole(unit.type) === 'recon' ? 2 : 0;
+        const hasCommitMassPost = unitMission === 'main'
+          ? (nearbyFriendliesPost >= 2 || (postMoveTarget && (postMoveTarget.health || 99) <= 1))
+          : (nearbyFriendliesPost >= 3 || (postMoveTarget && (postMoveTarget.health || 99) <= 1));
+        const postKill = postMoveTarget && (postMoveTarget.health || 99) <= 1;
+        const canRiskPostAttack = (unitMission === 'scout' && postKill)
+          || ((unitMission === 'probe' || unitMission === 'diversion') && (postKill || postTrade >= 5))
+          || (unitMission === 'main' && ((!!postInSupply && hasCommitMassPost) || frontlineCommitPost))
+          || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && postKill && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
+        const postThreshold = unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 4 : (unitMission === 'main' ? 0 : 6));
         if (postMoveTarget && canRiskPostAttack && postTrade >= postThreshold) {
           actions.push({
             type:       'attack',
@@ -1873,7 +2012,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         if (t.branch === 'engineering') s += 2 + Math.min(5, unsupNow);
         if (t.id === 'gravel_roads' || t.id === 'concrete_roads' || t.id === 'railways') s += 6;
         if (t.branch === 'vehicles') s += myVehicleDepots > 0 ? 7 : 4;
-        if (t.branch === 'air') s += myAirfields > 0 ? 7 : 3;
+        if (t.branch === 'air') s += myAirfields > 0 ? 9 : (turn >= 12 ? 5 : 2);
+        if (t.branch === 'naval') s += (gs.buildings.some(b => b.owner === player && b.type === 'NAVAL_YARD' && !b.underConstruction) ? 8 : 3);
         if (t.kind === 'economy') s += 4 + (turn >= 10 ? 1 : 0);
         if (t.kind === 'research') s += 3;
         s -= (t.tier || 0) * 1.5;
