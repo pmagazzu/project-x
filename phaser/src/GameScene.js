@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.9.6';
+export const GAME_VERSION = 'v1.9.7';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -525,7 +525,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     const w = this.scale.width;
-    const bg = this.add.rectangle(w - 230, 164, 460, 170, 0x0b1118, 0.94).setScrollFactor(0).setDepth(210).setStrokeStyle(1, 0x335577);
+    const bg = this.add.rectangle(w - 230, 178, 460, 200, 0x0b1118, 0.94).setScrollFactor(0).setDepth(210).setStrokeStyle(1, 0x335577);
     const txt = this.add.text(w - 450, 86, '', { font: '11px monospace', fill: '#cfe0ff' }).setScrollFactor(0).setDepth(211);
     this._specStatsObjs = [bg, txt];
     this._specStatsText = txt;
@@ -562,10 +562,19 @@ export class GameScene extends Phaser.Scene {
              `    RoadDbg def ${telem.roadDeficit||0} plan ${telem.roadsPlanned||0} try ${telem.roadsAttempted||0} ok ${telem.roadsSucceeded||0} blkOcc ${telem.blocked?.occupied||0} blkWood ${telem.blocked?.noWood||0} why ${telem.plannerReason||'n/a'}`;
     };
 
+    const doctrineLine = (p) => {
+      const dbg = gs._aiDebug?.[p];
+      const m = dbg?.missions || {};
+      const parts = Object.entries(m).filter(([, n]) => n > 0).map(([k, n]) => `${k}:${n}`);
+      const phase = dbg?.logisticsEmergency ? 'LOGI!' : (dbg?.deceptionActive ? 'DECOY' : 'steady');
+      const lane = dbg?.primaryLane ? ` lane ${dbg.primaryLane}` : '';
+      return `    AI ${phase}${lane} | missions ${parts.length ? parts.join(' ') : '—'}`;
+    };
+
     const paused = this._aiAutoplayPaused ? 'PAUSED' : 'RUNNING';
     this._specStatsText.setText(
       `AI VS AI DEBUG  |  Turn ${gs.turn}  |  Current P${gs.currentPlayer}  |  ${paused}\n` +
-      `${pLine(1)}\n\n${pLine(2)}`
+      `${pLine(1)}\n${doctrineLine(1)}\n\n${pLine(2)}\n${doctrineLine(2)}`
     );
   }
 
@@ -581,21 +590,25 @@ export class GameScene extends Phaser.Scene {
     this.versionTag?.setPosition(w - 110, 8);
     this.btnPauseAI?.setPosition(w - 610, 8);
     this.btnStatsAI?.setPosition(w - 700, 8);
-    this.btnSupply?.setPosition(w - 500, 42);
-    this.btnResearch?.setPosition(w - 414, 42);
-    this.btnDesigner?.setPosition(w - 328, 42);
-    this.btnTrade?.setPosition(w - 242, 42);
-    this.btnSettings?.setPosition(w - 140, 42);
+    this.btnSupply?.setPosition(w - 420, 42);
+    this.btnResearch?.setPosition(w - 334, 42);
+    this.btnMore?.setPosition(w - 248, 42);
+    this.btnSettings?.setPosition(w - 162, 42);
+    const dockY = Math.min(260, gs.height * 0.38);
+    this.sidebarEcoBg?.setPosition(72, dockY).setSize(128, 300);
+    this.sidebarEcoTitle?.setPosition(10, dockY - 152);
+    this.sidebarUpkeepBanner?.setPosition(10, dockY - 134);
+    this.sidebarResearchBar?.setPosition(10, dockY - 112);
+    const resYs = [dockY - 88, dockY - 62, dockY - 36, dockY - 10, dockY + 16, dockY + 42, dockY + 68];
+    [this.resIron, this.resOil, this.resWood, this.resFood, this.resGold, this.resComp, this.resRp].forEach((r, i) => {
+      if (!r) return;
+      r.setPosition(10, resYs[i]);
+      r.getData('valueText')?.setPosition(32, resYs[i]);
+    });
     this.btnSubmit?.setPosition(w - 8, 42);
     this.turnBadge?.setPosition(w - 8, 8);
 
-    // Bottom panel relayout
-    const panH = 132;
-    this.unitPanel?.setPosition(200, h - panH/2);
-    this.actionBg?.setPosition(w - 200, h - panH/2);
-    this.unitNameTxt?.setPosition(10, h - panH + 6);
-    this.unitStatsTxt?.setPosition(10, h - panH + 28);
-    this.unitStatusTxt?.setPosition(10, h - panH + 68);
+    this._layoutInspectorChrome();
 
     if (this._specStatsObjs?.length) {
       this._specStatsObjs[0]?.setPosition(w - 230, 164);
@@ -2703,7 +2716,6 @@ export class GameScene extends Phaser.Scene {
 
     // Row 1: nav + state
     this.btnMenu = this._makeBtn(10, 8, '← MENU', 0x222222, () => this.scene.start('MenuScene'), D);
-    this.btnEconomy = this._makeBtn(112, 8, '📊 ECON', 0x2a2a14, () => this._toggleEconomy(), D);
     this.turnLbl = this._makeLabel(w/2, 8, 'Turn 1 | Player 1 | PLANNING', D, true);
 
     // Version tag
@@ -2711,13 +2723,14 @@ export class GameScene extends Phaser.Scene {
       font: '11px monospace', fill: '#5a6f8a'
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(D);
 
-    // Row 2: actions only. Resource economy is moved into the left sidebar for readability.
-    this.btnSupply   = this._makeBtn(w - 500, 42, '⬡ SUP [L]', 0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
-    this.btnResearch = this._makeBtn(w - 414, 42, '⚗ RES',   0x442266, () => this._toggleResearch(), D, 'right');
-    this.btnDesigner = this._makeBtn(w - 328, 42, '🔧 DES',   0x1a3322, () => this._toggleDesigner(), D, 'right');
-    this.btnTrade    = this._makeBtn(w - 242, 42, '💱 TRADE', 0x3a2a11, () => this._toggleTrade(), D, 'right');
-    this.btnSettings = this._makeBtn(w - 140, 42, '⚙ SET',   0x222244, () => this._toggleSettings(), D, 'right');
+    // Row 2: primary tools (detail panels live under MORE)
+    this.btnSupply   = this._makeBtn(w - 420, 42, '⬡ SUP [L]', 0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
+    this.btnResearch = this._makeBtn(w - 334, 42, '⚗ RES',   0x442266, () => this._toggleResearch(), D, 'right');
+    this.btnMore     = this._makeBtn(w - 248, 42, '☰ MORE',  0x2a2244, () => this._toggleMoreTools(), D, 'right');
+    this.btnSettings = this._makeBtn(w - 162, 42, '⚙ SET',   0x222244, () => this._toggleSettings(), D, 'right');
     this.btnSubmit   = this._makeBtn(w - 8,   42, 'END TURN',0x1a5c1a, () => this._confirmEndTurn(), D, 'right');
+    this._moreToolsOpen = false;
+    this._moreToolsBtns = [];
     if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
       this.btnPauseAI = this._makeBtn(w - 610, 8, '⏸ AI', 0x3a2a11, () => {
         this._aiAutoplayPaused = !this._aiAutoplayPaused;
@@ -2734,22 +2747,65 @@ export class GameScene extends Phaser.Scene {
       backgroundColor: '#3a3312', padding: { x: 8, y: 4 }
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(D + 2);
 
-    // Left-sidebar economy block
-    this.sidebarEcoBg = this.add.rectangle(68, 248, 94, 248, 0x0d120d, 0.92)
-      .setStrokeStyle(1, 0x2a3a2a).setScrollFactor(0).setDepth(D).setInteractive({ useHandCursor: true });
-    this.sidebarEcoTitle = this.add.text(6, 104, 'ECONOMY', {
-      font: 'bold 12px monospace', fill: '#d8ead8'
+    // Left command dock — economy + research at a glance
+    this.sidebarEcoBg = this.add.rectangle(72, 260, 128, 300, 0x100818, 0.94)
+      .setStrokeStyle(2, 0xff66cc).setScrollFactor(0).setDepth(D)
+      .setInteractive({ useHandCursor: true });
+    this.sidebarEcoBg.on('pointerdown', () => this._toggleEconomy());
+    this.sidebarEcoTitle = this.add.text(10, 108, 'COMMAND', {
+      font: 'bold 13px monospace', fill: '#ffcc44',
     }).setScrollFactor(0).setDepth(D + 1);
-    this.sidebarEcoHint = this.add.text(6, 120, 'hover = resource', {
-      font: '9px monospace', fill: '#8ea88e'
+    this.sidebarUpkeepBanner = this.add.text(10, 126, '', {
+      font: '11px monospace', fill: '#cc88aa', wordWrap: { width: 116 },
     }).setScrollFactor(0).setDepth(D + 1);
-    this.resIron = this._makeSidebarResIcon(10, 142, '⚙', 'Iron', D + 1);
-    this.resOil  = this._makeSidebarResIcon(10, 176, '🛢', 'Oil', D + 1);
-    this.resWood = this._makeSidebarResIcon(10, 210, '🪵', 'Wood', D + 1);
-    this.resFood = this._makeSidebarResIcon(10, 244, '🍞', 'Food', D + 1);
-    this.resGold = this._makeSidebarResIcon(10, 278, '💰', 'Gold', D + 1);
-    this.resComp = this._makeSidebarResIcon(10, 312, '🧩', 'Components', D + 1);
-    this.resRp   = this._makeSidebarResIcon(10, 346, '⚗', 'Research', D + 1);
+    this.sidebarResearchBar = this.add.text(10, 148, '', {
+      font: '11px monospace', fill: '#bb99ee', wordWrap: { width: 116 },
+    }).setScrollFactor(0).setDepth(D + 1);
+    this.resIron = this._makeSidebarResRow(10, 172, '⚙', 'Iron', D + 1);
+    this.resOil  = this._makeSidebarResRow(10, 198, '🛢', 'Oil', D + 1);
+    this.resWood = this._makeSidebarResRow(10, 224, '🪵', 'Wood', D + 1);
+    this.resFood = this._makeSidebarResRow(10, 250, '🍞', 'Food', D + 1);
+    this.resGold = this._makeSidebarResRow(10, 276, '💰', 'Gold', D + 1);
+    this.resComp = this._makeSidebarResRow(10, 302, '🧩', 'Parts', D + 1);
+    this.resRp   = this._makeSidebarResRow(10, 328, '⚗', 'Research', D + 1);
+  }
+
+  _makeSidebarResRow(x, y, icon, label, depth) {
+    const t = this.add.text(x, y, icon, {
+      font: 'bold 14px monospace', fill: '#d8ead8',
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(depth);
+    const val = this.add.text(x + 22, y, `${label}`, {
+      font: '13px monospace', fill: '#c8d8c8',
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(depth);
+    t.setData('valueText', val);
+    t.setData('label', label);
+    return t;
+  }
+
+  _toggleMoreTools() {
+    this._moreToolsOpen = !this._moreToolsOpen;
+    for (const b of this._moreToolsBtns || []) { try { b.destroy(); } catch (e) {} }
+    this._moreToolsBtns = [];
+    if (!this._moreToolsOpen) {
+      this.btnMore?.setStyle({ backgroundColor: '#2a2244' });
+      return;
+    }
+    this.btnMore?.setStyle({ backgroundColor: '#4a3080' });
+    const w = this.scale.width;
+    const defs = [
+      { label: '💱 TRADE', color: 0x3a2a11, cb: () => this._toggleTrade() },
+      { label: '🔧 DESIGN', color: 0x1a3322, cb: () => this._toggleDesigner() },
+      { label: '📊 ECON+', color: 0x2a2a14, cb: () => this._toggleEconomy() },
+    ];
+    defs.forEach((d, i) => {
+      const btn = this._makeBtn(w - 248, 74 + i * 28, d.label, d.color, () => {
+        this._moreToolsOpen = false;
+        this._toggleMoreTools();
+        d.cb();
+      }, 102, 'right');
+      this._moreToolsBtns.push(btn);
+      this._addToUI([btn]);
+    });
   }
 
   _makeLabel(x, y, text, depth, center = false) {
@@ -2759,16 +2815,14 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(center ? 0.5 : 0, 0).setScrollFactor(0).setDepth(depth);
   }
 
-  _makeSidebarResIcon(x, y, icon, label, depth) {
-    const t = this.add.text(x, y, icon, {
-      font: 'bold 16px monospace', fill: '#d8ead8',
-      backgroundColor: '#141814', padding: { x: 4, y: 2 }, stroke: '#081008', strokeThickness: 1
-    }).setOrigin(0, 0).setScrollFactor(0).setDepth(depth).setInteractive({ useHandCursor: true });
-    const tip = () => this._showHoverTip(`${label}`, x + 28, y + 5);
-    t.on('pointerover', tip);
-    t.on('pointermove', tip);
-    t.on('pointerout', () => this._hideHoverTip());
-    return t;
+  _setSidebarResRow(rowIcon, line) {
+    const val = rowIcon?.getData?.('valueText');
+    if (val) val.setText(line);
+    else rowIcon?.setText(line);
+  }
+
+  _setCommandDockHighlight(active) {
+    this.sidebarEcoBg?.setStrokeStyle(2, active ? 0xffcc44 : 0xff66cc);
   }
 
   _showHoverTip(text, x, y) {
@@ -2817,8 +2871,7 @@ export class GameScene extends Phaser.Scene {
       : '';
 
     const upkeep = calcUpkeep(gs, p);
-    const unsupplied = gs.players[p].upkeepDebt && (gs.players[p].upkeepDebt.food > 0 || gs.players[p].upkeepDebt.iron > 0 || gs.players[p].upkeepDebt.oil > 0);
-    const warnClr = unsupplied ? '#ff6644' : '#ccddcc';
+    const unitsOOS = gs.units.filter(u => Number(u.owner) === p && !u.dead && (u.outOfSupply || 0) > 0).length;
 
     const fmtRes = (v) => typeof v === 'number' ? (v % 1 === 0 ? v : v.toFixed(1)) : '—';
 
@@ -2837,52 +2890,238 @@ export class GameScene extends Phaser.Scene {
     const ttzFood = _ttz(pl.food || 0, netFood);
     const ttzSuffix = (ttz) => ttz <= 1 ? ' !!!' : ttz <= 3 ? ` (${ttz}t)` : '';
 
-    this.resIron.setText(`⚙ ${fmtRes(pl.iron)} ${sgn(netIron)}${ttzSuffix(ttzIron)}`);
-    this.resOil.setText(`🛢 ${fmtRes(pl.oil)} ${sgn(netOil)}${ttzSuffix(ttzOil)}`);
-    this.resWood.setText(`🪵 ${fmtRes(pl.wood || 0)} ${sgn(netWood)}`);
-    this.resFood.setText(`🍞 ${fmtRes(pl.food || 0)} ${sgn(netFood)}${ttzSuffix(ttzFood)}`);
-    this.resGold.setText(`💰 ${fmtRes(pl.gold || 0)} ${sgn(netGold)}`);
-    this.resComp.setText(`🧩 ${fmtRes(pl.components || 0)} 0`);
-    // Research: show active tech name + % or "no lab"
+    const debt = pl.upkeepDebt || { food: 0, iron: 0, oil: 0 };
+    const inDebt = debt.food > 0 || debt.iron > 0 || debt.oil > 0;
+    const upkeepLine = inDebt
+      ? `⚠ DEBT  🍞${debt.food} ⚙${debt.iron} 🛢${debt.oil}`
+      : (unitsOOS > 0 ? `⚠ ${unitsOOS} OUT OF SUPPLY` : `Upkeep 🍞${upkeep.food} ⚙${upkeep.iron} 🛢${upkeep.oil}`);
+    this.sidebarUpkeepBanner?.setText(upkeepLine);
+    this.sidebarUpkeepBanner?.setStyle({ fill: inDebt || unitsOOS > 0 ? '#ff6644' : '#99aabb' });
+
     const resState = pl.research;
     const activeRes = resState?.queue?.[0];
     const activeTech = activeRes ? TECH_TREE[activeRes.techId] : null;
     const rpPct = activeTech ? Math.floor(((activeRes.rpSpent || 0) / activeTech.cost) * 100) : 0;
-    const rpLabel = inc.rp === 0 ? 'no lab' : activeTech ? `${activeTech.name.substring(0,12)} ${rpPct}%` : `idle (+${inc.rp}/t)`;
-    this.resRp.setText(`⚗ RESEARCH ${rpLabel}`);
-    // Color coding: debt/unsupplied = red, imminent zero = orange, healthy = default
-    this.resFood.setStyle({ fill: unsupplied ? '#ff4422' : ttzFood <= 3 ? '#ffaa33' : '#ccddcc' });
-    this.resIron.setStyle({ fill: ttzIron <= 1 ? '#ff4422' : ttzIron <= 3 ? '#ffaa33' : '#ccddcc' });
-    this.resOil.setStyle({  fill: ttzOil  <= 1 ? '#ff4422' : ttzOil  <= 3 ? '#ffaa33' : '#ccddcc' });
+    const rpDock = inc.rp === 0 ? 'Research: no lab'
+      : (activeTech ? `⚗ ${activeTech.name.substring(0, 14)} ${rpPct}%` : `⚗ idle +${inc.rp}/t`);
+    this.sidebarResearchBar?.setText(rpDock);
+
+    const rowFill = (ttz, critical) => critical ? '#ff4422' : (ttz <= 3 ? '#ffaa33' : '#c8d8c8');
+    this._setSidebarResRow(this.resIron, `${fmtRes(pl.iron)} ${sgn(netIron)}${ttzSuffix(ttzIron)}`);
+    this._setSidebarResRow(this.resOil, `${fmtRes(pl.oil)} ${sgn(netOil)}${ttzSuffix(ttzOil)}`);
+    this._setSidebarResRow(this.resWood, `${fmtRes(pl.wood || 0)} ${sgn(netWood)}`);
+    this._setSidebarResRow(this.resFood, `${fmtRes(pl.food || 0)} ${sgn(netFood)}${ttzSuffix(ttzFood)}`);
+    this._setSidebarResRow(this.resGold, `${fmtRes(pl.gold || 0)} ${sgn(netGold)}`);
+    this._setSidebarResRow(this.resComp, `${fmtRes(pl.components || 0)}`);
+    this._setSidebarResRow(this.resRp, activeTech ? `${activeTech.name.substring(0, 16)} ${rpPct}%` : (inc.rp ? `+${inc.rp}/t` : '—'));
+    this.resIron.getData('valueText')?.setStyle({ fill: rowFill(ttzIron, ttzIron <= 1) });
+    this.resOil.getData('valueText')?.setStyle({ fill: rowFill(ttzOil, ttzOil <= 1) });
+    this.resFood.getData('valueText')?.setStyle({ fill: unitsOOS > 0 ? '#ff4422' : rowFill(ttzFood, ttzFood <= 1) });
 
     this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  ${modeStr}`);
     this.turnBadge?.setText(`TURN ${gs.turn}`);
     if (this.btnPauseAI) this.btnPauseAI.setText(this._aiAutoplayPaused ? '▶ AI' : '⏸ AI');
   }
 
-  // ── Bottom panel ──────────────────────────────────────────────────────────
+  // ── Bottom inspector + action rail ────────────────────────────────────────
   _createBottomPanel() {
-    const w = this.scale.width, h = this.scale.height;
-    const panH = 132, D = 100;
+    this._inspectorPanH = 140;
+    this._inspectorTabManual = null;
+    this._inspectorTab = 'unit';
+    this._inspectorLines = [];
+    this._inspectorTabBtns = {};
 
-    // Left: unit info panel — dark background with subtle top border accent
-    this.unitPanel = this.add.rectangle(200, h - panH/2, 390, panH, 0x0d0d0d, 0.96)
-      .setStrokeStyle(1, 0x2a3a2a).setScrollFactor(0).setDepth(D);
-    // Accent bar along top of panel
-    this.add.rectangle(200, h - panH, 390, 2, 0x3a5c3a, 1)
+    const D = 100;
+    this.inspectorBg = this.add.rectangle(0, 0, 500, this._inspectorPanH, 0x100818, 0.97)
+      .setStrokeStyle(2, 0xff66cc).setScrollFactor(0).setDepth(D);
+    this.inspectorAccent = this.add.rectangle(0, 0, 500, 3, 0xffcc44, 1)
       .setScrollFactor(0).setDepth(D + 1);
-    this.unitNameTxt   = this._makeLabel(10, h - panH + 6,  '', D);
-    this.unitStatsTxt  = this._makeLabel(10, h - panH + 28, '', D);
-    this.unitStatusTxt = this._makeLabel(10, h - panH + 68, '', D);
 
-    // Right: action buttons background
-    this.actionBg = this.add.rectangle(w - 200, h - panH/2, 390, panH, 0x0d0d0d, 0.96)
+    const tabDefs = [
+      ['unit', 'UNIT', 0],
+      ['hex', 'HEX', 1],
+      ['build', 'BUILD', 2],
+    ];
+    for (const [key, label, idx] of tabDefs) {
+      const tab = this.add.text(12 + idx * 62, 0, label, {
+        font: 'bold 12px monospace', fill: '#8899aa',
+        backgroundColor: '#1a1028', padding: { x: 8, y: 4 },
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2).setInteractive({ useHandCursor: true });
+      tab.on('pointerdown', () => {
+        this._contextMenuClicked = true;
+        this._inspectorTabManual = key;
+        this._inspectorTab = key;
+        this._updateInspectorTabVisuals();
+        this._updateBottomPanel();
+      });
+      this._inspectorTabBtns[key] = tab;
+    }
+
+    this.inspectorTitle = this.add.text(12, 0, 'Inspector', {
+      font: 'bold 15px monospace', fill: '#ffcc44',
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2);
+    this.inspectorChips = this.add.text(12, 0, '', {
+      font: '12px monospace', fill: '#99bbdd',
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2);
+    for (let i = 0; i < 4; i++) {
+      this._inspectorLines.push(this.add.text(12, 0, '', {
+        font: '13px monospace', fill: '#d8ead8', wordWrap: { width: 476 },
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2));
+    }
+
+    // Legacy aliases (resize / old refs)
+    this.unitPanel = this.inspectorBg;
+    this.unitNameTxt = this.inspectorTitle;
+    this.unitStatsTxt = this.inspectorChips;
+    this.unitStatusTxt = this._inspectorLines[0];
+
+    this.actionBg = this.add.rectangle(0, 0, 380, this._inspectorPanH, 0x0d0d0d, 0.96)
       .setStrokeStyle(1, 0x2a3a2a).setScrollFactor(0).setDepth(D);
-    this.add.rectangle(w - 200, h - panH, 390, 2, 0x3a5c3a, 1)
+    this.actionAccent = this.add.rectangle(0, 0, 380, 2, 0x3a5c3a, 1)
       .setScrollFactor(0).setDepth(D + 1);
 
     this._dynBtns = [];
     this._contextMenuUnit = null;
+    this._layoutInspectorChrome();
+    this._updateInspectorTabVisuals();
+  }
+
+  _layoutInspectorChrome() {
+    const w = this.scale.width, h = this.scale.height;
+    const panH = this._inspectorPanH || 140;
+    const inspW = 500;
+    const ix = inspW / 2 + 8;
+    const topY = h - panH;
+
+    this.inspectorBg?.setPosition(ix, topY + panH / 2);
+    this.inspectorAccent?.setPosition(ix, topY + 1.5);
+    const tabY = topY + 8;
+    for (const [key, tab] of Object.entries(this._inspectorTabBtns || {})) {
+      const idx = key === 'unit' ? 0 : key === 'hex' ? 1 : 2;
+      tab?.setPosition(12 + idx * 62, tabY);
+    }
+    this.inspectorTitle?.setPosition(12, topY + 34);
+    this.inspectorChips?.setPosition(12, topY + 56);
+    for (let i = 0; i < (this._inspectorLines?.length || 0); i++) {
+      this._inspectorLines[i]?.setPosition(12, topY + 76 + i * 18);
+    }
+
+    const ax = w - 198;
+    this.actionBg?.setPosition(ax, topY + panH / 2);
+    this.actionAccent?.setPosition(ax, topY + 1);
+  }
+
+  _updateInspectorTabVisuals() {
+    const active = this._inspectorTab || 'unit';
+    for (const [key, tab] of Object.entries(this._inspectorTabBtns || {})) {
+      const on = key === active;
+      tab?.setStyle({
+        fill: on ? '#ffcc44' : '#8899aa',
+        backgroundColor: on ? '#4a2080' : '#1a1028',
+      });
+    }
+  }
+
+  _resolveInspectorTab(gs) {
+    if (this._inspectorTabManual) return this._inspectorTabManual;
+    if (this.selectedUnit) return 'unit';
+    const hex = this.hoveredHex;
+    if (hex && isValid(hex.q, hex.r, this.mapSize)) {
+      const bu = buildingAt(gs, hex.q, hex.r);
+      if (bu && !ROAD_TYPES.has(bu.type)) return 'build';
+      return 'hex';
+    }
+    return 'unit';
+  }
+
+  _inspectorUnitContent(gs, u) {
+    const def = UNIT_TYPES[u.type];
+    const isOwn = Number(u.owner) === Number(gs.currentPlayer);
+    const displayName = isOwn && u.designId !== undefined
+      ? (gs.designs[u.owner]?.find(d => d.id === u.designId)?.name || def.name)
+      : def.name;
+    const prefix = isOwn && u.designId !== undefined ? '★ ' : '';
+    const title = `${prefix}${displayName}  ·  Player ${u.owner}  ·  Tier ${this._unitShownTier(u)}`;
+    const ap = (u.moved ? 0 : 1) + (u.attacked ? 0 : 1);
+    const fuel = u.fuel !== undefined ? `  Fuel ${u.fuel}/${u.fuelMax}` : '';
+    const chips = `HP ${u.health}/${u.maxHealth}  ·  AP ${ap}/2${fuel}  ·  MOV ${u.move ?? def.move}  ·  RNG ${u.range ?? def.range}`;
+    const lines = [
+      `Soft ${u.soft_attack ?? def.soft_attack}  ·  Hard ${u.hard_attack ?? def.hard_attack}  ·  Pierce ${u.pierce ?? def.pierce}  ·  Armor ${u.armor ?? def.armor}`,
+    ];
+    const pa = gs.pendingAttacks[u.id];
+    const status = [];
+    if (u.constructing) {
+      const b = gs.buildings.find(bb => bb.id === u.constructing);
+      if (b?.underConstruction) {
+        status.push(`Building ${BUILDING_TYPES[b.type]?.name || b.type} (${b.buildProgress || 0}/${b.buildTurnsRequired || 1})`);
+      }
+    } else {
+      if (u.suppressed) status.push('Suppressed');
+      status.push(u.moved ? 'Moved' : 'Can move');
+      status.push(pa ? 'Attack queued' : u.attacked ? 'Attacked' : u.suppressed ? '' : 'Can attack');
+      if (u.dugIn) status.push('Dug in');
+      if ((u.outOfSupply || 0) > 0) status.push(`Out of supply ${u.outOfSupply}t`);
+    }
+    lines.push(status.filter(Boolean).join('  ·  '));
+
+    const ttype = this.terrain?.[`${u.q},${u.r}`] ?? 0;
+    const effects = [];
+    if (ttype === 1) effects.push('Forest cover');
+    else if (ttype === 2) effects.push('Mountain cover');
+    else if (ttype === 0 || ttype === 6) {
+      const infLike = new Set(['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD','LMG_TEAM','HMG_TEAM','SNIPER','ENGINEER','MEDIC','ANTI_TANK']);
+      if (infLike.has(u.type) && !u.dugIn) effects.push('Open ground exposure');
+    }
+    const standB = gs.buildings.find(b => b.q === u.q && b.r === u.r && !ROAD_TYPES.has(b.type));
+    const standRes = gs.resourceHexes[`${u.q},${u.r}`];
+    if (standB) effects.push(`On ${BUILDING_TYPES[standB.type]?.name || standB.type}`);
+    else if (standRes) effects.push(`On ${standRes.type} deposit`);
+    lines.push(`Hex (${u.q},${u.r}) ${TERRAIN_LABELS[ttype] || 'Plains'}${effects.length ? '  ·  ' + effects.join('  ·  ') : ''}`);
+    return { title, chips, lines };
+  }
+
+  _inspectorHexContent(gs, hex) {
+    const key = `${hex.q},${hex.r}`;
+    const ttype = this.terrain[key] ?? 0;
+    const t = TERRAIN_LABELS[ttype] || 'Plains';
+    const res = gs.resourceHexes[key];
+    const bu = buildingAt(gs, hex.q, hex.r);
+    const hu = unitAt(gs, hex.q, hex.r);
+    const inSupply = computeSupply(gs, gs.currentPlayer, this.mapSize).has(key);
+    const title = `Hex (${hex.q}, ${hex.r})  ·  ${t}`;
+    const chips = res ? `${RESOURCE_TYPES[res.type]?.name || res.type} deposit` : (bu ? BUILDING_TYPES[bu.type]?.name : 'No resource');
+    const lines = [
+      bu ? `Building: ${BUILDING_TYPES[bu.type]?.name} (P${bu.owner})${bu.underConstruction ? ' — under construction' : ''}` : 'No structure on tile',
+      hu ? `Unit present: P${hu.owner} ${UNIT_TYPES[hu.type]?.name}` : 'No unit on tile',
+      `Supply: ${inSupply ? 'In network' : 'Out of supply'}${roadAt(gs, hex.q, hex.r) ? '  ·  Road' : ''}`,
+    ];
+    return { title, chips, lines };
+  }
+
+  _inspectorBuildContent(gs, hex) {
+    const bu = buildingAt(gs, hex.q, hex.r);
+    if (!bu || ROAD_TYPES.has(bu.type)) {
+      return {
+        title: 'No building',
+        chips: 'Select a hex with a structure',
+        lines: ['Hover or click a tile with Barracks, Mine, HQ, etc.'],
+      };
+    }
+    const def = BUILDING_TYPES[bu.type] || {};
+    const isOwn = Number(bu.owner) === Number(gs.currentPlayer);
+    const title = `${def.name || bu.type}  ·  Player ${bu.owner}`;
+    const chips = bu.underConstruction
+      ? `Building… ${bu.buildProgress || 0}/${bu.buildTurnsRequired || 1} turns`
+      : (isOwn ? 'Friendly' : 'Enemy') + (def.canRecruit?.length ? `  ·  Recruits: ${def.canRecruit.length} types` : '');
+    const lines = [];
+    if (def.buildCost) {
+      const c = def.buildCost;
+      lines.push(`Build cost: ${c.iron ? `⚙${c.iron} ` : ''}${c.wood ? `🪵${c.wood} ` : ''}${c.oil ? `🛢${c.oil}` : ''}`.trim());
+    }
+    const recruit = gs.pendingRecruits.find(r => r.buildingId === bu.id && Number(r.owner) === Number(bu.owner));
+    if (recruit) lines.push(`Training: ${recruit.type || 'unit'} (${recruit.turnsLeft} turns left)`);
+    lines.push(`Location: (${bu.q}, ${bu.r})`);
+    return { title, chips, lines };
   }
 
   _makeActionBtn(x, y, label, color, cb) {
@@ -2902,131 +3141,42 @@ export class GameScene extends Phaser.Scene {
   }
 
   _updateBottomPanel() {
-    const gs  = this.gameState;
-    const u   = this.selectedUnit;
-    const canAct = u && u.owner === gs.currentPlayer;
+    const gs = this.gameState;
+    const u = this.selectedUnit;
+    const canAct = u && Number(u.owner) === Number(gs.currentPlayer);
 
-    // Unit info
-    if (u) {
-      const def = UNIT_TYPES[u.type];
-      // Own units: show custom design name if applicable; enemy: chassis type only (no deception)
-      const isOwnUnit = u.owner === gs.currentPlayer;
-      const displayName = isOwnUnit && u.designId !== undefined
-        ? (gs.designs[u.owner]?.find(d => d.id === u.designId)?.name || def.name)
-        : def.name;
-      const nameLabel = isOwnUnit && u.designId !== undefined ? `★ ${displayName}` : `[ ${displayName} ]`;
-      this.unitNameTxt.setText(`${nameLabel}  P${u.owner}  [Tier ${this._unitShownTier(u)}]`);
-      const ap = (u.moved ? 0 : 1) + (u.attacked ? 0 : 1);
-      const fuelStr = u.fuel !== undefined
-        ? `  ⛽ ${u.fuel}/${u.fuelMax}${u.fuel <= 2 ? ' ⚠' : ''}`
-        : '';
-      this.unitStatsTxt.setText(
-        `HP: ${u.health}/${u.maxHealth}  AP: ${ap}/2${fuelStr}` +
-        `  SA: ${u.soft_attack ?? def.soft_attack}  HA: ${u.hard_attack ?? def.hard_attack}  PRC: ${u.pierce ?? def.pierce}  ARM: ${u.armor ?? def.armor}  MOV: ${u.move ?? def.move}  RNG: ${u.range ?? def.range}`
-      );
-      const pa = gs.pendingAttacks[u.id];
-      let status = '';
-      // Construction status takes priority
-      if (u.constructing) {
-        const bUnderConst = gs.buildings.find(b => b.id === u.constructing);
-        if (bUnderConst && bUnderConst.underConstruction) {
-          const prog = bUnderConst.buildProgress || 0, total = bUnderConst.buildTurnsRequired || 1;
-          status = `🔨 Building ${BUILDING_TYPES[bUnderConst.type].name}: ${prog}/${total} turns  (locked)`;
-        }
-      } else if (u.fuel !== undefined) {
-        // Air unit status line
-        const fuelWarn = u.fuel <= 1 ? '🔴 FUEL CRITICAL — RTB now!  ' : u.fuel <= 2 ? '🟡 Low fuel — return to airfield  ' : '';
-        status += fuelWarn;
-        status += u.suppressed ? '⚡ SUPPRESSED  ' : u.moved ? '✓ Moved  ' : '○ Can move  ';
-        status += pa ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : '○ Can attack';
-      } else {
-        status += u.suppressed ? '⚡ SUPPRESSED  ' : u.moved ? '✓ Moved  ' : '○ Can move  ';
-        status += pa ? '⚔ Attack queued  ' : u.attacked ? '✓ Attacked  ' : u.suppressed ? '' : '○ Can attack  ';
-        if (u.dugIn) status += '🪖 Dug in  ';
-        if (u.outOfSupply > 0) status += `⚠ OUT OF SUPPLY (${u.outOfSupply}t)`;
-        if (NAVAL_UNITS.has(u.type)) {
-          const navalMaxMap = {
-            PATROL_BOAT: 6, SUBMARINE: 10, DESTROYER: 7, DESTROYER_MK1: 7,
-            CRUISER_LT: 8, CRUISER_HV: 8, BATTLESHIP: 10,
-            LANDING_CRAFT: 5, TRANSPORT_SM: 5, TRANSPORT_MD: 5, TRANSPORT_LG: 5,
-          };
-          if (u.type === 'SUPPLY_SHIP') {
-            status += '  ⚓ Logistics Hub';
-          } else {
-            const navalMax = navalMaxMap[u.type] ?? 6;
-            const navalCur = u.navalSupply ?? navalMax;
-            const navalWarn = navalCur <= 2 ? '⚠ ' : '';
-            const lowReserves = navalCur <= 2 && (u.outOfSupply || 0) === 0 ? '  🔵 Low reserves' : '';
-            status += `  ⚓ Supply: ${navalWarn}${navalCur}/${navalMax} turns${lowReserves}`;
-          }
-        }
-      }
-      // Contextual modifiers affecting this unit right now
-      const ttype = this.terrain?.[`${u.q},${u.r}`] ?? 0;
-      const tLabel = TERRAIN_LABELS[ttype] || 'Plains';
-      const effects = [];
-      if (ttype === 1) effects.push('Terrain: Forest cover (+defense)');
-      else if (ttype === 7) effects.push('Terrain: Light woods cover');
-      else if (ttype === 2) effects.push('Terrain: Mountain cover (high)');
-      else if (ttype === 0 || ttype === 6) {
-        const infLike = new Set(['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD','LMG_TEAM','HMG_TEAM','SNIPER','ENGINEER','MEDIC','ANTI_TANK']);
-        if (infLike.has(u.type) && !u.dugIn) effects.push('⚠ Open ground exposure penalty');
-      }
-      const fort = gs.buildings.find(b => (b.type==='BUNKER'||b.type==='TRENCH'||b.type==='SANDBAG') && b.q===u.q && b.r===u.r && b.owner===u.owner);
-      if (fort) effects.push(`Fortification: ${BUILDING_TYPES[fort.type]?.name || fort.type}`);
-      if (u.dugIn) effects.push('Dug in bonus active');
-      if (u.outOfSupply > 0) {
-        const pen = supplyPenalty(u.outOfSupply);
-        effects.push(`Out of supply: −${pen.attackPenalty} attack / −${pen.movePenalty} move`);
-      }
-      const standB = gs.buildings.find(b => b.q === u.q && b.r === u.r && !ROAD_TYPES.has(b.type));
-      const standRes = gs.resourceHexes[`${u.q},${u.r}`];
-      if (standB) effects.push(`Standing on: ${BUILDING_TYPES[standB.type]?.name || standB.type} (${Number(standB.owner)===Number(u.owner)?'friendly':'enemy'})`);
-      else if (standRes) effects.push(`Resource tile: ${standRes.type}`);
-      const fxLine = effects.length ? `\n${effects.slice(0,3).join('  ·  ')}` : '';
-      this.unitStatusTxt.setText(`${status}${fxLine}`);
-    } else if (this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
-      const key  = `${this.hoveredHex.q},${this.hoveredHex.r}`;
-      const t    = TERRAIN_LABELS[this.terrain[key]] || 'Plains';
-      const res  = gs.resourceHexes[key];
-      const bu   = buildingAt(gs, this.hoveredHex.q, this.hoveredHex.r);
-      const hu   = unitAt(gs, this.hoveredHex.q, this.hoveredHex.r);
-      this.unitNameTxt.setText(`(${this.hoveredHex.q}, ${this.hoveredHex.r})  ${t}${res ? `  [${RESOURCE_TYPES[res.type].name}]` : ''}`);
-      this.unitStatsTxt.setText(bu ? `Building: ${BUILDING_TYPES[bu.type].name}  (P${bu.owner})` : '');
-      if (hu) {
-        const huDef = UNIT_TYPES[hu.type];
-        const hoverOwn = Number(hu.owner) === Number(gs.currentPlayer);
-        const hoverName = hoverOwn && hu.designId !== undefined
-          ? (gs.designs[hu.owner]?.find(d => d.id === hu.designId)?.name || huDef.name)
-          : huDef.name;
-        const hoverPrefix = hoverOwn && hu.designId !== undefined ? '★ ' : '';
-        let tierTxt = '';
-        if (!hoverOwn) {
-          tierTxt = `  [Tier ${this._unitShownTier(hu)}]`;
-        }
-        this.unitStatusTxt.setText(`Unit: P${hu.owner} ${hoverPrefix}${hoverName}  HP: ${hu.health}/${hu.maxHealth}${tierTxt}`);
-      } else {
-        this.unitStatusTxt.setText('');
-      }
-    } else {
-      this.unitNameTxt.setText('No unit selected');
-      this.unitStatsTxt.setText('');
-      this.unitStatusTxt.setText('Click a unit to select it');
+    this._inspectorTab = this._resolveInspectorTab(gs);
+    this._updateInspectorTabVisuals();
+
+    let content = { title: 'Inspector', chips: 'Select a unit or hover the map', lines: ['Use UNIT / HEX / BUILD tabs above'] };
+    if (this._inspectorTab === 'unit' && u) {
+      content = this._inspectorUnitContent(gs, u);
+    } else if (this._inspectorTab === 'unit' && !u) {
+      content = { title: 'No unit selected', chips: 'Click your unit on the map', lines: ['Hover a hex for terrain info (HEX tab)'] };
+    } else if (this._inspectorTab === 'build' && this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
+      content = this._inspectorBuildContent(gs, this.hoveredHex);
+    } else if (this._inspectorTab === 'hex' && this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
+      content = this._inspectorHexContent(gs, this.hoveredHex);
+    } else if (u) {
+      content = this._inspectorUnitContent(gs, u);
     }
 
-    // Rebuild dynamic action buttons from _getUnitActions
-    this._dynBtns.forEach(b => { try { b.destroy(); } catch(e){} });
+    this.inspectorTitle?.setText(content.title);
+    this.inspectorChips?.setText(content.chips || '');
+    for (let i = 0; i < (this._inspectorLines?.length || 0); i++) {
+      this._inspectorLines[i]?.setText(content.lines?.[i] || '');
+    }
+
+    this._dynBtns.forEach(b => { try { b.destroy(); } catch (e) {} });
     this._dynBtns = [];
 
     if (canAct) {
       const w2 = this.scale.width, h2 = this.scale.height;
-      const panH2 = 132;
+      const panH2 = this._inspectorPanH || 140;
       const bw = 118, bh = 42, gap = 4;
-      const ax = w2 - 390, ay = h2 - panH2 + 8;
+      const ax = w2 - 388, ay = h2 - panH2 + 36;
       const actions = this._getUnitActions(u);
-      const maxBtns = 6;
-      const shown   = actions.slice(0, maxBtns);
-      shown.forEach((a, i) => {
+      actions.slice(0, 6).forEach((a, i) => {
         const col = i % 3, row = Math.floor(i / 3);
         const btn = this._makeActionBtn(
           ax + col * (bw + gap),
@@ -3424,7 +3574,6 @@ export class GameScene extends Phaser.Scene {
       this._designerObjs = null;
     }
     this._designerOpen = false;
-    if (this.btnDesigner) this.btnDesigner.setStyle({ backgroundColor: '#1a3322' });
   }
 
   _openDesigner() {
@@ -3442,7 +3591,6 @@ export class GameScene extends Phaser.Scene {
     const objs = [];
     this._designerObjs  = objs;
     this._designerOpen  = true;
-    if (this.btnDesigner) this.btnDesigner.setStyle({ backgroundColor: '#2a6644' });
 
     // Chassis available = always-available (not locked) + research-unlocked
     const bonuses = computeTechBonuses(gs.players[p].research?.unlocked || []);
@@ -3560,10 +3708,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   _renderDesignerPanel(gs, p, w, h, D, objs, allChassis, selChassis, selMods, designName, onChassis, onMod, onRegister, onClose) {
-    const panW  = Math.min(w - 40, 860);
-    const panH  = h - 60;
+    const panW  = Math.min(w - 160, 780);
+    const panH  = Math.min(h - 130, 560);
     const px    = w / 2 - panW / 2;
-    const py    = 50;
+    const py    = 78;
     const col1X = px + 16;        // left column x (chassis + modules)
     const col2X = px + panW * 0.55; // right column x (stat comparison + designs)
     const col2W = panW * 0.42;
@@ -4634,7 +4782,7 @@ export class GameScene extends Phaser.Scene {
       this._economyObjs = null;
     }
     this._economyOpen = false;
-    if (this.btnEconomy) this.btnEconomy.setStyle({ backgroundColor: '#2a2a14' });
+    this._setCommandDockHighlight(false);
   }
 
   _openEconomy() {
@@ -4644,15 +4792,17 @@ export class GameScene extends Phaser.Scene {
     this._closeDesigner?.();
     this._closeSettings?.();
     this._economyOpen = true;
-    if (this.btnEconomy) this.btnEconomy.setStyle({ backgroundColor: '#5a5a1f' });
+    this._setCommandDockHighlight(true);
 
     const gs = this.gameState;
     const p = gs.currentPlayer;
     const pl = gs.players[p];
     const w = this.scale.width, h = this.scale.height;
     const D = 222;
-    const panW = Math.min(820, w - 24), panH = Math.min(500, h - 24);
-    const px = w / 2, py = h / 2;
+    const panW = Math.min(360, Math.floor(w * 0.3));
+    const panH = Math.min(h - 90, 520);
+    const px = 8 + panW / 2;
+    const py = 74 + panH / 2;
     const objs = [];
 
     const bg = this.add.rectangle(px, py, panW, panH, 0x0f1114, 0.985)
@@ -4873,7 +5023,7 @@ export class GameScene extends Phaser.Scene {
       this._tradeObjs = null;
     }
     this._tradeOpen = false;
-    if (this.btnTrade) this.btnTrade.setStyle({ backgroundColor: '#3a2a11' });
+    this._setCommandDockHighlight(!!this._economyOpen);
   }
 
   _showFactoryPanel(factory) {
@@ -4920,7 +5070,6 @@ export class GameScene extends Phaser.Scene {
     this._closeSettings?.();
     this._closeEconomy?.();
     this._tradeOpen = true;
-    if (this.btnTrade) this.btnTrade.setStyle({ backgroundColor: '#6a4a11' });
 
     const gs = this.gameState;
     const p = gs.currentPlayer;
@@ -4929,8 +5078,10 @@ export class GameScene extends Phaser.Scene {
 
     const w = this.scale.width, h = this.scale.height;
     const D = 220;
-    const panW = Math.min(760, w - 30), panH = Math.min(520, h - 40);
-    const px = w / 2, py = h / 2;
+    const panW = Math.min(420, Math.floor(w * 0.34));
+    const panH = Math.min(h - 90, 480);
+    const px = w - 8 - panW / 2;
+    const py = 74 + panH / 2;
     const objs = [];
 
     const rebuild = () => {
@@ -5951,6 +6102,7 @@ export class GameScene extends Phaser.Scene {
 
   _selectUnit(unit) {
     this._hideContextMenu();
+    this._inspectorTabManual = null;
     this.selectedUnit = unit;
     const gs = this.gameState;
     const isImmobile = UNIT_TYPES[unit.type]?.immobile || unit.immobile;
@@ -6086,6 +6238,7 @@ export class GameScene extends Phaser.Scene {
 
   _clearSelection() {
     this._hideContextMenu();
+    this._inspectorTabManual = null;
     this.selectedUnit = null; this.reachable = []; this.attackable = []; this.mode = 'select';
     this._refresh();
   }
