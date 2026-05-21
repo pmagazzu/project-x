@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.9.2';
+export const GAME_VERSION = 'v1.9.3';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -5118,7 +5118,7 @@ export class GameScene extends Phaser.Scene {
     const px = w / 2, py = h / 2;
     const D = 195;
     const objs = [];
-    const branchW = 112, detailW = 252, hdrH = 52;
+    const branchW = 128, detailW = 288, hdrH = 56;
     const treeLeft = px - panW / 2 + branchW + 10;
     const treeTop  = py - panH / 2 + hdrH + 8;
     const treeW    = panW - branchW - detailW - 28;
@@ -5138,14 +5138,14 @@ export class GameScene extends Phaser.Scene {
     const hdrStrip = this.add.rectangle(px, py - panH / 2 + hdrH / 2, panW, hdrH, 0x1a0c28, 1)
       .setStrokeStyle(1, 0x553366).setScrollFactor(0).setDepth(D + 1);
     objs.push(hdrStrip);
-    objs.push(this.add.text(px, py - panH / 2 + 16, 'RESEARCH LAB', {
-      font: 'bold 16px monospace', fill: '#ffcc44'
+    objs.push(this.add.text(px, py - panH / 2 + 17, 'RESEARCH LAB', {
+      font: 'bold 18px monospace', fill: '#ffcc44'
     }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 2));
 
     const labs = gs.buildings.filter(b => b.type === 'SCIENCE_LAB' && b.owner === p && !b.underConstruction).length;
     const inc  = calcIncome(gs, p);
-    objs.push(this.add.text(px, py - panH / 2 + 36, `Labs ${labs}  \u2022  +${inc.rp} RP/turn  \u2022  Slots ${res.slots || 1}  \u2022  Queue ${res.queue.length}`, {
-      font: '11px monospace', fill: '#aa88cc'
+    objs.push(this.add.text(px, py - panH / 2 + 38, `Labs ${labs}  \u2022  +${inc.rp} RP/turn  \u2022  Slots ${res.slots || 1}  \u2022  Queue ${res.queue.length}`, {
+      font: '13px monospace', fill: '#ccb8dd'
     }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 2));
 
     const closeBtn = this.add.text(px + panW / 2 - 14, py - panH / 2 + 22, '\u2715', {
@@ -5168,7 +5168,7 @@ export class GameScene extends Phaser.Scene {
       research: 'R&D', module: 'MODULE', doctrine: 'DOCTRINE',
     };
 
-    const NODE_W = 108, NODE_H = 44, COL_GAP = 18, ROW_GAP = 6, TIER_HDR = 20;
+    const NODE_W = 124, NODE_H = 52, COL_GAP = 20, ROW_GAP = 8, TIER_HDR = 22;
     const detailLeft = px + panW / 2 - detailW - 8;
     const detailTop  = treeTop;
     const detailH    = treeH;
@@ -5196,18 +5196,18 @@ export class GameScene extends Phaser.Scene {
 
       addC(this.add.rectangle(treeLeft + treeW / 2, treeTop + treeH / 2, treeW, treeH, 0x0a0612, 0.55)
         .setStrokeStyle(2, 0x442255).setScrollFactor(0).setDepth(D + 1));
-      addC(this.add.text(treeLeft + treeW / 2, treeTop + treeH + 10, 'scroll wheel on tree', {
-        font: '9px monospace', fill: '#554466'
+      addC(this.add.text(treeLeft + treeW / 2, treeTop + treeH + 10, 'scroll to browse tree', {
+        font: '11px monospace', fill: '#554466'
       }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 2));
 
-      // Branch tabs (vertical arcade rail)
+      // Branch tabs — only the active branch is highlighted (magenta), not per-tech kind
       const tabX = px - panW / 2 + branchW / 2 + 6;
       const tabY0 = treeTop + 18;
       branches.forEach(([key, def], i) => {
-        const ty = tabY0 + i * 34;
+        const ty = tabY0 + i * 38;
         const isSel = key === branch;
-        const tb = this.add.rectangle(tabX, ty, branchW - 12, 30, isSel ? 0x4a2080 : 0x180c24, 1)
-          .setStrokeStyle(isSel ? 3 : 1, isSel ? 0xffcc44 : 0x443355)
+        const tb = this.add.rectangle(tabX, ty, branchW - 12, 34, isSel ? 0x4a2080 : 0x140c1c, 1)
+          .setStrokeStyle(isSel ? 3 : 1, isSel ? 0xff66cc : 0x332244)
           .setScrollFactor(0).setDepth(D + 2).setOrigin(0.5);
         tb.setInteractive({ useHandCursor: true });
         tb.on('pointerdown', () => {
@@ -5216,11 +5216,11 @@ export class GameScene extends Phaser.Scene {
           this.tweens.add({ targets: tb, scaleX: 0.92, scaleY: 0.92, duration: 50, yoyo: true });
           makePanel(key);
         });
-        tb.on('pointerover', () => { if (!isSel) tb.setStrokeStyle(2, 0xaa66cc); });
-        tb.on('pointerout',  () => { if (!isSel) tb.setStrokeStyle(1, 0x443355); });
+        tb.on('pointerover', () => { if (!isSel) tb.setStrokeStyle(2, 0x8866aa); });
+        tb.on('pointerout',  () => { if (!isSel) tb.setStrokeStyle(1, 0x332244); });
         addC(tb);
         addC(this.add.text(tabX, ty, `${def.icon} ${def.label}`, {
-          font: `${isSel ? 'bold ' : ''}9px monospace`, fill: isSel ? '#ffcc44' : '#667788'
+          font: `${isSel ? 'bold ' : ''}12px monospace`, fill: isSel ? '#ffffff' : '#8899aa'
         }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 3));
       });
 
@@ -5254,7 +5254,7 @@ export class GameScene extends Phaser.Scene {
           };
         });
         addC(this.add.text(colX, treeTop + 10 + scrollY, `T${tier}`, {
-          font: 'bold 9px monospace', fill: '#ffcc44'
+          font: 'bold 11px monospace', fill: '#9988bb'
         }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 3), true);
       });
 
@@ -5285,29 +5285,38 @@ export class GameScene extends Phaser.Scene {
         this.tweens.add({ targets, scaleX: 0.94, scaleY: 0.94, duration: 55, yoyo: true, ease: 'Quad.easeOut' });
       };
 
+      // Node colors = research state only (locked / ready / queued / done / selected)
+      const nodeStyle = (tech) => {
+        const isUnlocked = unlockedSet.has(tech.id);
+        const inQueue    = res.queue.some(q => q.techId === tech.id);
+        const isActive   = res.queue[0]?.techId === tech.id;
+        const prereqOk   = prereqsMet(tech.id, unlockedSet);
+        const isSel      = this._researchSelTechId === tech.id;
+        let fill = 0x0c0814, border = 0x333344, text = '#667788', strokeW = 2;
+        if (isUnlocked) { fill = 0x142818; border = 0x44cc77; text = '#88ffbb'; }
+        else if (isActive) { fill = 0x281838; border = 0xee66ff; text = '#eeccff'; strokeW = 3; }
+        else if (inQueue) { fill = 0x201030; border = 0x9955cc; text = '#ccaaee'; }
+        else if (prereqOk) { fill = 0x181428; border = 0x6688bb; text = '#ddeeff'; }
+        if (isSel) { border = 0xffffff; strokeW = 3; }
+        return { fill, border, text, strokeW };
+      };
+
       for (const tech of branchTechs) {
         const pos = nodePos[tech.id];
         if (!pos) continue;
         const { x: nx, y: ny } = pos;
         if (ny < treeTop - NODE_H || ny > treeTop + treeH + NODE_H) continue;
 
-        const isUnlocked = unlockedSet.has(tech.id);
-        const inQueue    = res.queue.some(q => q.techId === tech.id);
-        const isActive   = res.queue[0]?.techId === tech.id;
-        const prereqOk   = prereqsMet(tech.id, unlockedSet);
-        const isSel      = this._researchSelTechId === tech.id;
-        const isChassis  = tech.kind === 'chassis';
-        const kindColor  = KIND_COLOR[tech.kind] || 0x6688cc;
-        const fillC      = isUnlocked ? 0x142818 : inQueue ? 0x201030 : prereqOk ? 0x181428 : 0x0c0814;
-        const borderC    = isSel ? 0xffcc44 : isUnlocked ? 0x44ff88 : isActive ? 0xcc66ff : isChassis ? 0xffdd66 : kindColor;
-        const strokeW    = isSel || isChassis || isActive ? 3 : 2;
+        const st = nodeStyle(tech);
+        const kindColor = KIND_COLOR[tech.kind] || 0x6688cc;
+        const kindTag = KIND_LABEL[tech.kind] || tech.kind;
 
         const shadow = this.add.rectangle(nx + 2, ny + 2, NODE_W, NODE_H, 0x000000, 0.35)
           .setScrollFactor(0).setDepth(D + 1).setOrigin(0.5);
         addC(shadow, true);
 
-        const nodeBg = this.add.rectangle(nx, ny, NODE_W, NODE_H, fillC, 0.97)
-          .setStrokeStyle(strokeW, borderC).setScrollFactor(0).setDepth(D + 2).setOrigin(0.5);
+        const nodeBg = this.add.rectangle(nx, ny, NODE_W, NODE_H, st.fill, 0.97)
+          .setStrokeStyle(st.strokeW, st.border).setScrollFactor(0).setDepth(D + 2).setOrigin(0.5);
         nodeBg.setInteractive({ useHandCursor: true });
         nodeBg.on('pointerdown', () => {
           this._contextMenuClicked = true;
@@ -5315,18 +5324,24 @@ export class GameScene extends Phaser.Scene {
           bumpClick(nodeBg);
           makePanel(branch);
         });
-        nodeBg.on('pointerover', () => nodeBg.setStrokeStyle(strokeW + 1, 0xffffff));
-        nodeBg.on('pointerout',  () => nodeBg.setStrokeStyle(strokeW, borderC));
+        nodeBg.on('pointerover', () => nodeBg.setStrokeStyle(st.strokeW + 1, 0xffffff));
+        nodeBg.on('pointerout',  () => nodeBg.setStrokeStyle(st.strokeW, st.border));
         addC(nodeBg, true);
 
+        const isUnlocked = unlockedSet.has(tech.id);
+        const inQueue    = res.queue.some(q => q.techId === tech.id);
+        const isActive   = res.queue[0]?.techId === tech.id;
+        const prereqOk   = prereqsMet(tech.id, unlockedSet);
         const status = isUnlocked ? '\u2713' : isActive ? '\u25b6' : inQueue ? '\u25cc' : prereqOk ? '\u25cb' : '\u25a0';
-        const nameClr = isUnlocked ? '#66ff99' : isChassis ? '#ffdd88' : prereqOk ? '#ddeeff' : '#556677';
-        addC(this.add.text(nx - NODE_W / 2 + 6, ny - 10, `${status} ${trunc(tech.name, 14)}`, {
-          font: 'bold 9px monospace', fill: nameClr
+        addC(this.add.text(nx - NODE_W / 2 + 8, ny - 12, `${status} ${trunc(tech.name, 15)}`, {
+          font: 'bold 11px monospace', fill: st.text
         }).setScrollFactor(0).setDepth(D + 3), true);
-        addC(this.add.text(nx - NODE_W / 2 + 6, ny + 2, `${tech.cost} RP`, {
-          font: '9px monospace', fill: '#9977bb'
+        addC(this.add.text(nx - NODE_W / 2 + 8, ny + 4, `${tech.cost} RP`, {
+          font: '11px monospace', fill: '#aa99bb'
         }).setScrollFactor(0).setDepth(D + 3), true);
+        addC(this.add.text(nx + NODE_W / 2 - 6, ny + NODE_H / 2 - 10, kindTag, {
+          font: 'bold 8px monospace', fill: hexFill(kindColor)
+        }).setOrigin(1, 1).setScrollFactor(0).setDepth(D + 3), true);
 
         if (inQueue) {
           const item = res.queue.find(q => q.techId === tech.id);
@@ -5358,37 +5373,37 @@ export class GameScene extends Phaser.Scene {
         const kColor = KIND_COLOR[selTech.kind] || 0x6688cc;
 
         addC(this.add.text(dx, dy, selTech.name, {
-          font: 'bold 12px monospace', fill: '#ffcc44', wordWrap: { width: detailW - 24 }
+          font: 'bold 15px monospace', fill: '#f0e8ff', wordWrap: { width: detailW - 24 }
         }).setScrollFactor(0).setDepth(D + 3));
-        addC(this.add.text(dx, dy + 22, KIND_LABEL[selTech.kind] || selTech.kind.toUpperCase(), {
-          font: 'bold 9px monospace', fill: hexFill(kColor)
+        addC(this.add.text(dx, dy + 26, KIND_LABEL[selTech.kind] || selTech.kind.toUpperCase(), {
+          font: 'bold 11px monospace', fill: hexFill(kColor)
         }).setScrollFactor(0).setDepth(D + 3));
-        addC(this.add.text(dx, dy + 38, selTech.desc, {
-          font: '10px monospace', fill: '#aab8cc', wordWrap: { width: detailW - 24 }, lineSpacing: 3
+        addC(this.add.text(dx, dy + 44, selTech.desc, {
+          font: '12px monospace', fill: '#c8d4e8', wordWrap: { width: detailW - 24 }, lineSpacing: 4
         }).setScrollFactor(0).setDepth(D + 3));
 
         const preTxt = (selTech.prereqs || []).length
           ? (selTech.prereqs || []).map(id => TECH_TREE[id]?.name || id).join(', ')
           : 'none (starter)';
-        addC(this.add.text(dx, dy + 100, `Requires: ${preTxt}`, {
-          font: '9px monospace', fill: '#776688', wordWrap: { width: detailW - 24 }
+        addC(this.add.text(dx, dy + 108, `Requires: ${preTxt}`, {
+          font: '11px monospace', fill: '#9988aa', wordWrap: { width: detailW - 24 }
         }).setScrollFactor(0).setDepth(D + 3));
-        addC(this.add.text(dx, dy + 128, `Cost: ${selTech.cost} RP`, {
-          font: 'bold 11px monospace', fill: '#cc88ff'
+        addC(this.add.text(dx, dy + 138, `Cost: ${selTech.cost} RP`, {
+          font: 'bold 13px monospace', fill: '#cc88ff'
         }).setScrollFactor(0).setDepth(D + 3));
 
         if (inQueue) {
           const item = res.queue.find(q => q.techId === selTech.id);
           const pct  = Math.min(1, (item?.rpSpent || 0) / selTech.cost);
-          addC(this.add.text(dx, dy + 148, `Progress: ${Math.round(pct * 100)}%${isActive ? ' (active)' : ''}`, {
-            font: '10px monospace', fill: '#cc66ff'
+          addC(this.add.text(dx, dy + 160, `Progress: ${Math.round(pct * 100)}%${isActive ? ' (active)' : ''}`, {
+            font: '12px monospace', fill: '#cc66ff'
           }).setScrollFactor(0).setDepth(D + 3));
         }
 
-        const btnY = detailTop + detailH - 44;
+        const btnY = detailTop + detailH - 48;
         if (!isUnlocked && !inQueue && prereqOk) {
           const qb = this.add.text(detailLeft + detailW / 2, btnY, '\u25b6  QUEUE RESEARCH', {
-            font: 'bold 12px monospace', fill: '#1a0810', backgroundColor: '#ffcc44', padding: { x: 10, y: 6 }
+            font: 'bold 14px monospace', fill: '#ffffff', backgroundColor: '#cc44aa', padding: { x: 12, y: 8 }
           }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 4).setInteractive({ useHandCursor: true });
           qb.on('pointerdown', () => {
             this._contextMenuClicked = true;
@@ -5396,12 +5411,12 @@ export class GameScene extends Phaser.Scene {
             bumpClick(qb);
             makePanel(branch);
           });
-          qb.on('pointerover', () => qb.setStyle({ backgroundColor: '#ffee88' }));
-          qb.on('pointerout',  () => qb.setStyle({ backgroundColor: '#ffcc44' }));
+          qb.on('pointerover', () => qb.setStyle({ backgroundColor: '#ee66cc' }));
+          qb.on('pointerout',  () => qb.setStyle({ backgroundColor: '#cc44aa' }));
           addC(qb);
         } else if (inQueue && !isUnlocked) {
           const cb = this.add.text(detailLeft + detailW / 2, btnY, '\u2715  CANCEL', {
-            font: 'bold 11px monospace', fill: '#ffaa88', backgroundColor: '#2a0810', padding: { x: 10, y: 5 }
+            font: 'bold 13px monospace', fill: '#ffaa88', backgroundColor: '#2a0810', padding: { x: 12, y: 6 }
           }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 4).setInteractive({ useHandCursor: true });
           cb.on('pointerdown', () => {
             this._contextMenuClicked = true;
@@ -5411,11 +5426,11 @@ export class GameScene extends Phaser.Scene {
           addC(cb);
         } else if (isUnlocked) {
           addC(this.add.text(detailLeft + detailW / 2, btnY, 'UNLOCKED', {
-            font: 'bold 12px monospace', fill: '#44ff88'
+            font: 'bold 14px monospace', fill: '#44ff88'
           }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 3));
         } else if (!prereqOk) {
           addC(this.add.text(detailLeft + detailW / 2, btnY, 'LOCKED', {
-            font: 'bold 12px monospace', fill: '#554466'
+            font: 'bold 14px monospace', fill: '#665577'
           }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 3));
         }
       }
