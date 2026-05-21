@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.9.3';
+export const GAME_VERSION = 'v1.9.4';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -175,6 +175,10 @@ export class GameScene extends Phaser.Scene {
     this._aiAutoplayPaused = false;
     this._aiTurnInProgress = false;
     this._aiLastProgressAt = Date.now();
+    this._aiTurnId = 0;
+    this._aiPendingSteps = [];
+    this._aiActiveFinishTurn = null;
+    this._aiActiveTurnPlayer = null;
     this._autoStopTurn = Number(data.autoStopTurn) || 0;
     this._aiLabExport = !!data.aiLabExport;
     this._startSupplyTruck = !!data.startSupplyTruck;
@@ -5490,17 +5494,19 @@ export class GameScene extends Phaser.Scene {
                    W.UP.isDown || W.DOWN.isDown || W.LEFT.isDown || W.RIGHT.isDown);
     if (moving && this._contextMenuObjs) this._hideContextMenu();
 
-    // AI autoplay self-heal: if AI-vs-AI is active and we're idle too long, kick next AI turn.
+    // AI autoplay self-heal: only restart when truly idle (never while a turn's timers are live).
     if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2) && !this._aiAutoplayPaused) {
       const now = Date.now();
       const idleMs = now - (this._aiLastProgressAt || 0);
-      const stalled = idleMs > 4000;
-      // Hard recovery if in-progress flag gets stuck.
-      if (this._aiTurnInProgress && idleMs > 9000) {
-        this._pushLog('AI autoplay hard-recover: stale in-progress flag cleared');
+      if (this._aiTurnInProgress && idleMs > 25000 && this._aiActiveFinishTurn) {
+        this._pushLog(`AI hard recover: forcing end of P${this._aiActiveTurnPlayer} turn`);
+        this._cancelAIPendingSteps();
+        const fin = this._aiActiveFinishTurn;
+        this._aiActiveFinishTurn = null;
         this._aiTurnInProgress = false;
-      }
-      if (stalled && !this._aiTurnInProgress && !this._nameModalOpen && !this._settingsOpen && !this._endTurnPending && this.aiPlayers.has(this.gameState.currentPlayer)) {
+        fin?.();
+      } else if (idleMs > 6000 && !this._aiTurnInProgress && !this._nameModalOpen && !this._settingsOpen
+          && !this._endTurnPending && this.aiPlayers.has(this.gameState.currentPlayer)) {
         this._pushLog(`AI autoplay self-heal: restarting P${this.gameState.currentPlayer} turn`);
         this._aiLastProgressAt = now;
         this._runAITurn();
@@ -6948,8 +6954,43 @@ export class GameScene extends Phaser.Scene {
 
   // ── AI turn runner ────────────────────────────────────────────────────────
 
+  _cancelAIPendingSteps() {
+    for (const step of this._aiPendingSteps || []) {
+      try {
+        if (step?.remove) step.remove();
+        else clearTimeout(step);
+      } catch (e) {}
+    }
+    this._aiPendingSteps = [];
+    this._slideState = null;
+  }
+
+  _scheduleAIStep(ms, fn, turnId = this._aiTurnId) {
+    const wrapped = () => {
+      if (this._aiTurnId !== turnId) return;
+      this._aiLastProgressAt = Date.now();
+      fn();
+    };
+    const ev = this.time.delayedCall(this._simMs(ms), wrapped);
+    (this._aiPendingSteps = this._aiPendingSteps || []).push(ev);
+    return ev;
+  }
+
+  _scheduleAIStepTimeout(ms, fn, turnId = this._aiTurnId) {
+    const handle = setTimeout(() => {
+      if (this._aiTurnId !== turnId) return;
+      this._aiLastProgressAt = Date.now();
+      fn();
+    }, this._simMs(ms));
+    (this._aiPendingSteps = this._aiPendingSteps || []).push(handle);
+    return handle;
+  }
+
   _runAITurn() {
     if (this._aiTurnInProgress) return;
+    this._cancelAIPendingSteps();
+    this._aiTurnId = (this._aiTurnId || 0) + 1;
+    const turnId = this._aiTurnId;
     this._aiTurnInProgress = true;
     this._aiLastProgressAt = Date.now();
     const gs  = this.gameState;
@@ -6992,6 +7033,8 @@ export class GameScene extends Phaser.Scene {
         plannerReason: 'planner_crash',
         blocked: { occupied: 0, noWood: 0, alreadyRoad: 0, invalidBuilder: 0 },
       };
+      this._cancelAIPendingSteps();
+      this._aiActiveFinishTurn = null;
       this._aiTurnInProgress = false;
       this._aiLastProgressAt = Date.now();
       this._onSubmit();
@@ -7049,9 +7092,14 @@ export class GameScene extends Phaser.Scene {
 
     // Execute actions sequentially with delays and visual feedback
     let aiTurnDone = false;
+    this._aiActiveTurnPlayer = gs.currentPlayer;
     const finishAITurn = () => {
+      if (this._aiTurnId !== turnId) return;
       if (aiTurnDone) return;
       aiTurnDone = true;
+      this._cancelAIPendingSteps();
+      this._aiActiveFinishTurn = null;
+      this._aiActiveTurnPlayer = null;
       this._aiTurnInProgress = false;
       this._aiLastProgressAt = Date.now();
       const postKPI = getAIKPIReport(gs, gs.currentPlayer);
@@ -7073,34 +7121,38 @@ export class GameScene extends Phaser.Scene {
       this._onSubmit();
     };
 
+    this._aiActiveFinishTurn = finishAITurn;
+
     // Freeze guard: never let AI turn hang indefinitely.
-    this.time.delayedCall(this._simMs(12000), () => {
+    this._scheduleAIStep(12000, () => {
       if (!aiTurnDone) {
         this._pushLog(`AI P${gs.currentPlayer}: watchdog timeout, forcing turn submit`);
         finishAITurn();
       }
-    });
+    }, turnId);
 
-    this._executeAIActions(actions, 0, finishAITurn);
+    this._executeAIActions(actions, 0, finishAITurn, turnId);
   }
 
-  _executeAIActions(actions, index, onDone) {
+  _executeAIActions(actions, index, onDone, turnId = this._aiTurnId) {
+    if (this._aiTurnId !== turnId) return;
     if (index >= actions.length) { onDone(); return; }
 
     const action = actions[index];
     let advanced = false;
     const next = () => {
+      if (this._aiTurnId !== turnId) return;
       if (advanced) return;
       advanced = true;
-      try { clearTimeout(stepWatchdog); } catch(e){}
-      this._executeAIActions(actions, index + 1, onDone);
+      this._aiLastProgressAt = Date.now();
+      this._executeAIActions(actions, index + 1, onDone, turnId);
     };
-    const stepWatchdog = setTimeout(() => {
+    const stepWatchdog = this._scheduleAIStepTimeout(4500, () => {
       if (!advanced) {
         this._pushLog(`AI action watchdog: forcing next (${action.type})`);
         next();
       }
-    }, this._simMs(4500));
+    }, turnId);
     const gs     = this.gameState;
 
     try {
@@ -7122,7 +7174,7 @@ export class GameScene extends Phaser.Scene {
       };
       this._refresh();
       // Wait for slide to finish + small gap
-      this.time.delayedCall(this._simMs(350), next);
+      this._scheduleAIStep(350, next, turnId);
 
     } else if (action.type === 'attack') {
       const attacker = gs.units.find(u => u.id === action.attackerId);
@@ -7153,17 +7205,18 @@ export class GameScene extends Phaser.Scene {
           next();
         };
         this._splashDismiss = dismiss;
-        this.time.delayedCall(120, () => {
+        this._scheduleAIStep(120, () => {
+          if (this._aiTurnId !== turnId) return;
           this.input.on('pointerup', dismiss);
           this.input.keyboard?.once('keydown-SPACE', dismiss);
-        });
+        }, turnId);
         if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
-          this.time.delayedCall(this._simMs(900), () => { if (!done) dismiss(); });
+          this._scheduleAIStep(900, () => { if (!done) dismiss(); }, turnId);
         }
-        this.time.delayedCall(this._simMs(2500), () => { if (!done) dismiss(); });
+        this._scheduleAIStep(2500, () => { if (!done) dismiss(); }, turnId);
       } else {
         this._pushLog('AI attack resolved with no combat log entry');
-        this.time.delayedCall(200, next);
+        this._scheduleAIStep(200, next, turnId);
       }
 
     } else if (action.type === 'recruit') {
@@ -7241,7 +7294,7 @@ export class GameScene extends Phaser.Scene {
       unit.moved = true;
       unit.building = true;
       this._refresh();
-      this.time.delayedCall(120, next);
+      this._scheduleAIStep(120, next, turnId);
 
     } else if (action.type === 'design') {
       const result = registerDesign(gs, gs.currentPlayer, action.chassis, action.modules, action.name);
