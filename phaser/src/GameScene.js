@@ -9,7 +9,7 @@ import {
   createGameState, createUnit, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
   findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
-  calcUpkeep, calcRPFromLabs, computeSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS, getRecruitFoodCost,
+  calcUpkeep, calcRPFromLabs, computeSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS, getRecruitFoodCost, getUnitSupplyRadius,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, computeDesignStats,
@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.9.0';
+export const GAME_VERSION = 'v1.9.1';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -243,7 +243,7 @@ export class GameScene extends Phaser.Scene {
     // World graphics layers (depth order)
     this.roadGfx      = this.add.graphics().setDepth(5);
     this.supplyGfx    = this.add.graphics().setDepth(7);  // supply overlay — above roads, below highlights
-    this._supplyOverlayOn = false; // toggled by S key or button
+    this._supplyOverlayOn = false; // toggled by [L] or SUP button (not S — WASD pan)
     this.highlightGfx = this.add.graphics().setDepth(10);
     this.farmTileLayer = this.add.layer().setDepth(14); // farm terrain-overlays under building icons
     this.buildingGfx  = this.add.graphics().setDepth(15);
@@ -1334,17 +1334,39 @@ export class GameScene extends Phaser.Scene {
       this.supplyGfx.strokePoints(verts, true);
     }
 
-    // 2a) Supply Ship bubble: 1-hex ring around selected SUPPLY_SHIP
-    if (this.selectedUnit?.type === 'SUPPLY_SHIP') {
-      const NBR_SS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+    // 2a) Mobile logistics bubble for selected supply truck / ship
+    if (this.selectedUnit && (this.selectedUnit.type === 'SUPPLY_SHIP' || this.selectedUnit.type === 'SUPPLY_TRUCK')) {
+      const rad = getUnitSupplyRadius(gs, p, this.selectedUnit);
       const sq = this.selectedUnit.q, sr = this.selectedUnit.r;
-      for (const [dq, dr] of NBR_SS) {
-        const hq = sq + dq, hr = sr + dr;
+      const bubbleKeys = new Set();
+      const queue = [{ q: sq, r: sr, rem: rad }];
+      const visited = new Map();
+      visited.set(`${sq},${sr}`, rad);
+      while (queue.length > 0) {
+        const { q, r, rem } = queue.shift();
+        bubbleKeys.add(`${q},${r}`);
+        if (rem <= 0) continue;
+        for (const [dq, dr] of NBR) {
+          const nq = q + dq, nr = r + dr;
+          if (nq < 0 || nr < 0 || nq >= ms || nr >= ms) continue;
+          const nextRem = rem - 1;
+          const key = `${nq},${nr}`;
+          const prev = visited.get(key) ?? -1;
+          if (nextRem > prev) {
+            visited.set(key, nextRem);
+            queue.push({ q: nq, r: nr, rem: nextRem });
+          }
+        }
+      }
+      const fill = this.selectedUnit.type === 'SUPPLY_SHIP' ? 0x00aaff : 0x88cc44;
+      const stroke = this.selectedUnit.type === 'SUPPLY_SHIP' ? 0x00ccff : 0xaadd66;
+      for (const key of bubbleKeys) {
+        const [hq, hr] = key.split(',').map(Number);
         const { x: hx, y: hy } = hexToWorld(hq, hr);
         const hverts = hexVertices(hx, hy);
-        this.supplyGfx.fillStyle(0x00aaff, 0.2);
+        this.supplyGfx.fillStyle(fill, 0.2);
         this.supplyGfx.fillPoints(hverts, true);
-        this.supplyGfx.lineStyle(1.5, 0x00ccff, 0.6);
+        this.supplyGfx.lineStyle(1.5, stroke, 0.55);
         this.supplyGfx.strokePoints(hverts, true);
       }
     }
@@ -2680,7 +2702,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(D);
 
     // Row 2: actions only. Resource economy is moved into the left sidebar for readability.
-    this.btnSupply   = this._makeBtn(w - 500, 42, '⬡ SUP',   0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
+    this.btnSupply   = this._makeBtn(w - 500, 42, '⬡ SUP [L]', 0x111a11, () => this._toggleSupplyOverlay(), D, 'right');
     this.btnResearch = this._makeBtn(w - 414, 42, '⚗ RES',   0x442266, () => this._toggleResearch(), D, 'right');
     this.btnDesigner = this._makeBtn(w - 328, 42, '🔧 DES',   0x1a3322, () => this._toggleDesigner(), D, 'right');
     this.btnTrade    = this._makeBtn(w - 242, 42, '💱 TRADE', 0x3a2a11, () => this._toggleTrade(), D, 'right');
@@ -3980,7 +4002,10 @@ export class GameScene extends Phaser.Scene {
       this._pushLog(`P${u.owner} canceled move order for ${UNIT_TYPES[u.type]?.name || u.type}`);
       this._refresh();
     });
-    // Supply overlay hotkey intentionally disabled (was keydown-S). Use UI button only.
+    this.input.keyboard.on('keydown-L', () => {
+      if (this._nameModalOpen || this._mapBuilderMode) return;
+      this._toggleSupplyOverlay();
+    });
     this.input.keyboard.on('keydown-SPACE', () => {
       if (this._nameModalOpen) return;
       if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {

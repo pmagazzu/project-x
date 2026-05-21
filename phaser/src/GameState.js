@@ -1,6 +1,8 @@
 // GameState.js — Core game state for Attrition prototype
 // Phase 1: 2-player hotseat, iron + oil, 4 unit types, simultaneous turns (we-go)
 
+import { computeTechBonuses } from './ResearchData.js';
+
 // ── Unit stat guide ────────────────────────────────────────────────────────
 // soft_attack : damage vs infantry / unarmored
 // hard_attack : damage vs armored targets
@@ -82,7 +84,7 @@ export const UNIT_TYPES = {
   // ── Supply truck ────────────────────────────────────────────────────────
   // Soft unarmed vehicle that projects a supply bubble around itself.
   // Built at Vehicle Depot. Primary role: extend supply lines for offensive ops.
-  SUPPLY_TRUCK:    { name:'Supply Truck',    move:3,  attack:0, health:2, range:0, cost:{iron:2,oil:1}, shape:'truck',    canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:1, supplyRadius:3 },
+  SUPPLY_TRUCK:    { name:'Supply Truck',    move:3,  attack:0, health:2, range:0, cost:{iron:2,oil:1}, shape:'truck',    canDigIn:false, canBuild:false, canHeal:false, sight:2, soft_attack:0, hard_attack:0, pierce:0, armor:1, defense:0, evasion:0,  accuracy:0,  buildTime:1, supplyRadius:2 },
 };
 
 // ── Module system ─────────────────────────────────────────────────────────
@@ -726,6 +728,15 @@ export const DEPOT_SUPPLY_RADIUS = 4;
 export const WAREHOUSE_SUPPLY_RADIUS = 5;
 /** Turns a depot keeps projecting supply after its road link to HQ is cut. */
 export const DEPOT_SUPPLY_DRAIN_MAX = 3;
+
+/** Mobile / unit supply bubble radius (includes research unitStatBonus.supplyRadius). */
+export function getUnitSupplyRadius(state, player, unit) {
+  const base = UNIT_TYPES[unit.type]?.supplyRadius;
+  if (base == null) return 0;
+  const bonuses = computeTechBonuses(state.players[player]?.research?.unlocked || []);
+  const extra = bonuses.unitStatBonus[unit.type]?.supplyRadius || 0;
+  return Math.max(0, base + extra);
+}
 const ECON_BUILDINGS = new Set(['FARM','MINE','OIL_PUMP','LUMBER_CAMP','MARKET','PORT']);
 export function roadAt(state, q, r) {
   return state.buildings.find(b => ROAD_TYPES.has(b.type) && b.q === q && b.r === r) || null;
@@ -2450,17 +2461,20 @@ export function buildHQRoadNetwork(state, player, mapSize) {
 
   const roadQueue = [];
   for (const hq of hqs) {
-    const seeds = [
-      { q: hq.q, r: hq.r },
-      ...HEX_NEIGHBORS.map(([dq, dr]) => ({ q: hq.q + dq, r: hq.r + dr })),
-    ];
-    for (const s of seeds) {
-      if (!_isValid(s.q, s.r)) continue;
-      if (!isOwnedRoadHex(s.q, s.r)) continue;
-      const k = `${s.q},${s.r}`;
-      if (roadConnected.has(k)) continue;
-      roadConnected.add(k);
-      roadQueue.push(s);
+    // HQ always acts as a road-network junction (even before a road segment is built on-tile).
+    const hqKey = `${hq.q},${hq.r}`;
+    if (_isValid(hq.q, hq.r) && !roadConnected.has(hqKey)) {
+      roadConnected.add(hqKey);
+      roadQueue.push({ q: hq.q, r: hq.r });
+    }
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const nq = hq.q + dq, nr = hq.r + dr;
+      if (!_isValid(nq, nr)) continue;
+      if (!isOwnedRoadHex(nq, nr)) continue;
+      const nk = `${nq},${nr}`;
+      if (roadConnected.has(nk)) continue;
+      roadConnected.add(nk);
+      roadQueue.push({ q: nq, r: nr });
     }
   }
   while (roadQueue.length > 0) {
@@ -2592,8 +2606,8 @@ export function computeSupply(state, player, mapSize) {
   for (const u of state.units) {
     if (u.owner !== player || u.embarked) continue;
     if (u.type !== 'SUPPLY_TRUCK' && u.type !== 'SUPPLY_SHIP') continue;
-    const rad = UNIT_TYPES[u.type]?.supplyRadius || (u.type === 'SUPPLY_SHIP' ? 2 : 3);
-    hexRadiusFlood(supplied, u.q, u.r, rad, _isValid);
+    const rad = getUnitSupplyRadius(state, player, u) || (u.type === 'SUPPLY_SHIP' ? 1 : 2);
+    if (rad > 0) hexRadiusFlood(supplied, u.q, u.r, rad, _isValid);
   }
 
   // Naval buildings project supply across water by default (6 tiles).

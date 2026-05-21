@@ -375,9 +375,16 @@ export const TECH_TREE = {
   supply_truck_unlock: {
     id:'supply_truck_unlock', branch:'vehicles', tier:1, kind:'chassis',
     name:'Supply Truck Doctrine',
-    desc:'🔓 NEW CHASSIS — Unarmed logistics vehicle. Projects supply bubble (radius 3) around it.',
+    desc:'🔓 NEW CHASSIS — Unarmed logistics vehicle. Projects a 2-hex supply bubble around it.',
     cost:20, prereqs:[],
     effect:{ unlockChassis:'SUPPLY_TRUCK' },
+  },
+  extended_logistics: {
+    id:'extended_logistics', branch:'vehicles', tier:2, kind:'stat',
+    name:'Extended Logistics',
+    desc:'Supply Trucks project +2 supply reach (4 hexes total).',
+    cost:28, prereqs:['supply_truck_unlock'],
+    effect:{ unitStatBonus:{ SUPPLY_TRUCK:{ supplyRadius:2 } } },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -609,7 +616,7 @@ export const TECH_TREE = {
   supply_depot: {
     id:'supply_depot', branch:'engineering', tier:2, kind:'building',
     name:'Supply Depot',
-    desc:'🏗 BUILDING — Field supply depot: units within 3 hexes resupply +1 move.',
+    desc:'🏗 BUILDING — Forward depot: 4-hex supply bubble when road-linked to HQ; drains 3 turns if the link is cut.',
     cost:30, prereqs:['field_fortifications'],
     effect:{ unlockBuilding:'SUPPLY_DEPOT' },
   },
