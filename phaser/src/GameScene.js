@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.9.1';
+export const GAME_VERSION = 'v1.9.2';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -3883,6 +3883,16 @@ export class GameScene extends Phaser.Scene {
     this.game.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
     this.input.on('wheel', (_ptr, _o, _dx, dy) => {
+      if (this._researchOpen && this._researchTreeBounds) {
+        const b = this._researchTreeBounds;
+        const mx = _ptr.x, my = _ptr.y;
+        if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+          const max = this._researchMaxScroll || 0;
+          this._researchScrollY = Phaser.Math.Clamp((this._researchScrollY || 0) - dy * 0.45, -max, 0);
+          this._researchRenderBranch?.(this._researchSelBranch);
+          return;
+        }
+      }
       // Centered zoom: always zoom toward screen center (no top-left drift).
       const step = 1.10;
       const dir = dy > 0 ? -1 : 1; // wheel down => zoom out
@@ -5104,174 +5114,309 @@ export class GameScene extends Phaser.Scene {
     const res = pl.research;
     const unlockedSet = new Set(res.unlocked || []);
     const w = this.scale.width, h = this.scale.height;
-    const panW = Math.min(860, w - 30), panH = h - 60;
+    const panW = w - 32, panH = h - 32;
     const px = w / 2, py = h / 2;
     const D = 195;
     const objs = [];
+    const branchW = 112, detailW = 252, hdrH = 52;
+    const treeLeft = px - panW / 2 + branchW + 10;
+    const treeTop  = py - panH / 2 + hdrH + 8;
+    const treeW    = panW - branchW - detailW - 28;
+    const treeH    = panH - hdrH - 20;
 
-    // Panel background
-    const bg = this.add.rectangle(px, py, panW, panH, 0x080c14, 0.97)
-      .setStrokeStyle(2, 0x553388).setScrollFactor(0).setDepth(D);
+    this._researchTreeBounds = { x: treeLeft, y: treeTop, w: treeW, h: treeH };
+    if (this._researchScrollY === undefined) this._researchScrollY = 0;
+
+    const trunc = (s, n) => (s.length > n ? s.slice(0, n - 1) + '\u2026' : s);
+    const hexFill = (c) => '#' + c.toString(16).padStart(6, '0');
+
+    const bg = this.add.rectangle(px, py, panW, panH, 0x100818, 0.98)
+      .setStrokeStyle(3, 0xff66cc).setScrollFactor(0).setDepth(D);
     objs.push(bg);
-    const hdrStrip = this.add.rectangle(px, py - panH/2 + 20, panW, 40, 0x0e0820, 1)
-      .setScrollFactor(0).setDepth(D);
+    objs.push(this.add.rectangle(px, py - panH / 2 + 3, panW, 6, 0xffcc44, 0.85)
+      .setScrollFactor(0).setDepth(D + 1));
+    const hdrStrip = this.add.rectangle(px, py - panH / 2 + hdrH / 2, panW, hdrH, 0x1a0c28, 1)
+      .setStrokeStyle(1, 0x553366).setScrollFactor(0).setDepth(D + 1);
     objs.push(hdrStrip);
-    objs.push(this.add.text(px, py - panH/2 + 14, '\u2500\u2500 RESEARCH \u2500\u2500', {
-      font: 'bold 14px monospace', fill: '#cc88ff'
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1));
+    objs.push(this.add.text(px, py - panH / 2 + 16, 'RESEARCH LAB', {
+      font: 'bold 16px monospace', fill: '#ffcc44'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 2));
 
     const labs = gs.buildings.filter(b => b.type === 'SCIENCE_LAB' && b.owner === p && !b.underConstruction).length;
     const inc  = calcIncome(gs, p);
-    objs.push(this.add.text(px, py - panH/2 + 33, `Labs: ${labs}  |  +${inc.rp} RP/turn  |  Slots: ${res.slots || 1}  |  Queue: ${res.queue.length}`, {
-      font: '10px monospace', fill: '#8866aa'
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1));
+    objs.push(this.add.text(px, py - panH / 2 + 36, `Labs ${labs}  \u2022  +${inc.rp} RP/turn  \u2022  Slots ${res.slots || 1}  \u2022  Queue ${res.queue.length}`, {
+      font: '11px monospace', fill: '#aa88cc'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 2));
 
-    const closeBtn = this.add.text(px + panW/2 - 10, py - panH/2 + 20, '\u2715', {
-      font: 'bold 16px monospace', fill: '#888888'
-    }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D+2).setInteractive({ useHandCursor: true });
+    const closeBtn = this.add.text(px + panW / 2 - 14, py - panH / 2 + 22, '\u2715', {
+      font: 'bold 18px monospace', fill: '#886688'
+    }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D + 3).setInteractive({ useHandCursor: true });
     closeBtn.on('pointerdown', () => this._closeResearch());
-    closeBtn.on('pointerover', () => closeBtn.setStyle({ fill: '#ffffff' }));
-    closeBtn.on('pointerout',  () => closeBtn.setStyle({ fill: '#888888' }));
+    closeBtn.on('pointerover', () => closeBtn.setStyle({ fill: '#ffcc44' }));
+    closeBtn.on('pointerout',  () => closeBtn.setStyle({ fill: '#886688' }));
     objs.push(closeBtn);
 
-    const branches  = Object.entries(RESEARCH_BRANCHES);
-    const tabW      = Math.floor((panW - 20) / branches.length);
-    const tabY      = py - panH/2 + 52;
-    let selBranch   = this._researchSelBranch || branches[0][0];
+    const branches = Object.entries(RESEARCH_BRANCHES);
+    let selBranch = this._researchSelBranch || branches[0][0];
 
-    const KIND_COLOR = { chassis:0xddaa00, building:0x44bb44, economy:0x44aacc, stat:0x6688cc, research:0xcc66cc };
-    const KIND_LABEL = { chassis:'\ud83d\udd13 NEW CHASSIS', building:'\ud83c\udfd7 BUILDING', economy:'\ud83d\udcc8 ECONOMY', stat:'\ud83d\udcca STAT', research:'\u26d7 RESEARCH' };
+    const KIND_COLOR = {
+      chassis: 0xddaa00, building: 0x44bb44, economy: 0x44aacc, stat: 0x6688cc,
+      research: 0xcc66cc, module: 0xcc8844, doctrine: 0xcc4488,
+    };
+    const KIND_LABEL = {
+      chassis: 'CHASSIS', building: 'BUILD', economy: 'ECON', stat: 'STAT',
+      research: 'R&D', module: 'MODULE', doctrine: 'DOCTRINE',
+    };
+
+    const NODE_W = 108, NODE_H = 44, COL_GAP = 18, ROW_GAP = 6, TIER_HDR = 20;
+    const detailLeft = px + panW / 2 - detailW - 8;
+    const detailTop  = treeTop;
+    const detailH    = treeH;
 
     const makePanel = (branch) => {
       if (this._researchContentObjs) {
-        for (const o of this._researchContentObjs) { try { o.destroy(); } catch(e){} }
+        for (const o of this._researchContentObjs) { try { o.destroy(); } catch (e) {} }
       }
       this._researchContentObjs = [];
       this._researchSelBranch = branch;
-      const addC = (obj) => { this._researchContentObjs.push(obj); this._addToUI([obj]); };
-      const gfx = this.add.graphics().setScrollFactor(0).setDepth(D+1);
-      addC(gfx);
+      const addC = (obj, masked = false) => {
+        this._researchContentObjs.push(obj);
+        this._addToUI([obj]);
+        if (masked && this._researchMask) obj.setMask(this._researchMask);
+        return obj;
+      };
 
-      // Branch tabs
+      if (!this._researchMaskGfx) {
+        this._researchMaskGfx = this.make.graphics({ add: false });
+      }
+      this._researchMaskGfx.clear();
+      this._researchMaskGfx.fillStyle(0xffffff);
+      this._researchMaskGfx.fillRect(treeLeft, treeTop, treeW, treeH);
+      this._researchMask = this._researchMaskGfx.createGeometryMask();
+
+      addC(this.add.rectangle(treeLeft + treeW / 2, treeTop + treeH / 2, treeW, treeH, 0x0a0612, 0.55)
+        .setStrokeStyle(2, 0x442255).setScrollFactor(0).setDepth(D + 1));
+      addC(this.add.text(treeLeft + treeW / 2, treeTop + treeH + 10, 'scroll wheel on tree', {
+        font: '9px monospace', fill: '#554466'
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 2));
+
+      // Branch tabs (vertical arcade rail)
+      const tabX = px - panW / 2 + branchW / 2 + 6;
+      const tabY0 = treeTop + 18;
       branches.forEach(([key, def], i) => {
-        const tx = px - panW/2 + 10 + i * (tabW + 2) + tabW / 2;
+        const ty = tabY0 + i * 34;
         const isSel = key === branch;
-        const tb = this.add.rectangle(tx, tabY, tabW, 22, isSel ? 0x331a55 : 0x111122, 1)
-          .setStrokeStyle(1, isSel ? 0xcc88ff : 0x333355).setScrollFactor(0).setDepth(D+2).setOrigin(0.5);
+        const tb = this.add.rectangle(tabX, ty, branchW - 12, 30, isSel ? 0x4a2080 : 0x180c24, 1)
+          .setStrokeStyle(isSel ? 3 : 1, isSel ? 0xffcc44 : 0x443355)
+          .setScrollFactor(0).setDepth(D + 2).setOrigin(0.5);
         tb.setInteractive({ useHandCursor: true });
-        tb.on('pointerdown', () => { this._contextMenuClicked = true; makePanel(key); });
+        tb.on('pointerdown', () => {
+          this._contextMenuClicked = true;
+          this._researchScrollY = 0;
+          this.tweens.add({ targets: tb, scaleX: 0.92, scaleY: 0.92, duration: 50, yoyo: true });
+          makePanel(key);
+        });
+        tb.on('pointerover', () => { if (!isSel) tb.setStrokeStyle(2, 0xaa66cc); });
+        tb.on('pointerout',  () => { if (!isSel) tb.setStrokeStyle(1, 0x443355); });
         addC(tb);
-        addC(this.add.text(tx, tabY, `${def.icon} ${def.label}`, {
-          font: `${isSel ? 'bold ' : ''}10px monospace`, fill: isSel ? '#cc88ff' : '#667788'
-        }).setOrigin(0.5).setScrollFactor(0).setDepth(D+3));
+        addC(this.add.text(tabX, ty, `${def.icon} ${def.label}`, {
+          font: `${isSel ? 'bold ' : ''}9px monospace`, fill: isSel ? '#ffcc44' : '#667788'
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 3));
       });
 
-      // Tree layout
+      // Detail pane chrome
+      addC(this.add.rectangle(detailLeft + detailW / 2, detailTop + detailH / 2, detailW, detailH, 0x140a20, 0.92)
+        .setStrokeStyle(2, 0xff66cc).setScrollFactor(0).setDepth(D + 1));
+
       const branchTechs = Object.values(TECH_TREE).filter(t => t.branch === branch);
       const byTier = {};
       for (const t of branchTechs) { (byTier[t.tier] = byTier[t.tier] || []).push(t); }
-      const tiers   = Object.keys(byTier).map(Number).sort((a,b) => a-b);
-      const maxRow  = Math.max(1, ...Object.values(byTier).map(r => r.length));
-      const nodeGapX = 10;
-      const nodeW   = Math.max(136, Math.min(196, Math.floor((panW - 36 - (maxRow - 1) * nodeGapX) / maxRow)));
-      const nodeH = 82, tierGapY = 52;
-      const treeTop = tabY + 28;
-      const nodePos = {};
-
-      tiers.forEach((tier, ti) => {
-        const row    = byTier[tier];
-        const totalW = row.length * (nodeW + nodeGapX) - nodeGapX;
-        const rowX0  = px - totalW / 2 + nodeW / 2;
-        const rowY   = treeTop + ti * (nodeH + tierGapY) + nodeH / 2;
-        row.forEach((tech, ri) => { nodePos[tech.id] = { x: rowX0 + ri*(nodeW+nodeGapX), y: rowY }; });
+      const tiers = Object.keys(byTier).map(Number).sort((a, b) => a - b);
+      const sortTier = (row) => [...row].sort((a, b) => {
+        const da = (a.prereqs || []).length, db = (b.prereqs || []).length;
+        return da !== db ? da - db : a.name.localeCompare(b.name);
       });
 
-      // Prereq lines
-      gfx.lineStyle(2, 0x553388, 0.55);
+      const scrollY = this._researchScrollY || 0;
+      const treeInnerTop = treeTop + 22 + TIER_HDR;
+      const maxColRows = Math.max(1, ...tiers.map(t => byTier[t].length));
+      const contentH = TIER_HDR + maxColRows * (NODE_H + ROW_GAP) + 24;
+      this._researchMaxScroll = Math.max(0, contentH - treeH);
+
+      const nodePos = {};
+      tiers.forEach((tier, ti) => {
+        const colX = treeLeft + 12 + ti * (NODE_W + COL_GAP) + NODE_W / 2;
+        const row = sortTier(byTier[tier]);
+        row.forEach((tech, ri) => {
+          nodePos[tech.id] = {
+            x: colX,
+            y: treeInnerTop + ri * (NODE_H + ROW_GAP) + NODE_H / 2 + scrollY,
+          };
+        });
+        addC(this.add.text(colX, treeTop + 10 + scrollY, `T${tier}`, {
+          font: 'bold 9px monospace', fill: '#ffcc44'
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 3), true);
+      });
+
+      const gfx = this.add.graphics().setScrollFactor(0).setDepth(D + 2);
+      addC(gfx, true);
+      gfx.lineStyle(2, 0x8844cc, 0.45);
       for (const tech of branchTechs) {
         const to = nodePos[tech.id];
         if (!to) continue;
         for (const preId of (tech.prereqs || [])) {
           const from = nodePos[preId];
           if (!from) continue;
-          const fx=from.x, fy=from.y+nodeH/2, tx2=to.x, ty2=to.y-nodeH/2;
+          const fx = from.x + NODE_W / 2, fy = from.y;
+          const tx2 = to.x - NODE_W / 2, ty2 = to.y;
+          const midX = (fx + tx2) / 2;
           gfx.beginPath();
-          gfx.moveTo(fx,fy); gfx.lineTo(fx, fy+(ty2-fy)*0.4);
-          gfx.lineTo(tx2, fy+(ty2-fy)*0.6); gfx.lineTo(tx2,ty2);
+          gfx.moveTo(fx, fy);
+          gfx.lineTo(midX, fy);
+          gfx.lineTo(midX, ty2);
+          gfx.lineTo(tx2, ty2);
           gfx.strokePath();
-          gfx.fillStyle(0x553388,0.55);
-          gfx.fillTriangle(tx2,ty2,tx2-4,ty2-7,tx2+4,ty2-7);
+          gfx.fillStyle(0xcc66ff, 0.7);
+          gfx.fillTriangle(tx2, ty2, tx2 - 5, ty2 - 8, tx2 + 5, ty2 - 8);
         }
       }
 
-      // Nodes
+      const bumpClick = (targets) => {
+        this.tweens.add({ targets, scaleX: 0.94, scaleY: 0.94, duration: 55, yoyo: true, ease: 'Quad.easeOut' });
+      };
+
       for (const tech of branchTechs) {
         const pos = nodePos[tech.id];
         if (!pos) continue;
-        const { x:nx, y:ny } = pos;
-        const nx0=nx-nodeW/2, ny0=ny-nodeH/2;
+        const { x: nx, y: ny } = pos;
+        if (ny < treeTop - NODE_H || ny > treeTop + treeH + NODE_H) continue;
+
         const isUnlocked = unlockedSet.has(tech.id);
         const inQueue    = res.queue.some(q => q.techId === tech.id);
         const isActive   = res.queue[0]?.techId === tech.id;
         const prereqOk   = prereqsMet(tech.id, unlockedSet);
+        const isSel      = this._researchSelTechId === tech.id;
         const isChassis  = tech.kind === 'chassis';
         const kindColor  = KIND_COLOR[tech.kind] || 0x6688cc;
-        const fillC      = isUnlocked ? 0x142614 : inQueue ? 0x141426 : prereqOk ? 0x12121e : 0x0c0c12;
-        const borderC    = isUnlocked ? 0x44cc44 : isActive ? 0xcc88ff : isChassis ? 0xddaa00 : kindColor;
+        const fillC      = isUnlocked ? 0x142818 : inQueue ? 0x201030 : prereqOk ? 0x181428 : 0x0c0814;
+        const borderC    = isSel ? 0xffcc44 : isUnlocked ? 0x44ff88 : isActive ? 0xcc66ff : isChassis ? 0xffdd66 : kindColor;
+        const strokeW    = isSel || isChassis || isActive ? 3 : 2;
 
-        const nodeBg = this.add.rectangle(nx, ny, nodeW, nodeH, fillC, 0.96)
-          .setStrokeStyle(isChassis||isActive ? 2 : 1, borderC).setScrollFactor(0).setDepth(D+2).setOrigin(0.5);
-        addC(nodeBg);
+        const shadow = this.add.rectangle(nx + 2, ny + 2, NODE_W, NODE_H, 0x000000, 0.35)
+          .setScrollFactor(0).setDepth(D + 1).setOrigin(0.5);
+        addC(shadow, true);
 
-        // Kind badge top-right
-        const badgeTxt = KIND_LABEL[tech.kind] || '';
-        if (badgeTxt) {
-          addC(this.add.text(nx+nodeW/2-3, ny0+3, badgeTxt, {
-            font:'8px monospace', fill:'#' + kindColor.toString(16).padStart(6,'0')
-          }).setOrigin(1,0).setScrollFactor(0).setDepth(D+3));
-        }
+        const nodeBg = this.add.rectangle(nx, ny, NODE_W, NODE_H, fillC, 0.97)
+          .setStrokeStyle(strokeW, borderC).setScrollFactor(0).setDepth(D + 2).setOrigin(0.5);
+        nodeBg.setInteractive({ useHandCursor: true });
+        nodeBg.on('pointerdown', () => {
+          this._contextMenuClicked = true;
+          this._researchSelTechId = tech.id;
+          bumpClick(nodeBg);
+          makePanel(branch);
+        });
+        nodeBg.on('pointerover', () => nodeBg.setStrokeStyle(strokeW + 1, 0xffffff));
+        nodeBg.on('pointerout',  () => nodeBg.setStrokeStyle(strokeW, borderC));
+        addC(nodeBg, true);
 
-        const icon    = isUnlocked ? '\u2713' : isActive ? '\u25b6' : inQueue ? '\u25cc' : prereqOk ? '' : '\ud83d\udd12';
-        const nameClr = isUnlocked ? '#66dd66' : isChassis ? '#ffdd88' : prereqOk ? '#ccddff' : '#445566';
-        addC(this.add.text(nx0+5, ny0+4, `${icon} ${tech.name}`, {
-          font:'bold 10px monospace', fill:nameClr, wordWrap:{width:nodeW-40}
-        }).setScrollFactor(0).setDepth(D+3));
-
-        addC(this.add.text(nx0+5, ny0+19, tech.desc, {
-          font:'9px monospace', fill:'#7788aa', wordWrap:{width:nodeW-10}
-        }).setScrollFactor(0).setDepth(D+3));
-
-        addC(this.add.text(nx0+5, ny+nodeH/2-13, `Cost: ${tech.cost} RP`, {
-          font:'9px monospace', fill:'#8866aa'
-        }).setScrollFactor(0).setDepth(D+3));
+        const status = isUnlocked ? '\u2713' : isActive ? '\u25b6' : inQueue ? '\u25cc' : prereqOk ? '\u25cb' : '\u25a0';
+        const nameClr = isUnlocked ? '#66ff99' : isChassis ? '#ffdd88' : prereqOk ? '#ddeeff' : '#556677';
+        addC(this.add.text(nx - NODE_W / 2 + 6, ny - 10, `${status} ${trunc(tech.name, 14)}`, {
+          font: 'bold 9px monospace', fill: nameClr
+        }).setScrollFactor(0).setDepth(D + 3), true);
+        addC(this.add.text(nx - NODE_W / 2 + 6, ny + 2, `${tech.cost} RP`, {
+          font: '9px monospace', fill: '#9977bb'
+        }).setScrollFactor(0).setDepth(D + 3), true);
 
         if (inQueue) {
           const item = res.queue.find(q => q.techId === tech.id);
-          const pct  = Math.min(1, (item?.rpSpent||0)/tech.cost);
-          addC(this.add.rectangle(nx0+5, ny+nodeH/2-5, (nodeW-10)*pct, 5, 0x9944ff, 1).setScrollFactor(0).setDepth(D+3).setOrigin(0,0.5));
-          addC(this.add.rectangle(nx0+5, ny+nodeH/2-5, nodeW-10, 5, 0x222233, 0.4).setScrollFactor(0).setDepth(D+2).setOrigin(0,0.5));
-          addC(this.add.text(nx+nodeW/2-3, ny+nodeH/2-5, `${Math.round(pct*100)}%`, {
-            font:'8px monospace', fill:'#aa88cc'
-          }).setOrigin(1,0.5).setScrollFactor(0).setDepth(D+3));
+          const pct  = Math.min(1, (item?.rpSpent || 0) / tech.cost);
+          const barY = ny + NODE_H / 2 - 6;
+          addC(this.add.rectangle(nx - NODE_W / 2 + 5, barY, NODE_W - 10, 4, 0x221133, 0.8)
+            .setOrigin(0, 0.5).setScrollFactor(0).setDepth(D + 2), true);
+          addC(this.add.rectangle(nx - NODE_W / 2 + 5, barY, (NODE_W - 10) * pct, 4, 0xcc66ff, 1)
+            .setOrigin(0, 0.5).setScrollFactor(0).setDepth(D + 3), true);
+        }
+      }
+
+      // Detail pane for selected tech
+      const selId = this._researchSelTechId;
+      let selTech = selId ? TECH_TREE[selId] : null;
+      if (!selTech || selTech.branch !== branch) {
+        selTech = branchTechs.find(t => prereqsMet(t.id, unlockedSet) && !unlockedSet.has(t.id))
+          || branchTechs.find(t => !unlockedSet.has(t.id))
+          || branchTechs[0];
+        if (selTech) this._researchSelTechId = selTech.id;
+      }
+
+      const dx = detailLeft + 12, dy = detailTop + 14;
+      if (selTech) {
+        const isUnlocked = unlockedSet.has(selTech.id);
+        const inQueue    = res.queue.some(q => q.techId === selTech.id);
+        const isActive   = res.queue[0]?.techId === selTech.id;
+        const prereqOk   = prereqsMet(selTech.id, unlockedSet);
+        const kColor = KIND_COLOR[selTech.kind] || 0x6688cc;
+
+        addC(this.add.text(dx, dy, selTech.name, {
+          font: 'bold 12px monospace', fill: '#ffcc44', wordWrap: { width: detailW - 24 }
+        }).setScrollFactor(0).setDepth(D + 3));
+        addC(this.add.text(dx, dy + 22, KIND_LABEL[selTech.kind] || selTech.kind.toUpperCase(), {
+          font: 'bold 9px monospace', fill: hexFill(kColor)
+        }).setScrollFactor(0).setDepth(D + 3));
+        addC(this.add.text(dx, dy + 38, selTech.desc, {
+          font: '10px monospace', fill: '#aab8cc', wordWrap: { width: detailW - 24 }, lineSpacing: 3
+        }).setScrollFactor(0).setDepth(D + 3));
+
+        const preTxt = (selTech.prereqs || []).length
+          ? (selTech.prereqs || []).map(id => TECH_TREE[id]?.name || id).join(', ')
+          : 'none (starter)';
+        addC(this.add.text(dx, dy + 100, `Requires: ${preTxt}`, {
+          font: '9px monospace', fill: '#776688', wordWrap: { width: detailW - 24 }
+        }).setScrollFactor(0).setDepth(D + 3));
+        addC(this.add.text(dx, dy + 128, `Cost: ${selTech.cost} RP`, {
+          font: 'bold 11px monospace', fill: '#cc88ff'
+        }).setScrollFactor(0).setDepth(D + 3));
+
+        if (inQueue) {
+          const item = res.queue.find(q => q.techId === selTech.id);
+          const pct  = Math.min(1, (item?.rpSpent || 0) / selTech.cost);
+          addC(this.add.text(dx, dy + 148, `Progress: ${Math.round(pct * 100)}%${isActive ? ' (active)' : ''}`, {
+            font: '10px monospace', fill: '#cc66ff'
+          }).setScrollFactor(0).setDepth(D + 3));
         }
 
+        const btnY = detailTop + detailH - 44;
         if (!isUnlocked && !inQueue && prereqOk) {
-          const qb = this.add.text(nx+nodeW/2-3, ny0+3, '\u25b6 Queue', {
-            font:'bold 9px monospace', fill:'#ffcc44', backgroundColor:'#221a00', padding:{x:3,y:2}
-          }).setOrigin(1,0).setScrollFactor(0).setDepth(D+4).setInteractive({useHandCursor:true});
-          qb.on('pointerdown', () => { this._contextMenuClicked=true; res.queue.push({techId:tech.id,rpSpent:0}); makePanel(branch); });
-          qb.on('pointerover', () => qb.setAlpha(0.8));
-          qb.on('pointerout',  () => qb.setAlpha(1.0));
+          const qb = this.add.text(detailLeft + detailW / 2, btnY, '\u25b6  QUEUE RESEARCH', {
+            font: 'bold 12px monospace', fill: '#1a0810', backgroundColor: '#ffcc44', padding: { x: 10, y: 6 }
+          }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 4).setInteractive({ useHandCursor: true });
+          qb.on('pointerdown', () => {
+            this._contextMenuClicked = true;
+            res.queue.push({ techId: selTech.id, rpSpent: 0 });
+            bumpClick(qb);
+            makePanel(branch);
+          });
+          qb.on('pointerover', () => qb.setStyle({ backgroundColor: '#ffee88' }));
+          qb.on('pointerout',  () => qb.setStyle({ backgroundColor: '#ffcc44' }));
           addC(qb);
-        }
-        if (inQueue && !isUnlocked) {
-          const cb = this.add.text(nx+nodeW/2-3, ny+nodeH/2-15, '\u2715 Cancel', {
-            font:'9px monospace', fill:'#ff6644', backgroundColor:'#220000', padding:{x:3,y:2}
-          }).setOrigin(1,1).setScrollFactor(0).setDepth(D+4).setInteractive({useHandCursor:true});
-          cb.on('pointerdown', () => { this._contextMenuClicked=true; res.queue=res.queue.filter(q=>q.techId!==tech.id); makePanel(branch); });
-          cb.on('pointerover', () => cb.setAlpha(0.8));
-          cb.on('pointerout',  () => cb.setAlpha(1.0));
+        } else if (inQueue && !isUnlocked) {
+          const cb = this.add.text(detailLeft + detailW / 2, btnY, '\u2715  CANCEL', {
+            font: 'bold 11px monospace', fill: '#ffaa88', backgroundColor: '#2a0810', padding: { x: 10, y: 5 }
+          }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 4).setInteractive({ useHandCursor: true });
+          cb.on('pointerdown', () => {
+            this._contextMenuClicked = true;
+            res.queue = res.queue.filter(q => q.techId !== selTech.id);
+            makePanel(branch);
+          });
           addC(cb);
+        } else if (isUnlocked) {
+          addC(this.add.text(detailLeft + detailW / 2, btnY, 'UNLOCKED', {
+            font: 'bold 12px monospace', fill: '#44ff88'
+          }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 3));
+        } else if (!prereqOk) {
+          addC(this.add.text(detailLeft + detailW / 2, btnY, 'LOCKED', {
+            font: 'bold 12px monospace', fill: '#554466'
+          }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 3));
         }
       }
     };
@@ -5279,18 +5424,26 @@ export class GameScene extends Phaser.Scene {
     this._addToUI(objs);
     this._researchObjs = objs;
     this._researchContentObjs = [];
+    this._researchRenderBranch = makePanel;
     makePanel(selBranch);
   }
 
   _closeResearch() {
     if (this._researchObjs) {
-      for (const o of this._researchObjs) { try { o.destroy(); } catch(e){} }
+      for (const o of this._researchObjs) { try { o.destroy(); } catch (e) {} }
       this._researchObjs = null;
     }
     if (this._researchContentObjs) {
-      for (const o of this._researchContentObjs) { try { o.destroy(); } catch(e){} }
+      for (const o of this._researchContentObjs) { try { o.destroy(); } catch (e) {} }
       this._researchContentObjs = null;
     }
+    if (this._researchMaskGfx) {
+      try { this._researchMaskGfx.destroy(); } catch (e) {}
+      this._researchMaskGfx = null;
+    }
+    this._researchMask = null;
+    this._researchRenderBranch = null;
+    this._researchTreeBounds = null;
     this._researchOpen = false;
   }
 
