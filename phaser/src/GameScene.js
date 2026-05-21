@@ -35,7 +35,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.9.4';
+export const GAME_VERSION = 'v1.9.5';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -194,8 +194,14 @@ export class GameScene extends Phaser.Scene {
     if (data.aiP2) this.aiPlayers.add(2);
     // AI strategy
     this.aiStrategy = data.aiStrategy || 'balanced';
-    // Random map uses a unique seed each game
-    this.mapSeed = (this.scenario === 'random' || this.scenario === 'custom') ? (Date.now() & 0xFFFFFF) : 0;
+    // Random/custom maps: mixed seed so endless runs don't feel like clones
+    if (this.scenario === 'random' || this.scenario === 'custom') {
+      const t = Date.now() >>> 0;
+      const r = (Math.random() * 0x100000000) >>> 0;
+      this.mapSeed = (t ^ r ^ ((t << 13) | (t >>> 19))) >>> 0;
+    } else {
+      this.mapSeed = 0;
+    }
 
     this.gameState = createGameState(this.scenario);
     this.gameState._techTree = TECH_TREE; // inject for resolveEndOfTurn research tick
@@ -8066,6 +8072,13 @@ export class GameScene extends Phaser.Scene {
     const HILL_LV   = 0.64;
     const MTN_LV    = 0.79;
 
+    // Continent anchor (seed-jittered — avoids same island + center spine every game)
+    const contCX = ms * (0.50 + (this._fbm(seed * 0.001, 2.1, seed + 301, 1) - 0.5) * 0.22);
+    const contCY = ms * (0.50 + (this._fbm(seed * 0.001, 2.9, seed + 307, 1) - 0.5) * 0.20);
+    const contA  = ms * (0.24 + this._fbm(seed * 0.001, 3.7, seed + 313, 1) * 0.12);
+    const contB  = ms * (0.18 + this._fbm(seed * 0.001, 4.3, seed + 317, 1) * 0.11);
+    const contRot = (this._fbm(seed * 0.001, 7.7, seed + 203, 1) - 0.5) * 1.35;
+
     // Build height map
     const h = {};
 
@@ -8077,7 +8090,9 @@ export class GameScene extends Phaser.Scene {
 
     for (let q = 0; q < ms; q++) {
       for (let r = 0; r < ms; r++) {
-        let v = this._fbm(q * SCALE, r * SCALE, seed);
+        const warpQ = q * SCALE + (this._fbm(q * 0.06 + 17, r * 0.06 + 41, seed + 2100, 2) - 0.5) * 2.4;
+        const warpR = r * SCALE + (this._fbm(q * 0.06 + 83, r * 0.06 + 29, seed + 2200, 2) - 0.5) * 2.4;
+        let v = this._fbm(warpQ, warpR, seed);
 
         // Island profile shaping (hard mode): build discrete island blobs, not one continent
         if (PROFILE.islandAmp > 0 && PROFILE.centers.length > 0) {
@@ -8107,23 +8122,24 @@ export class GameScene extends Phaser.Scene {
           }
         }
 
-        // Civ-like continent shaping pass: one main landmass with irregular lobes.
+        // Civ-like continent shaping pass: one main landmass with seed-jittered lobes.
         if (isContinentLike) {
-          const cx = ms * (0.50 + (this._fbm(seed * 0.001, 2.1, seed + 301, 1) - 0.5) * 0.10);
-          const cy = ms * (0.50 + (this._fbm(seed * 0.001, 2.9, seed + 307, 1) - 0.5) * 0.10);
-          const a = ms * (0.26 + this._fbm(seed * 0.001, 3.7, seed + 313, 1) * 0.08);
-          const b = ms * (0.20 + this._fbm(seed * 0.001, 4.3, seed + 317, 1) * 0.07);
+          const d0 = Math.sqrt(((q - contCX) / Math.max(1, contA)) ** 2 + ((r - contCY) / Math.max(1, contB)) ** 2);
+          let blob = Math.max(0, 1 - d0);
+          for (let li = 0; li < 3; li++) {
+            const ang = this._fbm(seed * 0.003, li * 9.3 + 1.1, seed + 320 + li * 17, 2) * Math.PI * 2;
+            const dist = ms * (0.10 + this._fbm(seed * 0.003, li * 11.7 + 2.4, seed + 330 + li * 19, 2) * 0.14);
+            const lx = contCX + Math.cos(ang) * dist;
+            const ly = contCY + Math.sin(ang) * dist;
+            const la = contA * (0.52 + this._fbm(seed * 0.003, li * 5.9, seed + 340 + li, 2) * 0.18);
+            const lb = contB * (0.56 + this._fbm(seed * 0.003, li * 6.7, seed + 350 + li, 2) * 0.16);
+            const dl = Math.sqrt(((q - lx) / Math.max(1, la)) ** 2 + ((r - ly) / Math.max(1, lb)) ** 2);
+            blob = Math.max(blob, 1 - dl);
+          }
 
-          // Main ellipse + two side lobes for natural coastline silhouette
-          const d0 = Math.sqrt(((q - cx) / Math.max(1, a)) ** 2 + ((r - cy) / Math.max(1, b)) ** 2);
-          const l1x = cx + ms * 0.16, l1y = cy - ms * 0.06;
-          const l2x = cx - ms * 0.14, l2y = cy + ms * 0.10;
-          const d1 = Math.sqrt(((q - l1x) / Math.max(1, a * 0.62)) ** 2 + ((r - l1y) / Math.max(1, b * 0.68)) ** 2);
-          const d2 = Math.sqrt(((q - l2x) / Math.max(1, a * 0.58)) ** 2 + ((r - l2y) / Math.max(1, b * 0.64)) ** 2);
-          const blob = Math.max(0, 1 - d0, 1 - d1, 1 - d2);
-
-          const coastBreak = this._fbm(q * 0.14 + 911, r * 0.14 + 377, seed + 4040, 3) * 0.22;
-          v = (v * 0.34) + (blob * 1.02) + coastBreak - 0.24;
+          const coastBreak = this._fbm(q * 0.14 + 911, r * 0.14 + 377, seed + 4040, 3) * 0.26;
+          const macro = this._fbm(q * 0.05 + 220, r * 0.05 + 610, seed + 5050, 2) * 0.12;
+          v = (v * 0.30) + (blob * 0.98) + coastBreak + macro - 0.22;
         }
 
         // Soft edge falloff with coastline roughness (avoids perfect geometric blobs)
@@ -8148,8 +8164,7 @@ export class GameScene extends Phaser.Scene {
         // Continent-like profiles: rotated + angular-warped ellipse to avoid trapezoid silhouettes.
         let edgeDist;
         if (landProfile === 'continent' || landProfile === 'two_continents') {
-          const rot = (this._fbm(seed * 0.001, 7.7, seed + 203, 1) - 0.5) * 1.2; // ~±34°
-          const cr = Math.cos(rot), sr = Math.sin(rot);
+          const cr = Math.cos(contRot), sr = Math.sin(contRot);
           const rx = ex * cr - er * sr;
           const ry = ex * sr + er * cr;
 
@@ -8215,11 +8230,16 @@ export class GameScene extends Phaser.Scene {
         const ridge = this._fbm(q * 0.085 + 420, r * 0.085 + 140, seed + 5555, 3);
         const rough = this._fbm(q * 0.16 + 740, r * 0.16 + 260, seed + 6666, 2);
 
-        // Mountains: rarer and more range-like; not blanket coverage.
-        const mtnV = isContinentLike ? (MTN_LV + 0.025) : MTN_LV;
-        const ridgeMtn = isContinentLike ? 0.62 : 0.60;
-        const ridgeMtn2 = isContinentLike ? 0.56 : 0.54;
-        const isMountain = (v > mtnV && ridge > ridgeMtn) || (v > mtnV + 0.04 && ridge > ridgeMtn2);
+        // Mountains: rarer; on continents push ranges to coasts/edges, not one center spine.
+        const mtnV = isContinentLike ? (MTN_LV + 0.04) : MTN_LV;
+        const ridgeMtn = isContinentLike ? 0.64 : 0.60;
+        const ridgeMtn2 = isContinentLike ? 0.58 : 0.54;
+        let ridgeNeed = ridgeMtn;
+        if (isContinentLike) {
+          const centerDist = Math.min(1, Math.sqrt(((q - contCX) / ms) ** 2 + ((r - contCY) / ms) ** 2) / 0.52);
+          ridgeNeed = ridgeMtn + (1 - centerDist) * 0.26;
+        }
+        const isMountain = (v > mtnV && ridge > ridgeNeed) || (v > mtnV + 0.05 && ridge > ridgeMtn2 + 0.04);
         if (isMountain) { map[`${q},${r}`] = 2; continue; }
 
         // Hills: tone down on continent profiles to avoid hill carpets.
@@ -8333,6 +8353,8 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    if (isContinentLike) this._carveInlandLakes(map, ms, seed + 4242);
+
     // Mark shallow water (ocean hex adjacent to land) and coastal sand
     const snap2 = {...map};
     for (let q = 0; q < ms; q++) {
@@ -8369,6 +8391,52 @@ export class GameScene extends Phaser.Scene {
             if (map[`${q},${r}`] !== 5) map[`${q},${r}`] = 4;
           }
         }
+      }
+    }
+  }
+
+  // Small inland seas / lakes on large continents (adds visual life, breaks monotony).
+  _carveInlandLakes(map, ms, seed) {
+    const NEIGHBORS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+    const isWater = (t) => t === 4 || t === 5;
+    const dist = new Map();
+    const qv = [];
+    for (let q = 0; q < ms; q++) {
+      for (let r = 0; r < ms; r++) {
+        const t = map[`${q},${r}`];
+        if (!isWater(t)) continue;
+        const k = `${q},${r}`;
+        dist.set(k, 0);
+        qv.push({ q, r });
+      }
+    }
+    while (qv.length) {
+      const cur = qv.shift();
+      const k = `${cur.q},${cur.r}`;
+      const d0 = dist.get(k) ?? 0;
+      for (const [dq, dr] of NEIGHBORS) {
+        const nq = cur.q + dq, nr = cur.r + dr;
+        if (!isValid(nq, nr, ms)) continue;
+        const nk = `${nq},${nr}`;
+        if (dist.has(nk)) continue;
+        const t = map[nk];
+        if (isWater(t)) {
+          dist.set(nk, d0);
+          qv.push({ q: nq, r: nr });
+        } else if (t !== 2) {
+          dist.set(nk, d0 + 1);
+          qv.push({ q: nq, r: nr });
+        }
+      }
+    }
+    for (let q = 0; q < ms; q++) {
+      for (let r = 0; r < ms; r++) {
+        const t = map[`${q},${r}`];
+        if (t === 2 || t === 4 || t === 5) continue;
+        const d = dist.get(`${q},${r}`);
+        if (d == null || d < 8 || d > 22) continue;
+        const lakeN = this._fbm(q * 0.22 + 60, r * 0.22 + 140, seed, 3);
+        if (lakeN > 0.70) map[`${q},${r}`] = 4;
       }
     }
   }
@@ -8615,10 +8683,13 @@ export class GameScene extends Phaser.Scene {
         gs.resourceHexes[`${ironHex2.q},${ironHex2.r}`] = { type: 'IRON' };
       }
 
-      const oilHex = findNearby(hq.q, hq.r, new Set([0,6,7]), 5) || findFreeNear(hq.q, hq.r, 5);
-      if (oilHex && !(ironHex && oilHex.q === ironHex.q && oilHex.r === ironHex.r)) {
-        gs.resourceHexes[`${oilHex.q},${oilHex.r}`] = { type: 'OIL' };
-        if (quickStart) gs.buildings.push(createBuilding('OIL_PUMP', player, oilHex.q, oilHex.r));
+      const spawnRng = this._seededRng(seed + player * 31337);
+      if (spawnRng() < 0.42) {
+        const oilHex = findNearby(hq.q, hq.r, new Set([3, 6]), 7) || findNearby(hq.q, hq.r, new Set([0, 7]), 8);
+        if (oilHex && !(ironHex && oilHex.q === ironHex.q && oilHex.r === ironHex.r)) {
+          gs.resourceHexes[`${oilHex.q},${oilHex.r}`] = { type: 'OIL' };
+          if (quickStart) gs.buildings.push(createBuilding('OIL_PUMP', player, oilHex.q, oilHex.r));
+        }
       }
 
       // Barracks + Vehicle Depot + Naval Yard start prebuilt for baseline playability
@@ -8742,10 +8813,10 @@ export class GameScene extends Phaser.Scene {
         if (t !== 4 && t !== 5) landTiles++;
       }
     }
-    const landScale = Math.max(0.35, landTiles / (40 * 40 * 0.55)); // normalize to ~55% land baseline
-    const MIN_IRON = Math.max(10, Math.round(14 * landScale));
-    // Oil: keep scarce on procedural maps so it stays strategically valuable.
-    const MIN_OIL  = Math.max(3,  Math.round(4 * landScale));
+    const landScale = Math.min(2.4, Math.max(0.45, Math.sqrt(landTiles / 2200)));
+    const MIN_IRON = Math.max(12, Math.round(8 + landScale * 6));
+    // Oil stays scarce even on 120×120 maps (was scaling to 30+ deposits).
+    const MIN_OIL  = Math.max(4,  Math.round(3 + landScale * 2.2));
 
     const free = (q, r) =>
       !gs.resourceHexes[`${q},${r}`] &&
@@ -8759,9 +8830,9 @@ export class GameScene extends Phaser.Scene {
         if (!free(q, r)) continue;
         const t = map[`${q},${r}`];
         if (!isLandType(t)) continue;
-        if (IRON_PREFER.has(t) && rng() < 0.22) {
+        if (IRON_PREFER.has(t) && rng() < 0.18) {
           gs.resourceHexes[`${q},${r}`] = { type: 'IRON' };
-        } else if (OIL_TERRAIN.has(t) && rng() < 0.04) {
+        } else if (OIL_TERRAIN.has(t) && rng() < 0.010) {
           gs.resourceHexes[`${q},${r}`] = { type: 'OIL' };
         }
       }
@@ -8803,9 +8874,37 @@ export class GameScene extends Phaser.Scene {
     forcePlace('IRON', [IRON_PREFER, IRON_OK], MIN_IRON - c.iron);
     forcePlace('OIL',  [OIL_TERRAIN],           MIN_OIL  - c.oil);
 
-    // Third pass: side-fairness guarantee for iron (prevents one-side starvation).
+    // Contested oil: a few deposits in the central band between HQs (fight over them).
     const hq1 = gs.buildings.find(b => b.type === 'HQ' && Number(b.owner) === 1);
     const hq2 = gs.buildings.find(b => b.type === 'HQ' && Number(b.owner) === 2);
+    if (hq1 && hq2) {
+      const contested = [];
+      const midQ = (hq1.q + hq2.q) / 2, midR = (hq1.r + hq2.r) / 2;
+      for (let q = 0; q < ms; q++) {
+        for (let r = 0; r < ms; r++) {
+          if (!free(q, r)) continue;
+          const t = map[`${q},${r}`];
+          if (!isLandType(t) || !OIL_TERRAIN.has(t)) continue;
+          const d1 = hexDistance(q, r, hq1.q, hq1.r);
+          const d2 = hexDistance(q, r, hq2.q, hq2.r);
+          const balance = Math.abs(d1 - d2);
+          const midness = hexDistance(q, r, midQ, midR);
+          if (balance <= 10 && midness <= ms * 0.38) contested.push({ key: `${q},${r}`, score: balance * 2 + midness });
+        }
+      }
+      contested.sort((a, b) => a.score - b.score);
+      const want = Math.min(4, Math.max(2, Math.round(MIN_OIL * 0.35)));
+      let placed = 0;
+      for (const c of contested) {
+        if (placed >= want) break;
+        if (!gs.resourceHexes[c.key]) {
+          gs.resourceHexes[c.key] = { type: 'OIL' };
+          placed++;
+        }
+      }
+    }
+
+    // Third pass: side-fairness guarantee for iron (prevents one-side starvation).
     if (hq1 && hq2) {
       const sideOf = (q, r) => {
         const d1 = Math.abs(q - hq1.q) + Math.abs(r - hq1.r);
