@@ -39,7 +39,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.9.13';
+export const GAME_VERSION = 'v1.9.14';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -4174,6 +4174,18 @@ export class GameScene extends Phaser.Scene {
 
     this.input.keyboard.on('keydown-ESC',   () => { if (this._nameModalOpen) return; if (!this._endTurnPending) this._toggleSettings(); });
     this.input.keyboard.on('keydown-X',     () => { if (this._nameModalOpen || this._mapBuilderMode) return; this._confirmEndTurn(); });
+    this.input.keyboard.on('keydown-B', () => {
+      if (this._nameModalOpen || this._mapBuilderMode || this._designerOpen) return;
+      const u = this.selectedUnit;
+      if (!u || Number(u.owner) !== Number(this.gameState.currentPlayer)) return;
+      if (!UNIT_TYPES[u.type]?.canBuild || u.constructing) return;
+      const w = this.scale.width, h = this.scale.height;
+      this._menuAnchor = {
+        x: PLAYFIELD_UI.left + (w - PLAYFIELD_UI.left) * 0.5,
+        y: PLAYFIELD_UI.top + (h - PLAYFIELD_UI.top - PLAYFIELD_UI.bottom) * 0.5,
+      };
+      this._showContextMenu(u, 'build', 0);
+    });
     this.input.keyboard.on('keydown-M',     () => {
       if (this._nameModalOpen) return;
       if (!this.selectedUnit || Number(this.selectedUnit.owner) !== Number(this.gameState.currentPlayer)) return;
@@ -4468,6 +4480,7 @@ export class GameScene extends Phaser.Scene {
 
   _showContextMenu(unit, submenu = 'root', page = 0, replace = false) {
     if (!unit) return;
+    if (!this.settings.showContextMenu) return;
     if (replace) {
       const old = this._contextMenuObjs;
       if (old) {
@@ -4478,7 +4491,6 @@ export class GameScene extends Phaser.Scene {
     } else {
       this._hideContextMenu(true);
     }
-    if (!this.settings.showContextMenu) return;
 
     const sw = this.scale.width, sh = this.scale.height;
     const anchor = this._menuAnchor || { x: sw / 2, y: sh / 2 };
@@ -4572,11 +4584,11 @@ export class GameScene extends Phaser.Scene {
       if (noBuilding) allOpts.push({ label: `Bunker      3⚙ 2🪵`,   cost:{iron:3,oil:0,wood:2},  enabled: iron>=3&&wood>=2, cb: () => this._onBuildStructure('BUNKER',3,0,2) });
       if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙`,       cost:{iron:3,oil:0},         enabled: iron>=3,          cb: () => this._onBuildStructure('OBS_POST',3) });
       // Obstacles & logistics (require research)
-      if (unlocked.includes('barbed_wire')   && noBuilding)
+      if (unlocked.has('barbed_wire')   && noBuilding)
         allOpts.push({ label: `Barbed Wire 1🪵`,  cost:{iron:0,oil:0,wood:1}, enabled: wood>=1,    cb: () => this._onBuildStructure('BARBED_WIRE',0,0,1) });
-      if (unlocked.includes('sandbag_improved') && noBuilding)
+      if (unlocked.has('sandbag_improved') && noBuilding)
         allOpts.push({ label: `Sandbag Post 1🪵`, cost:{iron:0,oil:0,wood:1}, enabled: wood>=1,    cb: () => this._onBuildStructure('SANDBAG',0,0,1) });
-      if (unlocked.includes('supply_depot') && noBuilding)
+      if (unlocked.has('supply_depot') && noBuilding)
         allOpts.push({ label: `Supply Depot 3⚙ 1🛢 1🪵 (HQ road, +4)`, cost:{iron:3,oil:1,wood:1}, enabled: iron>=3&&oil>=1&&wood>=1, cb: () => this._onBuildStructure('SUPPLY_DEPOT',3,1,1) });
       addHeader('ECONOMY & RESEARCH');
       const foodGold = gs.players[p].food || 0;
