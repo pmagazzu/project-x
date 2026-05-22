@@ -39,7 +39,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.9.8';
+export const GAME_VERSION = 'v1.9.9';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -4015,12 +4015,16 @@ export class GameScene extends Phaser.Scene {
         this._isDragging = false;
         return;
       }
-      if (ptr.button === 0 && !this._isDragging && !this._panelOpenAtMouseDown && !this._contextMenuClicked) {
-        const world = cam.getWorldPoint(ptr.x, ptr.y);
-        const hex   = worldToHex(world.x, world.y);
-        // Also capture click pos so auto-menus can anchor here
-        this._lastClickPos = { x: ptr.x, y: ptr.y };
-        if (isValid(hex.q, hex.r, this.mapSize)) this._onHexClick(hex.q, hex.r);
+      if (ptr.button === 0 && !this._isDragging && !this._panelOpenAtMouseDown) {
+        if (this._contextMenuObjs && !this._contextMenuClicked) {
+          this._hideContextMenu(true);
+        }
+        if (!this._contextMenuClicked) {
+          const world = cam.getWorldPoint(ptr.x, ptr.y);
+          const hex   = worldToHex(world.x, world.y);
+          this._lastClickPos = { x: ptr.x, y: ptr.y };
+          if (isValid(hex.q, hex.r, this.mapSize)) this._onHexClick(hex.q, hex.r);
+        }
       }
       this._contextMenuClicked = false;
       if (ptr.button === 2 && !this._isDragging) {
@@ -4324,13 +4328,13 @@ export class GameScene extends Phaser.Scene {
     }
     if (unit.roadOrder) {
       actions.push({ label: '✕ CANCEL ROAD ORDER', key: 'cancel_road', enabled: true, color: 0x662222,
-        cb: () => { delete unit.roadOrder; this._hideContextMenu(); this._refresh(); }
+        cb: () => { delete unit.roadOrder; this._hideContextMenu(true); this._refresh(); }
       });
     }
     // Auto-move standing order
     if (unit.moveOrder) {
       actions.push({ label: '✕ CANCEL MOVE ORDER', key: 'cancel_move_order', enabled: true, color: 0x334466,
-        cb: () => { delete unit.moveOrder; this._hideContextMenu(); this._refresh(); }
+        cb: () => { delete unit.moveOrder; this._hideContextMenu(true); this._refresh(); }
       });
     } else if (!unit.moved) {
       actions.push({ label: '📍 SET MOVE ORDER', key: 'move_order', enabled: true, color: 0x224466,
@@ -4347,7 +4351,7 @@ export class GameScene extends Phaser.Scene {
             gs.buildings = gs.buildings.filter(b => b.id !== unit.constructing);
             delete unit.constructing;
             unit.moved = false; // free the engineer
-            this._hideContextMenu();
+            this._hideContextMenu(true);
             this._refresh();
           }
         });
@@ -4358,7 +4362,7 @@ export class GameScene extends Phaser.Scene {
       if (smart) {
         // Promote the obvious action directly into the root menu
         actions.push({ label: smart.label, key: 'build', enabled: smart.enabled, color: 0x2a6644,
-          cb: () => { if (smart.enabled) { this._hideContextMenu(); smart.cb(); } }
+          cb: () => { if (smart.enabled) { this._hideContextMenu(true); smart.cb(); } }
         });
         // Still offer the full submenu below it for other options
         actions.push({ label: 'BUILD ▸', key: 'build_more', enabled: true, color: 0x224433,
@@ -4414,7 +4418,7 @@ export class GameScene extends Phaser.Scene {
           gs.buildings = gs.buildings.filter(x => x.id !== b.id);
           unit.moved = true; unit.attacked = true;
           this._pushLog(`P${gs.currentPlayer} raided ${BUILDING_TYPES[b.type]?.name || b.type}`);
-          this._hideContextMenu();
+          this._hideContextMenu(true);
           this._refresh();
         }
       });
@@ -4434,7 +4438,7 @@ export class GameScene extends Phaser.Scene {
         delete gs.pendingAttacks?.[unit.id];
         this._pushLog(`P${gs.currentPlayer} disbanded ${unit.designName || UNIT_TYPES[unit.type]?.name || unit.type}`);
         this._clearSelection();
-        this._hideContextMenu();
+        this._hideContextMenu(true);
         this._refresh();
       }
     });
@@ -4510,7 +4514,7 @@ export class GameScene extends Phaser.Scene {
       }
       // Auto-road standing order (engineer pathfinds to destination, builds each turn)
       if (unit.roadOrder) {
-        allOpts.push({ label: `✕ CANCEL ROAD ORDER`, cost: null, enabled: true, cb: () => { delete unit.roadOrder; this._hideContextMenu(); this._refresh(); } });
+        allOpts.push({ label: `✕ CANCEL ROAD ORDER`, cost: null, enabled: true, cb: () => { delete unit.roadOrder; this._hideContextMenu(true); this._refresh(); } });
       } else {
         allOpts.push({ label: `AUTO-ROAD →`, cost: null, enabled: true, cb: () => this._enterRoadDestMode(unit) });
       }
@@ -4606,7 +4610,10 @@ export class GameScene extends Phaser.Scene {
     const panelBg = this.add.rectangle(panelCx, panelCy, btnW + 14, menuH + 6, 0x100818, 0.96)
       .setStrokeStyle(2, 0xff66cc).setScrollFactor(0).setDepth(DEPTH - 1).setOrigin(0.5)
       .setInteractive();
-    panelBg.on('pointerdown', () => { this._contextMenuClicked = true; });
+    panelBg.on('pointerdown', () => {
+      this._contextMenuClicked = true;
+      this._hideContextMenu(true);
+    });
     objs.push(panelBg);
     objs.push(this.add.rectangle(panelCx, py + 2, btnW + 8, 3, 0xffcc44, 1)
       .setScrollFactor(0).setDepth(DEPTH));
@@ -4655,7 +4662,7 @@ export class GameScene extends Phaser.Scene {
         btn.setInteractive({ useHandCursor: true });
         btn.on('pointerdown', () => {
           this._contextMenuClicked = true;
-          this._hideContextMenu();
+          this._hideContextMenu(true);
           item.cb();
         });
         btn.on('pointerover', () => {
@@ -4685,24 +4692,29 @@ export class GameScene extends Phaser.Scene {
     this._contextMenuHotkeys = hotkeyItems;
 
     objs.forEach((o) => { if (o.setAlpha) { o.setAlpha(0); o.setScale?.(0.96); } });
-    this.tweens.add({
+    if (this._contextMenuShowTween) {
+      try { this._contextMenuShowTween.stop(); } catch (e) {}
+      this._contextMenuShowTween = null;
+    }
+    this._contextMenuShowTween = this.tweens.add({
       targets: objs.filter((o) => o.setAlpha),
       alpha: 1,
       scaleX: 1,
       scaleY: 1,
       duration: 110,
       ease: 'Back.easeOut',
+      onComplete: () => { this._contextMenuShowTween = null; },
     });
 
     if (this._contextMenuKeyHandler) this.input.keyboard.off('keydown', this._contextMenuKeyHandler);
     this._contextMenuKeyHandler = (ev) => {
-      if (ev.code === 'Escape') { this._hideContextMenu(); return; }
+      if (ev.code === 'Escape') { this._hideContextMenu(true); return; }
       const n = Number(ev.key);
       if (Number.isInteger(n) && n >= 1 && n <= (this._contextMenuHotkeys?.length || 0)) {
         const pick = this._contextMenuHotkeys[n - 1];
         if (pick?.enabled && pick.cb) {
           this._contextMenuClicked = true;
-          this._hideContextMenu();
+          this._hideContextMenu(true);
           pick.cb();
         }
       }
@@ -4730,27 +4742,59 @@ export class GameScene extends Phaser.Scene {
       this._contextMenuKeyHandler = null;
     }
     this._setContextMenuHint(null);
+
+    if (this._contextMenuShowTween) {
+      try { this._contextMenuShowTween.stop(); } catch (e) {}
+      this._contextMenuShowTween = null;
+    }
+    if (this._contextMenuTween) {
+      try { this._contextMenuTween.stop(); } catch (e) {}
+      this._contextMenuTween = null;
+    }
+
     const objs = this._contextMenuObjs;
     if (!objs?.length) {
-      this._contextMenuObjs = null;
       this._contextMenuUnit = null;
       this._contextMenuHotkeys = null;
       return;
     }
-    const finish = () => {
-      for (const o of objs) { try { o.destroy(); } catch (e) {} }
-      this._contextMenuObjs = null;
-      this._contextMenuUnit = null;
-      this._contextMenuHotkeys = null;
+    // Detach state immediately so a stale fade-out cannot wipe a newly opened menu.
+    this._contextMenuObjs = null;
+    this._contextMenuUnit = null;
+    this._contextMenuHotkeys = null;
+
+    const destroyAll = () => {
+      for (const o of objs) {
+        try {
+          o.disableInteractive?.();
+          o.destroy();
+        } catch (e) {}
+      }
     };
-    if (instant) { finish(); return; }
-    const tweenables = objs.filter((o) => o.setAlpha);
-    if (!tweenables.length) { finish(); return; }
-    this.tweens.add({
+
+    for (const o of objs) {
+      try { o.disableInteractive?.(); } catch (e) {}
+    }
+
+    if (instant) {
+      destroyAll();
+      return;
+    }
+
+    const tweenables = objs.filter((o) => o.active && o.setAlpha);
+    if (!tweenables.length) {
+      destroyAll();
+      return;
+    }
+
+    this._contextMenuTween = this.tweens.add({
       targets: tweenables,
       alpha: 0,
-      duration: 70,
-      onComplete: finish,
+      duration: 60,
+      onComplete: () => {
+        this._contextMenuTween = null;
+        destroyAll();
+      },
     });
   }
 
@@ -5133,7 +5177,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   _showFactoryPanel(factory) {
-    this._hideContextMenu();
+    this._hideContextMenu(true);
     const w = this.scale.width, h = this.scale.height;
     const D = 230;
     const objs = [];
@@ -5755,7 +5799,7 @@ export class GameScene extends Phaser.Scene {
     if (!keyboardBlocked && (W.D.isDown || W.RIGHT.isDown)) cam.scrollX += speed;
     const moving = !keyboardBlocked && (W.W.isDown || W.S.isDown || W.A.isDown || W.D.isDown ||
                    W.UP.isDown || W.DOWN.isDown || W.LEFT.isDown || W.RIGHT.isDown);
-    if (moving && this._contextMenuObjs) this._hideContextMenu();
+    if (moving && this._contextMenuObjs) this._hideContextMenu(true);
 
     // AI autoplay self-heal: only restart when truly idle (never while a turn's timers are live).
     if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2) && !this._aiAutoplayPaused) {
@@ -6207,7 +6251,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   _selectUnit(unit) {
-    this._hideContextMenu();
+    this._hideContextMenu(true);
     this._inspectorTabManual = null;
     this.selectedUnit = unit;
     const gs = this.gameState;
@@ -6237,7 +6281,7 @@ export class GameScene extends Phaser.Scene {
     const ax = this._menuAnchor?.x ?? (this.scale.width * 0.5);
     const ay = this._menuAnchor?.y ?? (this.scale.height * 0.5);
 
-    this._hideContextMenu();
+    this._hideContextMenu(true);
     const objs = [];
     const bg = this.add.rectangle(ax, ay, 250, 72, 0x0b0f16, 0.98).setScrollFactor(0).setDepth(210).setStrokeStyle(1.5, 0x2e3d50);
     const title = this.add.text(ax, ay - 20, `Hex (${q},${r})`, { font: 'bold 12px monospace', fill: '#8ea5bc' })
@@ -6294,7 +6338,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Right-click anywhere should first close transient menus/panels.
-    this._hideContextMenu();
+    this._hideContextMenu(true);
     this._hideRecruitPanel?.();
     this._closeFactoryPanel?.();
 
@@ -6343,13 +6387,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   _clearSelection() {
-    this._hideContextMenu();
+    this._hideContextMenu(true);
     this._inspectorTabManual = null;
     this.selectedUnit = null; this.reachable = []; this.attackable = []; this.mode = 'select';
     this._refresh();
   }
 
-  _onCancel() { this._hideContextMenu(); this._clearSelection(); this._hideRecruitPanel(); }
+  _onCancel() { this._hideContextMenu(true); this._clearSelection(); this._hideRecruitPanel(); }
 
   _onMoveMode() {
     if (!this.selectedUnit || this.selectedUnit.moved) return;
@@ -6369,7 +6413,7 @@ export class GameScene extends Phaser.Scene {
     const sprintUnit = Object.assign({}, unit, { move: def.sprintMove, movesLeft: def.sprintMove, moved: false });
     this.reachable  = getReachableHexes(this.gameState, sprintUnit, this.terrain, this.mapSize);
     this.attackable = [];
-    this._hideContextMenu();
+    this._hideContextMenu(true);
     this._refresh();
   }
 
@@ -6423,7 +6467,7 @@ export class GameScene extends Phaser.Scene {
 
   // ── Auto-move destination selection ──────────────────────────────────────
   _enterMoveOrderMode(unit) {
-    this._hideContextMenu();
+    this._hideContextMenu(true);
     this._moveOrderUnit = unit;
     this.mode = 'move_order';
     this._showHint('📍 Click destination for AUTO-MOVE order  (Right-click to cancel)');
@@ -6439,7 +6483,7 @@ export class GameScene extends Phaser.Scene {
 
   // ── Auto-road destination selection ──────────────────────────────────────
   _enterRoadDestMode(unit) {
-    this._hideContextMenu();
+    this._hideContextMenu(true);
     this._roadOrderUnit = unit;
     this.mode = 'road_dest';
     // Show a HUD tip
@@ -6457,7 +6501,7 @@ export class GameScene extends Phaser.Scene {
 
   // ── Transport load/unload ─────────────────────────────────────────────────
   _enterLoadMode(transport) {
-    this._hideContextMenu();
+    this._hideContextMenu(true);
     this._transportUnit = transport;
     this.mode = 'transport_load';
     this._showHint('🚢 Click adjacent LAND UNIT to board  (Right-click to cancel)');
@@ -6465,7 +6509,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   _enterUnloadMode(transport) {
-    this._hideContextMenu();
+    this._hideContextMenu(true);
     this._transportUnit = transport;
     this.mode = 'transport_unload';
     this._showHint('🚢 Click adjacent hex to disembark cargo  (Right-click to cancel)');
@@ -6531,7 +6575,7 @@ export class GameScene extends Phaser.Scene {
     const idx = gs.buildings.indexOf(existing);
     if (idx >= 0) gs.buildings.splice(idx, 1, createBuilding(newType, existing.owner, existing.q, existing.r));
     unit.moved = true; unit.building = true;
-    this._hideContextMenu();
+    this._hideContextMenu(true);
     this._redrawRoads();
     this._clearSelection();
   }
@@ -6616,7 +6660,7 @@ export class GameScene extends Phaser.Scene {
     };
     gs.units.push(battery);
     u.moved = true; u.building = true;
-    this._hideContextMenu();
+    this._hideContextMenu(true);
     this._refresh();
   }
 
@@ -6637,7 +6681,7 @@ export class GameScene extends Phaser.Scene {
     };
     gs.units.push(aa);
     u.moved = true; u.building = true;
-    this._hideContextMenu();
+    this._hideContextMenu(true);
     this._refresh();
   }
 
@@ -7597,7 +7641,7 @@ export class GameScene extends Phaser.Scene {
     const gs = this.gameState;
     
     this.btnSubmit?.setVisible(false);
-    this._hideContextMenu();
+    this._hideContextMenu(true);
     this._clearSelection();
 
     // Snapshot pre-resolve positions for animation
