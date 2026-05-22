@@ -39,7 +39,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.9.10';
+export const GAME_VERSION = 'v1.9.11';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -4182,6 +4182,7 @@ export class GameScene extends Phaser.Scene {
       if (this._nameModalOpen || this._mapBuilderMode) return;
       this._toggleSupplyOverlay();
     });
+    this.input.keyboard.on('keydown', (ev) => this._onContextMenuHotkey(ev));
     this.input.keyboard.on('keydown-SPACE', () => {
       if (this._nameModalOpen) return;
       if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
@@ -4365,13 +4366,9 @@ export class GameScene extends Phaser.Scene {
           cb: () => { if (smart.enabled) { this._hideContextMenu(true); smart.cb(); } }
         });
         // Still offer the full submenu below it for other options
-        actions.push({ label: 'BUILD ▸', key: 'build_more', enabled: true, color: 0x224433,
-          cb: () => this._showContextMenu(unit, 'build', 0)
-        });
+        actions.push({ label: 'BUILD ▸', key: 'build_more', enabled: true, color: 0x224433, openSubmenu: 'build', page: 0 });
       } else {
-        actions.push({ label: 'BUILD ▸', key: 'build', enabled: true, color: 0x335533,
-          cb: () => this._showContextMenu(unit, 'build', 0)
-        });
+        actions.push({ label: 'BUILD ▸', key: 'build', enabled: true, color: 0x335533, openSubmenu: 'build', page: 0 });
       }
     }
     if (def.canHeal) {
@@ -4470,10 +4467,13 @@ export class GameScene extends Phaser.Scene {
     if (submenu === 'root') {
       const actions = this._getUnitActions(unit);
       items = actions.map(a => ({
-        label:   a.label,
-        color:   a.color,
-        enabled: a.enabled,
-        cb:      a.cb,
+        label:       a.label,
+        color:       a.color,
+        enabled:     a.enabled,
+        cb:          a.cb,
+        openSubmenu: a.openSubmenu,
+        page:        a.page,
+        hint:        a.hint,
       }));
     } else if (submenu === 'build') {
       title = '▸ BUILD';
@@ -4579,18 +4579,15 @@ export class GameScene extends Phaser.Scene {
       // Pagination row (prev / page indicator / next) appended as items
       if (totalPages > 1) {
         items.push({
-          label:   `${page > 0 ? '◀ ' : '  '}  ${page+1}/${totalPages}  ${page < totalPages-1 ? ' ▶' : '  '}`,
-          color:   0x333355, enabled: true,
-          cb: () => {
-            // Toggle between pages; wrap around
-            const next = (page + 1) % totalPages;
-            this._showContextMenu(unit, 'build', next);
-          }
+          label: `${page > 0 ? '◀ ' : '  '}  ${page + 1}/${totalPages}  ${page < totalPages - 1 ? ' ▶' : '  '}`,
+          color: 0x333355,
+          enabled: true,
+          openSubmenu: 'build',
+          page: (page + 1) % totalPages,
         });
       }
 
-      // Back button at bottom
-      items.push({ label: '← BACK', color: 0x443322, enabled: true, cb: () => this._showContextMenu(unit, 'root', 0) });
+      items.push({ label: '← BACK', color: 0x443322, enabled: true, openSubmenu: 'root', page: 0 });
     }
 
     // ── Position menu at cursor, clamped to screen ───────────────────────────
@@ -4610,10 +4607,7 @@ export class GameScene extends Phaser.Scene {
     const panelBg = this.add.rectangle(panelCx, panelCy, btnW + 14, menuH + 6, 0x100818, 0.96)
       .setStrokeStyle(2, 0xff66cc).setScrollFactor(0).setDepth(DEPTH - 1).setOrigin(0.5)
       .setInteractive();
-    panelBg.on('pointerdown', (_pointer, _lx, _ly, event) => {
-      event?.stopPropagation?.();
-      this._contextMenuClicked = true;
-    });
+    panelBg.on('pointerdown', () => { this._contextMenuClicked = true; });
     objs.push(panelBg);
     objs.push(this.add.rectangle(panelCx, py + 2, btnW + 8, 3, 0xffcc44, 1)
       .setScrollFactor(0).setDepth(DEPTH));
@@ -4660,12 +4654,8 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH + 1);
       if (item.enabled) {
         btn.setInteractive({ useHandCursor: true });
-        btn.on('pointerdown', (_pointer, _lx, _ly, event) => {
-          event?.stopPropagation?.();
-          this._contextMenuClicked = true;
-          const run = item.cb;
-          this._hideContextMenu(true);
-          if (run) this.time.delayedCall(0, () => run());
+        btn.on('pointerdown', () => {
+          this._runContextMenuItem(item, unit);
         });
         btn.on('pointerover', () => {
           btn.setAlpha(0.9);
@@ -4691,37 +4681,33 @@ export class GameScene extends Phaser.Scene {
     this._addToUI(objs);
     this._contextMenuObjs = objs;
     this._contextMenuUnit = unit;
-    this._contextMenuHotkeys = hotkeyItems;
+    this._contextMenuHotkeyItems = hotkeyItems;
+    this._contextMenuHotkeyUnit = unit;
+  }
 
-    objs.forEach((o) => { if (o.setAlpha) { o.setAlpha(0); o.setScale?.(0.96); } });
-    if (this._contextMenuShowTween) {
-      try { this._contextMenuShowTween.stop(); } catch (e) {}
-      this._contextMenuShowTween = null;
+  _runContextMenuItem(item, unit) {
+    if (!item?.enabled) return;
+    this._contextMenuClicked = true;
+    const menuUnit = unit || this._contextMenuUnit;
+    this._hideContextMenu(true);
+    if (item.openSubmenu) {
+      this._showContextMenu(menuUnit, item.openSubmenu, item.page || 0);
+      return;
     }
-    this._contextMenuShowTween = this.tweens.add({
-      targets: objs.filter((o) => o.setAlpha),
-      alpha: 1,
-      scaleX: 1,
-      scaleY: 1,
-      duration: 110,
-      ease: 'Back.easeOut',
-      onComplete: () => { this._contextMenuShowTween = null; },
-    });
+    item.cb?.();
+  }
 
-    if (this._contextMenuKeyHandler) this.input.keyboard.off('keydown', this._contextMenuKeyHandler);
-    this._contextMenuKeyHandler = (ev) => {
-      if (ev.code === 'Escape') { this._hideContextMenu(true); return; }
-      const n = Number(ev.key);
-      if (Number.isInteger(n) && n >= 1 && n <= (this._contextMenuHotkeys?.length || 0)) {
-        const pick = this._contextMenuHotkeys[n - 1];
-        if (pick?.enabled && pick.cb) {
-          this._contextMenuClicked = true;
-          this._hideContextMenu(true);
-          pick.cb();
-        }
-      }
-    };
-    this.input.keyboard.on('keydown', this._contextMenuKeyHandler);
+  _onContextMenuHotkey(ev) {
+    if (!this._contextMenuObjs?.length) return;
+    if (this._nameModalOpen || this._designerOpen || this._mapBuilderMode) return;
+    if (ev.code === 'Escape') {
+      this._hideContextMenu(true);
+      return;
+    }
+    const n = Number(ev.key);
+    if (!Number.isInteger(n) || n < 1 || n > (this._contextMenuHotkeyItems?.length || 0)) return;
+    const pick = this._contextMenuHotkeyItems[n - 1];
+    if (pick) this._runContextMenuItem(pick, this._contextMenuHotkeyUnit);
   }
 
   _setContextMenuHint(text, x, y) {
@@ -4739,16 +4725,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   _hideContextMenu(instant = false) {
-    if (this._contextMenuKeyHandler) {
-      this.input.keyboard.off('keydown', this._contextMenuKeyHandler);
-      this._contextMenuKeyHandler = null;
-    }
     this._setContextMenuHint(null);
 
-    if (this._contextMenuShowTween) {
-      try { this._contextMenuShowTween.stop(); } catch (e) {}
-      this._contextMenuShowTween = null;
-    }
     if (this._contextMenuTween) {
       try { this._contextMenuTween.stop(); } catch (e) {}
       this._contextMenuTween = null;
@@ -4757,13 +4735,14 @@ export class GameScene extends Phaser.Scene {
     const objs = this._contextMenuObjs;
     if (!objs?.length) {
       this._contextMenuUnit = null;
-      this._contextMenuHotkeys = null;
+      this._contextMenuHotkeyItems = null;
+      this._contextMenuHotkeyUnit = null;
       return;
     }
-    // Detach state immediately so a stale fade-out cannot wipe a newly opened menu.
     this._contextMenuObjs = null;
     this._contextMenuUnit = null;
-    this._contextMenuHotkeys = null;
+    this._contextMenuHotkeyItems = null;
+    this._contextMenuHotkeyUnit = null;
 
     const destroyAll = () => {
       for (const o of objs) {
