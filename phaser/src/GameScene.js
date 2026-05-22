@@ -44,7 +44,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.11';
+export const GAME_VERSION = 'v1.10.12';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -4121,6 +4121,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointerup', (ptr) => {
+      const now = this.time?.now ?? performance.now();
       // When the standalone designer is open, block world-click handling entirely.
       if (this._designerOpen) {
         this._contextMenuClicked = false;
@@ -4128,7 +4129,6 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       if (ptr.button === 0 && !this._isDragging && !this._panelOpenAtMouseDown) {
-        const now = this.time?.now ?? performance.now();
         if (this._contextMenuSuppressDismissUntil && now < this._contextMenuSuppressDismissUntil) {
           this._contextMenuClicked = true;
         }
@@ -4148,7 +4148,8 @@ export class GameScene extends Phaser.Scene {
           if (isValid(hex.q, hex.r, this.mapSize)) this._onHexClick(hex.q, hex.r);
         }
       }
-      this._contextMenuClicked = false;
+      const keepMenuClick = this._contextMenuSuppressDismissUntil && now < this._contextMenuSuppressDismissUntil;
+      if (!keepMenuClick) this._contextMenuClicked = false;
       if (ptr.button === 2 && !this._isDragging) {
         const world = cam.getWorldPoint(ptr.x, ptr.y);
         const hex   = worldToHex(world.x, world.y);
@@ -4595,9 +4596,15 @@ export class GameScene extends Phaser.Scene {
     if (!unit) return;
     this._contextMenuDismissLock = true;
     this._contextMenuClicked = true;
-    this._contextMenuSuppressDismissUntil = (this.time?.now ?? performance.now()) + 320;
+    this._contextMenuSuppressDismissUntil = (this.time?.now ?? performance.now()) + 400;
     const replace = !!this._contextMenuObjs?.length;
-    this._showContextMenu(unit, submenu, page, replace);
+    try {
+      this._showContextMenu(unit, submenu, page, replace);
+    } catch (err) {
+      console.error('Context submenu failed:', err);
+      this._pushLog(`Menu error: ${err?.message || err}`);
+      this._hideContextMenu(true);
+    }
   }
 
   _showContextMenu(unit, submenu = 'root', page = 0, replace = false) {
@@ -4649,6 +4656,7 @@ export class GameScene extends Phaser.Scene {
       const coastal = this._isCoastalHex(unit.q, unit.r);
       const ttype = this.terrain[`${unit.q},${unit.r}`] ?? 0;
       const onForest  = ttype === 1 || ttype === 7;
+      const onPlains  = (ttype === 0 || ttype === 6 || ttype === 7);
 
       // All possible build options — grouped for readability
       const allOpts = [];
@@ -4752,7 +4760,6 @@ export class GameScene extends Phaser.Scene {
       addHeader('ECONOMY & RESEARCH');
       const foodGold = gs.players[p].food || 0;
       const gold = gs.players[p].gold || 0;
-      const onPlains = (ttype === 0 || ttype === 6 || ttype === 7);
       if (noBuilding && onPlains) allOpts.push({ label: `Farm 🍞     2⚙ 3🪵`,   cost:{iron:2,oil:0,wood:3}, enabled: iron>=2&&wood>=3, cb: () => this._onBuildStructure('FARM',2,0,3) });
       if (noBuilding) allOpts.push({ label: `Market 💰   3⚙ 4🪵`,             cost:{iron:3,oil:0,wood:4}, enabled: iron>=3&&wood>=4, cb: () => this._onBuildStructure('MARKET',3,0,4) });
       if (noBuilding && coastal) allOpts.push({ label: `Port ⚓ T1 5⚙ 1🛢 4🪵`,  cost:{iron:5,oil:1,wood:4}, enabled: iron>=5&&oil>=1&&wood>=4, cb: () => this._onBuildStructure('PORT',5,1,4) });
