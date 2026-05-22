@@ -151,8 +151,8 @@ function getOpeningMilestones(gs, player) {
 
   const desired = {
     roads:       turn <= 3 ? 1 : turn <= 6 ? 2 : turn <= 9 ? 4 : turn <= 14 ? 8 : 12,
-    mines:       turn <= 5 ? 1 : turn <= 12 ? 2 : turn <= 18 ? 3 : 4,
-    pumps:       turn <= 6 ? 1 : turn <= 12 ? 2 : turn <= 18 ? 3 : 4,
+    mines:       turn <= 4 ? 2 : turn <= 10 ? 3 : turn <= 18 ? 4 : 5,
+    pumps:       turn <= 5 ? 1 : turn <= 10 ? 2 : turn <= 18 ? 3 : 4,
     farms:       turn <= 6 ? 1 : turn <= 10 ? 2 : turn <= 16 ? 3 : 4,
     lumber:      turn <= 8 ? 1 : 2,
     labs:        turn <= 8 ? 1 : turn <= 14 ? 2 : 3,
@@ -247,13 +247,105 @@ function initEngineerMemory(gs, player) {
   return gs._aiEngineerMemory[player];
 }
 
-function pickEngineerTask(gs, player, engineer, strategic, mapSize, claimedTasks) {
+const FORT_BUILDING_TYPES = new Set(['SANDBAG', 'TRENCH', 'BUNKER', 'OBS_POST', 'FIELD_OUTPOST', 'BARBED_WIRE', 'SUPPLY_DEPOT']);
+
+function getUnclaimedResourceSites(gs, player) {
+  const sites = [];
+  for (const [k, v] of Object.entries(gs.resourceHexes || {})) {
+    const [q, r] = k.split(',').map(Number);
+    const b = gs.buildings.find((bb) => bb.q === q && bb.r === r && !ROAD_TYPES.has(bb.type));
+    const owned = b && (b.type === 'MINE' || b.type === 'OIL_PUMP') && Number(b.owner) === Number(player);
+    if (owned) continue;
+    const contested = !!(b && Number(b.owner) !== Number(player) && (b.type === 'MINE' || b.type === 'OIL_PUMP'));
+    sites.push({
+      q, r,
+      resType: v?.type || 'IRON',
+      priority: (v?.type === 'OIL' ? 10 : 8) + (contested ? 5 : 0),
+      contested,
+    });
+  }
+  return sites;
+}
+
+function countFortsNearHex(gs, player, q, r, radius = 2) {
+  let n = 0;
+  for (const b of gs.buildings) {
+    if (Number(b.owner) !== Number(player)) continue;
+    if (!FORT_BUILDING_TYPES.has(b.type)) continue;
+    if (hexDistance(b.q, b.r, q, r) <= radius) n += 1;
+  }
+  return n;
+}
+
+function findFortPadHex(gs, terrain, mapSize, resQ, resR, player) {
+  let best = null;
+  let bestScore = -Infinity;
+  for (const [dq, dr] of _CHOKE_DIRS) {
+    const nq = resQ + dq;
+    const nr = resR + dr;
+    if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) continue;
+    const t = terrain?.[`${nq},${nr}`] ?? 0;
+    if (t === 2 || t === 4 || t === 5) continue;
+    const b = buildingAt(gs, nq, nr);
+    if (b && !ROAD_TYPES.has(b.type)) continue;
+    let score = 10 - hexDistance(nq, nr, resQ, resR);
+    const nearEnemy = gs.units.some((u) => Number(u.owner) !== Number(player) && !u.embarked
+      && hexDistance(u.q, u.r, nq, nr) <= 5);
+    if (nearEnemy) score += 4;
+    if (chokepointLandValue(terrain, mapSize, nq, nr) >= 3) score += 3;
+    if (score > bestScore) { bestScore = score; best = { q: nq, r: nr }; }
+  }
+  return best;
+}
+
+function pickEngineerTask(gs, player, engineer, strategic, mapSize, claimedTasks, terrain) {
   const key = `${engineer.q},${engineer.r}`;
   const hasRoad = !!roadAt(gs, engineer.q, engineer.r);
   const res = gs.resourceHexes?.[key];
-  if (res && !gs.buildings.some(b => b.q === engineer.q && b.r === engineer.r && (b.type === 'MINE' || b.type === 'OIL_PUMP') && b.owner === player)) {
-    return { type: 'resource', q: engineer.q, r: engineer.r };
+  const myHQ = gs.buildings.find((b) => b.type === 'HQ' && b.owner === player);
+  const turn = gs.turn || 1;
+
+  // Standing on a resource: claim it immediately.
+  if (res && !gs.buildings.some((b) => b.q === engineer.q && b.r === engineer.r
+    && (b.type === 'MINE' || b.type === 'OIL_PUMP') && Number(b.owner) === Number(player))) {
+    return { type: 'resource', q: engineer.q, r: engineer.r, resType: res.type };
   }
+
+  // Owned extractor here: road + ring fort on adjacent pads.
+  const ownedExtract = gs.buildings.find((b) => b.q === engineer.q && b.r === engineer.r
+    && (b.type === 'MINE' || b.type === 'OIL_PUMP') && Number(b.owner) === Number(player));
+  if (ownedExtract && res) {
+    const forts = countFortsNearHex(gs, player, engineer.q, engineer.r, 2);
+    if (forts < 2 && turn >= 4) {
+      const pad = findFortPadHex(gs, terrain, mapSize, engineer.q, engineer.r, player);
+      if (pad) {
+        const tk = `${pad.q},${pad.r}`;
+        if (!claimedTasks?.has(tk)) {
+          if (claimedTasks) claimedTasks.add(tk);
+          return { type: 'fort', q: pad.q, r: pad.r, anchorQ: engineer.q, anchorR: engineer.r };
+        }
+      }
+    }
+    if (!hasRoad) return { type: 'road', q: engineer.q, r: engineer.r };
+  }
+
+  // Early-game priority: rush unclaimed resource hexes before corridor wander.
+  const sites = getUnclaimedResourceSites(gs, player);
+  if (sites.length > 0 && turn <= 22) {
+    const ranked = [...sites].sort((a, b) => {
+      const scoreSite = (s) => s.priority
+        - hexDistance(engineer.q, engineer.r, s.q, s.r) * 1.8
+        + (myHQ ? hexDistance(myHQ.q, myHQ.r, s.q, s.r) * 0.08 : 0);
+      return scoreSite(b) - scoreSite(a);
+    });
+    for (const s of ranked) {
+      const tk = `${s.q},${s.r}`;
+      if (claimedTasks?.has(tk)) continue;
+      if (claimedTasks) claimedTasks.add(tk);
+      return { type: 'resource', q: s.q, r: s.r, resType: s.resType };
+    }
+  }
+
   if (!hasRoad) return { type: 'road', q: engineer.q, r: engineer.r };
 
   // Push toward the most forward corridor objective (furthest from own HQ, not nearest to engineer).
@@ -270,7 +362,6 @@ function pickEngineerTask(gs, player, engineer, strategic, mapSize, claimedTasks
   }
 
   const corridor = strategic?.objectives?.corridor || [];
-  const myHQ = gs.buildings.find(b => b.type === 'HQ' && b.owner === player);
   if (corridor.length > 0 && myHQ) {
     const forwardTargets = corridor
       .filter(o => o.type !== 'hq')  // skip own HQ waypoint
@@ -861,7 +952,10 @@ function buildTerritorialIntel(terrain, mapSize, gs, player, strategic, resource
   coastal.sort((a, b) => b.score - a.score);
 
   for (const t of (resourceTargets || [])) {
-    expansions.push({ q: t.q, r: t.r, score: t.type === 'OIL' ? 5 : 3.5, type: 'resource' });
+    const b = gs.buildings.find((bb) => bb.q === t.q && bb.r === t.r && (bb.type === 'MINE' || bb.type === 'OIL_PUMP'));
+    const owned = b && Number(b.owner) === Number(player);
+    const base = t.type === 'OIL' ? 6.5 : 5;
+    expansions.push({ q: t.q, r: t.r, score: owned ? base * 0.6 : base + 2, type: 'resource' });
   }
   for (const o of (strategic?.objectives?.corridor || [])) {
     if (o.type === 'forward' || o.type === 'resource') {
@@ -1000,6 +1094,40 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
   }
 
   return { unitObjective, deceptionActive, missionCounts };
+}
+
+/** Small garrison parties on owned mines/pumps so expansion sites are not free captures. */
+function assignResourceGarrisonMissions(gs, player, unitObjective, combatUnits) {
+  const turn = gs.turn || 1;
+  if (turn < 4) return;
+  const extractors = gs.buildings.filter((b) =>
+    Number(b.owner) === Number(player) && !b.underConstruction
+    && (b.type === 'MINE' || b.type === 'OIL_PUMP'));
+  const pool = combatUnits.filter((u) => {
+    const role = getUnitRole(u.type);
+    if (role === 'indirect' || role === 'engineer' || role === 'support') return false;
+    const m = unitObjective[u.id]?.mission;
+    return !m || m === 'expand' || m === 'probe' || m === 'garrison';
+  });
+
+  for (const ext of extractors) {
+    const guards = gs.units.filter((u) => u.owner === player && !u.embarked
+      && hexDistance(u.q, u.r, ext.q, ext.r) <= 3
+      && ((UNIT_TYPES[u.type]?.soft_attack || 0) > 0 || (UNIT_TYPES[u.type]?.hard_attack || 0) > 0));
+    const want = turn < 12 ? 1 : 2;
+    if (guards.length >= want) continue;
+
+    let best = null;
+    let bestD = Infinity;
+    for (const u of pool) {
+      if (unitObjective[u.id]?.kind === 'resource') continue;
+      const d = hexDistance(u.q, u.r, ext.q, ext.r);
+      if (d < bestD) { bestD = d; best = u; }
+    }
+    if (best && bestD <= 16) {
+      unitObjective[best.id] = { q: ext.q, r: ext.r, mission: 'garrison', kind: 'resource' };
+    }
+  }
 }
 
 function assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjective, combatUnits, flankCount) {
@@ -1245,7 +1373,15 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   }
 
   // Mission objective pressure (scout / probe / diversion / main / expand / garrison)
-  if (obj?.kind === 'choke' || obj?.role === 'garrison' || mission === 'garrison') {
+  if (obj?.kind === 'resource' && mission === 'garrison') {
+    const dNew = hexDistance(q, r, obj.q, obj.r);
+    const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
+    if (dNew < dCur) score += 22 * (phase.combat * 0.85 + 0.4);
+    if (dNew <= 3) score += 14;
+    const nearEnemy = enemies.length > 0 ? Math.min(...enemies.map((e) => hexDistance(q, r, e.q, e.r))) : 99;
+    if (nearEnemy <= 4 && dNew <= 2) score += 10;
+    if (nearEnemy <= 2 && dNew > 3) score -= 8;
+  } else if (obj?.kind === 'choke' || obj?.role === 'garrison' || mission === 'garrison') {
     const dNew = hexDistance(q, r, obj.q, obj.r);
     const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
     if (dNew < dCur) score += 14 * (phase.combat * 0.7 + 0.35);
@@ -1391,7 +1527,9 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
     if (unworked.length > 0) {
       const dNew = Math.min(...unworked.map(t => hexDistance(q, r, t.q, t.r)));
       const dCur = Math.min(...unworked.map(t => hexDistance(unit.q, unit.r, t.q, t.r)));
-      if (dNew < dCur) score += 14;
+      const pull = (gs.turn || 1) <= 14 ? 32 : 18;
+      if (dNew < dCur) score += pull;
+      if (dNew <= 2) score += 10;
     }
 
     // Road expansion behavior: when behind targets, step off existing roads to extend network.
@@ -1643,6 +1781,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     gs, player, mapSize, strategic, territorial, enemyHQs, sortedCombat, resourceTargets
   );
   const flankCountForGarrison = missionCounts.garrison || missionCounts.diversion || 2;
+  assignResourceGarrisonMissions(gs, player, unitObjective, sortedCombat);
   assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjective, sortedCombat, flankCountForGarrison);
 
   const opening = getOpeningMilestones(gs, player);
@@ -1803,7 +1942,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
         // Ensure task-lock memory exists and persists across turns.
         if (!mem.task || (gs.turn - (mem.turnAssigned || 0)) >= 5) {
-          mem.task = pickEngineerTask(gs, player, unit, strategic, mapSize, claimedCorridorTasks);
+          mem.task = pickEngineerTask(gs, player, unit, strategic, mapSize, claimedCorridorTasks, terrain);
           mem.turnAssigned = gs.turn || 1;
           mem.stallTurns = 0;
         }
@@ -1840,9 +1979,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             if (task) {
               const dNew = hexDistance(hex.q, hex.r, task.q, task.r);
               const dCur = hexDistance(unit.q, unit.r, task.q, task.r);
-              if (dNew < dCur) s += 38;   // strong forward corridor pull
-              if (dNew <= 2) s += 14;
-              if (dNew === 0) s += 18;
+              const taskPull = task.type === 'resource' ? 44 : task.type === 'fort' ? 38 : 28;
+              if (dNew < dCur) s += taskPull;
+              if (dNew <= 2) s += 16;
+              if (dNew === 0) s += 20;
             }
           }
           if (s > bestScore) { bestScore = s; bestDest = hex; }
@@ -1984,10 +2124,36 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           // Opening hierarchy (turn <= 8): ensure baseline infra/econ comes online.
           if (gs.turn <= 8) {
             if (!hasRoad && maybeBuild('ROAD')) continue;
-            if (resHex?.type === 'IRON' && myMines < 1 && maybeBuild('MINE')) continue;
-            if (resHex?.type === 'OIL' && myPumps < 1 && maybeBuild('OIL_PUMP')) continue;
+            if (resHex?.type === 'IRON' && myMines < opening.desired.mines && maybeBuild('MINE')) continue;
+            if (resHex?.type === 'OIL' && myPumps < opening.desired.pumps && maybeBuild('OIL_PUMP')) continue;
             if (onPlains && myFarms < 1 && maybeBuild('FARM')) continue;
             if (onForest && myLumber < 1 && maybeBuild('LUMBER_CAMP')) continue;
+          }
+
+          const unlockedEng = new Set(gs.players[player]?.research?.unlocked || []);
+          const extractHere = gs.buildings.find((b) => b.q === unit.q && b.r === unit.r
+            && (b.type === 'MINE' || b.type === 'OIL_PUMP') && Number(b.owner) === Number(player));
+          if (extractHere && resHex) {
+            const fortsNear = countFortsNearHex(gs, player, unit.q, unit.r, 2);
+            const pressure = getEnemies().filter((e) => hexDistance(e.q, e.r, unit.q, unit.r) <= 5).length;
+            const fortNeeds = [];
+            if (!hasRoad) fortNeeds.push({ type: 'ROAD', score: 32 * phaseWeights.logistics });
+            if (fortsNear < 1 && gs.turn >= 3) {
+              if (unlockedEng.has('sandbag_improved')) fortNeeds.push({ type: 'SANDBAG', score: 30 });
+              fortNeeds.push({ type: 'FIELD_OUTPOST', score: 26 + pressure * 2 });
+            }
+            if (fortsNear < 2 && gs.turn >= 6) fortNeeds.push({ type: 'FIELD_OUTPOST', score: 24 + pressure * 2 });
+            if (fortsNear < 2 && gs.turn >= 7) fortNeeds.push({ type: 'OBS_POST', score: 20 + pressure });
+            if (unlockedEng.has('field_fortifications') && fortsNear < 3 && gs.turn >= 8) {
+              fortNeeds.push({ type: 'TRENCH', score: 22 + pressure * 2 });
+            }
+            if (pressure >= 1 && fortsNear < 3 && gs.turn >= 9) {
+              fortNeeds.push({ type: 'BUNKER', score: 24 + pressure * 3 });
+            }
+            fortNeeds.sort((a, b) => b.score - a.score);
+            for (const fn of fortNeeds) {
+              if (maybeBuild(fn.type)) continue;
+            }
           }
 
           if (resHex?.type === 'OIL') {
@@ -2261,21 +2427,33 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     return { total, combat, vehicles, air, indirect, support };
   };
 
+  const myEngNow = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked).length;
+  const queuedEngNow = actions.filter(a => a.type === 'recruit' && a.unitType === 'ENGINEER').length;
+  const unworkedResSites = getUnclaimedResourceSites(gs, player).length;
+  const recruitEngineerFromHQ = () => {
+    const eb = myBuildings.find(bb => (BUILDING_TYPES[bb.type]?.canRecruit || []).includes('ENGINEER')
+      && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player));
+    if (!eb) return false;
+    const c = UNIT_TYPES.ENGINEER?.cost || {};
+    const f = getRecruitFoodCost('ENGINEER');
+    if (!canAfford(c) || resSim.food < f) return false;
+    actions.push({ type: 'recruit', buildingId: eb.id, unitType: 'ENGINEER' });
+    spend(c);
+    resSim.food -= f;
+    plannedCount.ENGINEER = (plannedCount.ENGINEER || 0) + 1;
+    return true;
+  };
+
+  // Resource rush: extra engineers while many unclaimed mines/oil remain.
+  if ((gs.turn || 1) <= 16 && unworkedResSites >= 2
+    && (myEngNow + queuedEngNow) < Math.min(4, 1 + Math.floor(unworkedResSites / 2))) {
+    recruitEngineerFromHQ();
+  }
+
   // Hard network engineer reserve when road network is behind schedule.
   if (roadDeficitGlobal >= 2) {
-    const myEngNow = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked).length;
-    const queuedEngNow = actions.filter(a => a.type === 'recruit' && a.unitType === 'ENGINEER').length;
     if ((myEngNow + queuedEngNow) < 3) {
-      const eb = myBuildings.find(bb => (BUILDING_TYPES[bb.type]?.canRecruit || []).includes('ENGINEER') && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player));
-      if (eb) {
-        const c = UNIT_TYPES['ENGINEER']?.cost || {};
-        const f = getRecruitFoodCost('ENGINEER');
-        if (resSim.iron >= (c.iron||0) && resSim.oil >= (c.oil||0) && resSim.wood >= (c.wood||0) && resSim.food >= f && resSim.components >= (c.components||0)) {
-          actions.push({ type: 'recruit', buildingId: eb.id, unitType: 'ENGINEER' });
-          resSim.iron -= (c.iron||0); resSim.oil -= (c.oil||0); resSim.wood -= (c.wood||0); resSim.food -= f; resSim.components -= (c.components||0);
-          plannedCount['ENGINEER'] = (plannedCount['ENGINEER'] || 0) + 1;
-        }
-      }
+      recruitEngineerFromHQ();
     }
   }
 
@@ -2752,7 +2930,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     else mem.stallTurns = 0;
 
     if ((mem.stallTurns || 0) >= 2) {
-      mem.task = pickEngineerTask(gs, player, u, strategic, mapSize);
+      mem.task = pickEngineerTask(gs, player, u, strategic, mapSize, null, terrain);
       mem.turnAssigned = gs.turn || 1;
       mem.stallTurns = 0;
       aiDebug.engineersStalled += 1;

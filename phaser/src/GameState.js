@@ -312,6 +312,7 @@ export const BUILDING_TYPES = {
   // Obstacle / fortification buildings (engineer-built, no recruitment)
   BARBED_WIRE:   { name: 'Barbed Wire',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0x888866, sight: 0, obstacle: true, infantryMoveCost: 1 },
   SANDBAG:       { name: 'Sandbag Post',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xc8aa66, sight: 0, defenseBonus: 2 },
+  FIELD_OUTPOST: { name: 'Field Outpost',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 2 }, color: 0x8a7a55, sight: 3, defenseBonus: 3 },
   SUPPLY_DEPOT:  { name: 'Supply Depot',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 1, wood: 1 }, color: 0xddaa44, sight: 2, supplyRadius: 3, moveBonus: 1 },
   SUPPLY_WAREHOUSE:{ name:'Supply Warehouse', ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, buildTurns:2, canRecruit:[], buildCost:{ iron:8, oil:2, wood:4 }, color:0xc9922a, sight:2, supplyRadius:4, moveBonus:1 },
   HARBOR:        { name: 'Harbor',         ironPerTurn: 1, oilPerTurn: 1, woodPerTurn: 0, buildTurns: 3, canRecruit: [],                         buildCost: { iron: 5, oil: 1, components: 1 }, color: 0x4488cc, sight: 2, repairsNaval: true },
@@ -1565,7 +1566,7 @@ export function resolveTurn(state, terrain) {
     // Open-plains exposure penalty for infantry-like defenders not fortified.
     const INF_LIKE = new Set(['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD','LMG_TEAM','HMG_TEAM','SNIPER','ENGINEER','MEDIC','ANTI_TANK']);
     const openPlains = (ttype === 0 || ttype === 6);
-    const onFort = !!state.buildings.find(b => (b.type === 'BUNKER' || b.type === 'TRENCH' || b.type === 'SANDBAG') && b.q === target.q && b.r === target.r && b.owner === target.owner);
+    const onFort = !!state.buildings.find(b => (b.type === 'BUNKER' || b.type === 'TRENCH' || b.type === 'SANDBAG' || b.type === 'FIELD_OUTPOST') && b.q === target.q && b.r === target.r && b.owner === target.owner);
     const openPlainMod = (openPlains && INF_LIKE.has(target.type) && !target.dugIn && !onFort) ? 6 : 0;
     score += openPlainMod;
     const onRoad = !!state.buildings.find(b => ROAD_TYPES.has(b.type) && b.q === target.q && b.r === target.r);
@@ -1976,7 +1977,7 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   score -= terrainMod;
   const INF_LIKE = new Set(['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD','LMG_TEAM','HMG_TEAM','SNIPER','ENGINEER','MEDIC','ANTI_TANK']);
   const openPlains = (ttype === 0 || ttype === 6);
-  const onFort = !!state.buildings.find(b => (b.type === 'BUNKER' || b.type === 'TRENCH' || b.type === 'SANDBAG') && b.q === target.q && b.r === target.r && b.owner === target.owner);
+  const onFort = !!state.buildings.find(b => (b.type === 'BUNKER' || b.type === 'TRENCH' || b.type === 'SANDBAG' || b.type === 'FIELD_OUTPOST') && b.q === target.q && b.r === target.r && b.owner === target.owner);
   const openPlainMod = (openPlains && INF_LIKE.has(target.type) && !target.dugIn && !onFort) ? 6 : 0;
   score += openPlainMod;
   const onRoad = !!state.buildings.find(b => ROAD_TYPES.has(b.type) && b.q === target.q && b.r === target.r);

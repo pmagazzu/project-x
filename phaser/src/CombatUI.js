@@ -151,7 +151,7 @@ export function analyzeCombat(gs, terrain, mapSize, attacker, target, blindFire,
   if (infRangePenalty > 0) baseAtk = Math.max(1, baseAtk - 1);
 
   const terrainMod = tTerrain === 1 ? 10 : tTerrain === 2 ? 20 : (tTerrain === 7 ? 5 : 0);
-  const onFort = !!gs.buildings?.find((b) => (b.type === 'BUNKER' || b.type === 'TRENCH' || b.type === 'SANDBAG')
+  const onFort = !!gs.buildings?.find((b) => (b.type === 'BUNKER' || b.type === 'TRENCH' || b.type === 'SANDBAG' || b.type === 'FIELD_OUTPOST')
     && b.q === target.q && b.r === target.r && b.owner === target.owner);
   const openPlainMod = ((tTerrain === 0 || tTerrain === 6) && INF_LIKE.has(target.type) && !target.dugIn && !onFort) ? 6 : 0;
   const dugInMod = target.dugIn ? 8 : 0;

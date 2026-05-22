@@ -41,7 +41,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.2';
+export const GAME_VERSION = 'v1.10.3';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -1865,6 +1865,19 @@ export class GameScene extends Phaser.Scene {
         g.lineStyle(1.5, 0x000000, 0.7);
         g.beginPath(); g.moveTo(x - s*0.28, y); g.lineTo(x + s*0.28, y); g.strokePath();
         g.beginPath(); g.moveTo(x, y - s*0.28); g.lineTo(x, y + s*0.28); g.strokePath();
+
+      } else if (b.type === 'FIELD_OUTPOST') {
+        const verts = hexVertices(x, y).map(v => ({ x: x + (v.x - x) * 0.58, y: y + (v.y - y) * 0.58 }));
+        g.fillStyle(0x5a4a38, 0.95);
+        g.beginPath(); g.moveTo(verts[0].x, verts[0].y);
+        for (let i = 1; i < verts.length; i++) g.lineTo(verts[i].x, verts[i].y);
+        g.closePath(); g.fillPath();
+        g.lineStyle(2, color, 1);
+        g.strokePath();
+        g.fillStyle(0xc8aa66, 0.85);
+        g.fillRect(x - s * 0.35, y - s * 0.15, s * 0.7, s * 0.22);
+        g.fillStyle(color, 0.9);
+        g.fillCircle(x, y - s * 0.35, s * 0.12);
 
       } else if (b.type === 'OBS_POST') {
         // Observation Post: team-colored tower with platform
@@ -4613,7 +4626,10 @@ export class GameScene extends Phaser.Scene {
       if (noBuilding && coastal) allOpts.push({ label: `Naval Dockyard T2 16⚙ 5🛢 4🪵 3🧩`, cost:{iron:16,oil:5,wood:4,components:3}, enabled: iron>=16&&oil>=5&&wood>=4&&(gs.players[p].components||0)>=3, cb: () => this._onBuildStructure('NAVAL_DOCKYARD',16,5,4,3) });
       addHeader('DEFENSE & OBSTACLES');
       if (noBuilding) allOpts.push({ label: `Bunker      3⚙ 2🪵`,   cost:{iron:3,oil:0,wood:2},  enabled: iron>=3&&wood>=2, cb: () => this._onBuildStructure('BUNKER',3,0,2) });
+      if (noBuilding) allOpts.push({ label: `Field Outpost 2⚙ 2🪵`, cost:{iron:2,oil:0,wood:2}, enabled: iron>=2&&wood>=2, cb: () => this._onBuildStructure('FIELD_OUTPOST',2,0,2) });
       if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙`,       cost:{iron:3,oil:0},         enabled: iron>=3,          cb: () => this._onBuildStructure('OBS_POST',3) });
+      if (unlocked.has('field_fortifications') && noBuilding)
+        allOpts.push({ label: `Trench      2🪵`,       cost:{iron:0,oil:0,wood:2}, enabled: wood>=2,    cb: () => this._onBuildStructure('TRENCH',0,0,2) });
       // Obstacles & logistics (require research)
       if (unlocked.has('barbed_wire')   && noBuilding)
         allOpts.push({ label: `Barbed Wire 1🪵`,  cost:{iron:0,oil:0,wood:1}, enabled: wood>=1,    cb: () => this._onBuildStructure('BARBED_WIRE',0,0,1) });
