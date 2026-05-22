@@ -44,7 +44,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.10';
+export const GAME_VERSION = 'v1.10.11';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -3207,10 +3207,13 @@ export class GameScene extends Phaser.Scene {
       backgroundColor: `#${color.toString(16).padStart(6,'0')}`,
       padding: { x: 0, y: 0 }, fixedWidth: w, fixedHeight: h, align: 'center'
     }).setScrollFactor(0).setDepth(101).setInteractive({ useHandCursor: true });
-    btn.on('pointerdown', () => {
-      this._contextMenuClicked = true; // prevent pointerup from firing _onHexClick
+    const run = () => {
+      this._contextMenuClicked = true;
+      this._contextMenuSuppressDismissUntil = (this.time?.now ?? performance.now()) + 280;
       cb();
-    });
+    };
+    btn.on('pointerdown', () => { this._contextMenuClicked = true; });
+    btn.on('pointerup', (ptr) => { if (ptr.button === 0) run(); });
     btn.on('pointerover', () => btn.setAlpha(0.8));
     btn.on('pointerout',  () => btn.setAlpha(1.0));
     return btn;
@@ -3262,7 +3265,8 @@ export class GameScene extends Phaser.Scene {
           a.color,
           a.enabled ? () => {
             this._menuAnchor = { x: bx + bw / 2, y: by + bh / 2 };
-            this._runContextMenuItem(a, u);
+            if (a.openSubmenu) this._openContextSubmenu(u, a.openSubmenu, a.page || 0);
+            else this._runContextMenuItem(a, u);
           } : () => {}
         );
         if (!a.enabled) btn.setAlpha(0.4);
@@ -4124,6 +4128,10 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       if (ptr.button === 0 && !this._isDragging && !this._panelOpenAtMouseDown) {
+        const now = this.time?.now ?? performance.now();
+        if (this._contextMenuSuppressDismissUntil && now < this._contextMenuSuppressDismissUntil) {
+          this._contextMenuClicked = true;
+        }
         if (this._contextMenuDismissLock) {
           this._contextMenuClicked = true;
           this._contextMenuDismissLock = false;
@@ -4583,9 +4591,18 @@ export class GameScene extends Phaser.Scene {
     return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
   }
 
+  _openContextSubmenu(unit, submenu, page = 0) {
+    if (!unit) return;
+    this._contextMenuDismissLock = true;
+    this._contextMenuClicked = true;
+    this._contextMenuSuppressDismissUntil = (this.time?.now ?? performance.now()) + 320;
+    const replace = !!this._contextMenuObjs?.length;
+    this._showContextMenu(unit, submenu, page, replace);
+  }
+
   _showContextMenu(unit, submenu = 'root', page = 0, replace = false) {
     if (!unit) return;
-    if (!this.settings.showContextMenu) return;
+    if (submenu === 'root' && !this.settings.showContextMenu) return;
     if (replace) {
       const old = this._contextMenuObjs;
       if (old) {
@@ -4759,15 +4776,31 @@ export class GameScene extends Phaser.Scene {
         header:  !!o.header,
       }));
 
-      // Pagination row (prev / page indicator / next) appended as items
       if (totalPages > 1) {
+        if (page > 0) {
+          items.push({
+            label: '◀ PREV PAGE',
+            color: 0x333355,
+            enabled: true,
+            openSubmenu: 'build',
+            page: page - 1,
+          });
+        }
         items.push({
-          label: `${page > 0 ? '◀ ' : '  '}  ${page + 1}/${totalPages}  ${page < totalPages - 1 ? ' ▶' : '  '}`,
+          label: `PAGE ${page + 1} / ${totalPages}`,
           color: 0x333355,
-          enabled: true,
-          openSubmenu: 'build',
-          page: (page + 1) % totalPages,
+          enabled: false,
+          header: true,
         });
+        if (page < totalPages - 1) {
+          items.push({
+            label: 'NEXT PAGE ▶',
+            color: 0x333355,
+            enabled: true,
+            openSubmenu: 'build',
+            page: page + 1,
+          });
+        }
       }
 
       items.push({ label: '← BACK', color: 0x443322, enabled: true, openSubmenu: 'root', page: 0 });
@@ -4839,7 +4872,12 @@ export class GameScene extends Phaser.Scene {
       if (item.enabled) {
         const zone = this.add.zone(px + btnW / 2, rowY + btnH / 2, btnW - 4, btnH - 2)
           .setScrollFactor(0).setDepth(DEPTH + 2).setInteractive({ useHandCursor: true });
-        zone.on('pointerdown', () => this._runContextMenuItem(item, unit));
+        zone.on('pointerdown', absorbMenuPointer);
+        zone.on('pointerup', (ptr) => {
+          if (ptr.button !== 0) return;
+          absorbMenuPointer();
+          this._runContextMenuItem(item, unit);
+        });
         zone.on('pointerover', () => this._setContextMenuHint(item.hint || item.label, px, py + menuH + 4));
         zone.on('pointerout', () => this._setContextMenuHint(null));
         objs.push(zone);
@@ -4876,9 +4914,7 @@ export class GameScene extends Phaser.Scene {
     const menuUnit = unit || this._contextMenuUnit;
     if (!menuUnit) return;
     if (item.openSubmenu) {
-      // Same pointerup was dismissing the menu when the taller build submenu re-clamped upward.
-      this._contextMenuDismissLock = true;
-      this._showContextMenu(menuUnit, item.openSubmenu, item.page || 0, true);
+      this._openContextSubmenu(menuUnit, item.openSubmenu, item.page || 0);
       return;
     }
     this._hideContextMenu(true);
