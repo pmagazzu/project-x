@@ -4,6 +4,7 @@
 import {
   hexDistance, hasLOS, supplyPenalty,
   UNIT_TYPES, NAVAL_UNITS, AIR_UNITS,
+  getUnitTierIntel,
 } from './GameState.js';
 
 const INDIRECT = new Set(['ARTILLERY', 'MORTAR']);
@@ -77,10 +78,12 @@ export function getCombatIntel(scene, gs, attacker, target, blindFire = false) {
   }
 
   const labels = ['BLIND', 'SPOTTED', 'PARTIAL', 'CONFIRMED'];
+  const tierIntel = getUnitTierIntel(gs, target, cp, { intelLevel: level });
   return {
     level,
     label: labels[level],
-    showDefenderType: level >= 2,
+    targetTier: tierIntel,
+    showTargetTier: level >= 1,
     showDefenderStats: level >= 3,
     showDefenderHP: level >= 2,
     showTerrainMods: level >= 2,

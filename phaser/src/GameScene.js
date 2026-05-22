@@ -12,7 +12,9 @@ import {
   calcUpkeep, calcRPFromLabs, computeSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS, getRecruitFoodCost, getUnitSupplyRadius,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
-  designRegistrationCost, computeDesignStats,
+  designRegistrationCost, designTrainCost, computeDesignStats, computeEffectiveTier,
+  formatResourceCost, getChassisTier, getModuleResourceCost, getPlayerIndustryTier,
+  canPlayerUseModule, playerHasResources, refundResources, getUnitTierIntel, inferTierFromUnit, UNIT_TIER_COLORS, MATERIAL_KEYS, MATERIAL_LABELS,
   NAVAL_UNITS, SHALLOW_UNITS, AIR_UNITS, canEnterTerrain, isStealthDetected,
   ROAD_TYPES, LOCKED_CHASSIS, hasLOS
 } from './GameState.js';
@@ -39,7 +41,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.9.14';
+export const GAME_VERSION = 'v1.10.0';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -599,12 +601,12 @@ export class GameScene extends Phaser.Scene {
     this.btnMore?.setPosition(w - 248, 42);
     this.btnSettings?.setPosition(w - 162, 42);
     const dockY = Math.min(260, gs.height * 0.38);
-    this.sidebarEcoBg?.setPosition(72, dockY).setSize(128, 300);
+    this.sidebarEcoBg?.setPosition(72, dockY).setSize(128, 328);
     this.sidebarEcoTitle?.setPosition(10, dockY - 152);
     this.sidebarUpkeepBanner?.setPosition(10, dockY - 134);
     this.sidebarResearchBar?.setPosition(10, dockY - 112);
-    const resYs = [dockY - 88, dockY - 62, dockY - 36, dockY - 10, dockY + 16, dockY + 42, dockY + 68];
-    [this.resIron, this.resOil, this.resWood, this.resFood, this.resGold, this.resComp, this.resRp].forEach((r, i) => {
+    const resYs = [dockY - 88, dockY - 62, dockY - 36, dockY - 10, dockY + 16, dockY + 42, dockY + 68, dockY + 94, dockY + 120];
+    [this.resIron, this.resOil, this.resWood, this.resFood, this.resGold, this.resComp, this.resSteel, this.resAlloy, this.resRp].forEach((r, i) => {
       if (!r) return;
       r.setPosition(10, resYs[i]);
       r.getData('valueText')?.setPosition(32, resYs[i]);
@@ -2151,25 +2153,35 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  _unitShownTier(unit) {
+  _unitShownTier(unit, viewerPlayer = null) {
     const gs = this.gameState;
-    const def = UNIT_TYPES[unit.type] || {};
-    const chassisTier = def.tier ?? 0;
-    let modTier = 0;
-    if (unit.designId !== undefined) {
-      const d = gs.designs?.[unit.owner]?.find(dd => dd.id === unit.designId);
-      if (d?.modules?.length) modTier = Math.max(0, ...d.modules.map(mk => MODULES[mk]?.tier ?? 0));
+    const vp = viewerPlayer ?? gs.currentPlayer;
+    const isEnemy = Number(unit.owner) !== Number(vp);
+    let intelLevel = 3;
+    if (isEnemy) {
+      const key = `${unit.q},${unit.r}`;
+      const inSight = !this._currentFog || this._currentFog.has(key);
+      const fought = !!unit._tierIntelConfirmed;
+      intelLevel = fought ? 2 : (inSight ? 1 : 0);
     }
-    // Fallback inference: tech-gated chassis and stat deltas.
-    let inferred = 0;
-    if (def.unlockedBy) inferred = Math.max(inferred, (def.cost?.components || 0) > 0 ? 2 : 1);
-    if (modTier === 0) {
-      const base = UNIT_TYPES[unit.type] || {};
-      const keys = ['soft_attack','hard_attack','pierce','armor','defense','range','move','accuracy','evasion','health','sight'];
-      const delta = keys.reduce((s, k) => s + Math.abs((unit[k] ?? base[k] ?? 0) - (base[k] ?? 0)), 0);
-      if (delta >= 1) inferred = Math.max(inferred, delta >= 6 ? 2 : 1);
+    return getUnitTierIntel(gs, unit, vp, { intelLevel }).tier;
+  }
+
+  _unitTierIntelLabel(unit, viewerPlayer = null) {
+    const gs = this.gameState;
+    const vp = viewerPlayer ?? gs.currentPlayer;
+    const isEnemy = Number(unit.owner) !== Number(vp);
+    let intelLevel = 3;
+    if (isEnemy) {
+      const key = `${unit.q},${unit.r}`;
+      const inSight = !this._currentFog || this._currentFog.has(key);
+      intelLevel = unit._tierIntelConfirmed ? 2 : (inSight ? 1 : 0);
     }
-    return Math.max(0, Math.min(3, Math.max(chassisTier, modTier, inferred)));
+    return getUnitTierIntel(gs, unit, vp, { intelLevel });
+  }
+
+  _tierColor(tier) {
+    return UNIT_TIER_COLORS[Math.max(0, Math.min(5, tier ?? 0))] ?? 0x8a9aaa;
   }
 
   // ── Units ─────────────────────────────────────────────────────────────────
@@ -2357,8 +2369,9 @@ export class GameScene extends Phaser.Scene {
 
       // Enemy tier hint (T0..T3) — shows progression level only, not exact modules.
       if (isEnemy) {
-        const shownTier = this._unitShownTier(unit);
-        const tierCol = shownTier >= 3 ? 0xd9534f : shownTier === 2 ? 0xe49c3d : shownTier === 1 ? 0x4da3ff : 0x8a9aaa;
+        const tierIntel = this._unitTierIntelLabel(unit);
+        const shownTier = tierIntel.tier;
+        const tierCol = this._tierColor(shownTier);
 
         // Large top band marker (high visibility)
         this.unitGfx.fillStyle(0x0b0f16, alpha * 0.92);
@@ -2388,8 +2401,9 @@ export class GameScene extends Phaser.Scene {
 
       // Subtle tier counter for ALL units (integrated pips on counter, no floating text)
       {
-        const shownTier = this._unitShownTier(unit);
-        const tierCol = shownTier >= 3 ? 0xd9534f : shownTier === 2 ? 0xe49c3d : shownTier === 1 ? 0x4da3ff : 0x8a9aaa;
+        const tierIntel = this._unitTierIntelLabel(unit);
+        const shownTier = tierIntel.tier;
+        const tierCol = this._tierColor(shownTier);
         const py = cy2 + 6;
         const startX = cx2 + cW - 16;
         // backdrop strip
@@ -2752,7 +2766,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(D + 2);
 
     // Left command dock — economy + research at a glance
-    this.sidebarEcoBg = this.add.rectangle(72, 260, 128, 300, 0x100818, 0.94)
+    this.sidebarEcoBg = this.add.rectangle(72, 260, 128, 328, 0x100818, 0.94)
       .setStrokeStyle(2, 0xff66cc).setScrollFactor(0).setDepth(D)
       .setInteractive({ useHandCursor: true });
     this.sidebarEcoBg.on('pointerdown', () => this._toggleEconomy());
@@ -2771,7 +2785,9 @@ export class GameScene extends Phaser.Scene {
     this.resFood = this._makeSidebarResRow(10, 250, '🍞', 'Food', D + 1);
     this.resGold = this._makeSidebarResRow(10, 276, '💰', 'Gold', D + 1);
     this.resComp = this._makeSidebarResRow(10, 302, '🧩', 'Parts', D + 1);
-    this.resRp   = this._makeSidebarResRow(10, 328, '⚗', 'Research', D + 1);
+    this.resSteel = this._makeSidebarResRow(10, 328, '🔩', 'Steel', D + 1);
+    this.resAlloy = this._makeSidebarResRow(10, 354, '✈️', 'Alloy', D + 1);
+    this.resRp   = this._makeSidebarResRow(10, 380, '⚗', 'Research', D + 1);
   }
 
   _makeSidebarResRow(x, y, icon, label, depth) {
@@ -2917,6 +2933,8 @@ export class GameScene extends Phaser.Scene {
     this._setSidebarResRow(this.resFood, `${fmtRes(pl.food || 0)} ${sgn(netFood)}${ttzSuffix(ttzFood)}`);
     this._setSidebarResRow(this.resGold, `${fmtRes(pl.gold || 0)} ${sgn(netGold)}`);
     this._setSidebarResRow(this.resComp, `${fmtRes(pl.components || 0)}`);
+    this._setSidebarResRow(this.resSteel, `${fmtRes(pl.hardenedSteel || 0)}`);
+    this._setSidebarResRow(this.resAlloy, `${fmtRes(pl.aviationAlloy || 0)}`);
     this._setSidebarResRow(this.resRp, activeTech ? `${activeTech.name.substring(0, 16)} ${rpPct}%` : (inc.rp ? `+${inc.rp}/t` : '—'));
     this.resIron.getData('valueText')?.setStyle({ fill: rowFill(ttzIron, ttzIron <= 1) });
     this.resOil.getData('valueText')?.setStyle({ fill: rowFill(ttzOil, ttzOil <= 1) });
@@ -3045,7 +3063,8 @@ export class GameScene extends Phaser.Scene {
       ? (gs.designs[u.owner]?.find(d => d.id === u.designId)?.name || def.name)
       : def.name;
     const prefix = isOwn && u.designId !== undefined ? '★ ' : '';
-    const title = `${prefix}${displayName}  ·  Player ${u.owner}  ·  Tier ${this._unitShownTier(u)}`;
+    const tierLbl = this._unitTierIntelLabel(u).label;
+    const title = `${prefix}${displayName}  ·  Player ${u.owner}  ·  ${tierLbl}`;
     const ap = (u.moved ? 0 : 1) + (u.attacked ? 0 : 1);
     const fuel = u.fuel !== undefined ? `  Fuel ${u.fuel}/${u.fuelMax}` : '';
     const chips = `HP ${u.health}/${u.maxHealth}  ·  AP ${ap}/2${fuel}  ·  MOV ${u.move ?? def.move}  ·  RNG ${u.range ?? def.range}`;
@@ -3258,10 +3277,8 @@ export class GameScene extends Phaser.Scene {
         const toCancel = buildingQueue[0];
         const refundType = toCancel.type;
         const refundDesign = toCancel.designId !== undefined ? gs.designs[p].find(d => d.id === toCancel.designId) : null;
-        const cost = refundDesign ? refundDesign.trainCost : (refundType ? UNIT_TYPES[refundType].cost : { iron: 0, oil: 0, components: 0 });
-        gs.players[p].iron += (cost.iron || 0);
-        gs.players[p].oil  += (cost.oil || 0);
-        gs.players[p].components = (gs.players[p].components || 0) + (cost.components || 0);
+        const cost = refundDesign ? refundDesign.trainCost : (refundType ? UNIT_TYPES[refundType].cost : { iron: 0, oil: 0 });
+        refundResources(gs.players[p], cost);
         const idx = gs.pendingRecruits.findIndex(r => r === toCancel);
         if (idx >= 0) gs.pendingRecruits.splice(idx, 1);
         this._hideRecruitPanel();
@@ -3280,7 +3297,7 @@ export class GameScene extends Phaser.Scene {
       const def = UNIT_TYPES[unitType];
       const queueCapReached = buildingQueue.length >= 6;
       const foodCost = getRecruitFoodCost(unitType);
-      const canAfford = !queueCapReached && gs.players[p].iron >= (def.cost.iron||0) && gs.players[p].oil >= (def.cost.oil||0) && (gs.players[p].components||0) >= (def.cost.components||0) && (gs.players[p].food||0) >= foodCost;
+      const canAfford = !queueCapReached && playerHasResources(gs.players[p], def.cost) && (gs.players[p].food||0) >= foodCost;
       const _bt = def.buildTime ?? 1;
       const ry = baseRowY + i * rowH + rowH/2;
 
@@ -3333,12 +3350,10 @@ export class GameScene extends Phaser.Scene {
       const idx = available.length + i;
       const queueCapReached = buildingQueue.length >= 6;
       const dFoodCost = getRecruitFoodCost(design.chassis);
-      const canAfford = !queueCapReached && gs.players[p].iron >= (design.trainCost.iron||0) && gs.players[p].oil >= (design.trainCost.oil||0) && (gs.players[p].components||0) >= (design.trainCost.components||0) && (gs.players[p].food||0) >= dFoodCost;
+      const canAfford = !queueCapReached && playerHasResources(gs.players[p], design.trainCost) && (gs.players[p].food||0) >= dFoodCost;
       const _dbt = UNIT_TYPES[design.chassis]?.buildTime ?? 1;
       const ry = baseRowY + idx * rowH + rowH/2;
-      const modTier = Math.max(0, ...((design.modules || []).map(mk => MODULES[mk]?.tier ?? 0)));
-      const chassisTier = UNIT_TYPES[design.chassis]?.tier ?? 0;
-      const shownTier = Math.max(chassisTier, modTier);
+      const shownTier = design.effectiveTier ?? computeEffectiveTier(design.chassis, design.modules || [], design.stats);
 
       const rowBg = this.add.rectangle(w/2, ry, rowW, rowH - 4, canAfford ? 0x1a1a0d : 0x0e0e0e, 1)
         .setStrokeStyle(1, canAfford ? 0x666622 : 0x333333)
@@ -3357,7 +3372,7 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(201);
       objs.push(statTxt);
 
-      const costTxt = this.add.text(w/2 + rowW/2 - 12, ry, `⚙${design.trainCost.iron||0}${(design.trainCost.oil||0) > 0 ? `  🛢${design.trainCost.oil}` : ''}${(design.trainCost.components||0) > 0 ? `  🧩${design.trainCost.components}` : ''}${dFoodCost > 0 ? `  🌾${dFoodCost}` : ''}`, {
+      const costTxt = this.add.text(w/2 + rowW/2 - 12, ry, `${formatResourceCost(design.trainCost)}${dFoodCost > 0 ? `  🌾${dFoodCost}` : ''}`, {
         font: 'bold 12px monospace', fill: canAfford ? '#d6c86a' : '#554444'
       }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(201);
       objs.push(costTxt);
@@ -3438,8 +3453,7 @@ export class GameScene extends Phaser.Scene {
           designName = entered.trim() || defaultName;
           const modules = [...selectedModules];
           const cost = designRegistrationCost(modules);
-          if (gs.players[p].iron < cost.iron) return;
-          if (gs.players[p].oil  < cost.oil)  return;
+          if (!playerHasResources(gs.players[p], cost)) return;
           if (gs.designs[p].length >= MAX_DESIGNS_PER_PLAYER) return;
           const result = registerDesign(gs, p, chassis, modules, designName);
           if (result.ok) {
@@ -3533,11 +3547,13 @@ export class GameScene extends Phaser.Scene {
     // Preview stats
     const preview = computeDesignStats(selectedChassis, [...selectedModules]);
     const cost    = designRegistrationCost([...selectedModules]);
-    const canAfford = gs.players[player].iron >= cost.iron && gs.players[player].oil >= cost.oil;
+    const effTier = computeEffectiveTier(selectedChassis, [...selectedModules], preview);
+    const canAfford = playerHasResources(gs.players[player], cost);
     const slotsFull = gs.designs[player].length >= MAX_DESIGNS_PER_PLAYER;
 
+    line(`Effective tier: T${effTier}`, '#ffcc66', true);
     line(`Preview: HP${preview.health} MOV${preview.move} RNG${preview.range} SA${preview.soft_attack} HA${preview.hard_attack} PRC${preview.pierce} ARM${preview.armor} DEF${preview.defense}`, '#aaddff', true);
-    line(`Register cost: ⚙${cost.iron}${cost.oil > 0 ? ` 🛢${cost.oil}` : ''}  ${!canAfford ? '(NOT ENOUGH)' : slotsFull ? '(SLOTS FULL)' : '(affordable)'}`, canAfford && !slotsFull ? '#88ff88' : '#ff6666');
+    line(`Register: ${formatResourceCost(cost)}  ${!canAfford ? '(NOT ENOUGH)' : slotsFull ? '(SLOTS FULL)' : '(affordable)'}`, canAfford && !slotsFull ? '#88ff88' : '#ff6666');
     y += 4;
 
     const confirmBtn = this.add.text(w/2 - 70, y, '[ NAME & REGISTER ]', {
@@ -3619,6 +3635,9 @@ export class GameScene extends Phaser.Scene {
           if (selMods.has(mk)) {
             selMods.delete(mk);
           } else {
+            const unlockedTechs = new Set(gs.players[p]?.research?.unlocked || []);
+            const gate = canPlayerUseModule(gs, p, mk, unlockedTechs);
+            if (!gate.ok) return;
             const mod = MODULES[mk];
             // Enforce mutual exclusions (foundation for deeper design trees)
             if (mod?.mutuallyExclusiveWith) {
@@ -3639,7 +3658,7 @@ export class GameScene extends Phaser.Scene {
           const def = `${UNIT_TYPES[chassis]?.name || chassis} Mk.${(gs.designs[p]?.length || 0) + 1}`;
           const mods  = [...selMods];
           const cost  = designRegistrationCost(mods);
-          if (gs.players[p].iron < cost.iron || gs.players[p].oil < cost.oil) return;
+          if (!playerHasResources(gs.players[p], cost)) return;
           if ((gs.designs[p]?.length || 0) >= MAX_DESIGNS_PER_PLAYER) return;
           this._openNameModal('Name Unit Design', designName || def, (enteredName) => {
             designName = enteredName || def;
@@ -3741,8 +3760,9 @@ export class GameScene extends Phaser.Scene {
 
     // Slot / resource info
     const slotFull = (gs.designs[p]?.length || 0) >= MAX_DESIGNS_PER_PLAYER;
+    const indTier = getPlayerIndustryTier(gs, p);
     objs.push(this.add.text(col2X + col2W, py + 22,
-      `Designs: ${gs.designs[p]?.length || 0}/${MAX_DESIGNS_PER_PLAYER}  ⚙${gs.players[p].iron}  🛢${gs.players[p].oil}`, {
+      `Slots ${gs.designs[p]?.length || 0}/${MAX_DESIGNS_PER_PLAYER}  ·  Industry T${indTier}  ·  🧩${gs.players[p].components || 0}  🔩${gs.players[p].hardenedSteel || 0}  ✈${gs.players[p].aviationAlloy || 0}`, {
       font: '11px monospace', fill: slotFull ? '#ff8888' : '#88aa88'
     }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D+1));
 
@@ -3778,7 +3798,7 @@ export class GameScene extends Phaser.Scene {
       tabBg.on('pointerover', () => { if (!sel) tabBg.setFillStyle(0x1a3a22); });
       tabBg.on('pointerout',  () => { if (!sel) tabBg.setFillStyle(0x111a14); });
       objs.push(tabBg);
-      const lbl = this.add.text(tx + tabW/2, ty + tabH/2, `${def?.name || ch} [T${def?.tier ?? 0}]`, {
+      const lbl = this.add.text(tx + tabW/2, ty + tabH/2, `${def?.name || ch} [T${getChassisTier(ch)}]`, {
         font: `${sel ? 'bold ' : ''}9px monospace`, fill: sel ? '#aaffcc' : '#668866'
       }).setOrigin(0.5).setScrollFactor(0).setDepth(D+2);
       objs.push(lbl);
@@ -3795,12 +3815,8 @@ export class GameScene extends Phaser.Scene {
       ly += 16;
 
       const unlockedTechs = new Set(gs.players[p]?.research?.unlocked || []);
-      const validMods = Object.entries(MODULES).filter(([, m]) => {
-        if (!m.chassis.includes(selChassis)) return false;
-        if (m.requiredTech && !unlockedTechs.has(m.requiredTech)) return false;
-        return true;
-      });
-      if (validMods.length === 0) {
+      const modEntries = Object.entries(MODULES).filter(([, m]) => m.chassis.includes(selChassis));
+      if (modEntries.length === 0) {
         objs.push(this.add.text(col1X, ly, '(no modules for this chassis)', {
           font: '10px monospace', fill: '#445544'
         }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+1));
@@ -3808,35 +3824,37 @@ export class GameScene extends Phaser.Scene {
       }
 
       const modW = panW * 0.50 - 20;
-      for (const [key, mod] of validMods) {
+      for (const [key, mod] of modEntries) {
+        const gate = canPlayerUseModule(gs, p, key, unlockedTechs);
         const sel = selMods.has(key);
-        const deltaStr = Object.entries(mod.statDelta).map(([k, v]) => `${k}${v>0?'+':''}${v}`).join(' ');
-        const regCost  = `reg⚙${mod.designCost.iron}${mod.designCost.oil ? `🛢${mod.designCost.oil}` : ''}`;
-        const trainCst = `train⚙${mod.trainCost.iron}${mod.trainCost.oil ? `🛢${mod.trainCost.oil}` : ''}`;
-        const rowBg = this.add.rectangle(col1X + modW/2, ly + 13, modW, 26,
+        const deltaStr = Object.entries(mod.statDelta).map(([k, v]) => `${k}${v > 0 ? '+' : ''}${v}`).join(' ');
+        const matStr = formatResourceCost(getModuleResourceCost(mod));
+        const rowBg = this.add.rectangle(col1X + modW / 2, ly + 13, modW, 26,
           sel ? 0x1a3a1a : 0x0e140e, 1)
-          .setStrokeStyle(1, sel ? 0x44cc44 : 0x1e2e1e)
-          .setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
-        rowBg.on('pointerdown', () => { this._contextMenuClicked = true; onMod(key); });
-        rowBg.on('pointerover', () => rowBg.setFillStyle(sel ? 0x1a4a1a : 0x141e14));
-        rowBg.on('pointerout',  () => rowBg.setFillStyle(sel ? 0x1a3a1a : 0x0e140e));
+          .setStrokeStyle(1, sel ? 0x44cc44 : (gate.ok ? 0x1e2e1e : 0x442222))
+          .setScrollFactor(0).setDepth(D + 1);
+        if (gate.ok) {
+          rowBg.setInteractive({ useHandCursor: true });
+          rowBg.on('pointerdown', () => { this._contextMenuClicked = true; onMod(key); });
+          rowBg.on('pointerover', () => rowBg.setFillStyle(sel ? 0x1a4a1a : 0x141e14));
+          rowBg.on('pointerout', () => rowBg.setFillStyle(sel ? 0x1a3a1a : 0x0e140e));
+        }
         objs.push(rowBg);
-
-        // Check mark + name
-        objs.push(this.add.text(col1X + 6, ly + 13, `${sel ? '✓' : '○'} ${mod.name}`, {
-          font: `${sel ? 'bold ' : ''}10px monospace`, fill: sel ? '#aaffaa' : '#668866'
-        }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(D+2));
-
-        // Delta
-        objs.push(this.add.text(col1X + modW * 0.45, ly + 13, deltaStr, {
-          font: '10px monospace', fill: sel ? '#88ffcc' : '#446644'
-        }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(D+2));
-
-        // Cost
-        objs.push(this.add.text(col1X + modW - 6, ly + 13, `${regCost} ${trainCst}`, {
-          font: '9px monospace', fill: '#556655'
-        }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D+2));
-
+        const nameFill = !gate.ok ? '#664444' : (sel ? '#aaffaa' : '#668866');
+        objs.push(this.add.text(col1X + 6, ly + 8, `${sel ? '✓' : '○'} ${mod.name}  [M${mod.tier ?? 0}]`, {
+          font: `${sel ? 'bold ' : ''}10px monospace`, fill: nameFill,
+        }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2));
+        if (!gate.ok) {
+          objs.push(this.add.text(col1X + 6, ly + 20, gate.reason, {
+            font: '9px monospace', fill: '#aa6666',
+          }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2));
+        }
+        objs.push(this.add.text(col1X + modW * 0.42, ly + 13, deltaStr, {
+          font: '9px monospace', fill: sel ? '#88ffcc' : '#446644',
+        }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(D + 2));
+        objs.push(this.add.text(col1X + modW - 6, ly + 13, matStr || '—', {
+          font: '9px monospace', fill: '#556655',
+        }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D + 2));
         ly += 28;
       }
     }
@@ -3848,7 +3866,19 @@ export class GameScene extends Phaser.Scene {
       const base    = UNIT_TYPES[selChassis];
       const preview = computeDesignStats(selChassis, [...selMods]);
       const regCost = designRegistrationCost([...selMods]);
-      const canAfford = gs.players[p].iron >= regCost.iron && gs.players[p].oil >= regCost.oil;
+      const effTier = computeEffectiveTier(selChassis, [...selMods], preview);
+      const pl = gs.players[p];
+      const canAfford = playerHasResources(pl, regCost);
+
+      const TIER_FILL_HEX = ['#8a9aaa', '#4da3ff', '#e49c3d', '#d9534f', '#c44dff', '#ff3366'];
+      objs.push(this.add.text(col2X, ry, `EFFECTIVE UNIT TIER  T${effTier}`, {
+        font: 'bold 12px monospace', fill: TIER_FILL_HEX[effTier] || '#8a9aaa',
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 1));
+      ry += 18;
+      objs.push(this.add.text(col2X, ry, `Chassis T${getChassisTier(selChassis)} + module floor + stat budget`, {
+        font: '9px monospace', fill: '#778877',
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 1));
+      ry += 14;
 
       // Stat comparison table header
       objs.push(this.add.text(col2X, ry, 'STAT COMPARISON', {
@@ -3895,23 +3925,14 @@ export class GameScene extends Phaser.Scene {
       }
 
       ry += 8;
-      // Train cost preview
-      const trainCost = computeDesignStats(selChassis, [...selMods]); // reuse
-      const baseCost  = UNIT_TYPES[selChassis]?.cost || {};
-      let tIron = baseCost.iron || 0, tOil = baseCost.oil || 0;
-      for (const mk of selMods) {
-        const m = MODULES[mk];
-        if (m) { tIron += m.trainCost.iron || 0; tOil += m.trainCost.oil || 0; }
-      }
-      tIron = Math.max(0, tIron);
-
-      objs.push(this.add.text(col2X, ry, `Train cost per unit:  ⚙${tIron}${tOil > 0 ? `  🛢${tOil}` : ''}`, {
-        font: '10px monospace', fill: '#99aa66'
-      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+1));
+      const trainCost = designTrainCost(selChassis, [...selMods]);
+      objs.push(this.add.text(col2X, ry, `Train / unit:  ${formatResourceCost(trainCost)}`, {
+        font: '10px monospace', fill: '#99aa66',
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 1));
       ry += 16;
-      objs.push(this.add.text(col2X, ry, `Register cost (one-time):  ⚙${regCost.iron}${regCost.oil > 0 ? `  🛢${regCost.oil}` : ''}`, {
-        font: '10px monospace', fill: canAfford ? '#88cc66' : '#cc4444'
-      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+1));
+      objs.push(this.add.text(col2X, ry, `Register (once):  ${formatResourceCost(regCost)}`, {
+        font: '10px monospace', fill: canAfford ? '#88cc66' : '#cc4444',
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 1));
       ry += 22;
 
       // Register button
@@ -3949,14 +3970,15 @@ export class GameScene extends Phaser.Scene {
         const bldType = CHASSIS_BUILDINGS[d.chassis] || '?';
         const modNames = (d.modules || []).map(mk => MODULES[mk]?.name || mk).join(', ') || 'none';
         const statStr  = `HP${d.stats.health} MOV${d.stats.move} SA${d.stats.soft_attack} HA${d.stats.hard_attack} ARM${d.stats.armor}`;
-        const trainStr = `⚙${d.trainCost.iron}${d.trainCost.oil ? ` 🛢${d.trainCost.oil}` : ''}`;
+        const trainStr = formatResourceCost(d.trainCost);
+        const dTier = d.effectiveTier ?? computeEffectiveTier(d.chassis, d.modules, d.stats);
 
         const rowH2 = 44;
         const dRowBg = this.add.rectangle(col2X + col2W/2, ry + rowH2/2, col2W, rowH2, 0x0c1a10, 1)
           .setStrokeStyle(1, 0x224422).setScrollFactor(0).setDepth(D+1);
         objs.push(dRowBg);
 
-        objs.push(this.add.text(col2X + 6, ry + 6, `★ ${d.name}`, {
+        objs.push(this.add.text(col2X + 6, ry + 6, `★ ${d.name}  [T${dTier}]`, {
           font: 'bold 10px monospace', fill: '#aaffaa'
         }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+2));
         objs.push(this.add.text(col2X + 6, ry + 20, `${base?.name || d.chassis}  |  ${statStr}  |  ${trainStr}`, {
@@ -5043,7 +5065,7 @@ export class GameScene extends Phaser.Scene {
       objs.push(r, t1, t2);
     };
 
-    card(px - cardW/2 - 6, y + cardH/2, 'STOCKPILE', `⚙${pl.iron}  🛢${pl.oil}  🪵${pl.wood||0}  🍞${(pl.food||0).toFixed(1)}  💰${(pl.gold||0).toFixed(1)}  🧩${pl.components||0}`);
+    card(px - cardW/2 - 6, y + cardH/2, 'STOCKPILE', `⚙${pl.iron}  🛢${pl.oil}  🪵${pl.wood||0}  🍞${(pl.food||0).toFixed(1)}  💰${(pl.gold||0).toFixed(1)}  🧩${pl.components||0}  🔩${pl.hardenedSteel||0}  ✈${pl.aviationAlloy||0}`);
     card(px + cardW/2 + 6, y + cardH/2, 'NET / TURN', `⚙${net.iron>=0?'+':''}${net.iron}  🛢${net.oil>=0?'+':''}${net.oil}  🍞${net.food>=0?'+':''}${net.food}  💰+${net.gold}  ⚗+${net.rp}`,
       (net.iron < 0 || net.oil < 0 || net.food < 0) ? 0x2a1717 : 0x17241a);
     y += cardH + 16;
@@ -6802,6 +6824,13 @@ export class GameScene extends Phaser.Scene {
 
     mk(`Your unit: ${atkProfile.lines[0]}`, lX, pY + 78, '#8fb9ff', 8, true, 0.5, 0.5, pW);
     mk(defStatsLine, rX, pY + 78, '#ffb38f', 8, true, 0.5, 0.5, pW);
+    if (intel.showTargetTier && intel.targetTier) {
+      const ti = intel.targetTier;
+      const tierLine = ti.certain
+        ? `Unit tier: T${ti.tier} (${ti.label})`
+        : `Unit tier est.: ${ti.label}`;
+      mk(tierLine, rX, pY + 92, ti.certain ? '#ffcc66' : '#aa88cc', 9, true, 0.5, 0.5, pW);
+    }
 
     let tipY = pY + pH / 2 + 18;
     if (tips.length) {
@@ -6905,6 +6934,8 @@ export class GameScene extends Phaser.Scene {
     let log = [];
     try {
       log = resolveImmediateAttack(gs, attacker.id, targetId, blindFire) || [];
+      if (target && !target.dead) target._tierIntelConfirmed = true;
+      if (attacker) attacker._tierIntelConfirmed = true;
     } catch (e) {
       this._pushLog(`Attack resolver error: ${e?.message || e}`);
       this._refresh();

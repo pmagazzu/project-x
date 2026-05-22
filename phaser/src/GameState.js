@@ -105,7 +105,7 @@ export const MODULES = {
   INF_SMG_PACKAGE:      { name: 'SMG Package',        tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY'], statDelta: { range: -1, soft_attack: 2, fortification_assault: 2 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'smg_doctrine' },
   INF_GRENADE_KIT:      { name: 'Grenade Kit',        tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY','ENGINEER'], statDelta: { soft_attack: 1, fortification_assault: 1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'grenade_training' },
   INF_LMG_PACKAGE:      { name: 'LMG Package',        tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY'], statDelta: { range: 1, soft_attack: 1, move: -1, suppression: 1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'lmg_suppression' },
-  INF_HMG_EMPLACEMENT:  { name: 'HMG Emplacement',    tier: 2, chassis: ['INFANTRY','ASSAULT_INFANTRY'], statDelta: { range: 2, soft_attack: 2, move: -2, suppression: 2 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 2, oil: 0 }, requiredTech: 'hmg_team' },
+  INF_HMG_EMPLACEMENT:  { name: 'HMG Emplacement',    tier: 2, chassis: ['INFANTRY','ASSAULT_INFANTRY'], statDelta: { range: 2, soft_attack: 2, move: -2, suppression: 2 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 2, oil: 0, components: 1 }, resourceCost: { components: 1 }, requiredTech: 'hmg_team' },
   INF_SNIPER_PACKAGE:   { name: 'Sniper Package',     tier: 2, chassis: ['INFANTRY','RECON'], statDelta: { range: 2, accuracy: 6, move: -1, soft_attack: 1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'sniper_team' },
   INF_AT_RIFLE_PACKAGE: { name: 'AT Rifle Package',   tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY'], statDelta: { hard_attack: 2, pierce: 2, soft_attack: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'at_rifle_upgrade' },
   INF_CAMO_WEBBING:     { name: 'Camo Webbing',       tier: 1, chassis: ['INFANTRY','RECON','ASSAULT_INFANTRY'], statDelta: { evasion: 2, defense: 1, move: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'camo_webbing' },
@@ -113,7 +113,7 @@ export const MODULES = {
   AIR_DROP_TANKS:       { name: 'Drop Tanks',         tier: 1, chassis: ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE','MONOPLANE_FIGHTER'], statDelta: { move: 1, fuelMax: 1, defense: -1 }, designCost: { iron: 1, oil: 1 }, trainCost: { iron: 0, oil: 1 }, requiredTech: 'drop_tanks' },
 
   // ── Module families (mutually-exclusive archetypes) ───────────────────
-  GUN_HV_CANNON:         { name: 'HV Cannon',         tier: 2, chassis: ['TANK','MEDIUM_TANK','SPG'], statDelta: { hard_attack: 2, pierce: 2, range: 1, move: -1 }, designCost: { iron: 2, oil: 1 }, trainCost: { iron: 1, oil: 1 }, requiredTech: 'hv_gun_theory', mutuallyExclusiveWith:['GUN_SHORT_BARREL'] },
+  GUN_HV_CANNON:         { name: 'HV Cannon',         tier: 2, chassis: ['TANK','MEDIUM_TANK','SPG'], statDelta: { hard_attack: 2, pierce: 2, range: 1, move: -1 }, designCost: { iron: 2, oil: 1 }, trainCost: { iron: 1, oil: 1, components: 1 }, resourceCost: { components: 1 }, requiredTech: 'hv_gun_theory', mutuallyExclusiveWith:['GUN_SHORT_BARREL'] },
   GUN_SHORT_BARREL:      { name: 'Short Barrel',      tier: 1, chassis: ['TANK','MEDIUM_TANK','SPG','ARTILLERY','MORTAR'], statDelta: { soft_attack: 2, range: -1, move: 1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'short_barrel_doctrine', mutuallyExclusiveWith:['GUN_HV_CANNON','LONG_RANGE'] },
 
   OPTICS_SCOUT:          { name: 'Advanced Optics',   tier: 1, chassis: ['RECON','ARMORED_CAR','MOTORCYCLE','INFANTRY'], statDelta: { sight: 2, accuracy: 2, defense: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'advanced_optics', mutuallyExclusiveWith:['CONCEALED_PROFILE'] },
@@ -125,7 +125,8 @@ export const MODULES = {
   AIR_ARMORED_FRAME:     { name: 'Armored Airframe',  tier: 1, chassis: ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE','MONOPLANE_FIGHTER','DIVE_BOMBER'], statDelta: { health: 1, defense: 1, move: -1 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'armored_airframe', mutuallyExclusiveWith:['AIR_LIGHT_FRAME'] },
 
   TANK_MOBILITY_KIT:     { name: 'Mobility Kit',      tier: 1, chassis: ['TANK','MEDIUM_TANK','ARMORED_CAR','HALFTRACK'], statDelta: { move: 1, evasion: 1, armor: -1 }, designCost: { iron: 1, oil: 1 }, trainCost: { iron: 0, oil: 1 }, requiredTech: 'tank_mobility_kit', mutuallyExclusiveWith:['TANK_SIEGE_PLATING'] },
-  TANK_SIEGE_PLATING:    { name: 'Siege Plating',     tier: 2, chassis: ['TANK','MEDIUM_TANK','SPG'], statDelta: { armor: 2, defense: 1, move: -1 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'tank_siege_plating', mutuallyExclusiveWith:['TANK_MOBILITY_KIT'] },
+  TANK_SIEGE_PLATING:    { name: 'Siege Plating',     tier: 3, chassis: ['TANK','MEDIUM_TANK','SPG'], statDelta: { armor: 2, defense: 1, move: -1 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1, oil: 0, components: 1, hardenedSteel: 1 }, resourceCost: { hardenedSteel: 1 }, requiredTech: 'tank_siege_plating', mutuallyExclusiveWith:['TANK_MOBILITY_KIT'] },
+  STEEL_PLATING:         { name: 'Steel Plating',     tier: 2, chassis: ['TANK','MEDIUM_TANK','INFANTRY','ENGINEER'], statDelta: { armor: 1, defense: 1, move: -1 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1, oil: 0, components: 1 }, resourceCost: { components: 1 }, requiredTech: 'basic_steel_alloys' },
 
   INF_ASSAULT_DRILL:     { name: 'Assault Drill',     tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD'], statDelta: { soft_attack: 1, move: 1, defense: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'inf_assault_drill', mutuallyExclusiveWith:['INF_SUPPRESSIVE_DRILL'] },
   INF_SUPPRESSIVE_DRILL: { name: 'Suppressive Drill', tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY','LMG_TEAM','HMG_TEAM'], statDelta: { range: 1, suppression: 1, move: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'inf_suppressive_drill', mutuallyExclusiveWith:['INF_ASSAULT_DRILL'] },
@@ -217,14 +218,15 @@ export function computeDesignStats(chassis, moduleKeys) {
   return base;
 }
 
-// Total cost to register a design (base fee + sum of module design costs)
+// Total cost to register a design (base fee + sum of module design costs + tier materials)
 export function designRegistrationCost(moduleKeys) {
   const cost = { iron: DESIGN_BASE_COST.iron, oil: DESIGN_BASE_COST.oil };
   for (const key of moduleKeys) {
     const mod = MODULES[key];
     if (!mod) continue;
-    cost.iron += mod.designCost.iron;
-    cost.oil  += mod.designCost.oil;
+    cost.iron += mod.designCost.iron || 0;
+    cost.oil  += mod.designCost.oil || 0;
+    mergeResourceCostsInto(cost, getModuleResourceCost(mod));
   }
   return cost;
 }
@@ -236,12 +238,15 @@ export function designTrainCost(chassis, moduleKeys) {
     const mod = MODULES[key];
     if (!mod) continue;
     base.iron = (base.iron || 0) + (mod.trainCost.iron || 0);
-    base.oil  = (base.oil  || 0) + (mod.trainCost.oil  || 0);
-    base.components = (base.components || 0) + (mod.trainCost.components || 0);
+    base.oil  = (base.oil  || 0) + (mod.trainCost.oil || 0);
+    base.wood = (base.wood || 0) + (mod.trainCost.wood || 0);
+    mergeResourceCostsInto(base, mod.trainCost);
+    mergeResourceCostsInto(base, getModuleResourceCost(mod));
   }
+  for (const k of MATERIAL_KEYS) base[k] = Math.max(0, base[k] || 0);
   base.iron = Math.max(0, base.iron || 0);
   base.oil  = Math.max(0, base.oil || 0);
-  base.components = Math.max(0, base.components || 0);
+  base.wood = Math.max(0, base.wood || 0);
   return base;
 }
 
@@ -249,22 +254,36 @@ export function registerDesign(state, player, chassis, moduleKeys, designName) {
   const designs = state.designs[player];
   if (designs.length >= MAX_DESIGNS_PER_PLAYER) return { ok: false, reason: `Max ${MAX_DESIGNS_PER_PLAYER} designs reached` };
 
-  // Validate mutual exclusions
+  const unlocked = new Set(state.players[player]?.research?.unlocked || []);
   const modSet = new Set(moduleKeys);
   for (const mk of modSet) {
     const mod = MODULES[mk];
     if (!mod) continue;
+    const gate = canPlayerUseModule(state, player, mk, unlocked);
+    if (!gate.ok) return { ok: false, reason: gate.reason };
     for (const ex of (mod.mutuallyExclusiveWith || [])) {
       if (modSet.has(ex)) return { ok: false, reason: `${mod.name} conflicts with ${MODULES[ex]?.name || ex}` };
     }
   }
   const cost = designRegistrationCost(moduleKeys);
-  if (state.players[player].iron < cost.iron) return { ok: false, reason: `Need ${cost.iron} iron` };
-  if (state.players[player].oil  < cost.oil)  return { ok: false, reason: `Need ${cost.oil} oil` };
-  state.players[player].iron -= cost.iron;
-  state.players[player].oil  -= cost.oil;
+  const pl = state.players[player];
+  if (!playerHasResources(pl, cost)) {
+    if ((pl.iron || 0) < (cost.iron || 0)) return { ok: false, reason: `Need ${cost.iron} iron` };
+    if ((pl.oil || 0) < (cost.oil || 0)) return { ok: false, reason: `Need ${cost.oil} oil` };
+    for (const k of MATERIAL_KEYS) {
+      if ((pl[k] || 0) < (cost[k] || 0)) return { ok: false, reason: `Need ${cost[k]} ${k}` };
+    }
+    return { ok: false, reason: 'Insufficient resources' };
+  }
+  spendResources(pl, cost);
+  const stats = computeDesignStats(chassis, moduleKeys);
+  const effectiveTier = computeEffectiveTier(chassis, moduleKeys, stats);
   const id = _nextId++;
-  designs.push({ id, chassis, modules: moduleKeys, name: designName || `Custom ${UNIT_TYPES[chassis].name}`, stats: computeDesignStats(chassis, moduleKeys), trainCost: designTrainCost(chassis, moduleKeys) });
+  designs.push({
+    id, chassis, modules: moduleKeys,
+    name: designName || `Custom ${UNIT_TYPES[chassis].name}`,
+    stats, trainCost: designTrainCost(chassis, moduleKeys), effectiveTier,
+  });
   return { ok: true, id };
 }
 
@@ -276,11 +295,11 @@ export function registerDesign(state, player, chassis, moduleKeys, designName) {
 // - Dug-in (infantry field): -1 incoming damage, lost on move
 
 export const BUILDING_TYPES = {
-  HQ:            { name: 'HQ',             ironPerTurn: 3, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 0, canRecruit: ['ENGINEER','RECON'],                   buildCost: null,               color: 0xffdd00, sight: 3 },
-  MINE:          { name: 'Iron Mine',      ironPerTurn: 2, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, oil: 0 },         color: 0xaaaaaa, sight: 2 },
-  OIL_PUMP:      { name: 'Oil Pump',       ironPerTurn: 0, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, oil: 0 },         color: 0x222244, sight: 2 },
-  BARRACKS:      { name: 'Barracks',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: ['INFANTRY','ANTI_TANK','MORTAR','MEDIC'], buildCost: { iron: 4, oil: 0, wood: 4 }, color: 0xaa6644, sight: 2 },
-  VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['TANK','ARTILLERY','SUPPLY_TRUCK','MEDIUM_TANK','SPG','ARMORED_CAR','HALFTRACK'],        buildCost: { iron: 8, oil: 2 }, color: 0x557799, sight: 2 },
+  HQ:            { name: 'HQ',             ironPerTurn: 3, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 0, canRecruit: ['ENGINEER','RECON'],                   buildCost: null,               color: 0xffdd00, sight: 3, tier: 0 },
+  MINE:          { name: 'Iron Mine',      ironPerTurn: 2, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, oil: 0 },         color: 0xaaaaaa, sight: 2, tier: 0 },
+  OIL_PUMP:      { name: 'Oil Pump',       ironPerTurn: 0, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, oil: 0 },         color: 0x222244, sight: 2, tier: 0 },
+  BARRACKS:      { name: 'Barracks',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: ['INFANTRY','ANTI_TANK','MORTAR','MEDIC'], buildCost: { iron: 4, oil: 0, wood: 4 }, color: 0xaa6644, sight: 2, tier: 0 },
+  VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['TANK','ARTILLERY','SUPPLY_TRUCK','MEDIUM_TANK','SPG','ARMORED_CAR','HALFTRACK'],        buildCost: { iron: 8, oil: 2 }, color: 0x557799, sight: 2, tier: 0 },
   BUNKER:        { name: 'Bunker',         ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 2 }, color: 0x888866, sight: 2 },
   OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 0 }, color: 0x88aacc, sight: 4 },
   ROAD:          { name: 'Dirt Road',      ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xccbbaa, sight: 0, roadTier: 0, moveCost: 0.5, supplyOffRoad: 1 },
@@ -312,10 +331,172 @@ export const BUILDING_TYPES = {
   PONTOON_BRIDGE:{ name: 'Pontoon Bridge', ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 2 }, color: 0xccbb88, sight: 1, isBridge: true },
   // Tier 2 production buildings
   ADV_BARRACKS:   { name: 'Advanced Barracks', ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, foodPerTurn:0, goldPerTurn:0, buildTurns:4, canRecruit:['ASSAULT_INFANTRY'], buildCost:{ iron:10, oil:2, wood:6 }, color:0x996644, sight:2, tier:2, componentsCost:3 },
-  ARMOR_WORKS:    { name: 'Armor Works',       ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, foodPerTurn:0, goldPerTurn:0, buildTurns:5, canRecruit:['MEDIUM_TANK','SPG'], buildCost:{ iron:14, oil:4, wood:4 }, color:0x556677, sight:2, tier:2, componentsCost:4 },
+  ARMOR_WORKS:    { name: 'Armor Works',       ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, foodPerTurn:0, goldPerTurn:0, buildTurns:5, canRecruit:['MEDIUM_TANK','SPG'], buildCost:{ iron:14, oil:4, wood:4 }, color:0x556677, sight:2, tier:3, componentsCost:4, hardenedSteelPerTurn:1 },
   NAVAL_DOCKYARD: { name: 'Naval Dockyard',    ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, foodPerTurn:0, goldPerTurn:0, buildTurns:5, canRecruit:['SUPPLY_SHIP','DESTROYER_MK1'], buildCost:{ iron:16, oil:5, wood:4 }, color:0x224477, sight:2, tier:2, componentsCost:4 },
-  ADV_AIRFIELD:   { name: 'Advanced Airfield', ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, foodPerTurn:0, goldPerTurn:0, buildTurns:4, canRecruit:['MONOPLANE_FIGHTER','DIVE_BOMBER','HEAVY_BOMBER'], buildCost:{ iron:12, oil:5, wood:4 }, color:0x777744, sight:3, tier:2, componentsCost:3 },
+  ADV_AIRFIELD:   { name: 'Advanced Airfield', ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, foodPerTurn:0, goldPerTurn:0, buildTurns:4, canRecruit:['MONOPLANE_FIGHTER','DIVE_BOMBER','HEAVY_BOMBER'], buildCost:{ iron:12, oil:5, wood:4 }, color:0x777744, sight:3, tier:3, componentsCost:3, aviationAlloyPerTurn:1 },
 };
+
+// ── Unit tier system (T0–T5) + graded materials ───────────────────────────
+export const MAX_UNIT_TIER = 5;
+export const MATERIAL_KEYS = ['components', 'hardenedSteel', 'aviationAlloy'];
+export const MATERIAL_LABELS = { components: '🧩', hardenedSteel: '🔩', aviationAlloy: '✈️' };
+export const UNIT_TIER_COLORS = [0x8a9aaa, 0x4da3ff, 0xe49c3d, 0xd9534f, 0xc44dff, 0xff3366];
+
+const _TIER_STAT_WEIGHTS = {
+  soft_attack: 1, hard_attack: 1.2, pierce: 1.3, armor: 1.4, defense: 0.9, range: 1.5,
+  move: 0.8, health: 1, sight: 0.5, accuracy: 0.6, evasion: 0.6, attack: 0.8, naval_attack: 1.1,
+};
+const _TIER_BUDGET_KEYS = Object.keys(_TIER_STAT_WEIGHTS);
+
+export function getChassisTier(chassis) {
+  const def = UNIT_TYPES[chassis];
+  if (!def) return 0;
+  if (def.tier != null) return def.tier;
+  if (def.unlockedBy) return 1;
+  if ((def.cost?.components || 0) > 0) return 2;
+  return 0;
+}
+
+export function computeStatBudget(chassis, stats) {
+  const base = UNIT_TYPES[chassis] || {};
+  let budget = 0;
+  for (const key of _TIER_BUDGET_KEYS) {
+    const w = _TIER_STAT_WEIGHTS[key];
+    budget += Math.abs((stats[key] ?? 0) - (base[key] ?? 0)) * w;
+  }
+  return budget;
+}
+
+function _budgetToBonus(budget) {
+  if (budget < 1.5) return 0;
+  if (budget < 4) return 1;
+  if (budget < 8) return 2;
+  if (budget < 14) return 3;
+  if (budget < 22) return 4;
+  return 5;
+}
+
+export function computeEffectiveTier(chassis, moduleKeys = [], stats = null) {
+  const modTier = moduleKeys.length ? Math.max(0, ...moduleKeys.map((mk) => MODULES[mk]?.tier ?? 0)) : 0;
+  const floor = Math.max(getChassisTier(chassis), modTier);
+  const preview = stats || computeDesignStats(chassis, moduleKeys);
+  const bonus = _budgetToBonus(computeStatBudget(chassis, preview));
+  return Math.max(0, Math.min(MAX_UNIT_TIER, Math.max(floor, bonus)));
+}
+
+export function getModuleResourceCost(mod) {
+  if (!mod) return {};
+  if (mod.resourceCost) return { ...mod.resourceCost };
+  const t = mod.tier ?? 0;
+  if (t >= 4) return { components: 1, aviationAlloy: 1 };
+  if (t >= 3) return { components: 1, hardenedSteel: 1 };
+  if (t >= 2) return { components: 1 };
+  return {};
+}
+
+export function mergeResourceCostsInto(target, extra) {
+  if (!extra) return target;
+  for (const [k, v] of Object.entries(extra)) {
+    if (!v) continue;
+    target[k] = (target[k] || 0) + v;
+  }
+  return target;
+}
+
+export function formatResourceCost(cost) {
+  if (!cost) return '';
+  const bits = [];
+  if (cost.iron) bits.push(`⚙${cost.iron}`);
+  if (cost.oil) bits.push(`🛢${cost.oil}`);
+  if (cost.wood) bits.push(`🪵${cost.wood}`);
+  for (const k of MATERIAL_KEYS) {
+    if (cost[k]) bits.push(`${MATERIAL_LABELS[k]}${cost[k]}`);
+  }
+  return bits.join(' ');
+}
+
+export function getPlayerIndustryTier(gs, player) {
+  let max = 0;
+  for (const b of gs.buildings || []) {
+    if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
+    const t = BUILDING_TYPES[b.type]?.tier ?? 0;
+    max = Math.max(max, t);
+    if (b.type === 'FACTORY') max = Math.max(max, 2);
+    if (['ARMOR_WORKS', 'ADV_BARRACKS', 'ADV_AIRFIELD', 'NAVAL_DOCKYARD'].includes(b.type)) max = Math.max(max, 3);
+  }
+  return Math.min(3, max);
+}
+
+export function canPlayerUseModule(gs, player, moduleKey, unlockedTechs) {
+  const mod = MODULES[moduleKey];
+  if (!mod) return { ok: false, reason: 'Unknown module' };
+  if (mod.requiredTech && !unlockedTechs.has(mod.requiredTech)) return { ok: false, reason: 'Requires research' };
+  const modTier = mod.tier ?? 0;
+  const industry = getPlayerIndustryTier(gs, player);
+  if (modTier >= 2 && industry < 2) return { ok: false, reason: 'Need Factory (T2 industry)' };
+  if (modTier >= 3 && industry < 3) return { ok: false, reason: 'Need Armor Works / T3 industry' };
+  return { ok: true };
+}
+
+export function playerHasResources(player, cost) {
+  if (!cost) return true;
+  if ((player.iron || 0) < (cost.iron || 0)) return false;
+  if ((player.oil || 0) < (cost.oil || 0)) return false;
+  if ((player.wood || 0) < (cost.wood || 0)) return false;
+  for (const k of MATERIAL_KEYS) {
+    if ((player[k] || 0) < (cost[k] || 0)) return false;
+  }
+  return true;
+}
+
+export function spendResources(player, cost) {
+  if (!cost) return;
+  player.iron -= cost.iron || 0;
+  player.oil -= cost.oil || 0;
+  player.wood -= cost.wood || 0;
+  for (const k of MATERIAL_KEYS) player[k] = (player[k] || 0) - (cost[k] || 0);
+}
+
+export function refundResources(player, cost) {
+  if (!cost) return;
+  player.iron += cost.iron || 0;
+  player.oil += cost.oil || 0;
+  player.wood += cost.wood || 0;
+  for (const k of MATERIAL_KEYS) player[k] = (player[k] || 0) + (cost[k] || 0);
+}
+
+export function inferTierFromUnit(unit) {
+  const def = UNIT_TYPES[unit.type] || {};
+  let tier = getChassisTier(unit.type);
+  const delta = _TIER_BUDGET_KEYS.reduce((s, k) => s + Math.abs((unit[k] ?? def[k] ?? 0) - (def[k] ?? 0)), 0);
+  if (delta >= 1) tier = Math.max(tier, delta >= 14 ? 4 : delta >= 8 ? 3 : delta >= 4 ? 2 : 1);
+  return Math.min(MAX_UNIT_TIER, tier);
+}
+
+/** Tier intel: easy to learn; full stats stay hard */
+export function getUnitTierIntel(gs, unit, viewerPlayer, context = {}) {
+  const isFriendly = Number(unit.owner) === Number(viewerPlayer);
+  const intelLevel = context.intelLevel ?? (isFriendly ? 3 : 0);
+  let exact = unit.effectiveTier;
+  if (exact == null && unit.designId != null) {
+    const d = gs.designs?.[unit.owner]?.find((dd) => dd.id === unit.designId);
+    exact = d?.effectiveTier;
+  }
+  if (exact == null) exact = inferTierFromUnit(unit);
+
+  if (isFriendly || intelLevel >= 2) {
+    return { tier: exact, tierLo: exact, tierHi: exact, label: `T${exact}`, certain: true };
+  }
+  if (intelLevel >= 1) {
+    const lo = Math.max(0, exact - 1);
+    const hi = Math.min(MAX_UNIT_TIER, exact + 1);
+    const label = lo === hi ? `T${exact}` : `T${lo}–T${hi}`;
+    return { tier: exact, tierLo: lo, tierHi: hi, label, certain: false };
+  }
+  const bandLo = Math.max(0, Math.floor(exact / 2));
+  const bandHi = Math.min(MAX_UNIT_TIER, bandLo + 2);
+  return { tier: exact, tierLo: bandLo, tierHi: bandHi, label: `~T${bandLo}-${bandHi}`, certain: false };
+}
 
 export const RESOURCE_TYPES = {
   IRON:   { name: 'Iron Deposit',   buildingType: 'MINE',     color: 0xbbbbcc },
@@ -429,7 +610,9 @@ export function createGameState(scenario = 'default') {
   const makePlayer = (iron, oil, wood) => ({
     iron, oil, wood: wood || 0,
     food: STARTING_FOOD, gold: STARTING_GOLD,
-    components: 0, // Tier 2 manufactured resource
+    components: 0,
+    hardenedSteel: 0,
+    aviationAlloy: 0,
     // Research state
     rp: 0,
     research: {
@@ -1098,7 +1281,8 @@ export function computeFog(state, player, mapSize, terrain) {
 
 // ── Income ─────────────────────────────────────────────────────────────────
 export function calcIncome(state, player, techBonuses = null) {
-  let iron = BASE_IRON_PER_TURN, oil = BASE_OIL_PER_TURN, wood = 0, food = 0, gold = 0, components = 0;
+  let iron = BASE_IRON_PER_TURN, oil = BASE_OIL_PER_TURN, wood = 0, food = 0, gold = 0;
+  let components = 0, hardenedSteel = 0, aviationAlloy = 0;
   const labs = state.buildings.filter(b => b.type === 'SCIENCE_LAB' && b.owner === player && !b.underConstruction).length;
   const baseRpBonus = techBonuses?.rpBonusPerLab || 0;
   const rp = calcRPFromLabs(labs) + labs * baseRpBonus;
@@ -1106,7 +1290,6 @@ export function calcIncome(state, player, techBonuses = null) {
     if (b.owner !== player) continue;
     if (b.underConstruction) continue;
     const def = BUILDING_TYPES[b.type];
-    // Tech bonuses for building output
     const bonus = techBonuses?.buildingBonus?.[b.type] || {};
     iron += (def.ironPerTurn || 0) + (bonus.ironPerTurn || 0);
     oil  += (def.oilPerTurn  || 0) + (bonus.oilPerTurn  || 0);
@@ -1114,8 +1297,10 @@ export function calcIncome(state, player, techBonuses = null) {
     food += (def.foodPerTurn || 0) + (bonus.foodPerTurn || 0);
     gold += (def.goldPerTurn || 0) + (bonus.goldPerTurn || 0);
     components += (def.componentsPerTurn || 0) + (bonus.componentsPerTurn || 0);
+    hardenedSteel += (def.hardenedSteelPerTurn || 0) + (bonus.hardenedSteelPerTurn || 0);
+    aviationAlloy += (def.aviationAlloyPerTurn || 0) + (bonus.aviationAlloyPerTurn || 0);
   }
-  return { iron, oil, wood, food, gold, components, rp };
+  return { iron, oil, wood, food, gold, components, hardenedSteel, aviationAlloy, rp };
 }
 
 // Recruit-time food cost helper (debug/balance pass)
@@ -1138,11 +1323,18 @@ export function canRecruit(state, player, unitType, buildingId) {
     if (!design) return { ok: false, reason: 'Design not found' };
     const expectedBuilding = CHASSIS_BUILDINGS[design.chassis];
     if (b.type !== expectedBuilding) return { ok: false, reason: 'Wrong building for this design' };
-    if (state.players[player].iron < (design.trainCost.iron||0)) return { ok: false, reason: `Need ${design.trainCost.iron||0} iron` };
-    if (state.players[player].oil  < (design.trainCost.oil||0))  return { ok: false, reason: `Need ${design.trainCost.oil||0} oil` };
-    if ((state.players[player].components||0) < (design.trainCost.components||0)) return { ok: false, reason: `Need ${design.trainCost.components||0} components` };
+    const pl = state.players[player];
+    if (!playerHasResources(pl, design.trainCost)) {
+      const tc = design.trainCost;
+      if ((pl.iron || 0) < (tc.iron || 0)) return { ok: false, reason: `Need ${tc.iron || 0} iron` };
+      if ((pl.oil || 0) < (tc.oil || 0)) return { ok: false, reason: `Need ${tc.oil || 0} oil` };
+      for (const k of MATERIAL_KEYS) {
+        if ((pl[k] || 0) < (tc[k] || 0)) return { ok: false, reason: `Need ${tc[k] || 0} ${k}` };
+      }
+      return { ok: false, reason: 'Insufficient resources' };
+    }
     const dFood = getRecruitFoodCost(design.chassis);
-    if ((state.players[player].food||0) < dFood) return { ok: false, reason: `Need ${dFood} food` };
+    if ((pl.food || 0) < dFood) return { ok: false, reason: `Need ${dFood} food` };
     return { ok: true };
   }
 
@@ -1162,9 +1354,7 @@ export function queueRecruit(state, player, unitType, buildingId) {
 
   if (typeof unitType === 'number') {
     const design = state.designs[player].find(d => d.id === unitType);
-    state.players[player].iron -= (design.trainCost.iron||0);
-    state.players[player].oil  -= (design.trainCost.oil||0);
-    state.players[player].components = (state.players[player].components||0) - (design.trainCost.components||0);
+    spendResources(state.players[player], design.trainCost);
     state.players[player].food = (state.players[player].food||0) - getRecruitFoodCost(design.chassis);
     const buildTime = UNIT_TYPES[design.chassis]?.buildTime ?? 1;
     state.pendingRecruits.push({ owner: player, designId: unitType, buildingId, turnsLeft: buildTime });
@@ -1632,7 +1822,7 @@ export function resolveTurn(state, terrain) {
       const design = state.designs[recruit.owner].find(d => d.id === recruit.designId);
       if (design) {
         const unit = createUnit(design.chassis, recruit.owner, spawnHex.q, spawnHex.r);
-        Object.assign(unit, { ...design.stats, q: spawnHex.q, r: spawnHex.r, owner: recruit.owner, id: unit.id, type: design.chassis, health: design.stats.health, maxHealth: design.stats.health, moved: false, attacked: false, dugIn: false, building: false, suppressed: false, designId: design.id, designName: design.name });
+        Object.assign(unit, { ...design.stats, q: spawnHex.q, r: spawnHex.r, owner: recruit.owner, id: unit.id, type: design.chassis, health: design.stats.health, maxHealth: design.stats.health, moved: false, attacked: false, dugIn: false, building: false, suppressed: false, designId: design.id, designName: design.name, effectiveTier: design.effectiveTier ?? computeEffectiveTier(design.chassis, design.modules, design.stats) });
         state.units.push(unit);
         events.push(`P${recruit.owner} recruits ${design.name}`);
         recruit._spawned = true;
@@ -1924,7 +2114,7 @@ export function resolveEndOfTurn(state, terrain) {
       const design = state.designs[recruit.owner].find(d => d.id === recruit.designId);
       if (design) {
         const unit = createUnit(design.chassis, recruit.owner, spawnHex.q, spawnHex.r);
-        Object.assign(unit, { ...design.stats, q: spawnHex.q, r: spawnHex.r, owner: recruit.owner, id: unit.id, type: design.chassis, health: design.stats.health, maxHealth: design.stats.health, moved: false, attacked: false, dugIn: false, building: false, suppressed: false, designId: design.id, designName: design.name });
+        Object.assign(unit, { ...design.stats, q: spawnHex.q, r: spawnHex.r, owner: recruit.owner, id: unit.id, type: design.chassis, health: design.stats.health, maxHealth: design.stats.health, moved: false, attacked: false, dugIn: false, building: false, suppressed: false, designId: design.id, designName: design.name, effectiveTier: design.effectiveTier ?? computeEffectiveTier(design.chassis, design.modules, design.stats) });
         state.units.push(unit);
         events.push(`P${recruit.owner} recruits ${design.name}`);
         recruit._spawned = true;
@@ -2153,11 +2343,13 @@ export function resolveEndOfTurn(state, terrain) {
           const alreadyHas = state.designs[player].some(d => d.chassis === chassis && d.name === mkName);
           if (!alreadyHas && state.designs[player].length < MAX_DESIGNS_PER_PLAYER) {
             const baseStats = Object.assign({}, UNIT_TYPES[chassis] || {});
+            const mkTier = computeEffectiveTier(chassis, [], baseStats);
             state.designs[player].push({
               id: Date.now() + player * 1000 + Math.floor(Math.random() * 999),
               name: mkName, chassis, modules: [],
               stats: baseStats,
-              trainCost: { iron: baseStats.cost?.iron ?? 0, oil: baseStats.cost?.oil ?? 0 },
+              trainCost: designTrainCost(chassis, []),
+              effectiveTier: mkTier,
               isBaseMk0: true,
             });
             events.push(`P${player} unlocked new chassis: ${mkName} — available in Unit Designer.`);
@@ -2173,6 +2365,9 @@ export function resolveEndOfTurn(state, terrain) {
   state.players[player].wood  = (state.players[player].wood || 0) + inc.wood;
   state.players[player].food  = +((state.players[player].food  || 0) + inc.food).toFixed(2);
   state.players[player].gold  = +((state.players[player].gold  || 0) + inc.gold).toFixed(2);
+  state.players[player].components = (state.players[player].components || 0) + (inc.components || 0);
+  state.players[player].hardenedSteel = (state.players[player].hardenedSteel || 0) + (inc.hardenedSteel || 0);
+  state.players[player].aviationAlloy = (state.players[player].aviationAlloy || 0) + (inc.aviationAlloy || 0);
 
   // Tier 2 conversion: factories consume raw resources -> components.
   let madeComponents = 0;
@@ -2193,6 +2388,9 @@ export function resolveEndOfTurn(state, terrain) {
   if (inc.food  > 0) incStr += `, +${inc.food} food`;
   if (inc.gold  > 0) incStr += `, +${inc.gold} gold`;
   if (madeComponents > 0) incStr += `, +${madeComponents} components`;
+  if (inc.components > 0) incStr += `, +${inc.components} components (passive)`;
+  if (inc.hardenedSteel > 0) incStr += `, +${inc.hardenedSteel} hardened steel`;
+  if (inc.aviationAlloy > 0) incStr += `, +${inc.aviationAlloy} aviation alloy`;
   if (inc.rp    > 0) incStr += `, +${inc.rp} RP`;
   events.push(incStr);
 

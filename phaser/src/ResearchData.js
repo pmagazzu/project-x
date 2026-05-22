@@ -80,7 +80,7 @@ export const TECH_TREE = {
     name:'Basic Steel Alloys',
     desc:'🔩 MODULE — Unlocks Steel Armor module for vehicles and engineers.',
     cost:25, prereqs:['blast_furnace'],
-    effect:{ unlockModule:'STEEL_ARMOR' },
+    effect:{ unlockModule:'STEEL_PLATING' },
   },
   open_pit_mining: {
     id:'open_pit_mining', branch:'industrial', tier:2, kind:'economy',
