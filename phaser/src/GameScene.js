@@ -39,7 +39,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.9.11';
+export const GAME_VERSION = 'v1.9.12';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -3976,6 +3976,9 @@ export class GameScene extends Phaser.Scene {
 
     this.input.on('pointerdown', (ptr) => {
       if (ptr.button === 0) {
+        if (this._contextMenuObjs?.length && this._contextMenuHitTest(ptr.x, ptr.y)) {
+          this._contextMenuClicked = true;
+        }
         this._isDragging = false;
         this._dragStart = { x: ptr.x, y: ptr.y };
         this._dragStartScroll = { x: cam.scrollX, y: cam.scrollY };
@@ -4016,6 +4019,9 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       if (ptr.button === 0 && !this._isDragging && !this._panelOpenAtMouseDown) {
+        if (this._contextMenuObjs?.length && this._contextMenuHitTest(ptr.x, ptr.y)) {
+          this._contextMenuClicked = true;
+        }
         if (this._contextMenuObjs && !this._contextMenuClicked) {
           this._hideContextMenu(true);
         }
@@ -4447,8 +4453,24 @@ export class GameScene extends Phaser.Scene {
 
   // ── Unified context menu (root actions + submenus with pagination) ─────────
   // submenu: 'root' | 'build'   page: 0-based page index within that submenu
-  _showContextMenu(unit, submenu = 'root', page = 0) {
-    this._hideContextMenu(true);
+  _contextMenuHitTest(x, y) {
+    const b = this._contextMenuBounds;
+    if (!b) return false;
+    return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+  }
+
+  _showContextMenu(unit, submenu = 'root', page = 0, replace = false) {
+    if (!unit) return;
+    if (replace) {
+      const old = this._contextMenuObjs;
+      if (old) {
+        for (const o of old) { try { o.destroy(); } catch (e) {} }
+      }
+      this._contextMenuObjs = null;
+      this._setContextMenuHint(null);
+    } else {
+      this._hideContextMenu(true);
+    }
     if (!this.settings.showContextMenu) return;
 
     const sw = this.scale.width, sh = this.scale.height;
@@ -4609,6 +4631,7 @@ export class GameScene extends Phaser.Scene {
       .setInteractive();
     panelBg.on('pointerdown', () => { this._contextMenuClicked = true; });
     objs.push(panelBg);
+    this._contextMenuBounds = { x: px, y: py, w: btnW + 14, h: menuH + 6 };
     objs.push(this.add.rectangle(panelCx, py + 2, btnW + 8, 3, 0xffcc44, 1)
       .setScrollFactor(0).setDepth(DEPTH));
 
@@ -4644,6 +4667,14 @@ export class GameScene extends Phaser.Scene {
         hotkeyIdx += 1;
       }
       const col = `#${item.color.toString(16).padStart(6, '0')}`;
+      if (item.enabled) {
+        const zone = this.add.zone(px + btnW / 2, rowY + btnH / 2, btnW - 4, btnH - 2)
+          .setScrollFactor(0).setDepth(DEPTH + 2).setInteractive({ useHandCursor: true });
+        zone.on('pointerdown', () => this._runContextMenuItem(item, unit));
+        zone.on('pointerover', () => this._setContextMenuHint(item.hint || item.label, px, py + menuH + 4));
+        zone.on('pointerout', () => this._setContextMenuHint(null));
+        objs.push(zone);
+      }
       const btn = this.add.text(px + 6, rowY, `${hk}${item.label}`, {
         font: 'bold 11px monospace',
         fill: item.enabled ? '#f0f8ff' : '#666680',
@@ -4651,25 +4682,7 @@ export class GameScene extends Phaser.Scene {
         padding: { x: 8, y: 5 },
         fixedWidth: btnW - 12,
         align: 'left',
-      }).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH + 1);
-      if (item.enabled) {
-        btn.setInteractive({ useHandCursor: true });
-        btn.on('pointerdown', () => {
-          this._runContextMenuItem(item, unit);
-        });
-        btn.on('pointerover', () => {
-          btn.setAlpha(0.9);
-          this._setContextMenuHint(item.hint || item.label, px, py + menuH + 4);
-        });
-        btn.on('pointerout', () => {
-          btn.setAlpha(1);
-          this._setContextMenuHint(null);
-        });
-      } else if (item.hint) {
-        btn.setInteractive({ useHandCursor: false });
-        btn.on('pointerover', () => this._setContextMenuHint(item.hint, px, py + menuH + 4));
-        btn.on('pointerout', () => this._setContextMenuHint(null));
-      }
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH + 3);
       objs.push(btn);
       rowY += btnH + gap;
     });
@@ -4689,11 +4702,12 @@ export class GameScene extends Phaser.Scene {
     if (!item?.enabled) return;
     this._contextMenuClicked = true;
     const menuUnit = unit || this._contextMenuUnit;
-    this._hideContextMenu(true);
+    if (!menuUnit) return;
     if (item.openSubmenu) {
-      this._showContextMenu(menuUnit, item.openSubmenu, item.page || 0);
+      this._showContextMenu(menuUnit, item.openSubmenu, item.page || 0, true);
       return;
     }
+    this._hideContextMenu(true);
     item.cb?.();
   }
 
@@ -4737,12 +4751,14 @@ export class GameScene extends Phaser.Scene {
       this._contextMenuUnit = null;
       this._contextMenuHotkeyItems = null;
       this._contextMenuHotkeyUnit = null;
+      this._contextMenuBounds = null;
       return;
     }
     this._contextMenuObjs = null;
     this._contextMenuUnit = null;
     this._contextMenuHotkeyItems = null;
     this._contextMenuHotkeyUnit = null;
+    this._contextMenuBounds = null;
 
     const destroyAll = () => {
       for (const o of objs) {
