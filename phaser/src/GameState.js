@@ -840,8 +840,6 @@ export function createGameState(scenario = 'default') {
     state.players[2].iron = 20; state.players[2].oil = 6;
 
   } else if (scenario === 'combat') {
-    // All unit types lined up 5 tiles apart — centered on the 20×10 map
-    // Units at q=7 (P1) and q=12 (P2), 8 rows starting at r=1
     const p1q = 7, p2q = 12;
     const types = ['INFANTRY','TANK','ARTILLERY','ENGINEER','RECON','ANTI_TANK','MORTAR','MEDIC'];
     types.forEach((t, i) => {
@@ -852,6 +850,41 @@ export function createGameState(scenario = 'default') {
     state.buildings.push(createBuilding('HQ', 2, 14, 4));
     state.players[1].iron = 20; state.players[1].oil = 10;
     state.players[2].iron = 20; state.players[2].oil = 10;
+
+  } else if (scenario === 'combat_test') {
+    // Two facing lines on open plains — play both sides, no AI.
+    const p1q = 6, p2q = 33;
+    const lineTypes = [
+      'INFANTRY', 'ASSAULT_INFANTRY', 'SMG_SQUAD', 'LMG_TEAM', 'HMG_TEAM', 'SNIPER',
+      'ANTI_TANK', 'MORTAR', 'MEDIC', 'RECON', 'ENGINEER', 'MOTORCYCLE',
+      'TANK', 'MEDIUM_TANK', 'ARMORED_CAR', 'HALFTRACK', 'ARTILLERY', 'SPG',
+      'BIPLANE_FIGHTER', 'LIGHT_BOMBER', 'OBS_PLANE',
+      'MONOPLANE_FIGHTER', 'DIVE_BOMBER',
+    ];
+    lineTypes.forEach((t, i) => {
+      if (!UNIT_TYPES[t]) return;
+      const r = 2 + i;
+      state.units.push(createUnit(t, 1, p1q, r));
+      state.units.push(createUnit(t, 2, p2q, r));
+    });
+    const midR = Math.floor(lineTypes.length / 2) + 2;
+    state.buildings.push(createBuilding('HQ', 1, 3, midR));
+    state.buildings.push(createBuilding('HQ', 2, 36, midR));
+    state.buildings.push(createBuilding('BARRACKS', 1, 4, midR));
+    state.buildings.push(createBuilding('BARRACKS', 2, 35, midR));
+    state.buildings.push(createBuilding('VEHICLE_DEPOT', 1, 3, midR + 1));
+    state.buildings.push(createBuilding('VEHICLE_DEPOT', 2, 36, midR + 1));
+    state.buildings.push(createBuilding('AIRFIELD', 1, 3, midR - 1));
+    state.buildings.push(createBuilding('AIRFIELD', 2, 36, midR - 1));
+    for (const pl of [1, 2]) {
+      state.players[pl].iron = 99;
+      state.players[pl].oil = 99;
+      state.players[pl].wood = 99;
+      state.players[pl].food = 99;
+      state.players[pl].components = 20;
+      state.players[pl].hardenedSteel = 10;
+      state.players[pl].aviationAlloy = 10;
+    }
 
   } else if (scenario === 'grand') {
     // Large map — full starting armies

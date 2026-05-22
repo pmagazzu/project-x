@@ -42,7 +42,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.5';
+export const GAME_VERSION = 'v1.10.6';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -175,7 +175,7 @@ export class GameScene extends Phaser.Scene {
     this.scenario = data.scenario || 'default';
     this.procLandProfile = data.procLandProfile || 'continent';
     this.procQuickStart  = (data.procQuickStart !== undefined) ? !!data.procQuickStart : true;
-    this.debugNoFog      = !!data.debugNoFog || this.scenario === 'mortar_test' || this.scenario === 'coastal_battery_test' || (this.procLandProfile === 'two_continents');
+    this.debugNoFog      = !!data.debugNoFog || this.scenario === 'combat_test' || this.scenario === 'mortar_test' || this.scenario === 'coastal_battery_test' || (this.procLandProfile === 'two_continents');
     this._mapBuilderMode = !!data.mapBuilder;
     this._aiViewerMode = !!data.aiViewerMode;
     this._aiSimSpeed = Math.max(1, Number(data.aiSimSpeed) || 1); // 1=normal,2=fast,4=turbo
@@ -193,7 +193,7 @@ export class GameScene extends Phaser.Scene {
     if (this._mapBuilderMode) this.debugNoFog = true;
     this._customMapData = data.customMap || null;
     // Map sizes per scenario
-    const MAP_SIZES = { scout: 25, naval: 35, combat: 20, grand: 120, ai_viewer: 360, random: 40, air_test: 20, mortar_test: 20, coastal_battery_test: 20, custom: data.customSize || 40, default: 25 };
+    const MAP_SIZES = { scout: 25, naval: 35, combat: 20, combat_test: 40, grand: 120, ai_viewer: 360, random: 40, air_test: 20, mortar_test: 20, coastal_battery_test: 20, custom: data.customSize || 40, default: 25 };
     this.mapSize   = MAP_SIZES[this.scenario] || MAP_SIZE;
     // AI players: set of player numbers controlled by AI
     this.aiPlayers  = new Set();
@@ -8490,8 +8490,8 @@ export class GameScene extends Phaser.Scene {
     for (let q = 0; q < ms; q++)
       for (let r = 0; r < ms; r++) map[`${q},${r}`] = 0;
 
-    if (this.scenario === 'combat') {
-      // All plains — nothing to do
+    if (this.scenario === 'combat' || this.scenario === 'combat_test') {
+      // Open plains arena
     } else if (this.scenario === 'mortar_test') {
       // Deliberate LOS blockers between mortar and all in-range targets.
       for (const [q, r] of [[6,10], [6,11], [6,9]]) map[`${q},${r}`] = 2; // mountains
