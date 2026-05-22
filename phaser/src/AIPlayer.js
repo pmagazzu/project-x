@@ -247,7 +247,11 @@ function initEngineerMemory(gs, player) {
   return gs._aiEngineerMemory[player];
 }
 
-const FORT_BUILDING_TYPES = new Set(['SANDBAG', 'TRENCH', 'BUNKER', 'OBS_POST', 'FIELD_OUTPOST', 'BARBED_WIRE', 'SUPPLY_DEPOT']);
+const FORT_BUILDING_TYPES = new Set([
+  'FORT_T0', 'FORT_T1', 'FORT_T2', 'FORT_T3', 'FORT_T4', 'FORT_T5',
+  'SANDBAG', 'TRENCH', 'BUNKER', 'FIELD_OUTPOST', 'OBS_POST', 'BARBED_WIRE', 'SUPPLY_DEPOT',
+]);
+const HEAVY_FORT_TYPES = new Set(['FORT_T3', 'FORT_T4', 'FORT_T5', 'BUNKER']);
 
 function getUnclaimedResourceSites(gs, player) {
   const sites = [];
@@ -1855,19 +1859,22 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     wood: gs.players[player].wood || 0,
     food: gs.players[player].food || 0,
     components: gs.players[player].components || 0,
+    hardenedSteel: gs.players[player].hardenedSteel || 0,
   };
   const canAfford = (cost = {}) =>
     resSim.iron >= (cost.iron || 0) &&
     resSim.oil >= (cost.oil || 0) &&
     resSim.wood >= (cost.wood || 0) &&
     resSim.food >= (cost.food || 0) &&
-    resSim.components >= (cost.components || 0);
+    resSim.components >= (cost.components || 0) &&
+    resSim.hardenedSteel >= (cost.hardenedSteel || 0);
   const spend = (cost = {}) => {
     resSim.iron -= (cost.iron || 0);
     resSim.oil -= (cost.oil || 0);
     resSim.wood -= (cost.wood || 0);
     resSim.food -= (cost.food || 0);
     resSim.components -= (cost.components || 0);
+    resSim.hardenedSteel -= (cost.hardenedSteel || 0);
   };
 
   // Clone unit list so we can track "virtual" positions for multi-step planning
@@ -2058,6 +2065,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const hasNonRoadBuilding = !!(buildingAt(gs, unit.q, unit.r) && !hasRoad);
         const resHex = gs.resourceHexes?.[key];
         const ttype = terrain?.[key] ?? 0;
+        const unlockedEng = new Set(gs.players[player]?.research?.unlocked || []);
 
         const maybeBuild = (buildingType) => {
           const cost = BUILDING_TYPES[buildingType]?.buildCost || {};
@@ -2130,7 +2138,6 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             if (onForest && myLumber < 1 && maybeBuild('LUMBER_CAMP')) continue;
           }
 
-          const unlockedEng = new Set(gs.players[player]?.research?.unlocked || []);
           const extractHere = gs.buildings.find((b) => b.q === unit.q && b.r === unit.r
             && (b.type === 'MINE' || b.type === 'OIL_PUMP') && Number(b.owner) === Number(player));
           if (extractHere && resHex) {
@@ -2139,16 +2146,19 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             const fortNeeds = [];
             if (!hasRoad) fortNeeds.push({ type: 'ROAD', score: 32 * phaseWeights.logistics });
             if (fortsNear < 1 && gs.turn >= 3) {
-              if (unlockedEng.has('sandbag_improved')) fortNeeds.push({ type: 'SANDBAG', score: 30 });
-              fortNeeds.push({ type: 'FIELD_OUTPOST', score: 26 + pressure * 2 });
+              if (unlockedEng.has('sandbag_improved')) fortNeeds.push({ type: 'FORT_T0', score: 32 });
+              else fortNeeds.push({ type: 'FORT_T1', score: 28 });
             }
-            if (fortsNear < 2 && gs.turn >= 6) fortNeeds.push({ type: 'FIELD_OUTPOST', score: 24 + pressure * 2 });
+            if (fortsNear < 2 && gs.turn >= 5) fortNeeds.push({ type: 'FORT_T1', score: 26 + pressure * 2 });
             if (fortsNear < 2 && gs.turn >= 7) fortNeeds.push({ type: 'OBS_POST', score: 20 + pressure });
-            if (unlockedEng.has('field_fortifications') && fortsNear < 3 && gs.turn >= 8) {
-              fortNeeds.push({ type: 'TRENCH', score: 22 + pressure * 2 });
+            if (unlockedEng.has('entrenching_tools') && fortsNear < 3 && gs.turn >= 7) {
+              fortNeeds.push({ type: 'FORT_T2', score: 24 + pressure * 2 });
             }
-            if (pressure >= 1 && fortsNear < 3 && gs.turn >= 9) {
-              fortNeeds.push({ type: 'BUNKER', score: 24 + pressure * 3 });
+            if (unlockedEng.has('bunker') && pressure >= 1 && fortsNear < 3 && gs.turn >= 10) {
+              fortNeeds.push({ type: 'FORT_T3', score: 26 + pressure * 3 });
+            }
+            if (unlockedEng.has('hardened_bunker') && pressure >= 2 && fortsNear < 4 && gs.turn >= 14) {
+              fortNeeds.push({ type: 'FORT_T4', score: 22 + pressure * 2 });
             }
             fortNeeds.sort((a, b) => b.score - a.score);
             for (const fn of fortNeeds) {
@@ -2234,7 +2244,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             const myVehicleDepot = gs.buildings.filter(bb => bb.owner === player && bb.type === 'VEHICLE_DEPOT' && !bb.underConstruction).length;
             const myAirfield = gs.buildings.filter(bb => bb.owner === player && ['AIRFIELD','ADV_AIRFIELD'].includes(bb.type) && !bb.underConstruction).length;
             const myHarbor = gs.buildings.filter(bb => bb.owner === player && ['HARBOR','NAVAL_YARD','SHIPYARD','DRY_DOCK','NAVAL_BASE'].includes(bb.type) && !bb.underConstruction).length;
-            const myBunkers = gs.buildings.filter(bb => bb.owner === player && bb.type === 'BUNKER' && !bb.underConstruction).length;
+            const myBunkers = gs.buildings.filter(bb => bb.owner === player && HEAVY_FORT_TYPES.has(bb.type) && !bb.underConstruction).length;
             const myWarehouses = gs.buildings.filter(bb => bb.owner === player && bb.type === 'SUPPLY_WAREHOUSE' && !bb.underConstruction).length;
             const nearbyEnemies = getEnemies().filter(e => hexDistance(e.q, e.r, unit.q, unit.r) <= 3).length;
             if (gs.turn >= 4 && myBarracks < 2) needs.push({ type: 'BARRACKS', score: (7.5 - myBarracks * 2.5 + d.barracks * 6) * phaseWeights.combat });
@@ -2246,11 +2256,15 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
               const yardScore = wb?.kind === 'lake' ? 3.2 : 5.8;
               needs.push({ type: 'NAVAL_YARD', score: yardScore * phaseWeights.logistics });
             }
-            if ((gs.turn >= 12 && nearbyEnemies >= 2) && myBunkers < 2) needs.push({ type: 'BUNKER', score: (8.4 + nearbyEnemies) * phaseWeights.combat });
+            if ((gs.turn >= 12 && nearbyEnemies >= 2) && myBunkers < 2 && unlockedEng.has('bunker')) {
+              needs.push({ type: 'FORT_T3', score: (8.4 + nearbyEnemies) * phaseWeights.combat });
+            }
             // FOB expansion package: forward logistics + fallback defensive node + extra barracks.
             if (gs.turn >= 18 && (frontlineSpan >= 12 || roadDeficit >= 2)) {
               if (myWarehouses < 3) needs.push({ type: 'SUPPLY_WAREHOUSE', score: (10 + Math.floor(frontlineSpan / 3) + unsupplied * 1.2 - myWarehouses * 2) * phaseWeights.logistics });
-              if (myBunkers < 4) needs.push({ type: 'BUNKER', score: (7.5 + Math.floor(frontlineSpan / 5) - myBunkers) * phaseWeights.combat });
+              if (myBunkers < 4 && unlockedEng.has('bunker')) {
+                needs.push({ type: 'FORT_T3', score: (7.5 + Math.floor(frontlineSpan / 5) - myBunkers) * phaseWeights.combat });
+              }
               if (myBarracks < 3) needs.push({ type: 'BARRACKS', score: (7.2 + Math.floor(frontlineSpan / 6) - myBarracks) * phaseWeights.combat });
             }
 

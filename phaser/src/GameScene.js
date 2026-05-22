@@ -41,7 +41,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.3';
+export const GAME_VERSION = 'v1.10.4';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -1841,57 +1841,83 @@ export class GameScene extends Phaser.Scene {
         g.strokeRect(x - s*0.55, y - s*0.1, s*1.1, s*0.45);
         g.beginPath(); g.moveTo(x - s*0.2, y - s*0.1); g.lineTo(x + s*0.2, y - s*0.35); g.lineTo(x + s*0.4, y - s*0.1); g.strokePath();
 
-      } else if (b.type === 'BUNKER') {
-        // Bunker: team-colored low hex dome with embrasure slits
-        const verts = hexVertices(x, y).map(v => ({ x: x + (v.x-x)*0.52, y: y + (v.y-y)*0.52 }));
-        g.fillStyle(0x000000, 0.45); // shadow
-        g.beginPath(); g.moveTo(verts[0].x+2, verts[0].y+2);
-        for (let i=1;i<verts.length;i++) g.lineTo(verts[i].x+2, verts[i].y+2);
+      } else if (b.type === 'FORT_T0' || b.type === 'SANDBAG') {
+        g.fillStyle(0x4a4038, 0.9);
+        g.fillEllipse(x, y + s * 0.08, s * 0.75, s * 0.35);
+        g.lineStyle(2, 0x3a3028, 0.85);
+        g.strokeEllipse(x, y + s * 0.08, s * 0.75, s * 0.35);
+        g.fillStyle(color, 0.5);
+        g.fillCircle(x - s * 0.2, y - s * 0.05, s * 0.1);
+
+      } else if (b.type === 'FORT_T1') {
+        g.fillStyle(0xc8aa66, 0.85);
+        for (let i = -2; i <= 2; i++) g.fillRect(x + i * s * 0.22 - s * 0.08, y - s * 0.12, s * 0.16, s * 0.22);
+        g.lineStyle(2, color, 0.9);
+        g.strokeRect(x - s * 0.55, y - s * 0.18, s * 1.1, s * 0.32);
+
+      } else if (b.type === 'FORT_T2' || b.type === 'TRENCH' || b.type === 'FIELD_OUTPOST') {
+        g.fillStyle(0x887755, 0.7);
+        g.fillRect(x - s * 0.9, y - s * 0.15, s * 1.8, s * 0.3);
+        g.lineStyle(2, 0x665533, 0.9);
+        g.beginPath(); g.moveTo(x - s * 0.8, y); g.lineTo(x - s * 0.4, y - s * 0.3);
+        g.lineTo(x, y + s * 0.1); g.lineTo(x + s * 0.4, y - s * 0.3); g.lineTo(x + s * 0.8, y); g.strokePath();
+        if (b.type === 'FIELD_OUTPOST') {
+          g.fillStyle(color, 0.9);
+          g.fillCircle(x, y - s * 0.35, s * 0.12);
+        }
+
+      } else if (b.type === 'FORT_T3' || b.type === 'BUNKER') {
+        const verts = hexVertices(x, y).map(v => ({ x: x + (v.x - x) * 0.52, y: y + (v.y - y) * 0.52 }));
+        g.fillStyle(0x000000, 0.45);
+        g.beginPath(); g.moveTo(verts[0].x + 2, verts[0].y + 2);
+        for (let i = 1; i < verts.length; i++) g.lineTo(verts[i].x + 2, verts[i].y + 2);
         g.closePath(); g.fillPath();
-        // Body (blended team color + olive)
         const bunkColor = Phaser.Display.Color.IntegerToColor(color);
         g.fillStyle(Phaser.Display.Color.GetColor(
-          Math.floor(bunkColor.red*0.4+0x44*0.6),
-          Math.floor(bunkColor.green*0.4+0x55*0.6),
-          Math.floor(bunkColor.blue*0.4+0x33*0.6)));
-        g.beginPath(); g.moveTo(verts[0].x, verts[0].y);
-        for (let i=1;i<verts.length;i++) g.lineTo(verts[i].x, verts[i].y);
-        g.closePath(); g.fillPath();
-        g.lineStyle(2.5, color, 1.0);
-        g.beginPath(); g.moveTo(verts[0].x, verts[0].y);
-        for (let i=1;i<verts.length;i++) g.lineTo(verts[i].x, verts[i].y);
-        g.closePath(); g.strokePath();
-        // Embrasure slits
-        g.lineStyle(1.5, 0x000000, 0.7);
-        g.beginPath(); g.moveTo(x - s*0.28, y); g.lineTo(x + s*0.28, y); g.strokePath();
-        g.beginPath(); g.moveTo(x, y - s*0.28); g.lineTo(x, y + s*0.28); g.strokePath();
-
-      } else if (b.type === 'FIELD_OUTPOST') {
-        const verts = hexVertices(x, y).map(v => ({ x: x + (v.x - x) * 0.58, y: y + (v.y - y) * 0.58 }));
-        g.fillStyle(0x5a4a38, 0.95);
+          Math.floor(bunkColor.red * 0.4 + 0x44 * 0.6),
+          Math.floor(bunkColor.green * 0.4 + 0x55 * 0.6),
+          Math.floor(bunkColor.blue * 0.4 + 0x33 * 0.6)));
         g.beginPath(); g.moveTo(verts[0].x, verts[0].y);
         for (let i = 1; i < verts.length; i++) g.lineTo(verts[i].x, verts[i].y);
         g.closePath(); g.fillPath();
-        g.lineStyle(2, color, 1);
+        g.lineStyle(2.5, color, 1.0);
+        g.beginPath(); g.moveTo(verts[0].x, verts[0].y);
+        for (let i = 1; i < verts.length; i++) g.lineTo(verts[i].x, verts[i].y);
+        g.closePath(); g.strokePath();
+        g.lineStyle(1.5, 0x000000, 0.7);
+        g.beginPath(); g.moveTo(x - s * 0.28, y); g.lineTo(x + s * 0.28, y); g.strokePath();
+        g.beginPath(); g.moveTo(x, y - s * 0.28); g.lineTo(x, y + s * 0.28); g.strokePath();
+
+      } else if (b.type === 'FORT_T4') {
+        const verts = hexVertices(x, y).map(v => ({ x: x + (v.x - x) * 0.62, y: y + (v.y - y) * 0.62 }));
+        g.fillStyle(0x555544, 0.95);
+        g.beginPath(); g.moveTo(verts[0].x, verts[0].y);
+        for (let i = 1; i < verts.length; i++) g.lineTo(verts[i].x, verts[i].y);
+        g.closePath(); g.fillPath();
+        g.lineStyle(3, color, 1);
         g.strokePath();
-        g.fillStyle(0xc8aa66, 0.85);
-        g.fillRect(x - s * 0.35, y - s * 0.15, s * 0.7, s * 0.22);
-        g.fillStyle(color, 0.9);
-        g.fillCircle(x, y - s * 0.35, s * 0.12);
+        g.lineStyle(2, 0x333322, 0.8);
+        g.strokeCircle(x, y, s * 0.72);
+
+      } else if (b.type === 'FORT_T5') {
+        const verts = hexVertices(x, y).map(v => ({ x: x + (v.x - x) * 0.72, y: y + (v.y - y) * 0.72 }));
+        g.fillStyle(0x444440, 0.98);
+        g.beginPath(); g.moveTo(verts[0].x, verts[0].y);
+        for (let i = 1; i < verts.length; i++) g.lineTo(verts[i].x, verts[i].y);
+        g.closePath(); g.fillPath();
+        g.lineStyle(3.5, color, 1);
+        g.strokePath();
+        g.fillStyle(0x222222, 0.6);
+        g.fillRect(x - s * 0.15, y - s * 0.45, s * 0.3, s * 0.35);
 
       } else if (b.type === 'OBS_POST') {
-        // Observation Post: team-colored tower with platform
-        // Base
-        g.fillStyle(0x000000, 0.4); g.fillRect(x - s*0.22, y - s*0.3, s*0.44, s*0.7); // shadow
+        g.fillStyle(0x000000, 0.4); g.fillRect(x - s*0.22, y - s*0.3, s*0.44, s*0.7);
         g.fillStyle(color); g.fillRect(x - s*0.19, y - s*0.3, s*0.38, s*0.65);
-        // Tower shaft
-        g.fillStyle(0x000000, 0.4); g.fillRect(x - s*0.16, y - s*1.5, s*0.32, s*1.25); // shadow
+        g.fillStyle(0x000000, 0.4); g.fillRect(x - s*0.16, y - s*1.5, s*0.32, s*1.25);
         g.fillStyle(color); g.fillRect(x - s*0.13, y - s*1.45, s*0.26, s*1.2);
-        // Platform (wider)
         g.fillStyle(0x000000, 0.45); g.fillRect(x - s*0.52, y - s*1.6, s*1.04, s*0.28);
         g.fillStyle(0xddddcc); g.fillRect(x - s*0.5, y - s*1.58, s*1.0, s*0.25);
         g.lineStyle(1.5, color, 1.0); g.strokeRect(x - s*0.5, y - s*1.58, s*1.0, s*0.25);
-        // Telescope dot
         g.fillStyle(color); g.fillCircle(x + s*0.3, y - s*1.5, s*0.13);
 
       } else if (b.type === 'BARRACKS' || b.type === 'ADV_BARRACKS') {
@@ -2095,14 +2121,6 @@ export class GameScene extends Phaser.Scene {
         const active = (b.active !== false);
         g.fillStyle(active ? 0x44cc66 : 0xcc4444, 0.95);
         g.fillCircle(x + s*0.62, y + s*0.28, s*0.12);
-
-      } else if (b.type === 'TRENCH') {
-        // Trench: earthy zigzag
-        g.fillStyle(0x887755, 0.7);
-        g.fillRect(x - s*0.9, y - s*0.15, s*1.8, s*0.3);
-        g.lineStyle(2, 0x665533, 0.9);
-        g.beginPath(); g.moveTo(x - s*0.8, y); g.lineTo(x - s*0.4, y - s*0.3);
-        g.lineTo(x, y + s*0.1); g.lineTo(x + s*0.4, y - s*0.3); g.lineTo(x + s*0.8, y); g.strokePath();
 
       } else if (b.type === 'AT_DITCH') {
         // AT Ditch: dark diagonal cuts
@@ -4625,16 +4643,32 @@ export class GameScene extends Phaser.Scene {
       if (noBuilding && coastal) allOpts.push({ label: `Naval Base 16⚙ 6🛢 3🧩`,   cost:{iron:16,oil:6,components:3}, enabled: iron>=16&&oil>=6&&(gs.players[p].components||0)>=3, cb: () => this._onBuildStructure('NAVAL_BASE',16,6,0,3) });
       if (noBuilding && coastal) allOpts.push({ label: `Naval Dockyard T2 16⚙ 5🛢 4🪵 3🧩`, cost:{iron:16,oil:5,wood:4,components:3}, enabled: iron>=16&&oil>=5&&wood>=4&&(gs.players[p].components||0)>=3, cb: () => this._onBuildStructure('NAVAL_DOCKYARD',16,5,4,3) });
       addHeader('DEFENSE & OBSTACLES');
-      if (noBuilding) allOpts.push({ label: `Bunker      3⚙ 2🪵`,   cost:{iron:3,oil:0,wood:2},  enabled: iron>=3&&wood>=2, cb: () => this._onBuildStructure('BUNKER',3,0,2) });
-      if (noBuilding) allOpts.push({ label: `Field Outpost 2⚙ 2🪵`, cost:{iron:2,oil:0,wood:2}, enabled: iron>=2&&wood>=2, cb: () => this._onBuildStructure('FIELD_OUTPOST',2,0,2) });
-      if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙`,       cost:{iron:3,oil:0},         enabled: iron>=3,          cb: () => this._onBuildStructure('OBS_POST',3) });
-      if (unlocked.has('field_fortifications') && noBuilding)
-        allOpts.push({ label: `Trench      2🪵`,       cost:{iron:0,oil:0,wood:2}, enabled: wood>=2,    cb: () => this._onBuildStructure('TRENCH',0,0,2) });
-      // Obstacles & logistics (require research)
-      if (unlocked.has('barbed_wire')   && noBuilding)
-        allOpts.push({ label: `Barbed Wire 1🪵`,  cost:{iron:0,oil:0,wood:1}, enabled: wood>=1,    cb: () => this._onBuildStructure('BARBED_WIRE',0,0,1) });
-      if (unlocked.has('sandbag_improved') && noBuilding)
-        allOpts.push({ label: `Sandbag Post 1🪵`, cost:{iron:0,oil:0,wood:1}, enabled: wood>=1,    cb: () => this._onBuildStructure('SANDBAG',0,0,1) });
+      const fortMenu = [
+        { key: 'FORT_T0', tech: 'sandbag_improved', label: 'T0 Foxhole 1🪵', cost: { wood: 1 } },
+        { key: 'FORT_T1', tech: null, label: 'T1 Splinter Pit 1⚙ 1🪵', cost: { iron: 1, wood: 1 } },
+        { key: 'FORT_T2', tech: 'entrenching_tools', label: 'T2 Field Trench 2🪵', cost: { wood: 2 } },
+        { key: 'FORT_T3', tech: 'bunker', label: 'T3 Pillbox 3⚙ 2🪵', cost: { iron: 3, wood: 2 } },
+        { key: 'FORT_T4', tech: 'hardened_bunker', label: 'T4 Bunker 5⚙ 3🪵 1🧩', cost: { iron: 5, wood: 3, components: 1 } },
+        { key: 'FORT_T5', tech: 'superfortress', label: 'T5 Superfort 8⚙ 2🪵 2🧩 🔩', cost: { iron: 8, wood: 2, components: 2, hardenedSteel: 1 } },
+      ];
+      for (const fo of fortMenu) {
+        if (!noBuilding) continue;
+        if (fo.tech && !unlocked.has(fo.tech)) continue;
+        const c = fo.cost;
+        const comp = gs.players[p].components || 0;
+        const steel = gs.players[p].hardenedSteel || 0;
+        const enabled = iron >= (c.iron || 0) && wood >= (c.wood || 0) && oil >= (c.oil || 0)
+          && comp >= (c.components || 0) && steel >= (c.hardenedSteel || 0);
+        allOpts.push({
+          label: fo.label,
+          cost: c,
+          enabled,
+          cb: () => this._onBuildStructure(fo.key, c.iron || 0, c.oil || 0, c.wood || 0, c.components || 0, c.hardenedSteel || 0),
+        });
+      }
+      if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙`, cost:{iron:3,oil:0}, enabled: iron>=3, cb: () => this._onBuildStructure('OBS_POST',3) });
+      if (unlocked.has('barbed_wire') && noBuilding)
+        allOpts.push({ label: `Barbed Wire 1🪵`, cost:{iron:0,oil:0,wood:1}, enabled: wood>=1, cb: () => this._onBuildStructure('BARBED_WIRE',0,0,1) });
       if (unlocked.has('supply_depot') && noBuilding)
         allOpts.push({ label: `Supply Depot 3⚙ 1🛢 1🪵 (HQ road, +4)`, cost:{iron:3,oil:1,wood:1}, enabled: iron>=3&&oil>=1&&wood>=1, cb: () => this._onBuildStructure('SUPPLY_DEPOT',3,1,1) });
       addHeader('ECONOMY & RESEARCH');
@@ -6874,7 +6908,7 @@ export class GameScene extends Phaser.Scene {
     this._refresh();
   }
 
-  _onBuildStructure(type, ironCost, oilCost = 0, woodCost = 0, compCost = 0) {
+  _onBuildStructure(type, ironCost, oilCost = 0, woodCost = 0, compCost = 0, steelCost = 0) {
     const gs = this.gameState, u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
     if (buildingAt(gs, u.q, u.r)) return;
@@ -6885,14 +6919,17 @@ export class GameScene extends Phaser.Scene {
       this._refresh();
       return;
     }
-    if (gs.players[gs.currentPlayer].iron < ironCost) return;
-    if (gs.players[gs.currentPlayer].oil  < oilCost)  return;
-    if ((gs.players[gs.currentPlayer].wood || 0) < woodCost) return;
-    if ((gs.players[gs.currentPlayer].components || 0) < compCost) return;
-    gs.players[gs.currentPlayer].iron -= ironCost;
-    gs.players[gs.currentPlayer].oil  -= oilCost;
-    gs.players[gs.currentPlayer].wood  = (gs.players[gs.currentPlayer].wood || 0) - woodCost;
-    gs.players[gs.currentPlayer].components = (gs.players[gs.currentPlayer].components || 0) - compCost;
+    const pl = gs.players[gs.currentPlayer];
+    if (pl.iron < ironCost) return;
+    if (pl.oil < oilCost) return;
+    if ((pl.wood || 0) < woodCost) return;
+    if ((pl.components || 0) < compCost) return;
+    if ((pl.hardenedSteel || 0) < steelCost) return;
+    pl.iron -= ironCost;
+    pl.oil -= oilCost;
+    pl.wood = (pl.wood || 0) - woodCost;
+    pl.components = (pl.components || 0) - compCost;
+    pl.hardenedSteel = (pl.hardenedSteel || 0) - steelCost;
     this._placeBuilding(type, u);
   }
 

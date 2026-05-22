@@ -4,7 +4,7 @@
 import {
   hexDistance, hasLOS, supplyPenalty,
   UNIT_TYPES, NAVAL_UNITS, AIR_UNITS,
-  getUnitTierIntel,
+  getUnitTierIntel, computeFortificationCombatMods,
 } from './GameState.js';
 
 const INDIRECT = new Set(['ARTILLERY', 'MORTAR']);
@@ -151,12 +151,12 @@ export function analyzeCombat(gs, terrain, mapSize, attacker, target, blindFire,
   if (infRangePenalty > 0) baseAtk = Math.max(1, baseAtk - 1);
 
   const terrainMod = tTerrain === 1 ? 10 : tTerrain === 2 ? 20 : (tTerrain === 7 ? 5 : 0);
-  const onFort = !!gs.buildings?.find((b) => (b.type === 'BUNKER' || b.type === 'TRENCH' || b.type === 'SANDBAG' || b.type === 'FIELD_OUTPOST')
-    && b.q === target.q && b.r === target.r && b.owner === target.owner);
+  const fortMods = computeFortificationCombatMods(gs, target, attacker);
+  const onFort = fortMods.onFort;
   const openPlainMod = ((tTerrain === 0 || tTerrain === 6) && INF_LIKE.has(target.type) && !target.dugIn && !onFort) ? 6 : 0;
   const dugInMod = target.dugIn ? 8 : 0;
-  const onBunker = gs.buildings?.find((b) => b.type === 'BUNKER' && b.q === target.q && b.r === target.r && b.owner === target.owner);
-  const bunkerMod = onBunker ? 15 : 0;
+  const bunkerMod = fortMods.fortMod;
+  const fortDefenseBonus = fortMods.defenseBonus || 0;
   const blindMod = blindFire ? 20 : 0;
   const aaBonus = (aDef.antiAir && AIR_UNITS.has(target.type)) ? 10 : 0;
   const baseScore = 50;
@@ -168,17 +168,18 @@ export function analyzeCombat(gs, terrain, mapSize, attacker, target, blindFire,
   const scoreMax = Math.min(100, preRollScore + ROLL);
 
   const tierAt = (s) => (s < 20 ? 'Catastrophic Failure' : s < 40 ? 'Repelled' : s < 60 ? 'Neutral' : s < 80 ? 'Effective' : 'Overwhelming');
-  const dmgAt = (s, ba, pr, def) => {
+  const dmgAt = (s, ba, pr, def, fortDef) => {
+    const totalDef = def + (fortDef || 0);
     if (s < 20) return 0;
     if (s < 40) return 0;
-    if (s < 60) return Math.max(0, Math.max(1, Math.round(ba * pr * 0.5)) - def);
-    return Math.max(0, Math.max(1, Math.round(ba * pr)) - def);
+    if (s < 60) return Math.max(0, Math.max(1, Math.round(ba * pr * 0.5)) - totalDef);
+    return Math.max(0, Math.max(1, Math.round(ba * pr)) - totalDef);
   };
 
   const tier = tierAt(preRollScore);
   const effDef = Math.max(0, (tDef.defense || 0) - defSupPen);
-  const expDmg = dmgAt(preRollScore, baseAtk, pierceRatio, effDef);
-  const maxDmg = dmgAt(scoreMax, baseAtk, pierceRatio, effDef);
+  const expDmg = dmgAt(preRollScore, baseAtk, pierceRatio, effDef, fortDefenseBonus);
+  const maxDmg = dmgAt(scoreMax, baseAtk, pierceRatio, effDef, fortDefenseBonus);
 
   const retDist = dist;
   const subDiveBlock = tDef.noSurfaceRetaliation && !aDef.noSurfaceRetaliation;
@@ -215,7 +216,11 @@ export function analyzeCombat(gs, terrain, mapSize, attacker, target, blindFire,
   } else if ((aDef.pierce || 0) >= (tDef.armor || 0) && (tDef.armor || 0) > 2) {
     tips.push('Pierce matches armor — full damage potential.');
   }
-  if (bunkerMod) tips.push('Defender in bunker — heavy cover penalty.');
+  if (bunkerMod && fortMods.fortName) {
+    tips.push(`Defender in ${fortMods.fortName} (T${fortMods.fortTier}) — cover penalty −${bunkerMod}.`);
+  }
+  if (fortMods.indirectAirBonus) tips.push('Foxhole/trench profile: extra cover vs artillery & air.');
+  if (fortDefenseBonus) tips.push(`Fortification absorbs ${fortDefenseBonus} damage.`);
   if (dugInMod) tips.push('Defender is dug in.');
   if (openPlainMod) tips.push('Defender exposed on open ground — bonus hit quality.');
   if (atkSupPen) tips.push('Your unit is out of supply — weaker attack.');
@@ -257,7 +262,12 @@ export function analyzeCombat(gs, terrain, mapSize, attacker, target, blindFire,
   if (terrainMod && intel.showTerrainMods) modRows.push([`Terrain cover`, `−${terrainMod}`, '#aa7744']);
   if (openPlainMod && intel.showTerrainMods) modRows.push([`Open exposure`, `+${openPlainMod}`, '#ff9966']);
   if (dugInMod && intel.showTerrainMods) modRows.push([`Dug in`, `−${dugInMod}`, '#aa7744']);
-  if (bunkerMod && intel.showTerrainMods) modRows.push([`Bunker`, `−${bunkerMod}`, '#aa7744']);
+  if (bunkerMod && intel.showTerrainMods) {
+    const fortLabel = fortMods.fortName ? `${fortMods.fortName} T${fortMods.fortTier}` : 'Fortification';
+    modRows.push([fortLabel, `−${bunkerMod}`, '#aa7744']);
+    if (fortMods.indirectAirBonus) modRows.push(['vs Arty/Air', `+${fortMods.indirectAirBonus}`, '#88aa66']);
+  }
+  if (fortDefenseBonus && intel.showTerrainMods) modRows.push(['Fort DR', `−${fortDefenseBonus} dmg`, '#aa8855']);
   if (blindMod) modRows.push([`Blind fire`, `−${blindMod}`, '#cc4444']);
   if (infRangePenalty) modRows.push([`Infantry long shot`, `−${infRangePenalty} / −1 ATK`, '#ffbb66']);
   if (fighterStrafe) modRows.push([`Fighter strafe`, `ATK ×0.5`, '#ffbb66']);
@@ -273,7 +283,8 @@ export function analyzeCombat(gs, terrain, mapSize, attacker, target, blindFire,
     tier, tierLo: tierAt(scoreMin), tierHi: tierAt(scoreMax), expDmg, maxDmg, expRetDmg,
     canRet, noRetReason, retTier, effDef, isArmored, navalVsNaval, navalVsLand,
     atkProfile, defProfile, tips, verdict, verdictColor, verdictAdvice, modRows,
-    terrainMod, dugInMod, bunkerMod, openPlainMod, blindMod, atkSupPen, defSupPen,
+    terrainMod, dugInMod, bunkerMod, fortTier: fortMods.fortTier, fortIndirectBonus: fortMods.indirectAirBonus,
+    openPlainMod, blindMod, atkSupPen, defSupPen,
   };
 }
 
@@ -285,7 +296,11 @@ export function buildResolveSteps(entry) {
   if (entry.accuracy) steps.push(`2. +${entry.accuracy} attacker accuracy.`);
   if (entry.evasion) steps.push(`3. −${entry.evasion} defender evasion.`);
   const cover = (entry.terrainMod || 0) + (entry.dugInMod || 0) + (entry.bunkerMod || 0);
-  if (cover) steps.push(`4. −${cover} defender cover (terrain / dug-in / bunker).`);
+  if (cover) {
+    const fortBit = entry.fortName ? ` / ${entry.fortName}` : '';
+    steps.push(`4. −${cover} defender cover (terrain / dug-in / fort${fortBit}).`);
+  }
+  if (entry.fortIndirectBonus) steps.push(`4b. +${entry.fortIndirectBonus} extra fort cover vs artillery/air.`);
   if (entry.openPlainMod) steps.push(`5. +${entry.openPlainMod} defender exposed on open ground.`);
   if (entry.exposedMod) steps.push(`6. +${entry.exposedMod} defender on road (exposed).`);
   if (entry.blindFirePenalty) steps.push(`7. −${entry.blindFirePenalty} blind fire penalty.`);

@@ -160,9 +160,9 @@ export const TECH_TREE = {
   entrenching_tools: {
     id:'entrenching_tools', branch:'infantry', tier:0, kind:'building',
     name:'Entrenching Tools',
-    desc:'🏗 BUILDING — Engineers can build Trenches for defensive fortification.',
+    desc:'🏗 BUILDING — Engineers can build T2 Field Trenches (100 m fighting pits).',
     cost:15, prereqs:[],
-    effect:{ unlockBuilding:'TRENCH' },
+    effect:{ unlockBuilding:'FORT_T2' },
   },
   field_radio: {
     id:'field_radio', branch:'infantry', tier:1, kind:'stat',
@@ -580,10 +580,10 @@ export const TECH_TREE = {
   },
   sandbag_improved: {
     id:'sandbag_improved', branch:'engineering', tier:0, kind:'building',
-    name:'Sandbag Emplacement',
-    desc:'🏗 BUILDING — Improved fortification: +2 defense for garrisoned unit.',
+    name:'Foxhole Doctrine',
+    desc:'🏗 BUILDING — T0 Foxholes: cheap dugouts; strong vs artillery & air when defending.',
     cost:15, prereqs:[],
-    effect:{ unlockBuilding:'SANDBAG' },
+    effect:{ unlockBuilding:'FORT_T0' },
   },
   signal_flare: {
     id:'signal_flare', branch:'engineering', tier:1, kind:'doctrine',
@@ -602,16 +602,35 @@ export const TECH_TREE = {
   field_fortifications: {
     id:'field_fortifications', branch:'engineering', tier:1, kind:'stat',
     name:'Field Fortification Doctrine',
-    desc:'Bunkers and trenches give +1 extra defense bonus.',
+    desc:'All fortification tiers gain +1 cover score and +1 damage reduction.',
     cost:30, prereqs:['pontoon_bridge'],
-    effect:{ buildingBonus:{ BUNKER:{ defenseBonus:1 }, TRENCH:{ defenseBonus:1 } } },
+    effect:{ buildingBonus:{
+      FORT_T0:{ defenseBonus:1, fortScoreMod:1 }, FORT_T1:{ defenseBonus:1, fortScoreMod:1 },
+      FORT_T2:{ defenseBonus:1, fortScoreMod:1 }, FORT_T3:{ defenseBonus:1, fortScoreMod:1 },
+      FORT_T4:{ defenseBonus:1, fortScoreMod:1 }, FORT_T5:{ defenseBonus:1, fortScoreMod:1 },
+      BUNKER:{ defenseBonus:1, fortScoreMod:1 }, TRENCH:{ defenseBonus:1, fortScoreMod:1 },
+    } },
   },
   bunker: {
     id:'bunker', branch:'engineering', tier:2, kind:'building',
-    name:'Concrete Bunker',
-    desc:'🏗 BUILDING — Permanent fortification: +6 defense, HP 10. Survives artillery.',
+    name:'Concrete Pillbox',
+    desc:'🏗 BUILDING — T3 reinforced pillbox (~100 m hex).',
     cost:35, prereqs:['field_fortifications'],
-    effect:{ unlockBuilding:'BUNKER' },
+    effect:{ unlockBuilding:'FORT_T3' },
+  },
+  hardened_bunker: {
+    id:'hardened_bunker', branch:'engineering', tier:3, kind:'building',
+    name:'Hardened Bunker Works',
+    desc:'🏗 BUILDING — T4 bunker with components; resists sustained bombardment.',
+    cost:45, prereqs:['bunker'],
+    effect:{ unlockBuilding:'FORT_T4' },
+  },
+  superfortress: {
+    id:'superfortress', branch:'engineering', tier:4, kind:'building',
+    name:'Superfortress Engineering',
+    desc:'🏗 BUILDING — T5 command bunker; maximum field fortification on a hex.',
+    cost:60, prereqs:['hardened_bunker'],
+    effect:{ unlockBuilding:'FORT_T5' },
   },
   supply_depot: {
     id:'supply_depot', branch:'engineering', tier:2, kind:'building',

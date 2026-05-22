@@ -300,7 +300,6 @@ export const BUILDING_TYPES = {
   OIL_PUMP:      { name: 'Oil Pump',       ironPerTurn: 0, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, oil: 0 },         color: 0x222244, sight: 2, tier: 0 },
   BARRACKS:      { name: 'Barracks',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: ['INFANTRY','ANTI_TANK','MORTAR','MEDIC'], buildCost: { iron: 4, oil: 0, wood: 4 }, color: 0xaa6644, sight: 2, tier: 0 },
   VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['TANK','ARTILLERY','SUPPLY_TRUCK','MEDIUM_TANK','SPG','ARMORED_CAR','HALFTRACK'],        buildCost: { iron: 8, oil: 2 }, color: 0x557799, sight: 2, tier: 0 },
-  BUNKER:        { name: 'Bunker',         ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 2 }, color: 0x888866, sight: 2 },
   OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 0 }, color: 0x88aacc, sight: 4 },
   ROAD:          { name: 'Dirt Road',      ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xccbbaa, sight: 0, roadTier: 0, moveCost: 0.5, supplyOffRoad: 1 },
   GRAVEL_ROAD:   { name: 'Gravel Road',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 1, oil: 0, wood: 1 }, color: 0x998877, sight: 0, roadTier: 1, moveCost: 0.35, supplyOffRoad: 2, requiresTech: 'gravel_roads' },
@@ -311,8 +310,6 @@ export const BUILDING_TYPES = {
   NAVAL_YARD:    { name: 'Naval Yard',     ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['SUPPLY_SHIP','PATROL_BOAT','SUBMARINE','DESTROYER','LANDING_CRAFT','TRANSPORT_MD','TORPEDO_BOAT','MOTOR_GUNBOAT'], buildCost: { iron: 8, oil: 2 }, color: 0x3366aa, sight: 2 },
   // Obstacle / fortification buildings (engineer-built, no recruitment)
   BARBED_WIRE:   { name: 'Barbed Wire',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0x888866, sight: 0, obstacle: true, infantryMoveCost: 1 },
-  SANDBAG:       { name: 'Sandbag Post',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xc8aa66, sight: 0, defenseBonus: 2 },
-  FIELD_OUTPOST: { name: 'Field Outpost',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 2 }, color: 0x8a7a55, sight: 3, defenseBonus: 3 },
   SUPPLY_DEPOT:  { name: 'Supply Depot',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 1, wood: 1 }, color: 0xddaa44, sight: 2, supplyRadius: 3, moveBonus: 1 },
   SUPPLY_WAREHOUSE:{ name:'Supply Warehouse', ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, buildTurns:2, canRecruit:[], buildCost:{ iron:8, oil:2, wood:4 }, color:0xc9922a, sight:2, supplyRadius:4, moveBonus:1 },
   HARBOR:        { name: 'Harbor',         ironPerTurn: 1, oilPerTurn: 1, woodPerTurn: 0, buildTurns: 3, canRecruit: [],                         buildCost: { iron: 5, oil: 1, components: 1 }, color: 0x4488cc, sight: 2, repairsNaval: true },
@@ -327,7 +324,19 @@ export const BUILDING_TYPES = {
   PORT:          { name: 'Port',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 1, buildTurns: 3, canRecruit: [], buildCost: { iron: 5, oil: 1, wood: 4 }, color: 0x3d7fb0, sight: 2, coastalOnly: true, tier: 1 },
   SCIENCE_LAB:   { name: 'Science Lab',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, rpPerTurn: 3,  buildTurns: 4, canRecruit: [], buildCost: { iron: 6, oil: 0, wood: 4 }, color: 0x8844cc, sight: 2 },
   FACTORY:       { name: 'Factory',        ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, componentsPerTurn: 1, buildTurns: 4, canRecruit: [], buildCost: { iron: 10, oil: 3, wood: 8 }, color: 0x666666, sight: 2, fragile: true },
-  TRENCH:        { name: 'Trench',         ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 2 }, color: 0x887755, sight: 1, defenseBonus: 4 },
+  // Fortification tiers T0–T5 (~100 m hex): foxhole → superfortress
+  FORT_T0: { name: 'Foxhole', fortTier: 0, fortScoreMod: 12, defenseBonus: 1, indirectAirBonus: 24,
+    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { wood: 1 }, color: 0x5a5044, sight: 0 },
+  FORT_T1: { name: 'Splinter Pit', fortTier: 1, fortScoreMod: 14, defenseBonus: 2, indirectAirBonus: 18,
+    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 1, wood: 1 }, color: 0x6a5c48, sight: 0 },
+  FORT_T2: { name: 'Field Trench', fortTier: 2, fortScoreMod: 18, defenseBonus: 3, indirectAirBonus: 12,
+    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { wood: 2 }, color: 0x887755, sight: 1, requiresTech: 'entrenching_tools' },
+  FORT_T3: { name: 'Concrete Pillbox', fortTier: 3, fortScoreMod: 22, defenseBonus: 4, indirectAirBonus: 8,
+    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, wood: 2 }, color: 0x888866, sight: 2, requiresTech: 'bunker' },
+  FORT_T4: { name: 'Hardened Bunker', fortTier: 4, fortScoreMod: 28, defenseBonus: 5, indirectAirBonus: 4,
+    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: [], buildCost: { iron: 5, wood: 3, components: 1 }, color: 0x777766, sight: 2, requiresTech: 'hardened_bunker' },
+  FORT_T5: { name: 'Superfortress', fortTier: 5, fortScoreMod: 35, defenseBonus: 6, indirectAirBonus: 0,
+    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: [], buildCost: { iron: 8, wood: 2, components: 2, hardenedSteel: 1 }, color: 0x666655, sight: 3, requiresTech: 'superfortress' },
   AT_DITCH:      { name: 'AT Ditch',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 0 }, color: 0x886644, sight: 1, blocksVehicles: true },
   PONTOON_BRIDGE:{ name: 'Pontoon Bridge', ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 2 }, color: 0xccbb88, sight: 1, isBridge: true },
   // Tier 2 production buildings
@@ -336,6 +345,77 @@ export const BUILDING_TYPES = {
   NAVAL_DOCKYARD: { name: 'Naval Dockyard',    ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, foodPerTurn:0, goldPerTurn:0, buildTurns:5, canRecruit:['SUPPLY_SHIP','DESTROYER_MK1'], buildCost:{ iron:16, oil:5, wood:4 }, color:0x224477, sight:2, tier:2, componentsCost:4 },
   ADV_AIRFIELD:   { name: 'Advanced Airfield', ironPerTurn:0, oilPerTurn:0, woodPerTurn:0, foodPerTurn:0, goldPerTurn:0, buildTurns:4, canRecruit:['MONOPLANE_FIGHTER','DIVE_BOMBER','HEAVY_BOMBER'], buildCost:{ iron:12, oil:5, wood:4 }, color:0x777744, sight:3, tier:3, componentsCost:3, aviationAlloyPerTurn:1 },
 };
+
+// ── Fortification tiers (legacy sandbag/bunker maps to modern tiers) ────────
+export const MAX_FORT_TIER = 5;
+export const FORTIFICATION_KEYS = ['FORT_T0', 'FORT_T1', 'FORT_T2', 'FORT_T3', 'FORT_T4', 'FORT_T5'];
+export const LEGACY_FORT_MAP = {
+  SANDBAG: 'FORT_T1',
+  FIELD_OUTPOST: 'FORT_T2',
+  TRENCH: 'FORT_T2',
+  BUNKER: 'FORT_T3',
+};
+export const FORTIFICATION_TYPES = new Set([...FORTIFICATION_KEYS, ...Object.keys(LEGACY_FORT_MAP)]);
+
+export function resolveFortKey(buildingType) {
+  if (!buildingType) return null;
+  if (FORTIFICATION_KEYS.includes(buildingType)) return buildingType;
+  return LEGACY_FORT_MAP[buildingType] || null;
+}
+
+export function isFortificationBuilding(buildingType) {
+  return !!resolveFortKey(buildingType);
+}
+
+export function getFortificationDef(buildingType) {
+  const key = resolveFortKey(buildingType);
+  return key ? BUILDING_TYPES[key] : null;
+}
+
+export function getFortificationOnHex(state, q, r, owner) {
+  const b = state.buildings.find((bb) => bb.q === q && bb.r === r && Number(bb.owner) === Number(owner));
+  if (!b || !resolveFortKey(b.type)) return null;
+  return b;
+}
+
+/** Combat modifiers from field fortifications (100 m hex scale). */
+export function computeFortificationCombatMods(state, target, attacker) {
+  const empty = {
+    onFort: false, fortMod: 0, defenseBonus: 0, fortTier: null,
+    indirectAirBonus: 0, fortName: null, fortKey: null,
+  };
+  const fortB = getFortificationOnHex(state, target.q, target.r, target.owner);
+  if (!fortB) return empty;
+  const fortKey = resolveFortKey(fortB.type);
+  const def = getFortificationDef(fortB.type);
+  if (!def || !fortKey) return empty;
+
+  const unlocked = state.players[target.owner]?.research?.unlocked || [];
+  const techBB = computeTechBonuses(unlocked).buildingBonus;
+  const techDelta = { ...(techBB[fortKey] || {}), ...(techBB[fortB.type] || {}) };
+
+  let fortMod = (def.fortScoreMod ?? 12) + (techDelta.fortScoreMod || 0);
+  let defenseBonus = (def.defenseBonus ?? 0) + (techDelta.defenseBonus || 0);
+  let indirectAirBonus = def.indirectAirBonus ?? 0;
+
+  const aDef = UNIT_TYPES[attacker.type] || {};
+  const isIndirect = INDIRECT_FIRE.has(attacker.type);
+  const isAir = AIR_UNITS.has(attacker.type);
+  const airVsGround = isAir && !AIR_UNITS.has(target.type);
+  if (isIndirect || airVsGround) {
+    fortMod += indirectAirBonus;
+  }
+
+  return {
+    onFort: true,
+    fortMod,
+    defenseBonus,
+    fortTier: def.fortTier ?? 0,
+    indirectAirBonus: (isIndirect || airVsGround) ? indirectAirBonus : 0,
+    fortName: def.name,
+    fortKey,
+  };
+}
 
 // ── Unit tier system (T0–T5) + graded materials ───────────────────────────
 export const MAX_UNIT_TIER = 5;
@@ -1566,7 +1646,8 @@ export function resolveTurn(state, terrain) {
     // Open-plains exposure penalty for infantry-like defenders not fortified.
     const INF_LIKE = new Set(['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD','LMG_TEAM','HMG_TEAM','SNIPER','ENGINEER','MEDIC','ANTI_TANK']);
     const openPlains = (ttype === 0 || ttype === 6);
-    const onFort = !!state.buildings.find(b => (b.type === 'BUNKER' || b.type === 'TRENCH' || b.type === 'SANDBAG' || b.type === 'FIELD_OUTPOST') && b.q === target.q && b.r === target.r && b.owner === target.owner);
+    const fortMods = computeFortificationCombatMods(state, target, attacker);
+    const onFort = fortMods.onFort;
     const openPlainMod = (openPlains && INF_LIKE.has(target.type) && !target.dugIn && !onFort) ? 6 : 0;
     score += openPlainMod;
     const onRoad = !!state.buildings.find(b => ROAD_TYPES.has(b.type) && b.q === target.q && b.r === target.r);
@@ -1585,10 +1666,8 @@ export function resolveTurn(state, terrain) {
     let dugInMod = 0;
     if (target.dugIn) { dugInMod = 8; score -= dugInMod; }
 
-    // Bunker bonus
-    let bunkerMod = 0;
-    const onBunker = state.buildings.find(b => b.type === 'BUNKER' && b.q === target.q && b.r === target.r && b.owner === target.owner);
-    if (onBunker) { bunkerMod = 15; score -= bunkerMod; }
+    const bunkerMod = fortMods.fortMod;
+    if (bunkerMod > 0) score -= bunkerMod;
 
     // Evasion (defender)
     score -= Math.max(0, (tDef.evasion || 0) - (defSupplyPen.attackPenalty * 2));
@@ -1631,7 +1710,7 @@ export function resolveTurn(state, terrain) {
 
     // Defense flat reduction (unsupplied defender loses some defensive efficiency)
     const effectiveTargetDefense = Math.max(0, (tDef.defense || 0) - defSupplyPen.attackPenalty);
-    dmg = Math.max(0, dmg - effectiveTargetDefense);
+    dmg = Math.max(0, dmg - effectiveTargetDefense - (fortMods.defenseBonus || 0));
 
     // Indirect-fire attackers never take direct defender return damage in this system.
     if (isIndirectAttack) potentialRet = 0;
@@ -1658,7 +1737,8 @@ export function resolveTurn(state, terrain) {
       targetName: tDef.name,   targetOwner: target.owner,
       isArmored, baseAttack, pierce: aDef.pierce, armor: tDef.armor, pierceRatio,
       accuracy: aDef.accuracy, evasion: tDef.evasion,
-      terrainMod, openPlainMod, exposedMod, dugInMod, bunkerMod, flankMod, roll, blindFirePenalty,
+      terrainMod, openPlainMod, exposedMod, dugInMod, bunkerMod, fortTier: fortMods.fortTier,
+      fortIndirectBonus: fortMods.indirectAirBonus, fortName: fortMods.fortName, flankMod, roll, blindFirePenalty,
       attackerSupplyPenalty: atkSupplyPen.attackPenalty || 0,
       defenderSupplyPenalty: defSupplyPen.attackPenalty || 0,
       infantryRangePenalty: infantryRangePenalty || 0,
@@ -1977,7 +2057,8 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   score -= terrainMod;
   const INF_LIKE = new Set(['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD','LMG_TEAM','HMG_TEAM','SNIPER','ENGINEER','MEDIC','ANTI_TANK']);
   const openPlains = (ttype === 0 || ttype === 6);
-  const onFort = !!state.buildings.find(b => (b.type === 'BUNKER' || b.type === 'TRENCH' || b.type === 'SANDBAG' || b.type === 'FIELD_OUTPOST') && b.q === target.q && b.r === target.r && b.owner === target.owner);
+  const fortMods = computeFortificationCombatMods(state, target, attacker);
+  const onFort = fortMods.onFort;
   const openPlainMod = (openPlains && INF_LIKE.has(target.type) && !target.dugIn && !onFort) ? 6 : 0;
   score += openPlainMod;
   const onRoad = !!state.buildings.find(b => ROAD_TYPES.has(b.type) && b.q === target.q && b.r === target.r);
@@ -1987,9 +2068,8 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   score += subShallowPenalty;
   let dugInMod = 0;
   if (target.dugIn) { dugInMod = 8; score -= dugInMod; }
-  let bunkerMod = 0;
-  const onBunker = state.buildings.find(b => b.type === 'BUNKER' && b.q === target.q && b.r === target.r && b.owner === target.owner);
-  if (onBunker) { bunkerMod = 15; score -= bunkerMod; }
+  const bunkerMod = fortMods.fortMod;
+  if (bunkerMod > 0) score -= bunkerMod;
   score -= Math.max(0, (tDef.evasion || 0) - (defSupplyPen.attackPenalty * 2));
   score += Math.round((pierceRatio - 0.5) * 20);
   const roll = Math.floor(Math.random() * 31) - 15;
@@ -2007,7 +2087,7 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   if (isIndirectAttack) attackerDmg = 0;
 
   const effectiveTargetDefense = Math.max(0, (tDef.defense || 0) - defSupplyPen.attackPenalty);
-  dmg = Math.max(0, dmg - effectiveTargetDefense);
+  dmg = Math.max(0, dmg - effectiveTargetDefense - (fortMods.defenseBonus || 0));
 
   // Retaliation: defender fires back if alive after attacker's hit and in range
   const retDist = hexDistance(attacker.q, attacker.r, target.q, target.r);
@@ -2050,7 +2130,8 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
     targetHPBefore: target.health + dmg,
     isArmored, baseAttack, pierce: aDef.pierce, armor: tDef.armor, pierceRatio,
     accuracy: aDef.accuracy, evasion: tDef.evasion,
-    terrainMod, openPlainMod, exposedMod, dugInMod, bunkerMod, flankMod: 0, roll, blindFirePenalty,
+    terrainMod, openPlainMod, exposedMod, dugInMod, bunkerMod, fortTier: fortMods.fortTier,
+    fortIndirectBonus: fortMods.indirectAirBonus, fortName: fortMods.fortName, flankMod: 0, roll, blindFirePenalty,
     attackerSupplyPenalty: atkSupplyPen.attackPenalty || 0,
     defenderSupplyPenalty: defSupplyPen.attackPenalty || 0,
     infantryRangePenalty: infantryRangePenalty || 0,
