@@ -199,8 +199,15 @@ export const SHALLOW_UNITS = new Set(['PATROL_BOAT','SUBMARINE','LANDING_CRAFT',
 // Units that can land on sand/beach (type 6) — amphibious disembark
 export const AMPHIBIOUS_UNITS = new Set(['LANDING_CRAFT']);
 
-export const MAX_DESIGNS_PER_PLAYER = 4; // design slots per player
+export const BASE_DESIGN_SLOTS = 5;
 export const DESIGN_BASE_COST = { iron: 3, oil: 0 }; // flat registration fee + module costs
+
+/** Max custom unit designs this player may register (base 5 + research). */
+export function getMaxDesignSlots(state, player) {
+  const unlocked = state?.players?.[player]?.research?.unlocked || [];
+  const extra = computeTechBonuses(unlocked).extraDesignSlots || 0;
+  return BASE_DESIGN_SLOTS + extra;
+}
 
 // Compute the full stat block for a custom design
 export function computeDesignStats(chassis, moduleKeys) {
@@ -256,7 +263,8 @@ export function designTrainCost(chassis, moduleKeys) {
 
 export function registerDesign(state, player, chassis, moduleKeys, designName) {
   const designs = state.designs[player];
-  if (designs.length >= MAX_DESIGNS_PER_PLAYER) return { ok: false, reason: `Max ${MAX_DESIGNS_PER_PLAYER} designs reached` };
+  const maxSlots = getMaxDesignSlots(state, player);
+  if (designs.length >= maxSlots) return { ok: false, reason: `Max ${maxSlots} designs reached (research more slots in Industrial)` };
 
   const unlocked = new Set(state.players[player]?.research?.unlocked || []);
   const modSet = new Set(moduleKeys);
@@ -304,6 +312,13 @@ export function registerDesign(state, player, chassis, moduleKeys, designName) {
 
 export const BUILDING_TYPES = {
   HQ:            { name: 'HQ',             ironPerTurn: 3, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 0, canRecruit: ['ENGINEER','RECON'],                   buildCost: null,               color: 0xffdd00, sight: 3, tier: 0 },
+  // Housing — population cap & growth (engineer-built on open land)
+  HOUSING_SLUMS:   { name: 'Slum District',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 1, wood: 2 }, color: 0x5a4030, sight: 1, tier: 0, popGrant: 1, popCapBonus: 0, placementTerrain: new Set([0, 6, 7]) },
+  HOUSING_RURAL:   { name: 'Rural Housing',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 2, wood: 4 }, color: 0x6a5540, sight: 1, tier: 1, popCapBonus: 1, placementTerrain: new Set([0, 6, 7]) },
+  HOUSING_SUBURB:  { name: 'Suburb Block',     ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, wood: 5 }, color: 0x7a6550, sight: 1, tier: 1, popCapBonus: 2, popPerTurn: 1, requiresTech: 'suburban_planning', placementTerrain: new Set([0, 6, 7]) },
+  HOUSING_DISTRICT:{ name: 'Urban District',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: [], buildCost: { iron: 6, wood: 6, components: 1 }, color: 0x8a7560, sight: 1, tier: 2, popCapBonus: 3, popPerTurn: 1, requiresTech: 'suburban_planning', placementTerrain: new Set([0, 6, 7]) },
+  HOUSING_BOROUGH: { name: 'Borough',          ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: [], buildCost: { iron: 8, wood: 8, components: 2 }, color: 0x9a8570, sight: 2, tier: 3, popCapBonus: 5, popPerTurn: 2, requiresTech: 'metropolitan_growth', placementTerrain: new Set([0, 6, 7]) },
+  HOUSING_METRO:   { name: 'Metropolis Core',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: [], buildCost: { iron: 12, wood: 10, components: 3 }, color: 0xaa9580, sight: 2, tier: 4, popCapBonus: 8, popPerTurn: 3, requiresTech: 'metropolitan_growth', placementTerrain: new Set([0, 6, 7]) },
   MINE:          { name: 'Iron Mine',      ironPerTurn: 2, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, oil: 0 },         color: 0xaaaaaa, sight: 2, tier: 0 },
   OIL_PUMP:      { name: 'Oil Pump',       ironPerTurn: 0, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, oil: 0 },         color: 0x222244, sight: 2, tier: 0 },
   BARRACKS:      { name: 'Barracks',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: ['INFANTRY','ANTI_TANK','MORTAR','MEDIC'], buildCost: { iron: 4, oil: 0, wood: 4 }, color: 0xaa6644, sight: 2, tier: 0 },
@@ -638,6 +653,86 @@ export const STARTING_GOLD      = 0;
 export const BASE_IRON_PER_TURN = 3;
 export const BASE_OIL_PER_TURN  = 0;
 
+// Population (manpower) — caps army size; housing raises cap, HQ grows pop over time
+export const HQ_BASE_POP_CAP = 15;
+export const HQ_POP_PER_TURN = 1;
+
+export const HOUSING_BUILDINGS = new Set([
+  'HOUSING_SLUMS', 'HOUSING_RURAL', 'HOUSING_SUBURB', 'HOUSING_DISTRICT',
+  'HOUSING_BOROUGH', 'HOUSING_METRO',
+]);
+
+/** Manpower required to queue one unit (designs use chassis type). */
+export function getUnitPopCost(unitType) {
+  const def = UNIT_TYPES[unitType];
+  if (def?.popCost != null) return def.popCost;
+  if (unitType === 'BATTLESHIP') return 10;
+  if (unitType === 'CRUISER_HV' || unitType === 'CRUISER_LT') return 7;
+  if (unitType === 'DESTROYER' || unitType === 'DESTROYER_MK1') return 5;
+  if (unitType === 'SUBMARINE') return 4;
+  if (unitType === 'HEAVY_BOMBER') return 5;
+  if (unitType === 'TRANSPORT_LG') return 5;
+  if (unitType === 'TRANSPORT_MD') return 3;
+  if (unitType === 'SUPPLY_SHIP') return 3;
+  if (unitType === 'PATROL_BOAT' || unitType === 'MTB' || unitType === 'MOTOR_GUNBOAT' || unitType === 'TORPEDO_BOAT') return 2;
+  if (unitType === 'LANDING_CRAFT' || unitType === 'TRANSPORT_SM') return 2;
+  if (unitType === 'TANK' || unitType === 'MEDIUM_TANK' || unitType === 'SPG') return 3;
+  if (unitType === 'ARTILLERY' || unitType === 'LIGHT_BOMBER' || unitType === 'DIVE_BOMBER') return 2;
+  if (unitType === 'MONOPLANE_FIGHTER' || unitType === 'BIPLANE_FIGHTER') return 2;
+  if (unitType === 'HALFTRACK' || unitType === 'ARMORED_CAR') return 2;
+  if (AIR_UNITS.has(unitType)) return 2;
+  if (NAVAL_UNITS.has(unitType)) return 3;
+  return 1;
+}
+
+export function recalcPlayerPopulation(state, player) {
+  const pl = state.players[player];
+  if (!pl) return;
+  let cap = 0;
+  let growth = 0;
+  let hasHQ = false;
+  for (const b of state.buildings) {
+    if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
+    if (b.type === 'HQ') {
+      hasHQ = true;
+      cap += HQ_BASE_POP_CAP;
+      growth += HQ_POP_PER_TURN;
+      continue;
+    }
+    const def = BUILDING_TYPES[b.type];
+    if (!def) continue;
+    cap += def.popCapBonus || 0;
+    growth += def.popPerTurn || 0;
+  }
+  if (!hasHQ) {
+    cap += HQ_BASE_POP_CAP;
+    growth += HQ_POP_PER_TURN;
+  }
+  pl.popCap = Math.max(HQ_BASE_POP_CAP, cap);
+  pl.popGrowthPerTurn = growth;
+  pl.population = Math.min(pl.popCap, pl.population ?? pl.popCap);
+}
+
+export function applyPopulationGrowth(state, player) {
+  const pl = state.players[player];
+  if (!pl) return 0;
+  recalcPlayerPopulation(state, player);
+  const g = pl.popGrowthPerTurn || HQ_POP_PER_TURN;
+  const before = pl.population ?? 0;
+  pl.population = Math.min(pl.popCap, before + g);
+  return pl.population - before;
+}
+
+export function onHousingBuildingComplete(state, player, buildingType) {
+  const def = BUILDING_TYPES[buildingType];
+  if (!def || !HOUSING_BUILDINGS.has(buildingType)) return;
+  recalcPlayerPopulation(state, player);
+  const pl = state.players[player];
+  if (def.popGrant) {
+    pl.population = Math.min(pl.popCap, (pl.population || 0) + def.popGrant);
+  }
+}
+
 // ── Science Lab RP formula (stacking with diminishing returns) ─────────────
 // Lab 1: 3 RP/t, Lab 2: +2, Lab 3: +1, Lab 4+: +1 each
 export function calcRPFromLabs(labCount) {
@@ -735,6 +830,9 @@ export function createGameState(scenario = 'default', options = {}) {
   const makePlayer = (iron, oil, wood) => ({
     iron, oil, wood: wood || 0,
     food: STARTING_FOOD, gold: STARTING_GOLD,
+    population: HQ_BASE_POP_CAP,
+    popCap: HQ_BASE_POP_CAP,
+    popGrowthPerTurn: HQ_POP_PER_TURN,
     components: 0,
     hardenedSteel: 0,
     aviationAlloy: 0,
@@ -1053,6 +1151,8 @@ export function createGameState(scenario = 'default', options = {}) {
     const hasRoad = state.buildings.some(r => ROAD_TYPES.has(r.type) && r.q === b.q && r.r === b.r);
     if (!hasRoad) state.buildings.push(createBuilding('ROAD', b.owner, b.q, b.r));
   }
+
+  for (const p of [1, 2]) recalcPlayerPopulation(state, p);
 
   return state;
 }
@@ -1498,6 +1598,9 @@ export function canRecruit(state, player, unitType, buildingId) {
     }
     const dFood = getRecruitFoodCost(design.chassis);
     if ((pl.food || 0) < dFood) return { ok: false, reason: `Need ${dFood} food` };
+    const popCost = getUnitPopCost(design.chassis);
+    recalcPlayerPopulation(state, player);
+    if ((pl.population || 0) < popCost) return { ok: false, reason: `Need ${popCost} population (${pl.population || 0}/${pl.popCap || 0})` };
     return { ok: true };
   }
 
@@ -1508,6 +1611,10 @@ export function canRecruit(state, player, unitType, buildingId) {
   if ((state.players[player].components||0) < (def.cost.components||0)) return { ok: false, reason: 'Not enough components' };
   const foodCost = getRecruitFoodCost(unitType);
   if ((state.players[player].food||0) < foodCost) return { ok: false, reason: 'Not enough food' };
+  const popCost = getUnitPopCost(unitType);
+  recalcPlayerPopulation(state, player);
+  const pl = state.players[player];
+  if ((pl.population || 0) < popCost) return { ok: false, reason: `Need ${popCost} population (${pl.population || 0}/${pl.popCap || 0})` };
   return { ok: true };
 }
 
@@ -1519,16 +1626,20 @@ export function queueRecruit(state, player, unitType, buildingId) {
     const design = state.designs[player].find(d => d.id === unitType);
     spendResources(state.players[player], design.trainCost);
     state.players[player].food = (state.players[player].food||0) - getRecruitFoodCost(design.chassis);
+    const popCost = getUnitPopCost(design.chassis);
+    state.players[player].population = Math.max(0, (state.players[player].population || 0) - popCost);
     const buildTime = UNIT_TYPES[design.chassis]?.buildTime ?? 1;
     state.pendingRecruits.push({ owner: player, designId: unitType, buildingId, turnsLeft: buildTime });
     return { ok: true };
   }
 
   const def = UNIT_TYPES[unitType];
+  const popCost = getUnitPopCost(unitType);
   state.players[player].iron -= (def.cost.iron||0);
   state.players[player].oil  -= (def.cost.oil||0);
   state.players[player].components = (state.players[player].components||0) - (def.cost.components||0);
   state.players[player].food = (state.players[player].food||0) - getRecruitFoodCost(unitType);
+  state.players[player].population = Math.max(0, (state.players[player].population || 0) - popCost);
   state.pendingRecruits.push({ owner: player, type: unitType, buildingId, turnsLeft: def.buildTime ?? 1 });
   return { ok: true };
 }
@@ -2414,6 +2525,10 @@ export function resolveEndOfTurn(state, terrain) {
       delete b.buildTurnsRequired;
       delete unit.constructing;
       events.push(`P${player} completed ${BUILDING_TYPES[b.type].name}!`);
+      if (HOUSING_BUILDINGS.has(b.type)) {
+        onHousingBuildingComplete(state, player, b.type);
+        events.push(`P${player} population ${state.players[player].population}/${state.players[player].popCap} (cap ${state.players[player].popCap})`);
+      }
     }
   }
 
@@ -2507,7 +2622,7 @@ export function resolveEndOfTurn(state, terrain) {
           const mkName  = `${UNIT_TYPES[chassis]?.name || chassis} Mk.0`;
           if (!state.designs[player]) state.designs[player] = [];
           const alreadyHas = state.designs[player].some(d => d.chassis === chassis && d.name === mkName);
-          if (!alreadyHas && state.designs[player].length < MAX_DESIGNS_PER_PLAYER) {
+          if (!alreadyHas && state.designs[player].length < getMaxDesignSlots(state, player)) {
             const baseStats = Object.assign({}, UNIT_TYPES[chassis] || {});
             const mkTier = computeEffectiveTier(chassis, [], baseStats);
             state.designs[player].push({
@@ -2534,6 +2649,9 @@ export function resolveEndOfTurn(state, terrain) {
   state.players[player].components = (state.players[player].components || 0) + (inc.components || 0);
   state.players[player].hardenedSteel = (state.players[player].hardenedSteel || 0) + (inc.hardenedSteel || 0);
   state.players[player].aviationAlloy = (state.players[player].aviationAlloy || 0) + (inc.aviationAlloy || 0);
+
+  const popGain = applyPopulationGrowth(state, player);
+  if (popGain > 0) events.push(`P${player} +${popGain} population (${state.players[player].population}/${state.players[player].popCap})`);
 
   // Tier 2 conversion: factories consume raw resources -> components.
   let madeComponents = 0;

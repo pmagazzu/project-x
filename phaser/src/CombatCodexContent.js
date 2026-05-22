@@ -2,6 +2,7 @@
 
 export const CODEX_TABS = [
   { id: 'combat', label: 'COMBAT', icon: '⚔' },
+  { id: 'population', label: 'POPULATION', icon: '👥' },
   { id: 'supply', label: 'SUPPLY', icon: '📦' },
   { id: 'designer', label: 'DESIGNER', icon: '🔧' },
   { id: 'fog', label: 'INTEL', icon: '👁' },
@@ -16,12 +17,18 @@ export const CODEX_PAGES = {
     { title: 'Retaliation', body: 'Defenders strike back if: not blind/indirect, in range, has LOS, not suppressed, and submarine rules allow. Retaliation uses the same hit-quality system.' },
     { title: 'Reading the Combat Card', body: 'Center number = expected damage to defender. Blue/red portraits show HP after the trade. THE MATH lists hit quality, pierce, defense, and roll band. Modifiers list every bonus/penalty applied.' },
   ],
+  population: [
+    { title: 'Manpower pool', body: 'Population is shown as current/cap (e.g. 15/22). You spend population when queuing recruits — bigger units and capital ships cost more. Population refills each turn up to your cap; it never exceeds cap.' },
+    { title: 'HQ baseline', body: 'Your HQ provides 15 population cap and +1 population per turn at game start. Both players begin at 15/15.' },
+    { title: 'Housing tiers', body: 'Slums T0: +1 population immediately, no cap increase (cheap manpower).\nRural T1: +1 population cap.\nSuburb (research): +2 cap, +1 pop/turn.\nDistrict T2: +3 cap, +1 pop/turn.\nBorough T3: +5 cap, +2 pop/turn.\nMetropolis T4: +8 cap, +3 pop/turn.' },
+    { title: 'Unit costs', body: 'Infantry/support ≈1 pop. Tanks/artillery ≈2–3. Destroyers ≈5. Battleships ≈10. Check the recruit panel — each row shows 👥 cost.' },
+  ],
   supply: [
     { title: 'Supply Network', body: 'Units need a road path to HQ (or depot on that network). Out of supply: −1 move & attack per turn, stacking to −2. Supply trucks/ships extend range.' },
     { title: 'Disabling Supply', body: 'Skirmish setup can turn Supply OFF — units fight at full strength without network penalties.' },
   ],
   designer: [
-    { title: 'Unit Designer', body: 'Register up to 4 custom designs per player. Pick a chassis, bolt on modules, pay registration cost, then train from the matching building.' },
+    { title: 'Unit Designer', body: 'Start with 5 custom design slots. Research the Industrial design-slot chain (Prototype Workshop → Final Design Hegemony) to unlock up to 30 slots — each step costs more RP. Pick a chassis, bolt on modules, pay registration cost, then train from the matching building.' },
     { title: 'Modules', body: 'Modules change stats and may conflict (e.g. mobility vs siege plating). Industry tier caps design tier. AI opponents also field custom designs mid-game.' },
   ],
   fog: [

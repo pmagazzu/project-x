@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { GAME_VERSION } from './GameScene.js';
+import { MAP_SIZE_SKIRMISH, MAP_SIZE_ENDLESS, MAP_SIZE_BUILDER } from './MapSizePresets.js';
 
 export const LAND_PROFILES = [
   { key: 'islands', label: 'Islands' },
@@ -10,23 +11,6 @@ export const LAND_PROFILES = [
   { key: 'naval_supremacy', label: 'Naval Supremacy' },
   { key: 'landlocked', label: 'Landlocked' },
 ];
-
-const SIZE_SKIRMISH = [
-  { label: 'Small', size: 25, sub: '25×25' },
-  { label: 'Medium', size: 40, sub: '40×40' },
-  { label: 'Large', size: 60, sub: '60×60' },
-  { label: 'Huge', size: 90, sub: '90×90' },
-];
-
-const SIZE_ENDLESS = [
-  { label: 'Compact', size: 20, sub: '20×20' },
-  { label: 'Skirmish', size: 25, sub: '25×25' },
-  { label: 'Standard', size: 30, sub: '30×30' },
-  { label: 'Wide', size: 35, sub: '35×35' },
-  { label: 'Roomy', size: 40, sub: '40×40' },
-];
-
-const SIZE_BUILDER = SIZE_SKIRMISH.slice(0, 3);
 
 const GAP_OPTIONS = [
   { label: 'Close', gap: 6, sub: '6 hex' },
@@ -147,8 +131,8 @@ export class SetupScene extends Phaser.Scene {
     let y = py - panelH / 2 + 96;
     const rowGap = 52;
 
-    const sizes = this.mode === 'endless' ? SIZE_ENDLESS
-      : (this.mode === 'map_builder' ? SIZE_BUILDER : (this.mode === 'combat_test' ? null : SIZE_SKIRMISH));
+    const sizes = this.mode === 'endless' ? MAP_SIZE_ENDLESS
+      : (this.mode === 'map_builder' ? MAP_SIZE_BUILDER : (this.mode === 'combat_test' ? null : MAP_SIZE_SKIRMISH));
 
     if (sizes) {
       this._addCycleRow(rowLeft, y, rowW, 'Map size', sizes, () => this._sizeIdx, (i) => {

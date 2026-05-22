@@ -68,6 +68,181 @@ export const TECH_TREE = {
     cost:20, prereqs:['assembly_line'],
     effect:{ globalTrainCostBonus:{ iron:-1 } },
   },
+  prototype_workshop: {
+    id:'prototype_workshop', branch:'industrial', tier:1, kind:'research',
+    name:'Prototype Workshop',
+    desc:'Unit Designer: +1 custom design slot (6 total).',
+    cost:32, prereqs:['assembly_line'],
+    effect:{ extraDesignSlots:1 },
+  },
+  design_bureau: {
+    id:'design_bureau', branch:'industrial', tier:1, kind:'research',
+    name:'Design Bureau',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:55, prereqs:['prototype_workshop'],
+    effect:{ extraDesignSlots:1 },
+  },
+  engineering_archives: {
+    id:'engineering_archives', branch:'industrial', tier:2, kind:'research',
+    name:'Engineering Archives',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:88, prereqs:['design_bureau', 'standardized_parts'],
+    effect:{ extraDesignSlots:1 },
+  },
+  industrial_rd_division: {
+    id:'industrial_rd_division', branch:'industrial', tier:2, kind:'research',
+    name:'Industrial R&D Division',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:125, prereqs:['engineering_archives'],
+    effect:{ extraDesignSlots:1 },
+  },
+  war_design_directorate: {
+    id:'war_design_directorate', branch:'industrial', tier:2, kind:'research',
+    name:'War Design Directorate',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:175, prereqs:['industrial_rd_division', 'blast_furnace'],
+    effect:{ extraDesignSlots:1 },
+  },
+  grand_armaments_lab: {
+    id:'grand_armaments_lab', branch:'industrial', tier:3, kind:'research',
+    name:'Grand Armaments Laboratory',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:240, prereqs:['war_design_directorate'],
+    effect:{ extraDesignSlots:1 },
+  },
+  strategic_prototype_command: {
+    id:'strategic_prototype_command', branch:'industrial', tier:3, kind:'research',
+    name:'Strategic Prototype Command',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:320, prereqs:['grand_armaments_lab'],
+    effect:{ extraDesignSlots:1 },
+  },
+  supreme_design_council: {
+    id:'supreme_design_council', branch:'industrial', tier:3, kind:'research',
+    name:'Supreme Design Council',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:420, prereqs:['strategic_prototype_command'],
+    effect:{ extraDesignSlots:1 },
+  },
+  continental_armory_catalog: {
+    id:'continental_armory_catalog', branch:'industrial', tier:3, kind:'research',
+    name:'Continental Armory Catalog',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:540, prereqs:['supreme_design_council', 'open_pit_mining'],
+    effect:{ extraDesignSlots:1 },
+  },
+  global_war_design_mandate: {
+    id:'global_war_design_mandate', branch:'industrial', tier:3, kind:'research',
+    name:'Global War Design Mandate',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:680, prereqs:['continental_armory_catalog'],
+    effect:{ extraDesignSlots:1 },
+  },
+  hemispheric_arms_registry: {
+    id:'hemispheric_arms_registry', branch:'industrial', tier:3, kind:'research',
+    name:'Hemispheric Arms Registry',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:820, prereqs:['global_war_design_mandate'],
+    effect:{ extraDesignSlots:1 },
+  },
+  theater_design_syndicate: {
+    id:'theater_design_syndicate', branch:'industrial', tier:3, kind:'research',
+    name:'Theater Design Syndicate',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:960, prereqs:['hemispheric_arms_registry'],
+    effect:{ extraDesignSlots:1 },
+  },
+  combined_arms_prototype_board: {
+    id:'combined_arms_prototype_board', branch:'industrial', tier:3, kind:'research',
+    name:'Combined Arms Prototype Board',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:1120, prereqs:['theater_design_syndicate'],
+    effect:{ extraDesignSlots:1 },
+  },
+  total_war_engineering_corps: {
+    id:'total_war_engineering_corps', branch:'industrial', tier:3, kind:'research',
+    name:'Total War Engineering Corps',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:1300, prereqs:['combined_arms_prototype_board'],
+    effect:{ extraDesignSlots:1 },
+  },
+  planetary_ordnance_index: {
+    id:'planetary_ordnance_index', branch:'industrial', tier:3, kind:'research',
+    name:'Planetary Ordnance Index',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:1500, prereqs:['total_war_engineering_corps'],
+    effect:{ extraDesignSlots:1 },
+  },
+  supreme_prototype_directorate: {
+    id:'supreme_prototype_directorate', branch:'industrial', tier:3, kind:'research',
+    name:'Supreme Prototype Directorate',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:1740, prereqs:['planetary_ordnance_index'],
+    effect:{ extraDesignSlots:1 },
+  },
+  eternal_arms_consortium: {
+    id:'eternal_arms_consortium', branch:'industrial', tier:3, kind:'research',
+    name:'Eternal Arms Consortium',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:2000, prereqs:['supreme_prototype_directorate'],
+    effect:{ extraDesignSlots:1 },
+  },
+  dominion_design_autarchy: {
+    id:'dominion_design_autarchy', branch:'industrial', tier:3, kind:'research',
+    name:'Dominion Design Autarchy',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:2300, prereqs:['eternal_arms_consortium'],
+    effect:{ extraDesignSlots:1 },
+  },
+  hyperion_blueprint_archive: {
+    id:'hyperion_blueprint_archive', branch:'industrial', tier:3, kind:'research',
+    name:'Hyperion Blueprint Archive',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:2650, prereqs:['dominion_design_autarchy'],
+    effect:{ extraDesignSlots:1 },
+  },
+  apex_war_foundry: {
+    id:'apex_war_foundry', branch:'industrial', tier:3, kind:'research',
+    name:'Apex War Foundry',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:3050, prereqs:['hyperion_blueprint_archive'],
+    effect:{ extraDesignSlots:1 },
+  },
+  colossal_materiel_codex: {
+    id:'colossal_materiel_codex', branch:'industrial', tier:3, kind:'research',
+    name:'Colossal Materiel Codex',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:3500, prereqs:['apex_war_foundry'],
+    effect:{ extraDesignSlots:1 },
+  },
+  imperial_prototype_mandate: {
+    id:'imperial_prototype_mandate', branch:'industrial', tier:3, kind:'research',
+    name:'Imperial Prototype Mandate',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:4000, prereqs:['colossal_materiel_codex'],
+    effect:{ extraDesignSlots:1 },
+  },
+  omnibus_design_imperative: {
+    id:'omnibus_design_imperative', branch:'industrial', tier:3, kind:'research',
+    name:'Omnibus Design Imperative',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:4600, prereqs:['imperial_prototype_mandate'],
+    effect:{ extraDesignSlots:1 },
+  },
+  ascendant_arms_directorate: {
+    id:'ascendant_arms_directorate', branch:'industrial', tier:3, kind:'research',
+    name:'Ascendant Arms Directorate',
+    desc:'Unit Designer: +1 custom design slot.',
+    cost:5300, prereqs:['omnibus_design_imperative'],
+    effect:{ extraDesignSlots:1 },
+  },
+  final_design_hegemony: {
+    id:'final_design_hegemony', branch:'industrial', tier:3, kind:'research',
+    name:'Final Design Hegemony',
+    desc:'Unit Designer: +1 custom design slot (30 max).',
+    cost:6100, prereqs:['ascendant_arms_directorate'],
+    effect:{ extraDesignSlots:1 },
+  },
   blast_furnace: {
     id:'blast_furnace', branch:'industrial', tier:2, kind:'stat',
     name:'Blast Furnace',
@@ -599,6 +774,20 @@ export const TECH_TREE = {
     cost:25, prereqs:[],
     effect:{ unlockBuilding:'PONTOON_BRIDGE' },
   },
+  suburban_planning: {
+    id:'suburban_planning', branch:'engineering', tier:1, kind:'building',
+    name:'Suburban Planning',
+    desc:'Engineers build Suburb Blocks (+2 pop cap, +1 pop/turn) and Urban Districts.',
+    cost:24, prereqs:[],
+    effect:{ unlockBuildings:['HOUSING_SUBURB','HOUSING_DISTRICT'] },
+  },
+  metropolitan_growth: {
+    id:'metropolitan_growth', branch:'engineering', tier:2, kind:'building',
+    name:'Metropolitan Growth',
+    desc:'Borough and Metropolis Core housing — large pop caps and growth.',
+    cost:38, prereqs:['suburban_planning'],
+    effect:{ unlockBuildings:['HOUSING_BOROUGH','HOUSING_METRO'] },
+  },
   barbed_wire: {
     id:'barbed_wire', branch:'engineering', tier:0, kind:'building',
     name:'Barbed Wire Entanglement',
@@ -739,6 +928,43 @@ export const TECH_TREE = {
 
 // ── Utility functions ────────────────────────────────────────────────────────
 
+/** Industrial research chain — each tech grants +1 Unit Designer slot. */
+export const DESIGN_SLOT_UNLOCK_CHAIN = [
+  'prototype_workshop',
+  'design_bureau',
+  'engineering_archives',
+  'industrial_rd_division',
+  'war_design_directorate',
+  'grand_armaments_lab',
+  'strategic_prototype_command',
+  'supreme_design_council',
+  'continental_armory_catalog',
+  'global_war_design_mandate',
+  'hemispheric_arms_registry',
+  'theater_design_syndicate',
+  'combined_arms_prototype_board',
+  'total_war_engineering_corps',
+  'planetary_ordnance_index',
+  'supreme_prototype_directorate',
+  'eternal_arms_consortium',
+  'dominion_design_autarchy',
+  'hyperion_blueprint_archive',
+  'apex_war_foundry',
+  'colossal_materiel_codex',
+  'imperial_prototype_mandate',
+  'omnibus_design_imperative',
+  'ascendant_arms_directorate',
+  'final_design_hegemony',
+];
+
+export function getNextDesignSlotTech(unlockedArr) {
+  const unlocked = unlockedArr instanceof Set ? unlockedArr : new Set(unlockedArr || []);
+  for (const id of DESIGN_SLOT_UNLOCK_CHAIN) {
+    if (!unlocked.has(id)) return TECH_TREE[id] || null;
+  }
+  return null;
+}
+
 export function techsByBranch(branch) {
   return Object.values(TECH_TREE).filter(t => t.branch === branch);
 }
@@ -757,6 +983,7 @@ export function computeTechBonuses(unlockedArr) {
     globalBuildTimeBonus:  0,
     rpBonusPerLab:         0,
     extraResearchSlots:    0,
+    extraDesignSlots:      0,
     unlockedBuildings:     new Set(),
     unlockedChassis:       new Set(),
     unlockedModules:       new Set(),
@@ -784,6 +1011,7 @@ export function computeTechBonuses(unlockedArr) {
     if (e.globalBuildTimeBonus)     bonuses.globalBuildTimeBonus    += e.globalBuildTimeBonus;
     if (e.rpBonusPerLab)            bonuses.rpBonusPerLab           += e.rpBonusPerLab;
     if (e.extraResearchSlots)       bonuses.extraResearchSlots      += e.extraResearchSlots;
+    if (e.extraDesignSlots)         bonuses.extraDesignSlots        += e.extraDesignSlots;
     if (e.globalResearchCostBonus)  bonuses.globalResearchCostBonus += e.globalResearchCostBonus;
     if (e.unlockBuilding)           bonuses.unlockedBuildings.add(e.unlockBuilding);
     if (e.unlockChassis)            bonuses.unlockedChassis.add(e.unlockChassis);

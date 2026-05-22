@@ -14,7 +14,7 @@
 
 import {
   UNIT_TYPES, BUILDING_TYPES, AIR_UNITS, NAVAL_UNITS,
-  MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
+  MODULES, CHASSIS_BUILDINGS, getMaxDesignSlots,
   designRegistrationCost, computeDesignStats,
   getReachableHexes, getAttackableHexes, hexDistance, buildingAt, roadAt, computeSupply, getRecruitFoodCost,
   ROAD_TYPES, unitAt,
@@ -2501,7 +2501,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const existingDesigns = gs.designs?.[player] || [];
   const myLabsCount = gs.buildings.filter(b => b.owner === player && b.type === 'SCIENCE_LAB' && !b.underConstruction).length;
   const designChance = Math.min(0.72, (0.22 + myLabsCount * 0.10 + Math.max(0, gs.turn - 6) * 0.01) * phaseWeights.research);
-  if (existingDesigns.length < MAX_DESIGNS_PER_PLAYER && gs.turn >= 3 && Math.random() < designChance) {
+  if (existingDesigns.length < getMaxDesignSlots(gs, player) && gs.turn >= 3 && Math.random() < designChance) {
     // Pick a simple design: chassis + one affordable module
     const AI_DESIGN_RECIPES = [
       { chassis: 'INFANTRY',  modules: ['FIELD_RADIO'],  name: 'Radioman' },

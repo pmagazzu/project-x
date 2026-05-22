@@ -2,7 +2,7 @@
  * AI unit designer — maintains custom designs and prefers them in recruitment.
  */
 import {
-  MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
+  MODULES, CHASSIS_BUILDINGS, getMaxDesignSlots,
   canRecruit, getRecruitFoodCost, designTrainCost,
   getPlayerMaxTrainableTier, canPlayerUseModule, computeDesignStats,
   computeEffectiveTier, UNIT_TYPES,
@@ -56,7 +56,7 @@ export function ensureAIDesigns(gs, player) {
   for (const bp of AI_BLUEPRINTS) {
     if (turn < bp.minTurn) continue;
     if (existingRoles.has(bp.key)) continue;
-    if (gs.designs[player].length >= MAX_DESIGNS_PER_PLAYER) break;
+    if (gs.designs[player].length >= getMaxDesignSlots(gs, player)) break;
     if (!modulesAllowed(gs, player, bp.modules)) continue;
 
     const chassis = pickChassis(gs, player, bp);

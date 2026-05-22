@@ -9,9 +9,10 @@ import {
   createGameState, createUnit, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
   findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
+  getUnitPopCost, recalcPlayerPopulation,
   calcUpkeep, calcRPFromLabs, computeSupply, isHexInSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS, getRecruitFoodCost, getUnitSupplyRadius,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
-  MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
+  MODULES, CHASSIS_BUILDINGS, getMaxDesignSlots, BASE_DESIGN_SLOTS,
   designRegistrationCost, designTrainCost, computeDesignStats, computeEffectiveTier,
   formatResourceCost, getChassisTier, getModuleResourceCost, getPlayerIndustryTier,
   canPlayerUseModule, playerHasResources, refundResources, getUnitTierIntel, inferTierFromUnit, getPlayerMaxTrainableTier,
@@ -19,7 +20,7 @@ import {
   NAVAL_UNITS, SHALLOW_UNITS, AIR_UNITS, canEnterTerrain, isStealthDetected,
   ROAD_TYPES, LOCKED_CHASSIS, hasLOS
 } from './GameState.js';
-import { TECH_TREE, RESEARCH_BRANCHES, prereqsMet, computeTechBonuses } from './ResearchData.js';
+import { TECH_TREE, RESEARCH_BRANCHES, prereqsMet, computeTechBonuses, getNextDesignSlotTech } from './ResearchData.js';
 import {
   COMBAT_GLYPH, TIER_COL, TIER_BG,
   getCombatIntel, analyzeCombat, buildResolveSteps,
@@ -43,7 +44,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.8';
+export const GAME_VERSION = 'v1.10.10';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -620,7 +621,7 @@ export class GameScene extends Phaser.Scene {
     this.sidebarUpkeepBanner?.setPosition(10, dockY - 134);
     this.sidebarResearchBar?.setPosition(10, dockY - 112);
     const resYs = [dockY - 88, dockY - 62, dockY - 36, dockY - 10, dockY + 16, dockY + 42, dockY + 68, dockY + 94, dockY + 120];
-    [this.resIron, this.resOil, this.resWood, this.resFood, this.resGold, this.resComp, this.resSteel, this.resAlloy, this.resRp].forEach((r, i) => {
+    [this.resIron, this.resOil, this.resWood, this.resFood, this.resPop, this.resGold, this.resComp, this.resSteel, this.resAlloy, this.resRp].forEach((r, i) => {
       if (!r) return;
       r.setPosition(10, resYs[i]);
       r.getData('valueText')?.setPosition(32, resYs[i]);
@@ -2812,7 +2813,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(D + 2);
 
     // Left command dock — economy + research at a glance
-    this.sidebarEcoBg = this.add.rectangle(72, 260, 128, 328, 0x100818, 0.94)
+    this.sidebarEcoBg = this.add.rectangle(72, 272, 128, 354, 0x100818, 0.94)
       .setStrokeStyle(2, 0xff66cc).setScrollFactor(0).setDepth(D)
       .setInteractive({ useHandCursor: true });
     this.sidebarEcoBg.on('pointerdown', () => this._toggleEconomy());
@@ -2829,11 +2830,12 @@ export class GameScene extends Phaser.Scene {
     this.resOil  = this._makeSidebarResRow(10, 198, '🛢', 'Oil', D + 1);
     this.resWood = this._makeSidebarResRow(10, 224, '🪵', 'Wood', D + 1);
     this.resFood = this._makeSidebarResRow(10, 250, '🍞', 'Food', D + 1);
-    this.resGold = this._makeSidebarResRow(10, 276, '💰', 'Gold', D + 1);
-    this.resComp = this._makeSidebarResRow(10, 302, '🧩', 'Parts', D + 1);
-    this.resSteel = this._makeSidebarResRow(10, 328, '🔩', 'Steel', D + 1);
-    this.resAlloy = this._makeSidebarResRow(10, 354, '✈️', 'Alloy', D + 1);
-    this.resRp   = this._makeSidebarResRow(10, 380, '⚗', 'Research', D + 1);
+    this.resPop  = this._makeSidebarResRow(10, 276, '👥', 'Pop', D + 1);
+    this.resGold = this._makeSidebarResRow(10, 302, '💰', 'Gold', D + 1);
+    this.resComp = this._makeSidebarResRow(10, 328, '🧩', 'Parts', D + 1);
+    this.resSteel = this._makeSidebarResRow(10, 354, '🔩', 'Steel', D + 1);
+    this.resAlloy = this._makeSidebarResRow(10, 380, '✈️', 'Alloy', D + 1);
+    this.resRp   = this._makeSidebarResRow(10, 406, '⚗', 'Research', D + 1);
   }
 
   _makeSidebarResRow(x, y, icon, label, depth) {
@@ -2978,6 +2980,10 @@ export class GameScene extends Phaser.Scene {
     this._setSidebarResRow(this.resOil, `${fmtRes(pl.oil)} ${sgn(netOil)}${ttzSuffix(ttzOil)}`);
     this._setSidebarResRow(this.resWood, `${fmtRes(pl.wood || 0)} ${sgn(netWood)}`);
     this._setSidebarResRow(this.resFood, `${fmtRes(pl.food || 0)} ${sgn(netFood)}${ttzSuffix(ttzFood)}`);
+    recalcPlayerPopulation(gs, p);
+    const popGrow = pl.popGrowthPerTurn || 0;
+    this._setSidebarResRow(this.resPop, `${pl.population ?? 0}/${pl.popCap ?? 0} ${popGrow > 0 ? `+${popGrow}/t` : ''}`);
+    this.resPop.getData('valueText')?.setStyle({ fill: (pl.population || 0) < 3 ? '#ff8888' : '#c8e8c8' });
     this._setSidebarResRow(this.resGold, `${fmtRes(pl.gold || 0)} ${sgn(netGold)}`);
     this._setSidebarResRow(this.resComp, `${fmtRes(pl.components || 0)}`);
     this._setSidebarResRow(this.resSteel, `${fmtRes(pl.hardenedSteel || 0)}`);
@@ -3370,14 +3376,17 @@ export class GameScene extends Phaser.Scene {
       objs.push(statTxt);
 
       // Cost right
-      const costStr = `⚙${def.cost.iron||0}${(def.cost.oil||0) > 0 ? `  🛢${def.cost.oil}` : ''}${(def.cost.components||0) > 0 ? `  🧩${def.cost.components}` : ''}${foodCost > 0 ? `  🌾${foodCost}` : ''}`;
-      const costClr = canAfford ? '#88bb66' : '#554444';
+      const popCost = getUnitPopCost(unitType);
+      recalcPlayerPopulation(gs, p);
+      const hasPop = (gs.players[p].population || 0) >= popCost;
+      const costStr = `⚙${def.cost.iron||0}${(def.cost.oil||0) > 0 ? `  🛢${def.cost.oil}` : ''}${(def.cost.components||0) > 0 ? `  🧩${def.cost.components}` : ''}${foodCost > 0 ? `  🌾${foodCost}` : ''}  👥${popCost}`;
+      const costClr = (canAfford && hasPop) ? '#88bb66' : '#554444';
       const costTxt = this.add.text(w/2 + rowW/2 - 12, ry, costStr, {
         font: 'bold 12px monospace', fill: costClr
       }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(201);
       objs.push(costTxt);
 
-      if (canAfford) {
+      if (canAfford && hasPop) {
         rowBg.on('pointerdown', () => {
           this._contextMenuClicked = true;
           queueRecruit(gs, p, unitType, building.id);
@@ -3397,7 +3406,10 @@ export class GameScene extends Phaser.Scene {
       const idx = available.length + i;
       const queueCapReached = buildingQueue.length >= 6;
       const dFoodCost = getRecruitFoodCost(design.chassis);
-      const canAfford = !queueCapReached && playerHasResources(gs.players[p], design.trainCost) && (gs.players[p].food||0) >= dFoodCost;
+      const dPopCost = getUnitPopCost(design.chassis);
+      recalcPlayerPopulation(gs, p);
+      const canAfford = !queueCapReached && playerHasResources(gs.players[p], design.trainCost) && (gs.players[p].food||0) >= dFoodCost
+        && (gs.players[p].population || 0) >= dPopCost;
       const _dbt = UNIT_TYPES[design.chassis]?.buildTime ?? 1;
       const ry = baseRowY + idx * rowH + rowH/2;
       const shownTier = design.effectiveTier ?? computeEffectiveTier(design.chassis, design.modules || [], design.stats);
@@ -3419,7 +3431,7 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(201);
       objs.push(statTxt);
 
-      const costTxt = this.add.text(w/2 + rowW/2 - 12, ry, `${formatResourceCost(design.trainCost)}${dFoodCost > 0 ? `  🌾${dFoodCost}` : ''}`, {
+      const costTxt = this.add.text(w/2 + rowW/2 - 12, ry, `${formatResourceCost(design.trainCost)}${dFoodCost > 0 ? `  🌾${dFoodCost}` : ''}  👥${dPopCost}`, {
         font: 'bold 12px monospace', fill: canAfford ? '#d6c86a' : '#554444'
       }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(201);
       objs.push(costTxt);
@@ -3501,7 +3513,7 @@ export class GameScene extends Phaser.Scene {
           const modules = [...selectedModules];
           const cost = designRegistrationCost(modules);
           if (!playerHasResources(gs.players[p], cost)) return;
-          if (gs.designs[p].length >= MAX_DESIGNS_PER_PLAYER) return;
+          if (gs.designs[p].length >= getMaxDesignSlots(gs, p)) return;
           const result = registerDesign(gs, p, chassis, modules, designName);
           if (result.ok) {
             this._pushLog(`P${p} registered design: "${designName}"`);
@@ -3539,9 +3551,15 @@ export class GameScene extends Phaser.Scene {
     };
 
     line('── UNIT DESIGNER ──', '#88ccff', true);
+    const unlockedTechs = new Set(gs.players[player]?.research?.unlocked || []);
+    const maxSlots = getMaxDesignSlots(gs, player);
     const nameDisplay = designName || (selectedChassis ? `${UNIT_TYPES[selectedChassis].name} Mk.${gs.designs[player].length + 1}` : 'New Design');
     line(`Name: "${nameDisplay}"  (set on Register)`, '#ffdd88');
-    line(`Slots: ${gs.designs[player].length}/${MAX_DESIGNS_PER_PLAYER}  |  Iron: ${gs.players[player].iron}  Oil: ${gs.players[player].oil}`, '#888888');
+    line(`Slots: ${gs.designs[player].length}/${maxSlots}  (base ${BASE_DESIGN_SLOTS})  |  Iron: ${gs.players[player].iron}  Oil: ${gs.players[player].oil}`, '#888888');
+    if (gs.designs[player].length >= maxSlots) {
+      const nextSlot = getNextDesignSlotTech(unlockedTechs);
+      if (nextSlot) line(`Unlock +1 slot: ${nextSlot.name} (${nextSlot.cost} RP, Industrial)`, '#ffaa66');
+    }
     y += 4;
 
     // Chassis selector
@@ -3566,7 +3584,6 @@ export class GameScene extends Phaser.Scene {
 
     // Module list
     line('MODULES  (click to toggle):', '#aaaaaa', true);
-    const unlockedTechs = new Set(gs.players[player]?.research?.unlocked || []);
     const validMods = Object.entries(MODULES).filter(([, m]) => {
       if (!m.chassis.includes(selectedChassis)) return false;
       if (m.requiredTech && !unlockedTechs.has(m.requiredTech)) return false;
@@ -3596,7 +3613,7 @@ export class GameScene extends Phaser.Scene {
     const cost    = designRegistrationCost([...selectedModules]);
     const effTier = computeEffectiveTier(selectedChassis, [...selectedModules], preview);
     const canAfford = playerHasResources(gs.players[player], cost);
-    const slotsFull = gs.designs[player].length >= MAX_DESIGNS_PER_PLAYER;
+    const slotsFull = gs.designs[player].length >= maxSlots;
 
     line(`Effective tier: T${effTier}`, '#ffcc66', true);
     line(`Preview: HP${preview.health} MOV${preview.move} RNG${preview.range} SA${preview.soft_attack} HA${preview.hard_attack} PRC${preview.pierce} ARM${preview.armor} DEF${preview.defense}`, '#aaddff', true);
@@ -3706,7 +3723,7 @@ export class GameScene extends Phaser.Scene {
           const mods  = [...selMods];
           const cost  = designRegistrationCost(mods);
           if (!playerHasResources(gs.players[p], cost)) return;
-          if ((gs.designs[p]?.length || 0) >= MAX_DESIGNS_PER_PLAYER) return;
+          if ((gs.designs[p]?.length || 0) >= getMaxDesignSlots(gs, p)) return;
           this._openNameModal('Name Unit Design', designName || def, (enteredName) => {
             designName = enteredName || def;
             const res = registerDesign(gs, p, chassis, mods, designName);
@@ -3807,10 +3824,12 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1));
 
     // Slot / resource info
-    const slotFull = (gs.designs[p]?.length || 0) >= MAX_DESIGNS_PER_PLAYER;
+    const maxDesignSlots = getMaxDesignSlots(gs, p);
+    const slotFull = (gs.designs[p]?.length || 0) >= maxDesignSlots;
     const indTier = getPlayerIndustryTier(gs, p);
+    const slotHint = slotFull ? (getNextDesignSlotTech(gs.players[p]?.research?.unlocked)?.name || 'max slots') : '';
     objs.push(this.add.text(col2X + col2W, py + 22,
-      `Slots ${gs.designs[p]?.length || 0}/${MAX_DESIGNS_PER_PLAYER}  ·  Industry T${indTier}  ·  🧩${gs.players[p].components || 0}  🔩${gs.players[p].hardenedSteel || 0}  ✈${gs.players[p].aviationAlloy || 0}`, {
+      `Slots ${gs.designs[p]?.length || 0}/${maxDesignSlots}  ·  Industry T${indTier}  ·  🧩${gs.players[p].components || 0}  🔩${gs.players[p].hardenedSteel || 0}  ✈${gs.players[p].aviationAlloy || 0}${slotFull && slotHint ? `  ·  +1: ${slotHint}` : ''}`, {
       font: '11px monospace', fill: slotFull ? '#ff8888' : '#88aa88'
     }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D+1));
 
@@ -4020,7 +4039,7 @@ export class GameScene extends Phaser.Scene {
     // ── Existing designs list ─────────────────────────────────────────────
     const designs = gs.designs[p] || [];
     if (designs.length > 0) {
-      objs.push(this.add.text(col2X, ry, `MY DESIGNS  (${designs.length}/${MAX_DESIGNS_PER_PLAYER})`, {
+      objs.push(this.add.text(col2X, ry, `MY DESIGNS  (${designs.length}/${getMaxDesignSlots(gs, p)})`, {
         font: 'bold 10px monospace', fill: '#668866'
       }).setOrigin(0, 0).setScrollFactor(0).setDepth(D+1));
       ry += 16;
@@ -4695,6 +4714,24 @@ export class GameScene extends Phaser.Scene {
         allOpts.push({ label: `Barbed Wire 1🪵`, cost:{iron:0,oil:0,wood:1}, enabled: wood>=1, cb: () => this._onBuildStructure('BARBED_WIRE',0,0,1) });
       if (unlocked.has('supply_depot') && noBuilding)
         allOpts.push({ label: `Supply Depot 3⚙ 1🛢 1🪵 (HQ road, +4)`, cost:{iron:3,oil:1,wood:1}, enabled: iron>=3&&oil>=1&&wood>=1, cb: () => this._onBuildStructure('SUPPLY_DEPOT',3,1,1) });
+      addHeader('POPULATION & HOUSING');
+      const popLine = (key, label, cost, extra = '') => {
+        const d = BUILDING_TYPES[key];
+        if (d?.requiresTech && !unlocked.has(d.requiresTech)) return;
+        const c = cost || d.buildCost || {};
+        const comp = gs.players[p].components || 0;
+        const enabled = iron >= (c.iron || 0) && wood >= (c.wood || 0) && oil >= (c.oil || 0)
+          && comp >= (c.components || 0) && noBuilding && onPlains;
+        allOpts.push({ label: `${label}${extra}`, cost: c, enabled, cb: () => this._onBuildStructure(key, c.iron || 0, c.oil || 0, c.wood || 0, c.components || 0) });
+      };
+      if (onPlains) {
+        popLine('HOUSING_SLUMS', 'Slums T0  +1 pop', { iron: 1, wood: 2 }, ' (no cap)');
+        popLine('HOUSING_RURAL', 'Rural T1  +1 cap', { iron: 2, wood: 4 });
+        popLine('HOUSING_SUBURB', 'Suburb  +2 cap +1/t', { iron: 4, wood: 5 });
+        popLine('HOUSING_DISTRICT', 'District T2  +3 cap +1/t', { iron: 6, wood: 6, components: 1 });
+        popLine('HOUSING_BOROUGH', 'Borough T3  +5 cap +2/t', { iron: 8, wood: 8, components: 2 });
+        popLine('HOUSING_METRO', 'Metro T4  +8 cap +3/t', { iron: 12, wood: 10, components: 3 });
+      }
       addHeader('ECONOMY & RESEARCH');
       const foodGold = gs.players[p].food || 0;
       const gold = gs.players[p].gold || 0;
@@ -6957,6 +6994,16 @@ export class GameScene extends Phaser.Scene {
     const gs = this.gameState, u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canBuild) return;
     if (buildingAt(gs, u.q, u.r)) return;
+    const def = BUILDING_TYPES[type];
+    const unlocked = new Set(gs.players[gs.currentPlayer].research?.unlocked || []);
+    if (def?.requiresTech && !unlocked.has(def.requiresTech)) return;
+    if (def?.placementTerrain) {
+      const t = this.terrain[`${u.q},${u.r}`] ?? 0;
+      if (!def.placementTerrain.has(t)) {
+        this._pushLog('Build failed: need open terrain (plains/sand/light woods)');
+        return;
+      }
+    }
     const NAVAL_FACILITIES = new Set(['NAVAL_YARD','HARBOR','DRY_DOCK','NAVAL_BASE','NAVAL_DOCKYARD']);
     if (NAVAL_FACILITIES.has(type) && !this._isCoastalHex(u.q, u.r)) {
       this._log.unshift('Build failed: naval facilities require a coastal hex');
@@ -9113,6 +9160,8 @@ export class GameScene extends Phaser.Scene {
 
     placeSpawns(1, p1, p2);
     placeSpawns(2, p2, p1);
+    recalcPlayerPopulation(gs, 1);
+    recalcPlayerPopulation(gs, 2);
 
     // Scatter extra iron/oil resources across the map
     this._placeResources(seed);
