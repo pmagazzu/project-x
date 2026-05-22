@@ -624,6 +624,199 @@ function isCoastalLand(terrain, mapSize, q, r) {
   return false;
 }
 
+const _isWaterTerrain = (t) => t === 4 || t === 5;
+const LAKE_MAX_TILES = 72;
+const NAVAL_YARD_TYPES = new Set(['HARBOR', 'NAVAL_YARD', 'SHIPYARD', 'DRY_DOCK', 'DRYDOCK', 'NAVAL_BASE', 'NAVAL_DOCKYARD', 'PORT']);
+const HEAVY_NAVAL_UNITS = new Set(['DESTROYER', 'DESTROYER_MK1', 'CRUISER_LT', 'CRUISER_HV', 'BATTLESHIP']);
+const TRANSPORT_NAVAL_UNITS = new Set(['LANDING_CRAFT', 'TRANSPORT_SM', 'TRANSPORT_MD', 'TRANSPORT_LG']);
+const LAKE_NAVAL_ALLOWED = new Set(['PATROL_BOAT', 'MTB', 'TORPEDO_BOAT', 'MOTOR_GUNBOAT']);
+const LAKE_NAVAL_PRIO = ['PATROL_BOAT', 'MTB', 'TORPEDO_BOAT', 'MOTOR_GUNBOAT'];
+
+/** Flood-fill water tiles; classify open sea vs inland lake vs large inland sea. */
+function buildWaterBodyIndex(terrain, mapSize) {
+  const visited = new Set();
+  const bodies = [];
+  const tileToBody = new Map();
+
+  for (let q = 0; q < mapSize; q++) {
+    for (let r = 0; r < mapSize; r++) {
+      const key = `${q},${r}`;
+      if (!_isWaterTerrain(terrain?.[key] ?? 0) || visited.has(key)) continue;
+
+      let size = 0;
+      let oceanTiles = 0;
+      let touchesEdge = false;
+      const queue = [key];
+      visited.add(key);
+
+      while (queue.length) {
+        const k = queue.shift();
+        tileToBody.set(k, bodies.length);
+        size += 1;
+        const [tq, tr] = k.split(',').map(Number);
+        const tt = terrain?.[k] ?? 0;
+        if (tt === 5) oceanTiles += 1;
+        if (tq <= 0 || tr <= 0 || tq >= mapSize - 1 || tr >= mapSize - 1) touchesEdge = true;
+
+        for (const [dq, dr] of _CHOKE_DIRS) {
+          const nq = tq + dq;
+          const nr = tr + dr;
+          if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) {
+            touchesEdge = true;
+            continue;
+          }
+          const nk = `${nq},${nr}`;
+          if (visited.has(nk)) continue;
+          if (!_isWaterTerrain(terrain?.[nk] ?? 0)) continue;
+          visited.add(nk);
+          queue.push(nk);
+        }
+      }
+
+      const openSea = touchesEdge && (size >= 96 || oceanTiles >= Math.max(10, Math.floor(size * 0.12)));
+      const kind = openSea ? 'sea' : (size <= LAKE_MAX_TILES ? 'lake' : 'inland');
+      bodies.push({ id: bodies.length, size, oceanTiles, touchesEdge, kind });
+    }
+  }
+
+  const getBodyId = (q, r) => tileToBody.get(`${q},${r}`) ?? null;
+  const getBody = (id) => (id == null ? null : bodies[id] ?? null);
+
+  const getBodyIdNear = (q, r) => {
+    const direct = getBodyId(q, r);
+    if (direct != null) return direct;
+    for (const [dq, dr] of _CHOKE_DIRS) {
+      const nq = q + dq;
+      const nr = r + dr;
+      if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) continue;
+      const id = getBodyId(nq, nr);
+      if (id != null) return id;
+    }
+    return null;
+  };
+
+  const getPolicy = (body) => {
+    if (!body) return { kind: 'unknown', allowed: null, maxByType: {}, maxCombat: 999, maxYards: 1, prio: null };
+    if (body.kind === 'sea') {
+      return { kind: 'sea', allowed: null, maxByType: {}, maxCombat: 999, maxYards: 99, prio: null };
+    }
+    if (body.kind === 'lake') {
+      return {
+        kind: 'lake',
+        allowed: LAKE_NAVAL_ALLOWED,
+        maxByType: { PATROL_BOAT: 2, MTB: 1, TORPEDO_BOAT: 1, MOTOR_GUNBOAT: 1 },
+        maxCombat: 3,
+        maxYards: 1,
+        prio: LAKE_NAVAL_PRIO,
+      };
+    }
+    return {
+      kind: 'inland',
+      allowed: null,
+      maxByType: {
+        PATROL_BOAT: 4, MTB: 2, TORPEDO_BOAT: 2, DESTROYER: 1, DESTROYER_MK1: 1,
+        CRUISER_LT: 0, CRUISER_HV: 0, BATTLESHIP: 0,
+        TRANSPORT_SM: 1, TRANSPORT_MD: 1, LANDING_CRAFT: 1,
+        SUPPLY_SHIP: 1, SUBMARINE: 1,
+      },
+      maxCombat: 8,
+      maxYards: 2,
+      prio: ['PATROL_BOAT', 'MTB', 'TORPEDO_BOAT', 'DESTROYER', 'SUPPLY_SHIP'],
+    };
+  };
+
+  const countNavalOnBody = (gs, player, bodyId) => {
+    const counts = {};
+    let combat = 0;
+    let yards = 0;
+    const onBody = (q, r) => getBodyIdNear(q, r) === bodyId;
+    const tally = (q, r, type, isYard = false) => {
+      if (!onBody(q, r)) return;
+      if (isYard) { yards += 1; return; }
+      if (!NAVAL_UNITS.has(type)) return;
+      counts[type] = (counts[type] || 0) + 1;
+      if (type !== 'SUPPLY_SHIP') combat += 1;
+    };
+    for (const u of gs.units) {
+      if (Number(u.owner) !== Number(player) || u.embarked) continue;
+      if (NAVAL_UNITS.has(u.type)) tally(u.q, u.r, u.type);
+    }
+    for (const pr of gs.pendingRecruits || []) {
+      if (Number(pr.owner) !== Number(player)) continue;
+      const b = gs.buildings.find((bb) => bb.id === pr.buildingId);
+      if (!b) continue;
+      tally(b.q, b.r, pr.type);
+    }
+    for (const b of gs.buildings) {
+      if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
+      if (!NAVAL_YARD_TYPES.has(b.type)) continue;
+      tally(b.q, b.r, b.type, true);
+    }
+    return { counts, combat, yards };
+  };
+
+  const recruitAllowed = (unitType, bodyId, gs, player) => {
+    const body = getBody(bodyId);
+    const policy = getPolicy(body);
+    if (!policy || policy.kind === 'sea' || policy.kind === 'unknown') return true;
+    const presence = countNavalOnBody(gs, player, bodyId);
+
+    if (HEAVY_NAVAL_UNITS.has(unitType) || TRANSPORT_NAVAL_UNITS.has(unitType) || unitType === 'SUBMARINE' || unitType === 'SUPPLY_SHIP') {
+      if (policy.kind === 'lake') {
+        if (unitType === 'SUPPLY_SHIP' && presence.combat >= 2 && (presence.counts.SUPPLY_SHIP || 0) < 1) return true;
+        return false;
+      }
+    }
+    if (policy.allowed && !policy.allowed.has(unitType)) return false;
+    const cap = policy.maxByType[unitType];
+    if (cap != null && (presence.counts[unitType] || 0) >= cap) return false;
+    if (unitType !== 'SUPPLY_SHIP' && presence.combat >= policy.maxCombat) return false;
+    return true;
+  };
+
+  const playerHasOpenSea = (gs, player) => {
+    for (const b of gs.buildings) {
+      if (Number(b.owner) !== Number(player)) continue;
+      const id = getBodyIdNear(b.q, b.r);
+      if (getBody(id)?.kind === 'sea') return true;
+    }
+    for (let q = 0; q < mapSize; q++) {
+      for (let r = 0; r < mapSize; r++) {
+        if (!isCoastalLand(terrain, mapSize, q, r)) continue;
+        const owned = gs.units.some((u) => u.owner === player && !u.embarked && u.q === q && u.r === r)
+          || gs.buildings.some((b) => b.owner === player && b.q === q && b.r === r);
+        if (!owned) continue;
+        const id = getBodyIdNear(q, r);
+        if (getBody(id)?.kind === 'sea') return true;
+      }
+    }
+    return false;
+  };
+
+  const shouldBuildNavalYardHere = (gs, player, q, r) => {
+    const bodyId = getBodyIdNear(q, r);
+    const body = getBody(bodyId);
+    const policy = getPolicy(body);
+    if (!body) return false;
+    if (policy.kind === 'sea') return true;
+    if (policy.kind === 'inland') {
+      const presence = countNavalOnBody(gs, player, bodyId);
+      return presence.yards < policy.maxYards;
+    }
+    if (policy.kind === 'lake') {
+      if (playerHasOpenSea(gs, player)) return false;
+      const presence = countNavalOnBody(gs, player, bodyId);
+      return presence.yards < policy.maxYards && body.size >= 18;
+    }
+    return false;
+  };
+
+  return {
+    bodies, getBodyId, getBody, getBodyIdNear, getPolicy, countNavalOnBody, recruitAllowed,
+    playerHasOpenSea, shouldBuildNavalYardHere,
+  };
+}
+
 /** Scan map for chokepoints, coastal control sites, and expansion anchors. */
 function buildTerritorialIntel(terrain, mapSize, gs, player, strategic, resourceTargets) {
   const myHQ = gs.buildings.find(b => b.type === 'HQ' && b.owner === player);
@@ -1432,6 +1625,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const strategic = buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits, enemyHQs);
   const territorial = buildTerritorialIntel(terrain, mapSize, gs, player, strategic, resourceTargets);
   strategic.territorial = territorial;
+  const waterBodies = buildWaterBodyIndex(terrain, mapSize);
   const transportMission = planTransportMissions(gs, terrain, mapSize, player, strategic, territorial);
 
   const sortedCombat = [...myCombatUnits].sort((a, b) => {
@@ -1873,7 +2067,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             if (gs.turn >= 7 && myVehicleDepot < 1) needs.push({ type: 'VEHICLE_DEPOT', score: 8.2 * phaseWeights.combat });
             if (gs.turn >= 12 && myVehicleDepot < 2) needs.push({ type: 'VEHICLE_DEPOT', score: 6.2 * phaseWeights.combat });
             if (gs.turn >= 10 && myAirfield < 1) needs.push({ type: 'AIRFIELD', score: 7.0 * phaseWeights.combat });
-            if (gs.turn >= 10 && myHarbor < 1) needs.push({ type: 'NAVAL_YARD', score: 5.8 * phaseWeights.logistics });
+            if (gs.turn >= 10 && myHarbor < 1 && waterBodies.shouldBuildNavalYardHere(gs, player, unit.q, unit.r)) {
+              const wb = waterBodies.getBody(waterBodies.getBodyIdNear(unit.q, unit.r));
+              const yardScore = wb?.kind === 'lake' ? 3.2 : 5.8;
+              needs.push({ type: 'NAVAL_YARD', score: yardScore * phaseWeights.logistics });
+            }
             if ((gs.turn >= 12 && nearbyEnemies >= 2) && myBunkers < 2) needs.push({ type: 'BUNKER', score: (8.4 + nearbyEnemies) * phaseWeights.combat });
             // FOB expansion package: forward logistics + fallback defensive node + extra barracks.
             if (gs.turn >= 18 && (frontlineSpan >= 12 || roadDeficit >= 2)) {
@@ -1889,7 +2087,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
               if (myAdvBarracks < 1) needs.push({ type: 'ADV_BARRACKS', score: 8 * phaseWeights.combat });
               if (myArmorWorks < 1)  needs.push({ type: 'ARMOR_WORKS', score: (9.0 + Math.min(3, comp * 0.4)) * phaseWeights.combat });
               if (myAdvAirfield < 1) needs.push({ type: 'ADV_AIRFIELD', score: 7.5 * phaseWeights.combat });
-              if (myNavalDockyard < 1 && (gs.buildings.some(bb => bb.owner === player && ['HARBOR','NAVAL_YARD','DRY_DOCK','NAVAL_BASE'].includes(bb.type)))) {
+              if (myNavalDockyard < 1 && waterBodies.playerHasOpenSea(gs, player)
+                && (gs.buildings.some(bb => bb.owner === player && ['HARBOR','NAVAL_YARD','DRY_DOCK','NAVAL_BASE'].includes(bb.type)))) {
                 needs.push({ type: 'NAVAL_DOCKYARD', score: 7.2 * phaseWeights.logistics });
               }
             }
@@ -2127,7 +2326,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     // Build priority list from strategy, filtered to what this building can recruit
     const isNaval = ['HARBOR','NAVAL_YARD','SHIPYARD','DRYDOCK','DRY_DOCK','NAVAL_BASE','NAVAL_DOCKYARD'].includes(b.type);
     const isAir   = ['AIRFIELD','ADV_AIRFIELD'].includes(b.type);
-    const prio    = isNaval ? cfg.navalPrio : isAir ? cfg.airPrio : cfg.recruitPrio;
+    const navalBodyId = isNaval ? waterBodies.getBodyIdNear(b.q, b.r) : null;
+    const navalPolicy = isNaval ? waterBodies.getPolicy(waterBodies.getBody(navalBodyId)) : null;
+    const prio    = isNaval
+      ? (navalPolicy?.prio || cfg.navalPrio)
+      : isAir ? cfg.airPrio : cfg.recruitPrio;
     const recruitRoleScore = (unitType) => {
       const role = getUnitRole(unitType);
       if (unitType === 'SUPPLY_TRUCK' || unitType === 'SUPPLY_SHIP' || unitType === 'ENGINEER') return 18 * phaseWeights.logistics;
@@ -2184,6 +2387,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
     const buildingCanRecruitAny = (set) => sorted.some(t => set.has(t));
     for (const unitType of sorted) {
+      if (isNaval && navalBodyId != null && !waterBodies.recruitAllowed(unitType, navalBodyId, gs, player)) continue;
       const totals = plannedTotals();
       const barracksCombatRescue = ['INFANTRY', 'ANTI_TANK', 'MORTAR', 'MEDIC'];
       const armyCriticallyLow = myCombatUnits.length < 4 || (gs.turn >= 12 && myCombatUnits.length < 7);
@@ -2281,6 +2485,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const lineCount = lineTypes.reduce((s,t) => s + (plannedCount[t] || 0), 0);
       if (unitType === 'INFANTRY' && lineCount / totalCombat > 0.55) continue;
       if ((unitType === 'PATROL_BOAT' || unitType === 'MTB') && (plannedCount[unitType] || 0) >= 4) continue;
+      if (isNaval && navalPolicy?.kind === 'lake' && (plannedCount[unitType] || 0) >= (navalPolicy.maxByType[unitType] || 1)) continue;
+      if (isNaval && navalPolicy?.kind === 'lake' && HEAVY_NAVAL_UNITS.has(unitType)) continue;
+      if (isNaval && navalPolicy?.kind === 'lake' && TRANSPORT_NAVAL_UNITS.has(unitType)) continue;
       if (['LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG'].includes(unitType) && (plannedCount[unitType] || 0) >= 2) continue;
 
       const cost = UNIT_TYPES[unitType]?.cost || {};
