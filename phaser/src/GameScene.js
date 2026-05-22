@@ -9,7 +9,7 @@ import {
   createGameState, createUnit, createBuilding, unitAt, buildingAt, roadAt,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
   findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
-  calcUpkeep, calcRPFromLabs, computeSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS, getRecruitFoodCost, getUnitSupplyRadius,
+  calcUpkeep, calcRPFromLabs, computeSupply, isHexInSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS, getRecruitFoodCost, getUnitSupplyRadius,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, designTrainCost, computeDesignStats, computeEffectiveTier,
@@ -42,7 +42,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.6';
+export const GAME_VERSION = 'v1.10.7';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -175,7 +175,11 @@ export class GameScene extends Phaser.Scene {
     this.scenario = data.scenario || 'default';
     this.procLandProfile = data.procLandProfile || 'continent';
     this.procQuickStart  = (data.procQuickStart !== undefined) ? !!data.procQuickStart : true;
-    this.debugNoFog      = !!data.debugNoFog || this.scenario === 'combat_test' || this.scenario === 'mortar_test' || this.scenario === 'coastal_battery_test' || (this.procLandProfile === 'two_continents');
+    this.debugNoFog      = data.debugNoFog !== undefined
+      ? !!data.debugNoFog
+      : (this.scenario === 'mortar_test' || this.scenario === 'coastal_battery_test' || (this.procLandProfile === 'two_continents'));
+    this.supplyEnabled   = data.supplyEnabled !== undefined ? !!data.supplyEnabled : true;
+    this.combatLineGap   = data.combatLineGap ?? 10;
     this._mapBuilderMode = !!data.mapBuilder;
     this._aiViewerMode = !!data.aiViewerMode;
     this._aiSimSpeed = Math.max(1, Number(data.aiSimSpeed) || 1); // 1=normal,2=fast,4=turbo
@@ -193,7 +197,7 @@ export class GameScene extends Phaser.Scene {
     if (this._mapBuilderMode) this.debugNoFog = true;
     this._customMapData = data.customMap || null;
     // Map sizes per scenario
-    const MAP_SIZES = { scout: 25, naval: 35, combat: 20, combat_test: 40, grand: 120, ai_viewer: 360, random: 40, air_test: 20, mortar_test: 20, coastal_battery_test: 20, custom: data.customSize || 40, default: 25 };
+    const MAP_SIZES = { scout: 25, naval: 35, combat: 20, combat_test: data.customSize || Math.max(28, this.combatLineGap + 26), grand: 120, ai_viewer: 360, random: 40, air_test: 20, mortar_test: 20, coastal_battery_test: 20, custom: data.customSize || 40, default: 25 };
     this.mapSize   = MAP_SIZES[this.scenario] || MAP_SIZE;
     // AI players: set of player numbers controlled by AI
     this.aiPlayers  = new Set();
@@ -210,7 +214,11 @@ export class GameScene extends Phaser.Scene {
       this.mapSeed = 0;
     }
 
-    this.gameState = createGameState(this.scenario);
+    this.gameState = createGameState(this.scenario, {
+      combatLineGap: this.combatLineGap,
+      mapSize: this.mapSize,
+      supplyEnabled: this.supplyEnabled,
+    });
     this.gameState._techTree = TECH_TREE; // inject for resolveEndOfTurn research tick
     this.terrain   = this._generateTerrain();
     // After terrain is known, relocate any naval unit that spawned on invalid terrain
@@ -1354,6 +1362,7 @@ export class GameScene extends Phaser.Scene {
     const gs = this.gameState;
     const p  = gs.currentPlayer;
     const ms = this.mapSize;
+    if (!gs.supplyEnabled) return;
     const supplied = computeSupply(gs, p, ms);
     const NBR = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
 
@@ -2229,7 +2238,7 @@ export class GameScene extends Phaser.Scene {
     this._unitTierLabels = [];
     const gs  = this.gameState;
     const fog = this._currentFog;
-    const supplyByOwner = {
+    const supplyByOwner = gs.supplyEnabled === false ? { 1: null, 2: null } : {
       1: computeSupply(gs, 1, this.mapSize),
       2: computeSupply(gs, 2, this.mapSize),
     };
@@ -2639,7 +2648,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       // Out-of-supply indicator: live + persisted status
-      const liveUnsup = !unit.embarked && !(unit.ignoreSupply > 0) && !supplyByOwner[unit.owner]?.has(`${unit.q},${unit.r}`);
+      const liveUnsup = gs.supplyEnabled !== false && !unit.embarked && !(unit.ignoreSupply > 0) && !supplyByOwner[unit.owner]?.has(`${unit.q},${unit.r}`);
       if (unit.outOfSupply > 0 || liveUnsup) {
         const oos = Math.max(unit.outOfSupply || 0, liveUnsup ? 1 : 0);
         const pipR = 4;
@@ -3147,13 +3156,13 @@ export class GameScene extends Phaser.Scene {
     const res = gs.resourceHexes[key];
     const bu = buildingAt(gs, hex.q, hex.r);
     const hu = unitAt(gs, hex.q, hex.r);
-    const inSupply = computeSupply(gs, gs.currentPlayer, this.mapSize).has(key);
+    const inSupply = isHexInSupply(gs, gs.currentPlayer, this.mapSize, hex.q, hex.r);
     const title = `Hex (${hex.q}, ${hex.r})  ·  ${t}`;
     const chips = res ? `${RESOURCE_TYPES[res.type]?.name || res.type} deposit` : (bu ? BUILDING_TYPES[bu.type]?.name : 'No resource');
     const lines = [
       bu ? `Building: ${BUILDING_TYPES[bu.type]?.name} (P${bu.owner})${bu.underConstruction ? ' — under construction' : ''}` : 'No structure on tile',
       hu ? `Unit present: P${hu.owner} ${UNIT_TYPES[hu.type]?.name}` : 'No unit on tile',
-      `Supply: ${inSupply ? 'In network' : 'Out of supply'}${roadAt(gs, hex.q, hex.r) ? '  ·  Road' : ''}`,
+      `Supply: ${gs.supplyEnabled === false ? 'Disabled' : (inSupply ? 'In network' : 'Out of supply')}${roadAt(gs, hex.q, hex.r) ? '  ·  Road' : ''}`,
     ];
     return { title, chips, lines };
   }

@@ -730,7 +730,7 @@ export function createBuilding(type, owner, q, r) {
   return b;
 }
 
-export function createGameState(scenario = 'default') {
+export function createGameState(scenario = 'default', options = {}) {
   _nextId = 1; // reset IDs on new game
   const makePlayer = (iron, oil, wood) => ({
     iron, oil, wood: wood || 0,
@@ -761,6 +761,7 @@ export function createGameState(scenario = 'default') {
     pendingMoves: {}, pendingAttacks: {}, pendingRecruits: [],
     designs: { 1: [], 2: [] },
     tradeOffers: [],  // active trade contract offers
+    supplyEnabled: options.supplyEnabled !== undefined ? !!options.supplyEnabled : true,
   };
 
   if (scenario === 'random' || scenario === 'custom') {
@@ -853,7 +854,11 @@ export function createGameState(scenario = 'default') {
 
   } else if (scenario === 'combat_test') {
     // Two facing lines on open plains — play both sides, no AI.
-    const p1q = 6, p2q = 33;
+    const gap = options.combatLineGap ?? 10;
+    const mapSize = options.mapSize ?? Math.max(28, gap + 26);
+    const centerQ = Math.floor(mapSize / 2);
+    const p1q = centerQ - Math.ceil(gap / 2);
+    const p2q = p1q + gap;
     const lineTypes = [
       'INFANTRY', 'ASSAULT_INFANTRY', 'SMG_SQUAD', 'LMG_TEAM', 'HMG_TEAM', 'SNIPER',
       'ANTI_TANK', 'MORTAR', 'MEDIC', 'RECON', 'ENGINEER', 'MOTORCYCLE',
@@ -868,14 +873,14 @@ export function createGameState(scenario = 'default') {
       state.units.push(createUnit(t, 2, p2q, r));
     });
     const midR = Math.floor(lineTypes.length / 2) + 2;
-    state.buildings.push(createBuilding('HQ', 1, 3, midR));
-    state.buildings.push(createBuilding('HQ', 2, 36, midR));
-    state.buildings.push(createBuilding('BARRACKS', 1, 4, midR));
-    state.buildings.push(createBuilding('BARRACKS', 2, 35, midR));
-    state.buildings.push(createBuilding('VEHICLE_DEPOT', 1, 3, midR + 1));
-    state.buildings.push(createBuilding('VEHICLE_DEPOT', 2, 36, midR + 1));
-    state.buildings.push(createBuilding('AIRFIELD', 1, 3, midR - 1));
-    state.buildings.push(createBuilding('AIRFIELD', 2, 36, midR - 1));
+    state.buildings.push(createBuilding('HQ', 1, p1q - 3, midR));
+    state.buildings.push(createBuilding('HQ', 2, p2q + 3, midR));
+    state.buildings.push(createBuilding('BARRACKS', 1, p1q - 2, midR));
+    state.buildings.push(createBuilding('BARRACKS', 2, p2q + 2, midR));
+    state.buildings.push(createBuilding('VEHICLE_DEPOT', 1, p1q - 3, midR + 1));
+    state.buildings.push(createBuilding('VEHICLE_DEPOT', 2, p2q + 3, midR + 1));
+    state.buildings.push(createBuilding('AIRFIELD', 1, p1q - 3, midR - 1));
+    state.buildings.push(createBuilding('AIRFIELD', 2, p2q + 3, midR - 1));
     for (const pl of [1, 2]) {
       state.players[pl].iron = 99;
       state.players[pl].oil = 99;
@@ -2569,6 +2574,11 @@ export function resolveEndOfTurn(state, terrain) {
   events.push(...tickSupplyDepotReserves(state, player, hqRoadNet));
 
   // ── Supply check ──────────────────────────────────────────────────────────
+  if (state.supplyEnabled === false) {
+    for (const unit of state.units.filter(u => u.owner === player && !u.embarked)) {
+      unit.outOfSupply = 0;
+    }
+  } else {
   const suppliedHexes = computeSupply(state, player, state._mapSize || 25);
   for (const unit of state.units.filter(u => u.owner === player && !u.embarked)) {
     // Recon upgrade: unit ignores supply needs entirely.
@@ -2645,6 +2655,7 @@ export function resolveEndOfTurn(state, terrain) {
       const pen = supplyPenalty(unit.outOfSupply);
       unit.movesLeft = Math.max(1, unit.movesLeft - pen.movePenalty);
     }
+  }
   }
   state.pendingMoves = {}; state.pendingAttacks = {};
 
@@ -2886,6 +2897,11 @@ export function tickSupplyDepotReserves(state, player, roadConnected) {
 // Returns a Set of "q,r" keys that are in supply for the given player.
 // HQ: 6-hex bubble + roads chained from HQ; off-road reach by road tier.
 // Supply depots/warehouses: 4–5 hex bubble only while linked to HQ roads or draining reserves.
+export function isHexInSupply(state, player, mapSize, q, r) {
+  if (state.supplyEnabled === false) return true;
+  return computeSupply(state, player, mapSize).has(`${q},${r}`);
+}
+
 export function computeSupply(state, player, mapSize) {
   const supplied = new Set();
   const ms = mapSize || state._mapSize || 25;

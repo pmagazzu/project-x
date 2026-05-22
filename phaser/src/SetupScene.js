@@ -1,0 +1,408 @@
+import Phaser from 'phaser';
+import { GAME_VERSION } from './GameScene.js';
+
+export const LAND_PROFILES = [
+  { key: 'islands', label: 'Islands' },
+  { key: 'large_islands', label: 'Large Islands' },
+  { key: 'continent', label: 'Continent' },
+  { key: 'two_continents', label: 'Two Continents' },
+  { key: 'archipelago', label: 'Archipelago' },
+  { key: 'naval_supremacy', label: 'Naval Supremacy' },
+  { key: 'landlocked', label: 'Landlocked' },
+];
+
+const SIZE_SKIRMISH = [
+  { label: 'Small', size: 25, sub: '25×25' },
+  { label: 'Medium', size: 40, sub: '40×40' },
+  { label: 'Large', size: 60, sub: '60×60' },
+  { label: 'Huge', size: 90, sub: '90×90' },
+];
+
+const SIZE_ENDLESS = [
+  { label: 'Compact', size: 20, sub: '20×20' },
+  { label: 'Skirmish', size: 25, sub: '25×25' },
+  { label: 'Standard', size: 30, sub: '30×30' },
+  { label: 'Wide', size: 35, sub: '35×35' },
+  { label: 'Roomy', size: 40, sub: '40×40' },
+];
+
+const SIZE_BUILDER = SIZE_SKIRMISH.slice(0, 3);
+
+const GAP_OPTIONS = [
+  { label: 'Close', gap: 6, sub: '6 hex' },
+  { label: 'Tight', gap: 8, sub: '8 hex' },
+  { label: 'Standard', gap: 10, sub: '10 hex' },
+  { label: 'Wide', gap: 12, sub: '12 hex' },
+  { label: 'Far', gap: 15, sub: '15 hex' },
+];
+
+const MODE_META = {
+  skirmish: {
+    title: 'SKIRMISH',
+    icon: '⚔',
+    accent: 0xb8922a,
+    accentHi: 0xf0d060,
+    panel: 0x1a1430,
+  },
+  map_builder: {
+    title: 'MAP BUILDER',
+    icon: '🛠',
+    accent: 0x6fcf97,
+    accentHi: 0xa8ffcc,
+    panel: 0x122018,
+  },
+  endless: {
+    title: 'AI VS AI · ENDLESS',
+    icon: '∞',
+    accent: 0x5ecfc4,
+    accentHi: 0x9ffff0,
+    panel: 0x142828,
+  },
+  combat_test: {
+    title: 'COMBAT TEST',
+    icon: '🎯',
+    accent: 0xe8a050,
+    accentHi: 0xffcc88,
+    panel: 0x281c10,
+  },
+};
+
+function defaultConfig(mode, aiP2Default = true) {
+  const base = {
+    mapSize: 40,
+    procLandProfile: 'continent',
+    procQuickStart: true,
+    debugNoFog: false,
+    supplyEnabled: true,
+    combatLineGap: 10,
+    aiP1: false,
+    aiP2: false,
+    aiStrategy: 'balanced',
+    aiViewerMode: false,
+    startSupplyTruck: false,
+    mapBuilder: false,
+  };
+  if (mode === 'skirmish') {
+    return { ...base, mapSize: 40, procLandProfile: 'continent', debugNoFog: false, supplyEnabled: true, aiP2: aiP2Default };
+  }
+  if (mode === 'endless') {
+    return {
+      ...base, mapSize: 25, procLandProfile: 'islands', debugNoFog: true, supplyEnabled: true,
+      procQuickStart: true, aiP1: true, aiP2: true, aiViewerMode: true, startSupplyTruck: true,
+    };
+  }
+  if (mode === 'combat_test') {
+    return {
+      ...base, combatLineGap: 10, debugNoFog: true, supplyEnabled: false, procQuickStart: false,
+    };
+  }
+  if (mode === 'map_builder') {
+    return { ...base, mapSize: 40, debugNoFog: true, supplyEnabled: true, mapBuilder: true, procQuickStart: false };
+  }
+  return base;
+}
+
+export class SetupScene extends Phaser.Scene {
+  constructor() { super('SetupScene'); }
+
+  init(data) {
+    this.mode = data?.mode || 'skirmish';
+    this.cfg = defaultConfig(this.mode, data?.aiP2Default !== false);
+    this._sizeIdx = 1;
+    this._landIdx = LAND_PROFILES.findIndex(p => p.key === this.cfg.procLandProfile) || 0;
+    this._gapIdx = GAP_OPTIONS.findIndex(g => g.gap === this.cfg.combatLineGap) || 2;
+    if (this.mode === 'endless') this._sizeIdx = 1;
+  }
+
+  create() {
+    const w = this.scale.width, h = this.scale.height;
+    const meta = MODE_META[this.mode] || MODE_META.skirmish;
+    this._meta = meta;
+    this._objs = [];
+
+    this._drawBg(w, h);
+    this.add.rectangle(w / 2, 2, w, 4, meta.accent, 0.85);
+
+    const panelW = Math.min(620, w - 48);
+    const panelH = Math.min(560, h - 100);
+    const px = w / 2, py = h / 2 + 8;
+
+    const panel = this.add.rectangle(px, py, panelW, panelH, meta.panel, 0.98)
+      .setStrokeStyle(3, meta.accent);
+    this._objs.push(panel);
+    this.add.rectangle(px, py - panelH / 2 + 2, panelW, 5, meta.accentHi, 1);
+
+    this._titleTxt = this.add.text(px, py - panelH / 2 + 36, `${meta.icon}  ${meta.title}`, {
+      font: 'bold 22px monospace', fill: '#f0e8d0',
+    }).setOrigin(0.5);
+    this._objs.push(this._titleTxt);
+
+    this._summaryTxt = this.add.text(px, py - panelH / 2 + 62, '', {
+      font: '11px monospace', fill: '#8899aa', align: 'center', wordWrap: { width: panelW - 40 },
+    }).setOrigin(0.5);
+    this._objs.push(this._summaryTxt);
+
+    const rowLeft = px - panelW / 2 + 28;
+    const rowW = panelW - 56;
+    let y = py - panelH / 2 + 96;
+    const rowGap = 52;
+
+    const sizes = this.mode === 'endless' ? SIZE_ENDLESS
+      : (this.mode === 'map_builder' ? SIZE_BUILDER : (this.mode === 'combat_test' ? null : SIZE_SKIRMISH));
+
+    if (sizes) {
+      this._addCycleRow(rowLeft, y, rowW, 'Map size', sizes, () => this._sizeIdx, (i) => {
+        this._sizeIdx = i;
+        this.cfg.mapSize = sizes[i].size;
+        this._refreshSummary();
+      });
+      y += rowGap;
+    }
+
+    if (this.mode === 'combat_test') {
+      this._addCycleRow(rowLeft, y, rowW, 'Line spacing', GAP_OPTIONS, () => this._gapIdx, (i) => {
+        this._gapIdx = i;
+        this.cfg.combatLineGap = GAP_OPTIONS[i].gap;
+        this._refreshSummary();
+      });
+      y += rowGap;
+    } else if (this.mode !== 'map_builder') {
+      this._addCycleRow(rowLeft, y, rowW, 'Land profile', LAND_PROFILES, () => this._landIdx, (i) => {
+        this._landIdx = i;
+        this.cfg.procLandProfile = LAND_PROFILES[i].key;
+        this._refreshSummary();
+      });
+      y += rowGap;
+    }
+
+    if (this.mode === 'skirmish' || this.mode === 'endless') {
+      this._addToggle(rowLeft, y, rowW, 'Quick start economy', () => this.cfg.procQuickStart, (v) => {
+        this.cfg.procQuickStart = v;
+        this._refreshSummary();
+      });
+      y += rowGap;
+    }
+
+    this._addToggle(rowLeft, y, rowW, 'Fog of war', () => !this.cfg.debugNoFog, (v) => {
+      this.cfg.debugNoFog = !v;
+      this._refreshSummary();
+    });
+    y += rowGap;
+
+    this._addToggle(rowLeft, y, rowW, 'Supply system', () => this.cfg.supplyEnabled, (v) => {
+      this.cfg.supplyEnabled = v;
+      this._refreshSummary();
+    });
+    y += rowGap;
+
+    if (this.mode === 'skirmish') {
+      this._addToggle(rowLeft, y, rowW, 'Player 2 is AI', () => this.cfg.aiP2, (v) => {
+        this.cfg.aiP2 = v;
+        this._refreshSummary();
+      });
+      y += rowGap;
+    }
+
+    if (this.mode === 'endless') {
+      this._addToggle(rowLeft, y, rowW, 'Start supply trucks', () => this.cfg.startSupplyTruck, (v) => {
+        this.cfg.startSupplyTruck = v;
+        this._refreshSummary();
+      });
+      y += rowGap;
+    }
+
+    const launchY = py + panelH / 2 - 44;
+    const launch = this.add.text(px, launchY, '▶  LAUNCH', {
+      font: 'bold 20px monospace', fill: '#1a1208',
+      backgroundColor: `#${meta.accentHi.toString(16).padStart(6, '0')}`, padding: { x: 36, y: 14 },
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    this._objs.push(launch);
+
+    launch.on('pointerover', () => {
+      launch.setScale(1.04);
+      this.tweens.add({ targets: panel, alpha: 1, duration: 80 });
+    });
+    launch.on('pointerout', () => launch.setScale(1));
+    launch.on('pointerdown', () => {
+      this.tweens.add({
+        targets: launch, scaleX: 0.94, scaleY: 0.94, duration: 60, yoyo: true,
+        onComplete: () => this._launch(),
+      });
+      this._burst(px, launchY, meta.accentHi);
+    });
+
+    const back = this.add.text(px - panelW / 2 + 20, py - panelH / 2 + 18, '← Menu', {
+      font: 'bold 12px monospace', fill: '#778899', backgroundColor: '#0a0c10', padding: { x: 10, y: 6 },
+    }).setOrigin(0, 0.5).setInteractive({ useHandCursor: true });
+    back.on('pointerdown', () => this.scene.start('MenuScene'));
+    this._objs.push(back);
+
+    this.add.text(px, py + panelH / 2 + 28, GAME_VERSION, {
+      font: 'bold 14px monospace', fill: '#556655',
+    }).setOrigin(0.5);
+
+    this._refreshSummary();
+  }
+
+  _addCycleRow(x, y, w, label, options, getIdx, onPick) {
+    this.add.text(x, y - 14, label, { font: 'bold 11px monospace', fill: '#99aa88' }).setOrigin(0, 0.5);
+
+    const card = this.add.rectangle(x + w / 2, y + 10, w, 40, 0x0e1210, 1)
+      .setStrokeStyle(1, 0x334433);
+    this._objs.push(card);
+
+    const left = this.add.text(x + 18, y + 10, '◀', {
+      font: 'bold 16px monospace', fill: '#aabb99', backgroundColor: '#1a2218', padding: { x: 8, y: 4 },
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+
+    const right = this.add.text(x + w - 18, y + 10, '▶', {
+      font: 'bold 16px monospace', fill: '#aabb99', backgroundColor: '#1a2218', padding: { x: 8, y: 4 },
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+
+    const nameTxt = this.add.text(x + w / 2, y + 4, '', { font: 'bold 15px monospace', fill: '#f0e898' }).setOrigin(0.5);
+    const subTxt = this.add.text(x + w / 2, y + 18, '', { font: '10px monospace', fill: '#667766' }).setOrigin(0.5);
+
+    const refresh = () => {
+      const i = getIdx();
+      const o = options[i];
+      nameTxt.setText(o.label);
+      subTxt.setText(o.sub || o.key || '');
+    };
+    refresh();
+
+    const pick = (delta) => {
+      const n = (getIdx() + delta + options.length) % options.length;
+      onPick(n);
+      refresh();
+      this.tweens.add({ targets: [nameTxt], scaleX: 1.08, scaleY: 1.08, duration: 70, yoyo: true });
+      card.setFillStyle(0x1a2820, 1);
+      this.time.delayedCall(120, () => card.setFillStyle(0x0e1210, 1));
+    };
+    left.on('pointerdown', () => pick(-1));
+    right.on('pointerdown', () => pick(1));
+    card.on('pointerdown', () => pick(1));
+
+    this._objs.push(left, right, nameTxt, subTxt);
+  }
+
+  _addToggle(x, y, w, label, getVal, setVal) {
+    this.add.text(x, y - 12, label, { font: '11px monospace', fill: '#99aa88' }).setOrigin(0, 0.5);
+
+    const pillW = 108, pillH = 34;
+    const pillX = x + w - pillW / 2;
+    const pill = this.add.rectangle(pillX, y + 8, pillW, pillH, 0x1a2218, 1)
+      .setStrokeStyle(2, 0x334433).setInteractive({ useHandCursor: true });
+    const txt = this.add.text(pillX, y + 8, '', { font: 'bold 13px monospace', fill: '#ffffff' }).setOrigin(0.5);
+
+    const paint = () => {
+      const on = getVal();
+      pill.setFillStyle(on ? 0x2a5533 : 0x3a2020, 1);
+      pill.setStrokeStyle(2, on ? 0x88ee66 : 0xaa5544);
+      txt.setText(on ? 'ON' : 'OFF');
+      txt.setColor(on ? '#ccffaa' : '#ffaa99');
+    };
+    paint();
+
+    pill.on('pointerdown', () => {
+      setVal(!getVal());
+      paint();
+      this.tweens.add({ targets: pill, scaleX: 1.12, scaleY: 1.12, duration: 80, yoyo: true });
+      this._refreshSummary();
+    });
+
+    this._objs.push(pill, txt);
+  }
+
+  _refreshSummary() {
+    const parts = [];
+    if (this.mode === 'combat_test') {
+      const ms = Math.max(28, this.cfg.combatLineGap + 26);
+      parts.push(`${ms}×${ms} arena`, `${this.cfg.combatLineGap} hex gap`);
+    } else {
+      parts.push(`${this.cfg.mapSize}×${this.cfg.mapSize}`);
+      if (this.mode !== 'map_builder') parts.push(LAND_PROFILES[this._landIdx]?.label || '');
+    }
+    parts.push(this.cfg.supplyEnabled ? 'Supply ON' : 'Supply OFF');
+    parts.push(this.cfg.debugNoFog ? 'Fog OFF' : 'Fog ON');
+    if (this.mode === 'skirmish') parts.push(this.cfg.aiP2 ? 'P2 AI' : 'P2 Human');
+    if (this.mode === 'endless') parts.push('Spectator AI duel');
+    this._summaryTxt.setText(parts.join('  ·  '));
+  }
+
+  _burst(x, y, color) {
+    const g = this.add.graphics();
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      const len = 20 + Math.random() * 28;
+      g.lineStyle(2, color, 0.9);
+      g.beginPath();
+      g.moveTo(x, y);
+      g.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+      g.strokePath();
+    }
+    this.tweens.add({ targets: g, alpha: 0, duration: 400, onComplete: () => g.destroy() });
+  }
+
+  _launch() {
+    const c = this.cfg;
+    if (this.mode === 'combat_test') {
+      const mapSize = Math.max(28, c.combatLineGap + 26);
+      this.scene.start('GameScene', {
+        scenario: 'combat_test',
+        customSize: mapSize,
+        combatLineGap: c.combatLineGap,
+        supplyEnabled: c.supplyEnabled,
+        debugNoFog: c.debugNoFog,
+        aiP1: false,
+        aiP2: false,
+      });
+      return;
+    }
+    if (this.mode === 'map_builder') {
+      this.scene.start('GameScene', {
+        scenario: 'custom',
+        customSize: c.mapSize,
+        mapBuilder: true,
+        supplyEnabled: c.supplyEnabled,
+        debugNoFog: c.debugNoFog,
+        aiP2: false,
+      });
+      return;
+    }
+    if (this.mode === 'endless') {
+      this.scene.start('GameScene', {
+        scenario: 'custom',
+        customSize: c.mapSize,
+        procLandProfile: c.procLandProfile,
+        procQuickStart: c.procQuickStart,
+        supplyEnabled: c.supplyEnabled,
+        debugNoFog: c.debugNoFog,
+        aiP1: true,
+        aiP2: true,
+        aiStrategy: c.aiStrategy,
+        aiViewerMode: true,
+        startSupplyTruck: c.startSupplyTruck,
+      });
+      return;
+    }
+    this.scene.start('GameScene', {
+      scenario: 'custom',
+      customSize: c.mapSize,
+      procLandProfile: c.procLandProfile,
+      procQuickStart: c.procQuickStart,
+      supplyEnabled: c.supplyEnabled,
+      debugNoFog: c.debugNoFog,
+      aiP2: c.aiP2,
+      aiStrategy: c.aiStrategy,
+    });
+  }
+
+  _drawBg(w, h) {
+    this.add.rectangle(w / 2, h / 2, w, h, 0x080808, 1);
+    const g = this.add.graphics();
+    for (let i = 0; i < 40; i++) {
+      g.fillStyle(0xb8922a, 0.03 + Math.random() * 0.04);
+      g.fillCircle(Math.random() * w, Math.random() * h, 2 + Math.random() * 4);
+    }
+  }
+}

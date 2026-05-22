@@ -140,8 +140,8 @@ export function analyzeCombat(gs, terrain, mapSize, attacker, target, blindFire,
   const fighterStrafe = AIR_UNITS.has(attacker.type) && !AIR_UNITS.has(target.type) && aDef.antiAir;
   if (fighterStrafe) baseAtk = Math.max(1, Math.floor(baseAtk * 0.5));
 
-  const atkSupPen = attacker.outOfSupply > 0 ? supplyPenalty(attacker.outOfSupply).attackPenalty : 0;
-  const defSupPen = target.outOfSupply > 0 ? supplyPenalty(target.outOfSupply).attackPenalty : 0;
+  const atkSupPen = gs.supplyEnabled !== false && attacker.outOfSupply > 0 ? supplyPenalty(attacker.outOfSupply).attackPenalty : 0;
+  const defSupPen = gs.supplyEnabled !== false && target.outOfSupply > 0 ? supplyPenalty(target.outOfSupply).attackPenalty : 0;
   if (atkSupPen > 0) baseAtk = Math.max(1, baseAtk - atkSupPen);
 
   const pierceRatio = aDef.pierce < tDef.armor ? aDef.pierce / Math.max(1, tDef.armor) : 1;

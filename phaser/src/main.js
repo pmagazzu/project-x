@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { MenuScene } from './MenuScene.js';
+import { SetupScene } from './SetupScene.js';
 import { GameScene } from './GameScene.js';
 
 const config = {
@@ -7,7 +8,7 @@ const config = {
   width: window.innerWidth,
   height: window.innerHeight,
   backgroundColor: '#0d0d0d',
-  scene: [MenuScene, GameScene],
+  scene: [MenuScene, SetupScene, GameScene],
   input: {
     mouse: { preventDefaultWheel: true }
   },
