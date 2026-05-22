@@ -22,6 +22,10 @@ import {
 } from './GameState.js';
 import { TECH_TREE, RESEARCH_BRANCHES, prereqsMet, computeTechBonuses, getNextDesignSlotTech } from './ResearchData.js';
 import {
+  GAME_THEME, TERRAIN_COLORS_V2, preloadSpriteArt,
+  getUnitArtTextureKey, getBuildingArtTextureKey, hasUnitSprite, placeWorldSprite,
+} from './GraphicsAssets.js';
+import {
   COMBAT_GLYPH, TIER_COL, TIER_BG,
   getCombatIntel, analyzeCombat, buildResolveSteps,
 } from './CombatUI.js';
@@ -30,21 +34,12 @@ import { renderCombatPreviewPanel, renderCombatResultPanel } from './CombatPanel
 // ── Constants ─────────────────────────────────────────────────────────────
 const TERRAIN        = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2, HILL: 3, SHALLOW: 4, OCEAN: 5, SAND: 6 };
 const TERRAIN_LABELS = ['Plains','Forest','Mountain','Hill','Shallow Water','Ocean','Sand','Light Woods'];
-const TERRAIN_COLORS = {
-  0: { fill: 0x8aaa55, stroke: 0x6a8a35 },  // plains
-  1: { fill: 0x1a4010, stroke: 0x0d2008 },  // dense forest
-  2: { fill: 0x8a7a6a, stroke: 0x6a5a4a },  // mountain
-  3: { fill: 0x8aaa55, stroke: 0x6a8a35 },  // hill (grass base — hill art overlaid)
-  4: { fill: 0x4499bb, stroke: 0x2277aa },  // shallow water
-  5: { fill: 0x0d2a4a, stroke: 0x071a2e },  // ocean
-  6: { fill: 0xd4b96a, stroke: 0xb09050 },  // sand/beach
-  7: { fill: 0x4a7030, stroke: 0x335020 },  // light woods
-};
+const TERRAIN_COLORS = TERRAIN_COLORS_V2;
 const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.12';
+export const GAME_VERSION = 'v1.10.13';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -137,6 +132,7 @@ export class GameScene extends Phaser.Scene {
     for (const {key, file} of FARM_VARIANT_FILES) {
       this.load.image(key, file);
     }
+    preloadSpriteArt(this);
     this.load.on('loaderror', () => {}); // suppress console errors for missing tiles
   }
 
@@ -272,8 +268,10 @@ export class GameScene extends Phaser.Scene {
     this.supplyGfx    = this.add.graphics().setDepth(7);  // supply overlay — above roads, below highlights
     this._supplyOverlayOn = false; // toggled by [L] or SUP button (not S — WASD pan)
     this.highlightGfx = this.add.graphics().setDepth(10);
-    this.farmTileLayer = this.add.layer().setDepth(14); // farm terrain-overlays under building icons
-    this.buildingGfx  = this.add.graphics().setDepth(15);
+    this.farmTileLayer = this.add.layer().setDepth(14);
+    this.buildingSpriteLayer = this.add.layer().setDepth(15);
+    this.buildingGfx  = this.add.graphics().setDepth(16);
+    this.unitSpriteLayer = this.add.layer().setDepth(19);
     this.unitGfx      = this.add.graphics().setDepth(20);
     // Fog: RenderTexture instead of Graphics — handles large maps (120×120+) without vertex overflow
     this.fogRT = this.add.renderTexture(0, 0, rtW, rtH)
@@ -309,7 +307,8 @@ export class GameScene extends Phaser.Scene {
     const worldObjs = new Set([
       this.terrainGfx, this.terrainArtLayer, this.mountainPeakLayer, this.terrainArtRT, this.terrainRT,
       this.roadGfx, this.supplyGfx,
-      this.highlightGfx, this.farmTileLayer, this.buildingGfx, this.unitGfx, this.fogRT, this._uiLayer
+      this.highlightGfx, this.farmTileLayer, this.buildingSpriteLayer, this.buildingGfx,
+      this.unitSpriteLayer, this.unitGfx, this.fogRT, this._uiLayer
     ]);
     for (const obj of [...this.children.list]) {
       if (!worldObjs.has(obj) && obj.scrollFactorX === 0) {
@@ -337,7 +336,8 @@ export class GameScene extends Phaser.Scene {
     this.uiCamera.ignore([
       this.terrainGfx, this.terrainArtLayer, this.mountainPeakLayer, this.terrainArtRT, this.terrainRT,
       this.roadGfx, this.supplyGfx,
-      this.highlightGfx, this.farmTileLayer, this.buildingGfx, this.unitGfx, this.fogRT,
+      this.highlightGfx, this.farmTileLayer, this.buildingSpriteLayer, this.buildingGfx,
+      this.unitSpriteLayer, this.unitGfx, this.fogRT,
     ]);
     this.scale.on('resize', (gs) => this._onResize(gs));
 
@@ -1469,7 +1469,7 @@ export class GameScene extends Phaser.Scene {
       this.highlightGfx.closePath(); this.highlightGfx.strokePath();
     };
 
-    for (const { q, r } of this.reachable) fillHex(q, r, MOVE_HIGHLIGHT, 0.25);
+    for (const { q, r } of this.reachable) fillHex(q, r, GAME_THEME.moveFill, 0.32);
     if (this.mode === 'attack_direct') {
       // Direct attack: red outline only on attackable hexes
       for (const { q, r } of this.attackable) outlineHex(q, r, ATTACK_HIGHLIGHT, 2.5);
@@ -1682,6 +1682,7 @@ export class GameScene extends Phaser.Scene {
   _redrawBuildings() {
     this.buildingGfx.clear();
     if (this.farmTileLayer) this.farmTileLayer.removeAll(true);
+    if (this.buildingSpriteLayer) this.buildingSpriteLayer.removeAll(true);
     // Viewport culling (large-map perf)
     const { L: _bvpL, R: _bvpR, T: _bvpT, B: _bvpB } = this._vpBounds();
     const fog = this._currentFog || null;
@@ -1700,10 +1701,16 @@ export class GameScene extends Phaser.Scene {
 
         // FARM is rendered as a terrain tile swap/overlay (not a building icon).
         if (b.type === 'FARM') {
-          // Hard-visible farm tile: explicit cultivated field rendering (no subtle blend).
+          const targetH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH);
+          const farmIdx = Math.abs((b.q * 17 + b.r * 31 + (b.id || 0)) % FARM_VARIANTS);
+          const farmKey = FARM_VARIANT_FILES[farmIdx]?.key;
+          if (farmKey && this.textures.exists(farmKey)) {
+            placeWorldSprite(this, this.farmTileLayer, farmKey, x, y, targetH * 0.92,
+              PLAYER_COLORS[b.owner] || 0xffffff, 1, 0);
+            continue;
+          }
           const verts = hexVertices(x, y);
           const targetW = HEX_SIZE * 2;
-          const targetH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH);
 
           const farmFx = this.add.graphics().setDepth(0);
           // Base farm fill
@@ -1742,6 +1749,25 @@ export class GameScene extends Phaser.Scene {
           farmFx.strokePath();
 
           this.farmTileLayer?.add(farmFx);
+          continue;
+        }
+
+        const bldArtKey = getBuildingArtTextureKey(b.type);
+        if (bldArtKey && this.textures.exists(bldArtKey)) {
+          const bldH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH) * 0.85;
+          const tint = PLAYER_COLORS[b.owner] || 0xffffff;
+          placeWorldSprite(this, this.buildingSpriteLayer, bldArtKey, x, y - bldH * 0.08, bldH, tint, 1, 0);
+          if (b.underConstruction) {
+            const g = this.buildingGfx;
+            const barW = HEX_SIZE * 0.9, barH = 5;
+            const barX = x - barW / 2, barY = y - bldH * 0.55;
+            g.fillStyle(0x000000, 0.7);
+            g.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+            g.fillStyle(0x888888, 0.8);
+            g.fillRect(barX, barY, barW, barH);
+            g.fillStyle(0xffcc00, 1.0);
+            g.fillRect(barX, barY, barW * ((b.buildProgress || 0) / (b.buildTurnsRequired || 1)), barH);
+          }
           continue;
         }
 
@@ -2234,6 +2260,7 @@ export class GameScene extends Phaser.Scene {
   // ── Units ─────────────────────────────────────────────────────────────────
   _redrawUnits() {
     this.unitGfx.clear();
+    if (this.unitSpriteLayer) this.unitSpriteLayer.removeAll(true);
     if (this._unitTierLabels) {
       for (const t of this._unitTierLabels) { try { t.destroy(); } catch(e){} }
     }
@@ -2352,13 +2379,75 @@ export class GameScene extends Phaser.Scene {
         this.unitGfx.strokePath();
       }
 
-      // ── Wargame counter (NATO-style) ───────────────────────────────────────
+      const useUnitSprite = hasUnitSprite(this, unit.type);
+      const sprH = HEX_SIZE * 1.28;
+      if (useUnitSprite) {
+        const artKey = getUnitArtTextureKey(unit.type);
+        const sprAlpha = spent ? alpha * 0.45 : alpha;
+        placeWorldSprite(this, this.unitSpriteLayer, artKey, x, y, sprH,
+          PLAYER_COLORS[unit.owner] || 0xffffff, sprAlpha, 0);
+        if (this.selectedUnit === unit) {
+          this.unitGfx.lineStyle(3, SELECTED_STROKE, alpha);
+          this.unitGfx.strokeCircle(x, y, sprH * 0.55);
+        }
+        this.unitGfx.fillStyle(0x000000, alpha * 0.35);
+        this.unitGfx.fillEllipse(x + 2, y + sprH * 0.42, sprH * 0.7, sprH * 0.18);
+      }
+
+      // ── Wargame counter (NATO-style) — fallback when no unit sprite art ─────
       const NAVAL_SHAPES = new Set(['boat_sm','sub','destroyer','cruiser','cruiser_hv','battleship','transport','landing','battery']);
       const isNaval = NAVAL_SHAPES.has(def.shape);
       const cW = r * 2.1;
       const cH = r * 1.7;
       const cx2 = x - cW/2, cy2 = y - cH/2;
       const fillAlpha = spent ? alpha * 0.5 : alpha;
+
+      if (useUnitSprite) {
+        // Tier pips + HP only (sprite carries the unit silhouette)
+        const tierIntel = this._unitTierIntelLabel(unit);
+        const shownTier = tierIntel.tier;
+        const tierCol = this._tierColor(shownTier);
+        const py = y - sprH * 0.35;
+        const startX = x + sprH * 0.22;
+        this.unitGfx.fillStyle(0x0b0f16, alpha * 0.72);
+        this.unitGfx.fillRect(startX - 2, py - 3, 14, 6);
+        if (shownTier === 0) {
+          this.unitGfx.fillStyle(0x6f7c88, alpha * 0.9);
+          this.unitGfx.fillRect(startX + 2, py - 1, 6, 2);
+        } else {
+          this.unitGfx.fillStyle(tierCol, alpha * 0.95);
+          for (let i = 0; i < shownTier; i++) this.unitGfx.fillRect(startX + i * 4, py - 2, 3, 4);
+        }
+        // HP bar under sprite
+        const hpFrac = unit.health / (unit.maxHealth || unit.health || 1);
+        const barW = sprH * 0.9, barH = 4;
+        const barX = x - barW / 2, barY = y + sprH * 0.42;
+        this.unitGfx.fillStyle(0x000000, alpha * 0.65);
+        this.unitGfx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+        this.unitGfx.fillStyle(hpFrac > 0.5 ? 0x44cc66 : hpFrac > 0.25 ? 0xcccc44 : 0xcc4444, alpha);
+        this.unitGfx.fillRect(barX, barY, barW * hpFrac, barH);
+        if (movedOnly) {
+          this.unitGfx.fillStyle(0xd9a441, alpha * 0.95);
+          this.unitGfx.fillCircle(x + sprH * 0.38, y - sprH * 0.38, 4);
+        }
+        const liveUnsupSpr = gs.supplyEnabled !== false && !unit.embarked && !(unit.ignoreSupply > 0)
+          && !supplyByOwner[unit.owner]?.has(`${unit.q},${unit.r}`);
+        if (unit.outOfSupply > 0 || liveUnsupSpr) {
+          const oos = Math.max(unit.outOfSupply || 0, liveUnsupSpr ? 1 : 0);
+          const pipCol = oos >= 2 ? 0xff2222 : 0xff8800;
+          this.unitGfx.fillStyle(pipCol, alpha);
+          this.unitGfx.fillCircle(x - sprH * 0.38, y - sprH * 0.38, 4);
+        }
+        if (unit.type === 'ENGINEER' && (unit.roadOrder || unit.constructing)) {
+          this.unitGfx.fillStyle(0xffaa00, alpha);
+          this.unitGfx.fillCircle(x + sprH * 0.38, y - sprH * 0.38, 4);
+        }
+        if (unit.moveOrder || unit.roadOrder) {
+          this.unitGfx.fillStyle(0x44ccff, alpha);
+          this.unitGfx.fillCircle(x + sprH * 0.42, y - sprH * 0.42, 5);
+        }
+        continue;
+      }
 
       // Stack indicator: draw a second offset counter shadow behind main unit when 2+ units share hex
       const stackKey = `${dispQ},${dispR}`;
@@ -2743,7 +2832,7 @@ export class GameScene extends Phaser.Scene {
 
     // Fill entire RT black (fog) — in local coordinates, so always (0,0,w,h)
     const fillGfx = this.make.graphics({ add: false });
-    fillGfx.fillStyle(0x000000, 0.65);
+    fillGfx.fillStyle(GAME_THEME.fogFill, GAME_THEME.fogAlpha);
     fillGfx.fillRect(0, 0, this.fogRT.width, this.fogRT.height);
     this.fogRT.draw(fillGfx, 0, 0);
     fillGfx.destroy();
@@ -2774,10 +2863,10 @@ export class GameScene extends Phaser.Scene {
     const D = 100;
 
     // Two-row top bar to prevent overlaps as features grow.
-    this.topBarBg = this.add.rectangle(w/2, 37, w, 74, 0x0a0a0a, 0.96)
-      .setScrollFactor(0).setDepth(D);
-    this.topBarDivider = this.add.rectangle(w/2, 37, w, 1, 0x1f2f1f, 1).setScrollFactor(0).setDepth(D + 1); // row divider
-    this.topBarAccent = this.add.rectangle(w/2, 74, w, 1, 0x2a4a2a, 1).setScrollFactor(0).setDepth(D + 1); // bottom accent
+    this.topBarBg = this.add.rectangle(w/2, 37, w, 74, GAME_THEME.hudBg, 0.97)
+      .setStrokeStyle(1, GAME_THEME.hudStroke, 0.35).setScrollFactor(0).setDepth(D);
+    this.topBarDivider = this.add.rectangle(w/2, 37, w, 1, 0x2a3550, 1).setScrollFactor(0).setDepth(D + 1);
+    this.topBarAccent = this.add.rectangle(w/2, 74, w, 2, GAME_THEME.hudAccent, 1).setScrollFactor(0).setDepth(D + 1);
 
     // Row 1: nav + state
     this.btnMenu = this._makeBtn(10, 8, '← MENU', 0x222222, () => this.scene.start('MenuScene'), D);
@@ -2813,7 +2902,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(D + 2);
 
     // Left command dock — economy + research at a glance
-    this.sidebarEcoBg = this.add.rectangle(72, 272, 128, 354, 0x100818, 0.94)
+    this.sidebarEcoBg = this.add.rectangle(72, 272, 128, 354, GAME_THEME.hudBg, 0.94)
       .setStrokeStyle(2, 0xff66cc).setScrollFactor(0).setDepth(D)
       .setInteractive({ useHandCursor: true });
     this.sidebarEcoBg.on('pointerdown', () => this._toggleEconomy());
@@ -3007,9 +3096,9 @@ export class GameScene extends Phaser.Scene {
     this._inspectorTabBtns = {};
 
     const D = 100;
-    this.inspectorBg = this.add.rectangle(0, 0, 500, this._inspectorPanH, 0x100818, 0.97)
-      .setStrokeStyle(2, 0xff66cc).setScrollFactor(0).setDepth(D);
-    this.inspectorAccent = this.add.rectangle(0, 0, 500, 3, 0xffcc44, 1)
+    this.inspectorBg = this.add.rectangle(0, 0, 500, this._inspectorPanH, GAME_THEME.hudBg, 0.97)
+      .setStrokeStyle(2, GAME_THEME.hudStroke).setScrollFactor(0).setDepth(D);
+    this.inspectorAccent = this.add.rectangle(0, 0, 500, 3, GAME_THEME.hudAccent, 1)
       .setScrollFactor(0).setDepth(D + 1);
 
     const tabDefs = [
@@ -3050,9 +3139,9 @@ export class GameScene extends Phaser.Scene {
     this.unitStatsTxt = this.inspectorChips;
     this.unitStatusTxt = this._inspectorLines[0];
 
-    this.actionBg = this.add.rectangle(0, 0, 380, this._inspectorPanH, 0x0d0d0d, 0.96)
-      .setStrokeStyle(1, 0x2a3a2a).setScrollFactor(0).setDepth(D);
-    this.actionAccent = this.add.rectangle(0, 0, 380, 2, 0x3a5c3a, 1)
+    this.actionBg = this.add.rectangle(0, 0, 380, this._inspectorPanH, 0x0a1218, 0.96)
+      .setStrokeStyle(1, 0x3a5a4a).setScrollFactor(0).setDepth(D);
+    this.actionAccent = this.add.rectangle(0, 0, 380, 2, 0x4a7a5a, 1)
       .setScrollFactor(0).setDepth(D + 1);
 
     this._dynBtns = [];
