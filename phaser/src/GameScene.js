@@ -22,7 +22,7 @@ import {
 } from './GameState.js';
 import { TECH_TREE, RESEARCH_BRANCHES, prereqsMet, computeTechBonuses, getNextDesignSlotTech } from './ResearchData.js';
 import {
-  GAME_THEME, TERRAIN_COLORS_V2, preloadSpriteArt,
+  GAME_THEME, TERRAIN_COLORS_V2, initSpriteArt,
   getUnitArtTextureKey, getBuildingArtTextureKey, hasUnitSprite, placeWorldSprite,
 } from './GraphicsAssets.js';
 import {
@@ -39,7 +39,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.13';
+export const GAME_VERSION = 'v1.10.14';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -132,7 +132,6 @@ export class GameScene extends Phaser.Scene {
     for (const {key, file} of FARM_VARIANT_FILES) {
       this.load.image(key, file);
     }
-    preloadSpriteArt(this);
     this.load.on('loaderror', () => {}); // suppress console errors for missing tiles
   }
 
@@ -144,6 +143,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
+    initSpriteArt(this);
     // Ensure terrain art assets exist even if Phaser skipped/short-circuited scene preload.
     const _terrainAssetDefs = [
       ...Object.entries(TERRAIN_ART_FILES).map(([key, path]) => ({ key, path })),

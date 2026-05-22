@@ -1,4 +1,6 @@
-/** Central art paths, UI theme, and sprite lookup for the graphics pass. */
+/** UI theme + procedural pixel sprite keys (32×32, see PixelSpriteArt.js). */
+
+import { registerPixelSprites, hasPixelTexture } from './PixelSpriteArt.js';
 
 export const GAME_THEME = {
   hudBg:       0x0c1018,
@@ -13,98 +15,74 @@ export const GAME_THEME = {
   fogAlpha:    0.72,
 };
 
-/** unit type → user_art sprite (fallback to NATO counter when missing). */
+/** unit type → procedural texture key */
 export const UNIT_ART = {
-  INFANTRY: 'unit_infantry',
-  ASSAULT_INFANTRY: 'unit_infantry',
-  SMG_SQUAD: 'unit_infantry',
-  LMG_TEAM: 'unit_infantry',
-  HMG_TEAM: 'unit_infantry',
-  SNIPER: 'unit_infantry',
-  TANK: 'unit_tank',
-  MEDIUM_TANK: 'unit_tank',
-  ARTILLERY: 'unit_artillery',
-  SPG: 'unit_artillery',
-  MORTAR: 'unit_artillery',
-  ENGINEER: 'unit_engineer',
-  RECON: 'unit_recon',
-  ANTI_TANK: 'unit_anti_tank',
-  MEDIC: 'unit_medic',
-  PATROL_BOAT: 'unit_patrol_boat',
-  MOTOR_GUNBOAT: 'unit_patrol_boat',
-  MTB: 'unit_patrol_boat',
-  TORPEDO_BOAT: 'unit_patrol_boat',
-  SUBMARINE: 'unit_submarine',
-  DESTROYER: 'unit_destroyer',
-  DESTROYER_MK1: 'unit_destroyer',
-  CRUISER_LT: 'unit_cruiser_light',
-  CRUISER_HV: 'unit_cruiser_heavy',
-  BATTLESHIP: 'unit_battleship',
-  LANDING_CRAFT: 'unit_landing_craft',
-  TRANSPORT_SM: 'unit_landing_craft',
-  TRANSPORT_MD: 'unit_landing_craft',
-  TRANSPORT_LG: 'unit_landing_craft',
-  SUPPLY_SHIP: 'unit_landing_craft',
-  SUPPLY_TRUCK: 'unit_truck',
-  HALFTRACK: 'unit_truck',
-  ARMORED_CAR: 'unit_truck',
-  MOTORCYCLE: 'unit_recon',
+  INFANTRY: 'px_unit_infantry',
+  ASSAULT_INFANTRY: 'px_unit_infantry',
+  SMG_SQUAD: 'px_unit_infantry',
+  LMG_TEAM: 'px_unit_infantry',
+  HMG_TEAM: 'px_unit_infantry',
+  SNIPER: 'px_unit_infantry',
+  TANK: 'px_unit_tank',
+  MEDIUM_TANK: 'px_unit_tank',
+  ARTILLERY: 'px_unit_artillery',
+  SPG: 'px_unit_artillery',
+  MORTAR: 'px_unit_artillery',
+  ENGINEER: 'px_unit_engineer',
+  RECON: 'px_unit_recon',
+  ANTI_TANK: 'px_unit_anti_tank',
+  MEDIC: 'px_unit_medic',
+  PATROL_BOAT: 'px_unit_patrol_boat',
+  MOTOR_GUNBOAT: 'px_unit_patrol_boat',
+  MTB: 'px_unit_patrol_boat',
+  TORPEDO_BOAT: 'px_unit_patrol_boat',
+  SUBMARINE: 'px_unit_submarine',
+  DESTROYER: 'px_unit_destroyer',
+  DESTROYER_MK1: 'px_unit_destroyer',
+  CRUISER_LT: 'px_unit_cruiser_light',
+  CRUISER_HV: 'px_unit_cruiser_heavy',
+  BATTLESHIP: 'px_unit_battleship',
+  LANDING_CRAFT: 'px_unit_landing_craft',
+  TRANSPORT_SM: 'px_unit_landing_craft',
+  TRANSPORT_MD: 'px_unit_landing_craft',
+  TRANSPORT_LG: 'px_unit_landing_craft',
+  SUPPLY_SHIP: 'px_unit_landing_craft',
+  SUPPLY_TRUCK: 'px_unit_truck',
+  HALFTRACK: 'px_unit_truck',
+  ARMORED_CAR: 'px_unit_truck',
+  MOTORCYCLE: 'px_unit_recon',
+  BIPLANE_FIGHTER: 'px_unit_aircraft',
+  LIGHT_BOMBER: 'px_unit_aircraft',
+  OBS_PLANE: 'px_unit_aircraft',
+  MONOPLANE_FIGHTER: 'px_unit_aircraft',
+  DIVE_BOMBER: 'px_unit_aircraft',
+  HEAVY_BOMBER: 'px_unit_aircraft',
+  COASTAL_BATTERY: 'px_unit_artillery',
+  AA_EMPLACEMENT: 'px_unit_artillery',
 };
 
 export const BUILDING_ART = {
-  HQ: 'bld_hq',
-  BARRACKS: 'bld_barracks',
-  ADV_BARRACKS: 'bld_barracks',
-  MINE: 'bld_mine',
-  OIL_PUMP: 'bld_oil_pump',
-  NAVAL_YARD: 'bld_naval_yard',
-  NAVAL_DOCKYARD: 'bld_naval_yard',
-  HARBOR: 'bld_harbor',
-  PORT: 'bld_harbor',
-  VEHICLE_DEPOT: 'bld_vehicle_depot',
-  ARMOR_WORKS: 'bld_vehicle_depot',
-  DRY_DOCK: 'bld_dry_dock',
-  NAVAL_BASE: 'bld_naval_base',
-  OBS_POST: 'bld_obs_post',
-  FORT_T0: 'bld_bunker',
-  FORT_T1: 'bld_bunker',
-  FORT_T2: 'bld_bunker',
-  FORT_T3: 'bld_bunker',
-  FORT_T4: 'bld_bunker',
-  FORT_T5: 'bld_bunker',
-};
-
-const UNIT_ART_FILES = {
-  unit_infantry: 'user_art/infantry.png',
-  unit_tank: 'user_art/tank.png',
-  unit_artillery: 'user_art/artillery.png',
-  unit_engineer: 'user_art/engineer.png',
-  unit_recon: 'user_art/recon.png',
-  unit_anti_tank: 'user_art/anti_tank.png',
-  unit_mortar: 'user_art/mortar.png',
-  unit_medic: 'user_art/medic.png',
-  unit_patrol_boat: 'user_art/patrol_boat.png',
-  unit_submarine: 'user_art/submarine.png',
-  unit_destroyer: 'user_art/destroyer_t1.png',
-  unit_cruiser_light: 'user_art/cruiser_light.png',
-  unit_cruiser_heavy: 'user_art/cruiser_heavy.png',
-  unit_battleship: 'user_art/battleship.png',
-  unit_landing_craft: 'user_art/landing_craft.png',
-  unit_truck: 'user_art/truck.png',
-};
-
-const BUILDING_ART_FILES = {
-  bld_hq: 'user_art/hq.png',
-  bld_barracks: 'user_art/barracks.png',
-  bld_mine: 'user_art/mine.png',
-  bld_oil_pump: 'user_art/oil_pump.png',
-  bld_naval_yard: 'user_art/naval_yard.png',
-  bld_harbor: 'user_art/harbor.png',
-  bld_vehicle_depot: 'user_art/vehicle_depot.png',
-  bld_dry_dock: 'user_art/dry_dock.png',
-  bld_naval_base: 'user_art/naval_base.png',
-  bld_obs_post: 'user_art/obs_post.png',
-  bld_bunker: 'user_art/bunker.png',
+  HQ: 'px_bld_hq',
+  BARRACKS: 'px_bld_barracks',
+  ADV_BARRACKS: 'px_bld_barracks',
+  MINE: 'px_bld_mine',
+  OIL_PUMP: 'px_bld_oil_pump',
+  NAVAL_YARD: 'px_bld_naval_yard',
+  NAVAL_DOCKYARD: 'px_bld_naval_yard',
+  HARBOR: 'px_bld_harbor',
+  PORT: 'px_bld_harbor',
+  VEHICLE_DEPOT: 'px_bld_vehicle_depot',
+  ARMOR_WORKS: 'px_bld_vehicle_depot',
+  DRY_DOCK: 'px_bld_dry_dock',
+  NAVAL_BASE: 'px_bld_naval_base',
+  OBS_POST: 'px_bld_obs_post',
+  FORT_T0: 'px_bld_bunker',
+  FORT_T1: 'px_bld_bunker',
+  FORT_T2: 'px_bld_bunker',
+  FORT_T3: 'px_bld_bunker',
+  FORT_T4: 'px_bld_bunker',
+  FORT_T5: 'px_bld_bunker',
+  FARM: 'px_bld_farm',
 };
 
 export function getUnitArtTextureKey(unitType) {
@@ -117,20 +95,21 @@ export function getBuildingArtTextureKey(buildingType) {
 
 export function hasUnitSprite(scene, unitType) {
   const key = getUnitArtTextureKey(unitType);
-  return !!(key && scene.textures?.exists(key));
+  return hasPixelTexture(scene, key);
 }
 
 export function hasBuildingSprite(scene, buildingType) {
   const key = getBuildingArtTextureKey(buildingType);
-  return !!(key && scene.textures?.exists(key));
+  return hasPixelTexture(scene, key);
 }
 
-/** Register all unit/building sprites on the loader (missing files are skipped at runtime). */
-export function preloadSpriteArt(scene) {
-  const all = { ...UNIT_ART_FILES, ...BUILDING_ART_FILES };
-  for (const [key, file] of Object.entries(all)) {
-    if (!scene.textures.exists(key)) scene.load.image(key, file);
-  }
+/** Bake procedural sprites (call once in GameScene.create). */
+export function initSpriteArt(scene) {
+  registerPixelSprites(scene);
+}
+
+export function preloadSpriteArt() {
+  // Sprites are procedural canvases — registered at runtime via initSpriteArt.
 }
 
 /**
@@ -140,18 +119,20 @@ export function placeWorldSprite(scene, layer, textureKey, x, y, maxHeight, tint
   if (!textureKey || !scene.textures.exists(textureKey)) return null;
   const frame = scene.textures.getFrame(textureKey);
   const h = frame?.height || 32;
-  const w = frame?.width || 32;
   const scale = maxHeight / Math.max(1, h);
   const spr = scene.add.image(x, y, textureKey)
     .setScale(scale)
     .setAlpha(alpha)
     .setDepth(depth);
+  if (textureKey.startsWith('px_')) {
+    const tex = scene.textures.get(textureKey);
+    if (tex?.source?.[0]) tex.source[0].setFilter(Phaser.ScaleModes.NEAREST);
+  }
   if (tint != null) spr.setTint(tint);
   if (layer) layer.add(spr);
   return spr;
 }
 
-/** Richer terrain palette (base layer under PNG tiles). */
 export const TERRAIN_COLORS_V2 = {
   0: { fill: 0x7a9a48, stroke: 0x5a7a32 },
   1: { fill: 0x1a4810, stroke: 0x0c2808 },
