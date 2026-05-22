@@ -17,6 +17,10 @@ import {
   ROAD_TYPES, LOCKED_CHASSIS, hasLOS
 } from './GameState.js';
 import { TECH_TREE, RESEARCH_BRANCHES, prereqsMet, computeTechBonuses } from './ResearchData.js';
+import {
+  COMBAT_GLYPH, TIER_COL, TIER_BG,
+  getCombatIntel, analyzeCombat, buildResolveSteps,
+} from './CombatUI.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
 const TERRAIN        = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2, HILL: 3, SHALLOW: 4, OCEAN: 5, SAND: 6 };
@@ -35,7 +39,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.9.7';
+export const GAME_VERSION = 'v1.9.8';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -4388,6 +4392,7 @@ export class GameScene extends Phaser.Scene {
         label: undoBlocked ? '↩ UNDO MOVE [revealed fog]' : '↩ UNDO MOVE',
         key: 'undo',
         enabled: !undoBlocked,
+        hint: undoBlocked ? 'Move revealed new territory — cannot undo' : 'Return to position at turn start',
         color: undoBlocked ? 0x553322 : 0x554422,
         cb: () => this._onUndoMove()
       });
@@ -4420,6 +4425,7 @@ export class GameScene extends Phaser.Scene {
       label: hasCargo ? 'DISBAND [unload first]' : 'DISBAND UNIT',
       key: 'disband',
       enabled: !hasCargo,
+      hint: hasCargo ? 'Unload all cargo before disbanding' : 'Remove unit from the map',
       color: 0x662222,
       cb: () => {
         if (hasCargo) return;
@@ -4441,17 +4447,17 @@ export class GameScene extends Phaser.Scene {
   // ── Unified context menu (root actions + submenus with pagination) ─────────
   // submenu: 'root' | 'build'   page: 0-based page index within that submenu
   _showContextMenu(unit, submenu = 'root', page = 0) {
-    this._hideContextMenu();
+    this._hideContextMenu(true);
     if (!this.settings.showContextMenu) return;
 
     const sw = this.scale.width, sh = this.scale.height;
-    // Use stored cursor anchor (right-click origin); submenus reuse same anchor
     const anchor = this._menuAnchor || { x: sw / 2, y: sh / 2 };
 
     const PAGE_SIZE = 8;
-    const btnH = 32, btnW = 220, gap = 4;
+    const btnH = 30, btnW = 248, gap = 3;
     const DEPTH = 150;
-    const objs  = [];
+    const objs = [];
+    const aDef = UNIT_TYPES[unit?.type];
 
     // ── Build list of items to show ──────────────────────────────────────────
     let title = null;
@@ -4584,68 +4590,168 @@ export class GameScene extends Phaser.Scene {
     }
 
     // ── Position menu at cursor, clamped to screen ───────────────────────────
-    const rowCount = items.length + (title ? 1 : 0);
-    const menuH = rowCount * (btnH + gap);
-    // Start just right of cursor; flip left if near right edge
-    let px = anchor.x + 12;
-    if (px + btnW > sw - 10) px = anchor.x - btnW - 12;
-    // Center vertically on cursor; clamp top/bottom
+    const rootTitle = submenu === 'root' && aDef
+      ? `${aDef.name}${unit.designName ? ` · ${unit.designName}` : ''}`
+      : null;
+    const rowCount = items.length + (title ? 1 : 0) + (rootTitle ? 1 : 0);
+    const menuH = rowCount * (btnH + gap) + 10;
+    let px = anchor.x + 14;
+    if (px + btnW > sw - 10) px = anchor.x - btnW - 14;
     let py = anchor.y - menuH / 2;
-    if (py < 50) py = 50;
-    if (py + menuH > sh - 130) py = sh - 130 - menuH;
+    if (py < PLAYFIELD_UI.top + 4) py = PLAYFIELD_UI.top + 4;
+    if (py + menuH > sh - PLAYFIELD_UI.bottom - 8) py = sh - PLAYFIELD_UI.bottom - 8 - menuH;
 
-    // Menu backdrop panel (cleaner visual grouping)
-    const panelBg = this.add.rectangle(px + btnW/2, py + menuH/2, btnW + 10, menuH + 8, 0x0a0f0a, 0.94)
-      .setStrokeStyle(1, 0x334433).setScrollFactor(0).setDepth(DEPTH - 1).setOrigin(0.5)
+    const panelCx = px + btnW / 2;
+    const panelCy = py + menuH / 2;
+    const panelBg = this.add.rectangle(panelCx, panelCy, btnW + 14, menuH + 6, 0x100818, 0.96)
+      .setStrokeStyle(2, 0xff66cc).setScrollFactor(0).setDepth(DEPTH - 1).setOrigin(0.5)
       .setInteractive();
     panelBg.on('pointerdown', () => { this._contextMenuClicked = true; });
     objs.push(panelBg);
+    objs.push(this.add.rectangle(panelCx, py + 2, btnW + 8, 3, 0xffcc44, 1)
+      .setScrollFactor(0).setDepth(DEPTH));
 
-    // ── Title row ────────────────────────────────────────────────────────────
-    let rowY = py;
+    let rowY = py + 8;
+    if (rootTitle) {
+      objs.push(this.add.text(px + 8, rowY, rootTitle, {
+        font: 'bold 12px monospace', fill: '#ffcc44',
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH + 1));
+      rowY += btnH;
+    }
     if (title) {
-      const hdr = this.add.text(px, rowY, title, {
-        font: 'bold 11px monospace', fill: '#bfffd2',
-        backgroundColor: '#16321f', padding: { x: 10, y: 6 },
-        fixedWidth: btnW, align: 'center'
-      }).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH);
-      objs.push(hdr);
+      objs.push(this.add.text(px + 8, rowY, title, {
+        font: 'bold 11px monospace', fill: '#99ddbb',
+        backgroundColor: '#1a2830', padding: { x: 8, y: 4 },
+        fixedWidth: btnW - 16, align: 'center',
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH + 1));
       rowY += btnH + gap;
     }
 
-    // ── Item rows ────────────────────────────────────────────────────────────
-    items.forEach(item => {
-      const col = `#${item.color.toString(16).padStart(6,'0')}`;
-      const btn = this.add.text(px, rowY, item.label, {
-        font: `bold 11px monospace`, fill: item.enabled ? '#ffffff' : '#666666',
-        backgroundColor: col, padding: { x: 10, y: 6 },
-        fixedWidth: btnW, align: 'left'
-      }).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH)
-        .setInteractive({ useHandCursor: item.enabled });
+    const hotkeyItems = [];
+    let hotkeyIdx = 0;
+    items.forEach((item) => {
+      if (item.header) {
+        objs.push(this.add.text(px + 8, rowY, item.label, {
+          font: '10px monospace', fill: '#6688aa',
+        }).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH + 1));
+        rowY += btnH;
+        return;
+      }
+      const hk = item.enabled && hotkeyIdx < 9 ? `[${hotkeyIdx + 1}] ` : '    ';
       if (item.enabled) {
+        hotkeyItems.push(item);
+        hotkeyIdx += 1;
+      }
+      const col = `#${item.color.toString(16).padStart(6, '0')}`;
+      const btn = this.add.text(px + 6, rowY, `${hk}${item.label}`, {
+        font: 'bold 11px monospace',
+        fill: item.enabled ? '#f0f8ff' : '#666680',
+        backgroundColor: item.enabled ? col : '#1a1a22',
+        padding: { x: 8, y: 5 },
+        fixedWidth: btnW - 12,
+        align: 'left',
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH + 1);
+      if (item.enabled) {
+        btn.setInteractive({ useHandCursor: true });
         btn.on('pointerdown', () => {
-          this._contextMenuClicked = true; // prevent pointerup from firing _onHexClick
+          this._contextMenuClicked = true;
           this._hideContextMenu();
           item.cb();
         });
-        btn.on('pointerover', () => btn.setAlpha(0.85));
-        btn.on('pointerout',  () => btn.setAlpha(1.0));
+        btn.on('pointerover', () => {
+          btn.setAlpha(0.9);
+          this._setContextMenuHint(item.hint || item.label, px, py + menuH + 4);
+        });
+        btn.on('pointerout', () => {
+          btn.setAlpha(1);
+          this._setContextMenuHint(null);
+        });
+      } else if (item.hint) {
+        btn.setInteractive({ useHandCursor: false });
+        btn.on('pointerover', () => this._setContextMenuHint(item.hint, px, py + menuH + 4));
+        btn.on('pointerout', () => this._setContextMenuHint(null));
       }
       objs.push(btn);
       rowY += btnH + gap;
     });
 
+    objs.push(this.add.text(px + 8, rowY, 'ESC close  ·  1-9 quick pick', {
+      font: '9px monospace', fill: '#556677',
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH + 1));
+
     this._addToUI(objs);
     this._contextMenuObjs = objs;
-    this._contextMenuUnit = unit; // remember for rebuild
+    this._contextMenuUnit = unit;
+    this._contextMenuHotkeys = hotkeyItems;
+
+    objs.forEach((o) => { if (o.setAlpha) { o.setAlpha(0); o.setScale?.(0.96); } });
+    this.tweens.add({
+      targets: objs.filter((o) => o.setAlpha),
+      alpha: 1,
+      scaleX: 1,
+      scaleY: 1,
+      duration: 110,
+      ease: 'Back.easeOut',
+    });
+
+    if (this._contextMenuKeyHandler) this.input.keyboard.off('keydown', this._contextMenuKeyHandler);
+    this._contextMenuKeyHandler = (ev) => {
+      if (ev.code === 'Escape') { this._hideContextMenu(); return; }
+      const n = Number(ev.key);
+      if (Number.isInteger(n) && n >= 1 && n <= (this._contextMenuHotkeys?.length || 0)) {
+        const pick = this._contextMenuHotkeys[n - 1];
+        if (pick?.enabled && pick.cb) {
+          this._contextMenuClicked = true;
+          this._hideContextMenu();
+          pick.cb();
+        }
+      }
+    };
+    this.input.keyboard.on('keydown', this._contextMenuKeyHandler);
   }
 
-  _hideContextMenu() {
-    if (this._contextMenuObjs) {
-      for (const o of this._contextMenuObjs) o.destroy();
+  _setContextMenuHint(text, x, y) {
+    if (this._contextMenuHint) {
+      try { this._contextMenuHint.destroy(); } catch (e) {}
+      this._contextMenuHint = null;
+    }
+    if (!text) return;
+    this._contextMenuHint = this.add.text(x, y, text, {
+      font: '10px monospace', fill: '#c8d8e8',
+      backgroundColor: '#0d1218', padding: { x: 8, y: 4 },
+      wordWrap: { width: 260 },
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(155);
+    this._addToUI([this._contextMenuHint]);
+  }
+
+  _hideContextMenu(instant = false) {
+    if (this._contextMenuKeyHandler) {
+      this.input.keyboard.off('keydown', this._contextMenuKeyHandler);
+      this._contextMenuKeyHandler = null;
+    }
+    this._setContextMenuHint(null);
+    const objs = this._contextMenuObjs;
+    if (!objs?.length) {
       this._contextMenuObjs = null;
       this._contextMenuUnit = null;
+      this._contextMenuHotkeys = null;
+      return;
     }
+    const finish = () => {
+      for (const o of objs) { try { o.destroy(); } catch (e) {} }
+      this._contextMenuObjs = null;
+      this._contextMenuUnit = null;
+      this._contextMenuHotkeys = null;
+    };
+    if (instant) { finish(); return; }
+    const tweenables = objs.filter((o) => o.setAlpha);
+    if (!tweenables.length) { finish(); return; }
+    this.tweens.add({
+      targets: tweenables,
+      alpha: 0,
+      duration: 70,
+      onComplete: finish,
+    });
   }
 
   // ── Settings panel ────────────────────────────────────────────────────────
@@ -6552,96 +6658,29 @@ export class GameScene extends Phaser.Scene {
 
   _showCombatPreview(attacker, target, blindFire) {
     const gs = this.gameState;
-    const aDef = UNIT_TYPES[attacker.type];
-    const tDef = UNIT_TYPES[target.type];
-    const NAVAL_SET = new Set(['PATROL_BOAT','SUBMARINE','DESTROYER','CRUISER_LT','CRUISER_HV','BATTLESHIP','LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG']);
-    const INDIRECT = new Set(['ARTILLERY','MORTAR']);
-    const atkIsNaval = NAVAL_SET.has(attacker.type) || attacker.type==='COASTAL_BATTERY';
-    const defIsNaval = NAVAL_SET.has(target.type);
-    const tTerrain = (this.terrain[`${target.q},${target.r}`]) ?? 0;
-    const tOnLand  = tTerrain <= 3 || tTerrain === 6 || tTerrain === 7;
-    const navalVsNaval = atkIsNaval && defIsNaval;
-    const navalVsLand  = atkIsNaval && tOnLand && !defIsNaval;
-    const isArmored = tDef.armor > 2;
-    let baseAtk = navalVsNaval ? aDef.hard_attack : (isArmored ? aDef.hard_attack : aDef.soft_attack);
-    if (navalVsLand) baseAtk = Math.floor((aDef.naval_attack||1)*0.6);
-    const fighterStrafePenalty = AIR_UNITS.has(attacker.type) && !AIR_UNITS.has(target.type) && aDef.antiAir;
-    if (fighterStrafePenalty) baseAtk = Math.max(1, Math.floor(baseAtk * 0.5));
-    const atkSupPen = attacker.outOfSupply > 0 ? supplyPenalty(attacker.outOfSupply).attackPenalty : 0;
-    const defSupPen = target.outOfSupply > 0 ? supplyPenalty(target.outOfSupply).attackPenalty : 0;
-    if (atkSupPen > 0) baseAtk = Math.max(1, baseAtk - atkSupPen);
-    const pierceRatio = aDef.pierce < tDef.armor ? aDef.pierce/tDef.armor : 1;
-    const pierceMod = Math.round((pierceRatio-0.5)*20);
-    const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
-    const infRangePenalty = (attacker.type === 'INFANTRY' && dist >= 2) ? 8 : 0;
-    if (infRangePenalty > 0) baseAtk = Math.max(1, baseAtk - 1);
+    const intel = getCombatIntel(this, gs, attacker, target, blindFire);
+    const analysis = analyzeCombat(gs, this.terrain, this.mapSize, attacker, target, blindFire, intel);
+    const { aDef, tDef, expDmg, expRetDmg, canRet, noRetReason, tier, tierLo, tierHi,
+      preRollScore, scoreMin, scoreMax, baseAtk, verdict, verdictColor, verdictAdvice,
+      atkProfile, defProfile, tips, modRows } = analysis;
+    const defName = intel.showDefenderType ? tDef.name : 'Unknown hostile';
+    const defType = intel.showDefenderType ? target.type : '???';
+    const defHp = intel.showDefenderHP ? target.health : '?';
+    const defMaxHp = intel.showDefenderHP ? (target.maxHealth || tDef.health) : '?';
+    const defDmgProj = intel.showDefenderHP ? expDmg : 0;
+    const defStatsLine = intel.showDefenderStats
+      ? `DEF ${tDef.defense || 0}  ARM ${tDef.armor || 0}  EVA ${tDef.evasion || 0}`
+      : 'Stats hidden — scout or observe target';
 
-    // Score breakdown (no random roll)
-    const terrainMod = tTerrain===1?10:tTerrain===2?20:(tTerrain===7?5:0);
-    const infLike = new Set(['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD','LMG_TEAM','HMG_TEAM','SNIPER','ENGINEER','MEDIC','ANTI_TANK']);
-    const onFort = !!gs.buildings?.find(b => (b.type==='BUNKER'||b.type==='TRENCH'||b.type==='SANDBAG') && b.q===target.q && b.r===target.r && b.owner===target.owner);
-    const openPlainMod = ((tTerrain===0 || tTerrain===6) && infLike.has(target.type) && !target.dugIn && !onFort) ? 6 : 0;
-    const dugInMod   = target.dugIn?8:0;
-    const onBunker   = gs.buildings?.find(b=>b.type==='BUNKER'&&b.q===target.q&&b.r===target.r&&b.owner===target.owner);
-    const bunkerMod  = onBunker?15:0;
-    const blindMod   = blindFire?20:0;
-    const aaBonus    = (aDef.antiAir && AIR_UNITS.has(target.type)) ? 10 : 0;
-    const baseScore  = 50;
-    const preRollScore = Math.max(0, Math.min(100,
-      baseScore + (aDef.accuracy||0) + aaBonus - Math.max(0, (tDef.evasion||0) - (defSupPen*2))
-      - terrainMod - dugInMod - bunkerMod - blindMod + pierceMod
-      + openPlainMod - infRangePenalty - (atkSupPen * 3) + (defSupPen * 3)));
-    const ROLL = 15; // ±15 random
-    const scoreMin = Math.max(0, preRollScore - ROLL);
-    const scoreMax = Math.min(100, preRollScore + ROLL);
-
-    const tierAt = s => s<20?'Catastrophic Failure':s<40?'Repelled':s<60?'Neutral':s<80?'Effective':'Overwhelming';
-    const dmgAt  = (s,ba,pr,def) => {
-      if(s<20) return 0;
-      if(s<40) return 0;
-      if(s<60) return Math.max(0,Math.max(1,Math.round(ba*pr*0.5))-def);
-      return Math.max(0,Math.max(1,Math.round(ba*pr))-def);
-    };
-    const tier   = tierAt(preRollScore);
-    const tierLo = tierAt(scoreMin);
-    const tierHi = tierAt(scoreMax);
-    const effDef = Math.max(0, (tDef.defense||0) - defSupPen);
-    const expDmg = dmgAt(preRollScore, baseAtk, pierceRatio, effDef);
-    const maxDmg = dmgAt(scoreMax,     baseAtk, pierceRatio, effDef);
-
-    // Retaliation
-    const retDist = hexDistance(attacker.q,attacker.r,target.q,target.r);
-    const subDiveBlock = tDef.noSurfaceRetaliation && !aDef.noSurfaceRetaliation;
-    const retHasLOS = retDist <= 1 || !this.terrain || hasLOS(target.q, target.r, attacker.q, attacker.r, this.terrain, this.mapSize);
-    const canRet = !blindFire && !INDIRECT.has(attacker.type) && !subDiveBlock && retDist<=(tDef.range||1) && retHasLOS && !target.suppressed;
-    const noRetReason = blindFire ? 'blind fire' :
-      (INDIRECT.has(attacker.type) ? 'indirect fire attacker' :
-      (subDiveBlock ? 'defender dived' :
-      (retDist > (tDef.range||1) ? 'defender out of range' :
-      (!retHasLOS ? 'no line of sight' :
-      (target.suppressed ? 'defender suppressed' : 'no valid retaliation')))));
-    let expRetDmg=0, retTier='';
-    if (canRet) {
-      const rBase = navalVsNaval ? tDef.hard_attack : ((aDef.armor>2)?tDef.hard_attack:tDef.soft_attack);
-      const rPR   = tDef.pierce<aDef.armor ? tDef.pierce/aDef.armor : 1;
-      const rPierceMod = Math.round((rPR-0.5)*20);
-      const rScore = Math.max(0,Math.min(100, 50+(tDef.accuracy||0)-(aDef.evasion||0)+rPierceMod));
-      expRetDmg = dmgAt(rScore,rBase,rPR,aDef.defense||0);
-      retTier   = tierAt(rScore);
-    }
-
-    // ── UI ────────────────────────────────────────────────────────────────────
-    const TIER_COL={'Catastrophic Failure':'#ff4444','Repelled':'#ff8844','Neutral':'#cccccc','Effective':'#88ee44','Overwhelming':'#44ffcc'};
-    const TIER_BG ={'Catastrophic Failure':0x4a0000,'Repelled':0x3a1800,'Neutral':0x1a1a1a,'Effective':0x0e2800,'Overwhelming':0x002a1a};
-    const GLYPH={INFANTRY:'●',ENGINEER:'◆',RECON:'✶',TANK:'■',ARTILLERY:'▲',ANTI_TANK:'➤',MORTAR:'△',MEDIC:'✚',PATROL_BOAT:'◖',SUBMARINE:'▭',DESTROYER:'◉',CRUISER_LT:'⬒',CRUISER_HV:'⬓',BATTLESHIP:'⬔',LANDING_CRAFT:'⟂',TRANSPORT_SM:'◫',TRANSPORT_MD:'◫',TRANSPORT_LG:'◫',COASTAL_BATTERY:'▣',AA_EMPLACEMENT:'⊕'};
-    const PC=[null,0x3366cc,0xcc3333];
-    const sw=this.scale.width,sh=this.scale.height,cx=sw*0.5,cy=sh*0.5,D=210;
-    const objs=[];
-
-    const UI_SCALE = 1.45; // readable without overlap
-    const mk=(txt,x,y,col='#d0dde8',sz=12,bold=false,ox=0.5,oy=0.5)=>{
-      const t=this.add.text(x,y,txt,{font:`${bold?'bold ':''}${Math.max(10, Math.round(sz*UI_SCALE))}px monospace`,fill:col}).setOrigin(ox,oy).setScrollFactor(0).setDepth(D+1);
-      objs.push(t);return t;
+    const PC = [null, 0x3366cc, 0xcc3333];
+    const sw = this.scale.width, sh = this.scale.height, cx = sw * 0.5, cy = sh * 0.5, D = 210;
+    const objs = [];
+    const mk = (txt, x, y, col = '#d0dde8', sz = 11, bold = false, ox = 0.5, oy = 0.5, wrapW = null) => {
+      const style = { font: `${bold ? 'bold ' : ''}${sz}px monospace`, fill: col };
+      if (wrapW) style.wordWrap = { width: wrapW };
+      const t = this.add.text(x, y, txt, style).setOrigin(ox, oy).setScrollFactor(0).setDepth(D + 1);
+      objs.push(t);
+      return t;
     };
     const bx=(x,y,w,h,fill,alpha=1,stroke=null)=>{
       const r=this.add.rectangle(x,y,w,h,fill,alpha).setDepth(D).setScrollFactor(0);
@@ -6655,93 +6694,87 @@ export class GameScene extends Phaser.Scene {
       if(proj>0){const lw=bW*(f-af);bx(x-bW/2+bW*af+lw/2,y,lw,10,0x882222,0.7);}
     };
 
-    const cW=Math.min(980,sw-80), cH=Math.min(620,sh-120);
-    bx(cx,cy,sw,sh,0x000000,0.72);
-    bx(cx,cy,cW,cH,0x0a0d12,0.98,0x2e3d50);
+    const cW = Math.min(920, sw - 48), cH = Math.min(640, sh - 100);
+    bx(cx, cy, sw, sh, 0x000000, 0.68);
+    bx(cx, cy, cW, cH, 0x100818, 0.98, 0xff66cc);
 
-    // Header
-    bx(cx,cy-cH/2+22,cW,44,0x0c1824,1,0x2e3d50);
-    mk('⚔  ATTACK PREVIEW',cx-20,cy-cH/2+20,'#c8b87a',14,true,0.5,0.5);
-    mk(blindFire?'BLIND FIRE':'',cx+cW/4,cy-cH/2+20,'#ff8844',10,true,0.5,0.5);
-    mk('click ATTACK to confirm  ·  CANCEL to abort',cx,cy-cH/2+36,'#445566',9);
+    bx(cx, cy - cH / 2 + 24, cW, 48, 0x0c1824, 1, 0xffcc44);
+    mk('⚔ COMBAT BRIEFING', cx - 40, cy - cH / 2 + 22, '#ffcc44', 14, true);
+    mk(`INTEL: ${intel.label}`, cx + cW / 2 - 60, cy - cH / 2 + 22, '#bb99ee', 10, true, 1, 0.5);
+    mk(intel.reasons.join(' · '), cx, cy - cH / 2 + 40, '#778899', 9, false, 0.5, 0.5, cW - 40);
 
-    // Unit portraits (top section)
-    const pW=(cW-60)*0.38, pH=130, pY=cy-cH/2+56+pH/2;
-    const lX=cx-cW/2+12+pW/2, rX=cx+cW/2-12-pW/2;
-    const portrait=(pcx,pcy,type,owner,name,hp,maxHp,proj,role)=>{
-      bx(pcx,pcy,pW,pH,0x0f151c,1,PC[owner]||0x445566);
-      bx(pcx,pcy-pH/2+11,pW,22,owner===1?0x1a2a44:0x3a1414,1);
-      mk(role,pcx,pcy-pH/2+11,role==='ATTACKER'?'#5588ee':'#ee5544',10,true);
-      mk(GLYPH[type]||'◌',pcx,pcy-16,PC[owner]?'#'+PC[owner].toString(16).padStart(6,'0'):'#aaa',36,true);
-      mk(name,pcx,pcy+22,'#dde8f0',11,true);
-      hpBar(pcx,pcy+42,pW-16,hp,maxHp,proj);
-      mk(`HP ${hp}/${maxHp} → ${Math.max(0,hp-proj)}${proj>0?' (−'+proj+')':''}`,pcx,pcy+56,proj>0?'#ff8888':hp<maxHp?'#ddaa44':'#77cc77',9);
+    const pW = (cW - 56) * 0.36, pH = 118, pY = cy - cH / 2 + 52 + pH / 2;
+    const lX = cx - cW / 2 + 14 + pW / 2, rX = cx + cW / 2 - 14 - pW / 2;
+    const portrait = (pcx, type, owner, name, hp, maxHp, proj, role, profile) => {
+      bx(pcx, pY, pW, pH, 0x0f151c, 1, PC[owner] || 0x445566);
+      bx(pcx, pY - pH / 2 + 10, pW, 20, owner === 1 ? 0x1a2a44 : 0x3a1414, 1);
+      mk(role, pcx, pY - pH / 2 + 10, role === 'ATTACKER' ? '#77a9ff' : '#ff8888', 9, true);
+      mk(COMBAT_GLYPH[type] || '◌', pcx, pY - 18, '#dde8f0', 28, true);
+      mk(name, pcx, pY + 16, '#eef6ff', 11, true);
+      if (typeof hp === 'number') {
+        hpBar(pcx, pY + 36, pW - 14, hp, maxHp, proj);
+        mk(`HP ${hp}/${maxHp} → ${Math.max(0, hp - proj)}`, pcx, pY + 50, proj > 0 ? '#ff8888' : '#99dd99', 9, true);
+      } else {
+        mk(`HP ${hp}/${maxHp}`, pcx, pY + 42, '#aa88cc', 10, true);
+      }
+      mk(`${profile.role} · ${profile.lines[0] || ''}`, pcx, pY + 64, '#99aabb', 8, false, 0.5, 0.5, pW - 12);
     };
-    portrait(lX,pY,attacker.type,attacker.owner,aDef.name,attacker.health,attacker.maxHealth||aDef.health,expRetDmg,'ATTACKER');
-    portrait(rX,pY,target.type,target.owner,tDef.name,target.health,target.maxHealth||tDef.health,expDmg,'DEFENDER');
+    portrait(lX, attacker.type, attacker.owner, aDef.name, attacker.health, attacker.maxHealth || aDef.health, expRetDmg, 'ATTACKER', atkProfile);
+    portrait(rX, defType, target.owner, defName, defHp, defMaxHp, defDmgProj, 'DEFENDER', intel.showDefenderStats ? defProfile : { role: '???', lines: ['Intel insufficient'] });
 
-    // Center quick-comparison
-    mk('VS',cx,pY-30,'#2a3a4a',14,true);
-    mk(`${baseAtk}`,cx,pY-8,'#e8d090',20,true);
-    mk('ATTACK POWER',cx,pY+14,'#556677',9);
+    bx(cx, pY - 8, 100, 72, 0x1a1028, 0.9, 0x664488);
+    mk(verdict, cx, pY - 22, verdictColor, 12, true);
+    mk(`${baseAtk} ATK`, cx, pY + 2, '#e8d090', 16, true);
+    mk(verdictAdvice, cx, pY + 22, '#99aabb', 8, false, 0.5, 0.5, 90);
 
-    // Under-card per-unit stats (explicit)
-    const atkStats = `ATK ${baseAtk}  DEF ${aDef.defense||0}  ARM ${aDef.armor||0}  RNG ${aDef.range||1}  ACC ${aDef.accuracy||0}  EVA ${aDef.evasion||0}`;
-    const defStats = `ATK ${tDef.soft_attack||0}/${tDef.hard_attack||0}  DEF ${tDef.defense||0}  ARM ${tDef.armor||0}  RNG ${tDef.range||1}  ACC ${tDef.accuracy||0}  EVA ${tDef.evasion||0}`;
-    mk(atkStats, lX, pY + 74, '#8fb9ff', 8, true);
-    mk(defStats, rX, pY + 74, '#ffb38f', 8, true);
+    mk(`Your unit: ${atkProfile.lines[0]}`, lX, pY + 78, '#8fb9ff', 8, true, 0.5, 0.5, pW);
+    mk(defStatsLine, rX, pY + 78, '#ffb38f', 8, true, 0.5, 0.5, pW);
 
-    // ── Score breakdown panel ─────────────────────────────────────────────────
-    const sbY = cy-cH/2+56+pH+14;
-    const sbH = 108;
-    bx(cx, sbY+sbH/2, cW-16, sbH, 0x080c10, 0.95, 0x1e2d3a);
-    mk('HIT QUALITY BREAKDOWN (0–100)', cx, sbY+6, '#6688aa', 10, true, 0.5, 0);
+    let tipY = pY + pH / 2 + 18;
+    if (tips.length) {
+      bx(cx, tipY + 28, cW - 20, 52, 0x14101c, 0.95, 0x3a2a44);
+      mk('MATCHUP NOTES', cx - cW / 2 + 16, tipY + 8, '#cc88ff', 9, true, 0, 0);
+      tips.slice(0, 3).forEach((t, i) => mk(`• ${t}`, cx - cW / 2 + 16, tipY + 22 + i * 14, '#d8c8e8', 8, false, 0, 0, cW - 36));
+      tipY += 58;
+    }
 
-    // Build modifier rows
-    const rows = [
-      ['Base hit quality',  `${baseScore}`, '#778899'],
-    ];
-    if (aDef.accuracy)   rows.push([`Accuracy (${aDef.name})`,      `+${aDef.accuracy}`, '#88cc88']);
-    if (tDef.evasion)    rows.push([`Evasion (${tDef.name})`,       `−${tDef.evasion}`,  '#cc8844']);
-    if (terrainMod)      rows.push([`Terrain cover`,                 `−${terrainMod}`,    '#aa7744']);
-    if (openPlainMod)    rows.push([`Open plains exposure`,          `+${openPlainMod}`,  '#ff9966']);
-    if (dugInMod)        rows.push([`Dug-in fortification`,          `−${dugInMod}`,      '#aa7744']);
-    if (bunkerMod)       rows.push([`Bunker protection`,             `−${bunkerMod}`,     '#aa7744']);
-    if (blindMod)        rows.push([`Blind fire penalty`,            `−${blindMod}`,      '#cc4444']);
-    if (infRangePenalty) rows.push([`Infantry max-range penalty`,    `−${infRangePenalty} score / −1 ATK`, '#ffbb66']);
-    if (fighterStrafePenalty) rows.push([`Fighter strafing penalty`, `ATK x0.5`, '#ffbb66']);
-    if (atkSupPen>0)     rows.push([`Attacker out-of-supply`,        `−${atkSupPen*3} score / −${atkSupPen} ATK`, '#ff9966']);
-    if (defSupPen>0)     rows.push([`Defender out-of-supply`,        `+${defSupPen*3} score / DEF−${defSupPen}`, '#ff9966']);
-    if (pierceMod !== 0) rows.push([`Pierce ${aDef.pierce} vs Armor ${tDef.armor}`, `${pierceMod>=0?'+':''}${pierceMod}`, pierceMod>=0?'#88cc88':'#cc8844']);
-    rows.push([`Random variance roll`,                               `±${ROLL}`,          '#7799aa']);
+    const sbY = tipY + 8;
+    const sbH = intel.showScoreDetail ? 96 : 48;
+    bx(cx, sbY + sbH / 2, cW - 16, sbH, 0x080c10, 0.95, 0x2e3d50);
+    mk('HIT QUALITY (0–100)', cx, sbY + 6, '#6688aa', 10, true, 0.5, 0);
+    if (intel.showScoreDetail) {
+      modRows.slice(0, 6).forEach((row, i) => {
+        mk(`${row[0]}`, cx - cW / 2 + 20, sbY + 22 + i * 13, '#667788', 8, false, 0, 0);
+        mk(row[1], cx + cW / 2 - 20, sbY + 22 + i * 13, row[2], 8, true, 1, 0);
+      });
+      mk(`Pre-roll ${preRollScore} (roll may land ${scoreMin}–${scoreMax})`, cx, sbY + sbH - 10, '#aabbcc', 9, true, 0.5, 1);
+    } else {
+      mk('Detailed modifiers hidden — improve intel to see full breakdown', cx, sbY + 28, '#aa88cc', 9, false, 0.5, 0.5, cW - 40);
+    }
 
-    // Two-column layout for rows
-    const col1X=cx-cW/2+24, col2X=cx+10;
-    const rH=14, rowStartY=sbY+20;
-    rows.forEach((row,i)=>{
-      const col = i<Math.ceil(rows.length/2)?0:1;
-      const ri  = col===0?i:i-Math.ceil(rows.length/2);
-      const rx  = col===0?col1X:col2X;
-      const ry  = rowStartY+ri*rH;
-      mk(`${row[0]}`, rx, ry, '#556677', 9, false, 0, 0);
-      mk(row[1], rx+160, ry, row[2], 9, true, 0, 0);
-    });
-    // Score summary line
-    mk(`Pre-roll hit quality: ${preRollScore} / 100  (possible ${scoreMin}–${scoreMax} after random roll)`, cx, sbY+sbH-26, '#aabbcc', 10, true, 0.5, 1);
-    mk(`Roll = random ±${ROLL} added at resolve time (represents battlefield variance)`, cx, sbY+sbH-6, '#88a0b8', 9, false, 0.5, 1);
-
-    // ── Outcome band ──────────────────────────────────────────────────────────
-    const outY = sbY + sbH + 6;
-    bx(cx, outY+14, cW-16, 28, TIER_BG[tier]||0x1a1a1a, 1, 0x334455);
-    const rangeStr = tierLo===tierHi ? tier : `${tierLo}  →  ${tier}  →  ${tierHi}`;
-    mk(`Expected: ${rangeStr.toUpperCase()}  |  est. −${expDmg} to defender${canRet?`  ·  ↩ ret. −${expRetDmg}`:` · no retaliation (${noRetReason})`}`, cx, outY+14, TIER_COL[tier]||'#ccc', 10, true);
+    const outY = sbY + sbH + 10;
+    bx(cx, outY + 14, cW - 16, 30, TIER_BG[tier] || 0x1a1a1a, 1, 0x334455);
+    const rangeStr = tierLo === tierHi ? tier : `${tierLo} → ${tier} → ${tierHi}`;
+    const dmgStr = intel.showDefenderHP ? `est. −${expDmg} defender` : 'damage estimate unclear';
+    const retStr = intel.showRetaliation
+      ? (canRet ? `↩ ret. −${expRetDmg}` : `no ret. (${noRetReason})`)
+      : 'retaliation unknown';
+    mk(`Expected ${rangeStr.toUpperCase()} · ${dmgStr} · ${retStr}`, cx, outY + 14, TIER_COL[tier] || '#ccc', 9, true);
 
     // ── Buttons ───────────────────────────────────────────────────────────────
     const btnY = cy+cH/2-22;
     bx(cx, cy+cH/2-22, cW, 44, 0x080c10, 1, 0x2e3d50);
-    const atkBtn=this.add.text(cx-80,btnY,'  ATTACK  ',{font:'bold 13px monospace',fill:'#ffffff',backgroundColor:'#992211',padding:{x:16,y:8}}).setOrigin(0.5,0.5).setScrollFactor(0).setDepth(D+2).setInteractive({useHandCursor:true});
-    const canBtn=this.add.text(cx+80,btnY,'  CANCEL  ',{font:'bold 13px monospace',fill:'#aaaaaa',backgroundColor:'#1a1a2a',padding:{x:16,y:8}}).setOrigin(0.5,0.5).setScrollFactor(0).setDepth(D+2).setInteractive({useHandCursor:true});
-    this._addToUI([...objs,atkBtn,canBtn]);
+    const cancelLabel = verdict === 'RETREAT ADVISED' ? '  BACK OUT  ' : '  CANCEL  ';
+    const atkBtn = this.add.text(cx - 88, btnY, '  ATTACK  ', {
+      font: 'bold 13px monospace', fill: '#ffffff', backgroundColor: '#992211', padding: { x: 16, y: 8 },
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 2).setInteractive({ useHandCursor: true });
+    const canBtn = this.add.text(cx + 88, btnY, cancelLabel, {
+      font: 'bold 13px monospace', fill: '#dddddd', backgroundColor: '#2a2244', padding: { x: 16, y: 8 },
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 2).setInteractive({ useHandCursor: true });
+    this._addToUI([...objs, atkBtn, canBtn]);
+    const popTargets = [...objs, atkBtn, canBtn].filter((o) => o.setAlpha);
+    popTargets.forEach((o) => { o.setAlpha(0); o.setScale?.(0.94); });
+    this.tweens.add({ targets: popTargets, alpha: 1, scaleX: 1, scaleY: 1, duration: 140, ease: 'Back.easeOut' });
 
     let autoCloseTimer = null;
     const cleanup=()=>{
@@ -7708,115 +7741,96 @@ export class GameScene extends Phaser.Scene {
   _showCombatCard(entry, idx, total) {
     const objs = [];
     const sw = this.scale.width, sh = this.scale.height;
-    const cx = sw * 0.5, cy = sh * 0.78;
+    const cx = sw * 0.5, cy = sh * 0.76;
     const D = 206;
-
-    const GLYPH = { INFANTRY:'●', ENGINEER:'◆', RECON:'✶', TANK:'■', ARTILLERY:'▲',
-      ANTI_TANK:'➤', MORTAR:'△', MEDIC:'✚', PATROL_BOAT:'◖', SUBMARINE:'▭',
-      DESTROYER:'◉', CRUISER_LT:'⬒', CRUISER_HV:'⬓', BATTLESHIP:'⬔',
-      LANDING_CRAFT:'⟂', TRANSPORT_SM:'◫', TRANSPORT_MD:'◫', TRANSPORT_LG:'◫',
-      COASTAL_BATTERY:'▣', AA_EMPLACEMENT:'⊕' };
-    const g = t => GLYPH[t] || '◌';
-
+    const g = (t) => COMBAT_GLYPH[t] || '◌';
     const PC = [null, 0x3366cc, 0xcc3333];
-    const SCALE = 1.0;
-    const mk = (txt, x, y, col='#d0dde8', sz=12, bold=false, ox=0.5, oy=0.5, wrapW=null) => {
-      const style = { font:`${bold?'bold ':''}${Math.max(10, Math.round(sz*SCALE))}px monospace`, fill:col };
+
+    const mk = (txt, x, y, col = '#d0dde8', sz = 10, bold = false, ox = 0.5, oy = 0.5, wrapW = null) => {
+      const style = { font: `${bold ? 'bold ' : ''}${sz}px monospace`, fill: col };
       if (wrapW) style.wordWrap = { width: wrapW };
-      const t = this.add.text(x, y, txt, style).setOrigin(ox, oy).setScrollFactor(0).setDepth(D+1);
-      objs.push(t); return t;
+      const t = this.add.text(x, y, txt, style).setOrigin(ox, oy).setScrollFactor(0).setDepth(D + 1);
+      objs.push(t);
+      return t;
     };
-    const box = (x, y, w, h, fill, alpha=1, stroke=null) => {
+    const box = (x, y, w, h, fill, alpha = 1, stroke = null) => {
       const r = this.add.rectangle(x, y, w, h, fill, alpha).setDepth(D).setScrollFactor(0);
       if (stroke !== null) r.setStrokeStyle(1.5, stroke);
-      objs.push(r); return r;
+      objs.push(r);
+      return r;
     };
 
-    const cW = Math.min(900, sw - 24), cH = Math.min(420, sh - 120);
-    const cX = cx, cY = Math.min(cy, sh - (cH/2) - 10);
-    // No screen-dim layer for combat card (less jarring; keep map fully visible).
-    box(cX, cY, cW, cH, 0x0b0e14, 0.985, 0x2e3d50);
+    const steps = buildResolveSteps(entry);
+    const cW = Math.min(920, sw - 24);
+    const cH = Math.min(480, sh - 100);
+    const cX = cx;
+    const cY = Math.min(cy, sh - (cH / 2) - 8);
+    box(cX, cY, cW, cH, 0x100818, 0.98, 0xff66cc);
 
-    // Header
-    box(cX, cY - cH/2 + 24, cW, 48, 0x0d1b2a, 1, 0x2e3d50);
-    mk('⚔  COMBAT', cX, cY - cH/2 + 24, '#d8c48a', 15, true);
-    if (total > 1) mk(`${idx} / ${total}`, cX + cW/2 - 18, cY - cH/2 + 24, '#8ea5bc', 10, false, 1, 0.5);
+    box(cX, cY - cH / 2 + 22, cW, 44, 0x0d1b2a, 1, 0xffcc44);
+    mk('⚔ COMBAT RESOLVED', cX - 50, cY - cH / 2 + 20, '#ffcc44', 13, true);
+    if (total > 1) mk(`${idx} / ${total}`, cX + cW / 2 - 24, cY - cH / 2 + 20, '#8ea5bc', 10, false, 1, 0.5);
+    mk(`Tier: ${entry.tier || '?'}  ·  Hit quality ${entry.score ?? '?'}/100`, cX + 40, cY - cH / 2 + 20, TIER_COL[entry.tier] || '#ccc', 10, true, 1, 0.5);
 
-    // Portrait cards
-    const pW = Math.floor(cW * 0.38), pH = 180;
-    const lCX = cX - cW*0.29, rCX = cX + cW*0.29;
-    const pY = cY - cH/2 + 160;
-
-    const atkHP0 = entry.attackerHPBefore ?? 0;
-    const defHP0 = entry.targetHPBefore ?? 0;
+    const pW = Math.floor(cW * 0.36), pH = 150;
+    const lCX = cX - cW * 0.28, rCX = cX + cW * 0.28;
+    const pY = cY - cH / 2 + 130;
+    const atkHP0 = entry.attackerHPBefore ?? (entry.attackerDmg || 0);
+    const defHP0 = entry.targetHPBefore ?? (entry.dmg || 0);
     const atkHP1 = Math.max(0, atkHP0 - (entry.attackerDmg || 0));
     const defHP1 = Math.max(0, defHP0 - (entry.dmg || 0));
 
     const hpBar = (x, y, w, hp, max, dmg) => {
-      box(x, y, w, 12, 0x111111, 1, 0x334455);
+      box(x, y, w, 10, 0x111111, 1, 0x334455);
       const frac = Math.max(0, hp) / Math.max(1, max);
-      if (frac > 0) box(x - w/2 + (w*frac)/2, y, w*frac, 12, frac > 0.6 ? 0x44bb44 : frac > 0.3 ? 0xddaa00 : 0xcc2222);
+      if (frac > 0) box(x - w / 2 + (w * frac) / 2, y, w * frac, 10, frac > 0.6 ? 0x44bb44 : frac > 0.3 ? 0xddaa00 : 0xcc2222);
       if (dmg > 0) {
         const lostW = Math.min(w, w * dmg / Math.max(1, max));
-        box(x - w/2 + w*frac + lostW/2, y, lostW, 12, 0x882222, 0.6);
+        box(x - w / 2 + w * frac + lostW / 2, y, lostW, 10, 0x882222, 0.65);
       }
     };
 
     const portrait = (pcx, role, type, owner, name, hp0, hp1, dmgTaken) => {
       box(pcx, pY, pW, pH, 0x0f151c, 1, PC[owner] || 0x445566);
-      box(pcx, pY - pH/2 + 14, pW, 24, owner===1?0x1a2a44:0x3a1414, 1);
-      mk(role, pcx, pY - pH/2 + 14, role === 'ATTACKER' ? '#77a9ff' : '#ff8888', 10, true);
-      mk(g(type), pcx, pY - 30, PC[owner]?`#${PC[owner].toString(16).padStart(6,'0')}`:'#aaaaaa', 36, true);
-      mk(name || '?', pcx, pY + 18, '#eef6ff', 12, true);
-      hpBar(pcx, pY + 48, pW - 28, hp1, hp0, dmgTaken);
-      mk(`HP ${hp1}/${hp0}${dmgTaken>0?`  (-${dmgTaken})`:''}`, pcx, pY + 66, dmgTaken>0?'#ffaaaa':'#99dd99', 10, true);
+      mk(role, pcx, pY - pH / 2 + 12, role === 'ATTACKER' ? '#77a9ff' : '#ff8888', 9, true);
+      mk(g(type), pcx, pY - 24, '#eef6ff', 30, true);
+      mk(name || '?', pcx, pY + 10, '#eef6ff', 11, true);
+      hpBar(pcx, pY + 38, pW - 20, hp1, hp0, dmgTaken);
+      mk(`HP ${hp1}/${hp0}${dmgTaken > 0 ? `  (−${dmgTaken})` : ''}`, pcx, pY + 52, dmgTaken > 0 ? '#ffaaaa' : '#99dd99', 9, true);
     };
-
     portrait(lCX, 'ATTACKER', entry.attackerType, entry.attackerOwner, entry.attackerName, atkHP0, atkHP1, entry.attackerDmg || 0);
     portrait(rCX, 'DEFENDER', entry.targetType, entry.targetOwner, entry.targetName, defHP0, defHP1, entry.dmg || 0);
 
-    // Outcome banner
-    const outY = pY + pH/2 + 26;
-    const outcome = entry.attackerDmg > (entry.dmg || 0) ? 'ATTACK REPELLED' : ((entry.dmg || 0) > entry.attackerDmg ? 'ATTACK SUCCESSFUL' : 'EXCHANGE');
-    box(cX, outY, cW - 24, 44, outcome === 'ATTACK SUCCESSFUL' ? 0x1a3a1a : outcome === 'ATTACK REPELLED' ? 0x3a1a1a : 0x2a2200, 1, 0x445566);
-    mk(outcome, cX, outY, outcome === 'ATTACK SUCCESSFUL' ? '#88ee88' : outcome === 'ATTACK REPELLED' ? '#ee8888' : '#ddbb66', 14, true);
+    const outY = pY + pH / 2 + 20;
+    const outcome = (entry.dmg || 0) > (entry.attackerDmg || 0) ? 'ATTACKER WINS EXCHANGE'
+      : ((entry.attackerDmg || 0) > (entry.dmg || 0) ? 'DEFENDER HOLDS' : 'BLOODY EXCHANGE');
+    const outCol = outcome === 'ATTACKER WINS EXCHANGE' ? '#88ee88' : outcome === 'DEFENDER HOLDS' ? '#ee8888' : '#ddbb66';
+    box(cX, outY, cW - 20, 32, TIER_BG[entry.tier] || 0x2a2200, 1, 0x445566);
+    mk(`${outcome}  ·  −${entry.dmg || 0} def  ·  −${entry.attackerDmg || 0} atk${entry.suppressed ? '  ·  SUPPRESSED' : ''}`, cX, outY, outCol, 10, true);
 
-    // Details block
-    const gs = this.gameState;
-    const atkU = gs.units.find(u => u.id === entry.attackerId);
-    const defU = gs.units.find(u => u.id === entry.targetId);
-    const atkTerrain = atkU ? (TERRAIN_LABELS[this.terrain?.[`${atkU.q},${atkU.r}`] ?? 0] || 'Plains') : '?';
-    const defTerrain = defU ? (TERRAIN_LABELS[this.terrain?.[`${defU.q},${defU.r}`] ?? 0] || 'Plains') : '?';
-    const atkDesign = atkU?.designId !== undefined ? gs.designs?.[atkU.owner]?.find(d => d.id === atkU.designId) : null;
-    const defDesign = defU?.designId !== undefined ? gs.designs?.[defU.owner]?.find(d => d.id === defU.designId) : null;
-    const atkMods = (atkDesign?.moduleKeys || []).map(k => MODULES[k]?.name || k).slice(0,4).join(', ');
-    const defMods = (defDesign?.moduleKeys || []).map(k => MODULES[k]?.name || k).slice(0,4).join(', ');
+    const wrap = cW - 44;
+    let stepY = outY + 28;
+    box(cX, stepY + 72, cW - 20, 148, 0x080c10, 0.96, 0x2e3d50);
+    mk('HOW IT WAS CALCULATED', cX - cW / 2 + 16, stepY + 6, '#88aacc', 9, true, 0, 0);
+    steps.slice(0, 8).forEach((s, i) => mk(s, cX - cW / 2 + 16, stepY + 22 + i * 15, '#c8d8e8', 8, false, 0, 0, wrap - 8));
 
-    const roll = entry.roll ?? 0;
-    const rollStr = roll >= 0 ? `+${roll}` : `${roll}`;
-    const detailTop = outY + 36;
-    const wrap = cW - 48;
-    mk(`CALC: hit quality ${entry.score ?? '?'} / 100 = 50 + roll ${rollStr} + acc(${entry.accuracy ?? 0}) - evasion(${entry.evasion ?? 0}) - cover(${(entry.terrainMod||0)+(entry.dugInMod||0)+(entry.bunkerMod||0)}) + other mods`, cX, detailTop, '#d8e6f3', 10, true, 0.5, 0, wrap);
-    mk(`ATTACKER: ATK ${entry.baseAttack ?? '?'}  pierce ${entry.pierce ?? '?'}  terrain ${atkTerrain}${atkMods ? `  ·  modules: ${atkMods}` : ''}`, cX, detailTop + 40, '#9cc9ff', 10, true, 0.5, 0, wrap);
-    mk(`DEFENDER: armor ${entry.armor ?? '?'}  terrain ${defTerrain}${defMods ? `  ·  modules: ${defMods}` : ''}`, cX, detailTop + 74, '#ffbf9f', 10, true, 0.5, 0, wrap);
+    const retLine = (entry.defenderCanRetaliate && (entry.retaliationDmg || 0) > 0)
+      ? `Retaliation: ${entry.retaliationTier || '?'} for −${entry.retaliationDmg} to attacker`
+      : 'Retaliation: none';
+    mk(retLine, cX, cY + cH / 2 - 44, '#ffcf95', 9, true, 0.5, 0, wrap);
 
-    const modParts = [];
-    if (entry.openPlainMod) modParts.push(`open+${entry.openPlainMod}`);
-    if (entry.exposedMod) modParts.push(`EXPOSED(road)+${entry.exposedMod}`);
-    if (entry.flankMod) modParts.push(`flank+${entry.flankMod}`);
-    if (entry.attackerSupplyPenalty) modParts.push(`atkOOS-${entry.attackerSupplyPenalty*3}`);
-    if (entry.defenderSupplyPenalty) modParts.push(`defOOS+${entry.defenderSupplyPenalty*3}`);
-    if (entry.infantryRangePenalty) modParts.push(`infRng-${entry.infantryRangePenalty}`);
-    if (entry.blindFirePenalty) modParts.push(`blind-${entry.blindFirePenalty}`);
-    mk(`MODIFIERS: ${modParts.length ? modParts.join('  ·  ') : 'none'}`, cX, detailTop + 108, '#f1f5f9', 10, true, 0.5, 0, wrap);
+    box(cX, cY + cH / 2 - 16, cW, 30, 0x080b10, 1, 0x2e3d50);
+    mk('CLICK or SPACE to continue', cX, cY + cH / 2 - 16, '#dbe8f5', 10, true);
 
-    const retText = (entry.defenderCanRetaliate && entry.retaliationDmg > 0)
-      ? `RETALIATION: YES  (${entry.retaliationTier || '?'}, hit quality ${entry.retaliationScore ?? '?'})  defender deals -${entry.retaliationDmg}`
-      : `RETALIATION: NO  (${entry.blindFire ? 'blind fire' : (entry.retHasLOS===false ? 'no LOS' : 'out of range / suppressed / invalid')})`;
-    mk(retText, cX, detailTop + 142, (entry.defenderCanRetaliate ? '#ffcf95' : '#91a4b8'), 10, true, 0.5, 0, wrap);
-
-    box(cX, cY + cH/2 - 18, cW, 34, 0x080b10, 1, 0x2e3d50);
-    mk('CLICK or SPACE to continue', cX, cY + cH/2 - 18, '#dbe8f5', 10, true);
+    objs.forEach((o) => { if (o.setAlpha) { o.setAlpha(0); o.setScale?.(0.96); } });
+    this.tweens.add({
+      targets: objs.filter((o) => o.setAlpha),
+      alpha: 1,
+      scaleX: 1,
+      scaleY: 1,
+      duration: 120,
+      ease: 'Quad.easeOut',
+    });
 
     this._addToUI(objs);
     return objs;
