@@ -220,6 +220,7 @@ export function analyzeCombat(gs, terrain, mapSize, attacker, target, blindFire,
     tips.push(`Defender in ${fortMods.fortName} (T${fortMods.fortTier}) — cover penalty −${bunkerMod}.`);
   }
   if (fortMods.indirectAirBonus) tips.push('Foxhole/trench profile: extra cover vs artillery & air.');
+  if (fortMods.fortAssault) tips.push(`Fort assault gear −${fortMods.fortAssault} enemy cover.`);
   if (fortDefenseBonus) tips.push(`Fortification absorbs ${fortDefenseBonus} damage.`);
   if (dugInMod) tips.push('Defender is dug in.');
   if (openPlainMod) tips.push('Defender exposed on open ground — bonus hit quality.');
@@ -266,6 +267,7 @@ export function analyzeCombat(gs, terrain, mapSize, attacker, target, blindFire,
     const fortLabel = fortMods.fortName ? `${fortMods.fortName} T${fortMods.fortTier}` : 'Fortification';
     modRows.push([fortLabel, `−${bunkerMod}`, '#aa7744']);
     if (fortMods.indirectAirBonus) modRows.push(['vs Arty/Air', `+${fortMods.indirectAirBonus}`, '#88aa66']);
+    if (fortMods.fortAssault) modRows.push(['Fort assault', `−${fortMods.fortAssault}`, '#ccaa66']);
   }
   if (fortDefenseBonus && intel.showTerrainMods) modRows.push(['Fort DR', `−${fortDefenseBonus} dmg`, '#aa8855']);
   if (blindMod) modRows.push([`Blind fire`, `−${blindMod}`, '#cc4444']);
@@ -284,6 +286,7 @@ export function analyzeCombat(gs, terrain, mapSize, attacker, target, blindFire,
     canRet, noRetReason, retTier, effDef, isArmored, navalVsNaval, navalVsLand,
     atkProfile, defProfile, tips, verdict, verdictColor, verdictAdvice, modRows,
     terrainMod, dugInMod, bunkerMod, fortTier: fortMods.fortTier, fortIndirectBonus: fortMods.indirectAirBonus,
+    fortAssault: fortMods.fortAssault || 0,
     openPlainMod, blindMod, atkSupPen, defSupPen,
   };
 }
@@ -301,6 +304,7 @@ export function buildResolveSteps(entry) {
     steps.push(`4. −${cover} defender cover (terrain / dug-in / fort${fortBit}).`);
   }
   if (entry.fortIndirectBonus) steps.push(`4b. +${entry.fortIndirectBonus} extra fort cover vs artillery/air.`);
+  if (entry.fortAssault) steps.push(`4c. −${entry.fortAssault} fort cover from attacker assault kit.`);
   if (entry.openPlainMod) steps.push(`5. +${entry.openPlainMod} defender exposed on open ground.`);
   if (entry.exposedMod) steps.push(`6. +${entry.exposedMod} defender on road (exposed).`);
   if (entry.blindFirePenalty) steps.push(`7. −${entry.blindFirePenalty} blind fire penalty.`);

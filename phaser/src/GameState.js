@@ -127,6 +127,10 @@ export const MODULES = {
   TANK_MOBILITY_KIT:     { name: 'Mobility Kit',      tier: 1, chassis: ['TANK','MEDIUM_TANK','ARMORED_CAR','HALFTRACK'], statDelta: { move: 1, evasion: 1, armor: -1 }, designCost: { iron: 1, oil: 1 }, trainCost: { iron: 0, oil: 1 }, requiredTech: 'tank_mobility_kit', mutuallyExclusiveWith:['TANK_SIEGE_PLATING'] },
   TANK_SIEGE_PLATING:    { name: 'Siege Plating',     tier: 3, chassis: ['TANK','MEDIUM_TANK','SPG'], statDelta: { armor: 2, defense: 1, move: -1 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1, oil: 0, components: 1, hardenedSteel: 1 }, resourceCost: { hardenedSteel: 1 }, requiredTech: 'tank_siege_plating', mutuallyExclusiveWith:['TANK_MOBILITY_KIT'] },
   STEEL_PLATING:         { name: 'Steel Plating',     tier: 2, chassis: ['TANK','MEDIUM_TANK','INFANTRY','ENGINEER'], statDelta: { armor: 1, defense: 1, move: -1 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 1, oil: 0, components: 1 }, resourceCost: { components: 1 }, requiredTech: 'basic_steel_alloys' },
+  INF_BREACH_CHARGE:     { name: 'Breach Charges',    tier: 2, chassis: ['INFANTRY','ASSAULT_INFANTRY','ENGINEER'], statDelta: { fortification_assault: 3, soft_attack: 1, move: -1 }, designCost: { iron: 2, oil: 0 }, trainCost: { iron: 2, oil: 0, components: 1 }, resourceCost: { components: 1 }, requiredTech: 'breach_charges' },
+  ARTY_SIEGE_SHELLS:     { name: 'Siege Shells',      tier: 3, chassis: ['ARTILLERY','MORTAR'], statDelta: { fortification_assault: 4, soft_attack: 1, move: -1 }, designCost: { iron: 3, oil: 1 }, trainCost: { iron: 2, oil: 1, components: 1 }, resourceCost: { components: 1 }, requiredTech: 'siege_shells' },
+  TK_COMPOSITE_ARMOR:    { name: 'Composite Armor',   tier: 4, chassis: ['TANK','MEDIUM_TANK','SPG'], statDelta: { armor: 3, pierce: 1, defense: 2, move: -1 }, designCost: { iron: 4, oil: 1 }, trainCost: { iron: 2, oil: 1, components: 2, hardenedSteel: 1 }, resourceCost: { components: 2, hardenedSteel: 1 }, requiredTech: 'composite_armor_plating' },
+  AIR_JET_STREAMLINING:  { name: 'Jet Streamlining', tier: 5, chassis: ['MONOPLANE_FIGHTER','DIVE_BOMBER','HEAVY_BOMBER'], statDelta: { move: 2, evasion: 3, health: -1 }, designCost: { iron: 4, oil: 3 }, trainCost: { iron: 2, oil: 3, aviationAlloy: 2 }, resourceCost: { aviationAlloy: 2 }, requiredTech: 'jet_streamlining', mutuallyExclusiveWith:['AIR_ARMORED_FRAME'] },
 
   INF_ASSAULT_DRILL:     { name: 'Assault Drill',     tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD'], statDelta: { soft_attack: 1, move: 1, defense: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'inf_assault_drill', mutuallyExclusiveWith:['INF_SUPPRESSIVE_DRILL'] },
   INF_SUPPRESSIVE_DRILL: { name: 'Suppressive Drill', tier: 1, chassis: ['INFANTRY','ASSAULT_INFANTRY','LMG_TEAM','HMG_TEAM'], statDelta: { range: 1, suppression: 1, move: -1 }, designCost: { iron: 1, oil: 0 }, trainCost: { iron: 1, oil: 0 }, requiredTech: 'inf_suppressive_drill', mutuallyExclusiveWith:['INF_ASSAULT_DRILL'] },
@@ -278,6 +282,10 @@ export function registerDesign(state, player, chassis, moduleKeys, designName) {
   spendResources(pl, cost);
   const stats = computeDesignStats(chassis, moduleKeys);
   const effectiveTier = computeEffectiveTier(chassis, moduleKeys, stats);
+  const maxTier = getPlayerMaxTrainableTier(state, player);
+  if (effectiveTier > maxTier) {
+    return { ok: false, reason: `Industry supports designs up to T${maxTier} (this design is T${effectiveTier})` };
+  }
   const id = _nextId++;
   designs.push({
     id, chassis, modules: moduleKeys,
@@ -382,7 +390,7 @@ export function getFortificationOnHex(state, q, r, owner) {
 export function computeFortificationCombatMods(state, target, attacker) {
   const empty = {
     onFort: false, fortMod: 0, defenseBonus: 0, fortTier: null,
-    indirectAirBonus: 0, fortName: null, fortKey: null,
+    indirectAirBonus: 0, fortName: null, fortKey: null, fortAssault: 0,
   };
   const fortB = getFortificationOnHex(state, target.q, target.r, target.owner);
   if (!fortB) return empty;
@@ -406,10 +414,17 @@ export function computeFortificationCombatMods(state, target, attacker) {
     fortMod += indirectAirBonus;
   }
 
+  const assault = attacker.fortification_assault ?? aDef.fortification_assault ?? 0;
+  if (assault > 0) {
+    fortMod = Math.max(0, fortMod - assault);
+    defenseBonus = Math.max(0, defenseBonus - Math.floor(assault / 2));
+  }
+
   return {
     onFort: true,
     fortMod,
     defenseBonus,
+    fortAssault: assault,
     fortTier: def.fortTier ?? 0,
     indirectAirBonus: (isIndirect || airVsGround) ? indirectAirBonus : 0,
     fortName: def.name,
@@ -508,6 +523,21 @@ export function getPlayerIndustryTier(gs, player) {
   return Math.min(3, max);
 }
 
+/** Max design tier a player can register/train (industry + material chains). */
+export function getPlayerMaxTrainableTier(gs, player) {
+  const industry = getPlayerIndustryTier(gs, player);
+  const labs = (gs.buildings || []).filter((b) => b.owner === player && b.type === 'SCIENCE_LAB' && !b.underConstruction).length;
+  let max = Math.min(2, industry + 1);
+  if (industry >= 2 && labs >= 1) max = Math.max(max, 3);
+  const hasSteel = (gs.buildings || []).some((b) => b.owner === player && !b.underConstruction
+    && (b.type === 'ARMOR_WORKS' || (BUILDING_TYPES[b.type]?.hardenedSteelPerTurn || 0) > 0));
+  const hasAirAlloy = (gs.buildings || []).some((b) => b.owner === player && !b.underConstruction
+    && (b.type === 'ADV_AIRFIELD' || (BUILDING_TYPES[b.type]?.aviationAlloyPerTurn || 0) > 0));
+  if (industry >= 3 && hasSteel) max = Math.max(max, 4);
+  if (industry >= 3 && hasAirAlloy && labs >= 2) max = Math.max(max, 5);
+  return Math.min(MAX_UNIT_TIER, max);
+}
+
 export function canPlayerUseModule(gs, player, moduleKey, unlockedTechs) {
   const mod = MODULES[moduleKey];
   if (!mod) return { ok: false, reason: 'Unknown module' };
@@ -516,6 +546,20 @@ export function canPlayerUseModule(gs, player, moduleKey, unlockedTechs) {
   const industry = getPlayerIndustryTier(gs, player);
   if (modTier >= 2 && industry < 2) return { ok: false, reason: 'Need Factory (T2 industry)' };
   if (modTier >= 3 && industry < 3) return { ok: false, reason: 'Need Armor Works / T3 industry' };
+  if (modTier >= 4 && industry < 3) return { ok: false, reason: 'Need T3 industry + hardened steel' };
+  if (modTier >= 4) {
+    const hasSteel = (gs.buildings || []).some((b) => b.owner === player && !b.underConstruction
+      && (b.type === 'ARMOR_WORKS' || (BUILDING_TYPES[b.type]?.hardenedSteelPerTurn || 0) > 0));
+    if (!hasSteel) return { ok: false, reason: 'Need Armor Works (hardened steel)' };
+  }
+  if (modTier >= 5) {
+    const hasAir = (gs.buildings || []).some((b) => b.owner === player && !b.underConstruction
+      && (b.type === 'ADV_AIRFIELD' || (BUILDING_TYPES[b.type]?.aviationAlloyPerTurn || 0) > 0));
+    if (!hasAir) return { ok: false, reason: 'Need Advanced Airfield (aviation alloy)' };
+  }
+  if (modTier > getPlayerMaxTrainableTier(gs, player)) {
+    return { ok: false, reason: `Industry caps modules at T${getPlayerMaxTrainableTier(gs, player)}` };
+  }
   return { ok: true };
 }
 
@@ -1738,7 +1782,8 @@ export function resolveTurn(state, terrain) {
       isArmored, baseAttack, pierce: aDef.pierce, armor: tDef.armor, pierceRatio,
       accuracy: aDef.accuracy, evasion: tDef.evasion,
       terrainMod, openPlainMod, exposedMod, dugInMod, bunkerMod, fortTier: fortMods.fortTier,
-      fortIndirectBonus: fortMods.indirectAirBonus, fortName: fortMods.fortName, flankMod, roll, blindFirePenalty,
+      fortIndirectBonus: fortMods.indirectAirBonus, fortAssault: fortMods.fortAssault || 0,
+      fortName: fortMods.fortName, flankMod, roll, blindFirePenalty,
       attackerSupplyPenalty: atkSupplyPen.attackPenalty || 0,
       defenderSupplyPenalty: defSupplyPen.attackPenalty || 0,
       infantryRangePenalty: infantryRangePenalty || 0,
@@ -2131,7 +2176,8 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
     isArmored, baseAttack, pierce: aDef.pierce, armor: tDef.armor, pierceRatio,
     accuracy: aDef.accuracy, evasion: tDef.evasion,
     terrainMod, openPlainMod, exposedMod, dugInMod, bunkerMod, fortTier: fortMods.fortTier,
-    fortIndirectBonus: fortMods.indirectAirBonus, fortName: fortMods.fortName, flankMod: 0, roll, blindFirePenalty,
+    fortIndirectBonus: fortMods.indirectAirBonus, fortAssault: fortMods.fortAssault || 0,
+    fortName: fortMods.fortName, flankMod: 0, roll, blindFirePenalty,
     attackerSupplyPenalty: atkSupplyPen.attackPenalty || 0,
     defenderSupplyPenalty: defSupplyPen.attackPenalty || 0,
     infantryRangePenalty: infantryRangePenalty || 0,

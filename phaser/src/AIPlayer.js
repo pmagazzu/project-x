@@ -326,11 +326,39 @@ function pickEngineerTask(gs, player, engineer, strategic, mapSize, claimedTasks
         const tk = `${pad.q},${pad.r}`;
         if (!claimedTasks?.has(tk)) {
           if (claimedTasks) claimedTasks.add(tk);
-          return { type: 'fort', q: pad.q, r: pad.r, anchorQ: engineer.q, anchorR: engineer.r };
+          const unlocked = new Set(gs.players[player]?.research?.unlocked || []);
+          const fortType = pickFortTypeForHex(gs, player, pad.q, pad.r, { kind: 'resource' }, unlocked, null);
+          return { type: 'fort', q: pad.q, r: pad.r, anchorQ: engineer.q, anchorR: engineer.r, fortType };
         }
       }
     }
     if (!hasRoad) return { type: 'road', q: engineer.q, r: engineer.r };
+  }
+
+  // Empire nodes: FOB/resource corridor needs depot + fort ring.
+  if (turn >= 8) {
+    for (const node of getEmpireNodes(gs, player)) {
+      if (!depotCoversHex(gs, player, node.q, node.r) && hexDistance(engineer.q, engineer.r, node.q, node.r) <= 10) {
+        const tk = `${node.q},${node.r}`;
+        if (!claimedTasks?.has(tk)) {
+          if (claimedTasks) claimedTasks.add(tk);
+          return { type: 'empire', q: node.q, r: node.r, nodeKind: node.kind, needsDepot: true };
+        }
+      }
+      const forts = countFortsNearHex(gs, player, node.q, node.r, 2);
+      if (forts < 2) {
+        const pad = findFortPadHex(gs, terrain, mapSize, node.q, node.r, player);
+        if (pad && hexDistance(engineer.q, engineer.r, pad.q, pad.r) <= 12) {
+          const tk = `${pad.q},${pad.r}`;
+          if (!claimedTasks?.has(tk)) {
+            if (claimedTasks) claimedTasks.add(tk);
+            const unlocked = new Set(gs.players[player]?.research?.unlocked || []);
+            const fortType = pickFortTypeForHex(gs, player, pad.q, pad.r, { kind: node.kind }, unlocked, null);
+            return { type: 'fort', q: pad.q, r: pad.r, anchorQ: node.q, anchorR: node.r, fortType, nodeKind: node.kind };
+          }
+        }
+      }
+    }
   }
 
   // Early-game priority: rush unclaimed resource hexes before corridor wander.
@@ -427,6 +455,109 @@ function getFOBChainPoints(gs, player) {
     r: Math.round(myHQ.r + (enemyHQ.r - myHQ.r) * pct),
     pct,
   }));
+}
+
+const INDIRECT_THREAT = new Set(['ARTILLERY', 'MORTAR']);
+
+function countHexThreats(gs, player, q, r, radius = 5) {
+  let ground = 0;
+  let indirect = 0;
+  let air = 0;
+  for (const u of gs.units) {
+    if (Number(u.owner) === Number(player) || u.embarked) continue;
+    if (hexDistance(u.q, u.r, q, r) > radius) continue;
+    ground += 1;
+    if (INDIRECT_THREAT.has(u.type)) indirect += 1;
+    if (AIR_UNITS.has(u.type)) air += 1;
+  }
+  return { ground, indirect, air };
+}
+
+function depotCoversHex(gs, player, q, r, radius = 4) {
+  return gs.buildings.some((b) => Number(b.owner) === Number(player)
+    && !b.underConstruction
+    && (b.type === 'SUPPLY_DEPOT' || b.type === 'SUPPLY_WAREHOUSE')
+    && hexDistance(b.q, b.r, q, r) <= radius);
+}
+
+/** Resource sites + FOB corridor + mid-line anchor for empire logistics/defense. */
+function getEmpireNodes(gs, player) {
+  const nodes = [];
+  for (const b of gs.buildings) {
+    if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
+    if (b.type !== 'MINE' && b.type !== 'OIL_PUMP') continue;
+    const t = countHexThreats(gs, player, b.q, b.r, 5);
+    nodes.push({ q: b.q, r: b.r, kind: 'resource', priority: 14 + t.ground * 2 + t.indirect * 2 });
+  }
+  for (const fob of getFOBChainPoints(gs, player)) {
+    const t = countHexThreats(gs, player, fob.q, fob.r, 6);
+    nodes.push({ q: fob.q, r: fob.r, kind: 'fob', priority: 16 + t.ground * 2, pct: fob.pct });
+  }
+  const myHQ = gs.buildings.find((bb) => bb.type === 'HQ' && bb.owner === player);
+  const enemyHQ = gs.buildings.find((bb) => bb.type === 'HQ' && bb.owner !== player);
+  if (myHQ && enemyHQ && (gs.turn || 1) >= 14) {
+    nodes.push({
+      q: Math.round(myHQ.q + (enemyHQ.q - myHQ.q) * 0.42),
+      r: Math.round(myHQ.r + (enemyHQ.r - myHQ.r) * 0.42),
+      kind: 'hq_corridor',
+      priority: 12,
+    });
+  }
+  return nodes.sort((a, b) => b.priority - a.priority);
+}
+
+function pickFortTypeForHex(gs, player, q, r, ctx, unlockedEng, canAfford) {
+  const threats = countHexThreats(gs, player, q, r, ctx?.radius || 5);
+  const turn = gs.turn || 1;
+  const candidates = [];
+  const add = (type, score) => {
+    const def = BUILDING_TYPES[type];
+    if (!def) return;
+    if (type === 'FORT_T0' && !unlockedEng.has('sandbag_improved')) return;
+    if (def.requiresTech && !unlockedEng.has(def.requiresTech)) return;
+    if (canAfford && !canAfford(def.buildCost || {})) return;
+    candidates.push({ type, score });
+  };
+
+  if (threats.indirect + threats.air >= 1) add('FORT_T0', 42 + threats.indirect * 5 + threats.air * 4);
+  add('FORT_T1', 22 + threats.ground * 2);
+  if (unlockedEng.has('entrenching_tools')) add('FORT_T2', 28 + threats.ground * 3 + (ctx?.kind === 'resource' ? 4 : 0));
+  if (unlockedEng.has('bunker') && threats.ground >= 1) add('FORT_T3', 30 + threats.ground * 3);
+  if (ctx?.kind === 'hq_corridor' || ctx?.kind === 'fob') {
+    if (unlockedEng.has('superfortress') && turn >= 22) add('FORT_T5', 38);
+    else if (unlockedEng.has('hardened_bunker') && turn >= 16) add('FORT_T4', 34);
+  }
+  if (!candidates.length) add('FORT_T1', 8);
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.type || 'FORT_T1';
+}
+
+function buildFortNeedsForNode(gs, player, nodeQ, nodeR, ctx, unlockedEng, canAfford, fortsNear, turn) {
+  const needs = [];
+  const threats = countHexThreats(gs, player, nodeQ, nodeR, 5);
+  const ctxFull = { ...ctx, radius: 5 };
+  if (fortsNear < 1 && turn >= 3) {
+    const t0 = pickFortTypeForHex(gs, player, nodeQ, nodeR, ctxFull, unlockedEng, canAfford);
+    needs.push({ type: t0, score: 34 + threats.indirect * 3 });
+  }
+  if (fortsNear < 2 && turn >= 5) {
+    const t1 = pickFortTypeForHex(gs, player, nodeQ, nodeR, { ...ctxFull, kind: ctx?.kind || 'resource' }, unlockedEng, canAfford);
+    needs.push({ type: t1, score: 28 + threats.ground * 2 });
+  }
+  if (fortsNear < 3 && turn >= 8 && unlockedEng.has('entrenching_tools')) {
+    needs.push({ type: 'FORT_T2', score: 26 + threats.ground * 2 });
+  }
+  if (fortsNear < 3 && turn >= 10 && unlockedEng.has('bunker') && threats.ground >= 1) {
+    needs.push({ type: 'FORT_T3', score: 28 + threats.ground * 3 });
+  }
+  if ((ctx?.kind === 'fob' || ctx?.kind === 'hq_corridor') && fortsNear < 4 && turn >= 16 && unlockedEng.has('hardened_bunker')) {
+    needs.push({ type: 'FORT_T4', score: 24 + threats.ground * 2 });
+  }
+  if (ctx?.kind === 'hq_corridor' && fortsNear < 2 && turn >= 22 && unlockedEng.has('superfortress')) {
+    needs.push({ type: 'FORT_T5', score: 26 });
+  }
+  if (fortsNear < 3 && turn >= 7) needs.push({ type: 'OBS_POST', score: 18 + threats.ground });
+  return needs;
 }
 
 function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits, enemyHQs) {
@@ -1986,7 +2117,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             if (task) {
               const dNew = hexDistance(hex.q, hex.r, task.q, task.r);
               const dCur = hexDistance(unit.q, unit.r, task.q, task.r);
-              const taskPull = task.type === 'resource' ? 44 : task.type === 'fort' ? 38 : 28;
+              const taskPull = task.type === 'resource' ? 44 : task.type === 'fort' ? 38 : task.type === 'empire' ? 36 : 28;
               if (dNew < dCur) s += taskPull;
               if (dNew <= 2) s += 16;
               if (dNew === 0) s += 20;
@@ -2081,6 +2212,27 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           return true;
         };
 
+        const memEng = engineerMemory[unit.id];
+        const engTask = memEng?.task;
+        if (engTask?.type === 'fort' && unit.q === engTask.q && unit.r === engTask.r && !hasNonRoadBuilding) {
+          const ft = engTask.fortType || pickFortTypeForHex(gs, player, unit.q, unit.r, { kind: engTask.nodeKind || 'resource' }, unlockedEng, canAfford);
+          if (maybeBuild(ft)) continue;
+        }
+
+        const empireNode = getEmpireNodes(gs, player).find((n) => n.q === unit.q && n.r === unit.r);
+        if (empireNode && !hasNonRoadBuilding) {
+          const fortsNearNode = countFortsNearHex(gs, player, unit.q, unit.r, 2);
+          if (!depotCoversHex(gs, player, unit.q, unit.r) && unlockedEng.has('supply_depot') && gs.turn >= 8) {
+            if (maybeBuild('SUPPLY_DEPOT')) continue;
+          }
+          if (!hasRoad) maybeBuild('ROAD');
+          const fortNeedsEmpire = buildFortNeedsForNode(gs, player, unit.q, unit.r, { kind: empireNode.kind }, unlockedEng, canAfford, fortsNearNode, gs.turn || 1);
+          fortNeedsEmpire.sort((a, b) => b.score - a.score);
+          for (const fn of fortNeedsEmpire) {
+            if (maybeBuild(fn.type)) continue;
+          }
+        }
+
         // Always allow ROAD consideration even if a non-road building exists on this tile.
         // Roads are intended to coexist with buildings and form supply corridors.
         const roadsNowForEng = countPlayerRoadLike(gs, player);
@@ -2142,24 +2294,12 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             && (b.type === 'MINE' || b.type === 'OIL_PUMP') && Number(b.owner) === Number(player));
           if (extractHere && resHex) {
             const fortsNear = countFortsNearHex(gs, player, unit.q, unit.r, 2);
-            const pressure = getEnemies().filter((e) => hexDistance(e.q, e.r, unit.q, unit.r) <= 5).length;
             const fortNeeds = [];
             if (!hasRoad) fortNeeds.push({ type: 'ROAD', score: 32 * phaseWeights.logistics });
-            if (fortsNear < 1 && gs.turn >= 3) {
-              if (unlockedEng.has('sandbag_improved')) fortNeeds.push({ type: 'FORT_T0', score: 32 });
-              else fortNeeds.push({ type: 'FORT_T1', score: 28 });
+            if (!depotCoversHex(gs, player, unit.q, unit.r) && unlockedEng.has('supply_depot') && gs.turn >= 6) {
+              fortNeeds.push({ type: 'SUPPLY_DEPOT', score: 30 + fortsNear });
             }
-            if (fortsNear < 2 && gs.turn >= 5) fortNeeds.push({ type: 'FORT_T1', score: 26 + pressure * 2 });
-            if (fortsNear < 2 && gs.turn >= 7) fortNeeds.push({ type: 'OBS_POST', score: 20 + pressure });
-            if (unlockedEng.has('entrenching_tools') && fortsNear < 3 && gs.turn >= 7) {
-              fortNeeds.push({ type: 'FORT_T2', score: 24 + pressure * 2 });
-            }
-            if (unlockedEng.has('bunker') && pressure >= 1 && fortsNear < 3 && gs.turn >= 10) {
-              fortNeeds.push({ type: 'FORT_T3', score: 26 + pressure * 3 });
-            }
-            if (unlockedEng.has('hardened_bunker') && pressure >= 2 && fortsNear < 4 && gs.turn >= 14) {
-              fortNeeds.push({ type: 'FORT_T4', score: 22 + pressure * 2 });
-            }
+            fortNeeds.push(...buildFortNeedsForNode(gs, player, unit.q, unit.r, { kind: 'resource' }, unlockedEng, canAfford, fortsNear, gs.turn || 1));
             fortNeeds.sort((a, b) => b.score - a.score);
             for (const fn of fortNeeds) {
               if (maybeBuild(fn.type)) continue;
@@ -2222,8 +2362,13 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             });
             if (nearFOB) {
               const pressure = getEnemies().filter(e => hexDistance(e.q, e.r, unit.q, unit.r) <= 4).length;
-              // Raised base score so FOBs compete with roads/farms
               needs.push({ type: 'SUPPLY_DEPOT', score: (28 + pressure * 3.0 + Math.floor(frontlineSpan / 3) - mySupplyDepots * 1.5) * phaseWeights.logistics });
+              const fobPt = fobPoints.find(fob => hexDistance(unit.q, unit.r, fob.q, fob.r) <= 8
+                && !depotCoversHex(gs, player, fob.q, fob.r));
+              if (fobPt) {
+                const fn = countFortsNearHex(gs, player, fobPt.q, fobPt.r, 2);
+                needs.push(...buildFortNeedsForNode(gs, player, fobPt.q, fobPt.r, { kind: 'fob' }, unlockedEng, canAfford, fn, turn));
+              }
             } else if (gs.turn >= 7 && mySupplyDepots < 5 && (unsupplied >= 2 || roadDeficit >= 2 || frontlineSpan >= 8)) {
               const pressure = getEnemies().filter(e => hexDistance(e.q, e.r, unit.q, unit.r) <= 4).length;
               needs.push({ type: 'SUPPLY_DEPOT', score: (14 + unsupplied * 2.5 + pressure * 2.5 + Math.floor(frontlineSpan / 3) + roadDeficit * 1.5 - mySupplyDepots * 2) * phaseWeights.logistics });

@@ -14,7 +14,8 @@ import {
   MODULES, CHASSIS_BUILDINGS, MAX_DESIGNS_PER_PLAYER,
   designRegistrationCost, designTrainCost, computeDesignStats, computeEffectiveTier,
   formatResourceCost, getChassisTier, getModuleResourceCost, getPlayerIndustryTier,
-  canPlayerUseModule, playerHasResources, refundResources, getUnitTierIntel, inferTierFromUnit, UNIT_TIER_COLORS, MATERIAL_KEYS, MATERIAL_LABELS,
+  canPlayerUseModule, playerHasResources, refundResources, getUnitTierIntel, inferTierFromUnit, getPlayerMaxTrainableTier,
+  UNIT_TIER_COLORS, MATERIAL_KEYS, MATERIAL_LABELS,
   NAVAL_UNITS, SHALLOW_UNITS, AIR_UNITS, canEnterTerrain, isStealthDetected,
   ROAD_TYPES, LOCKED_CHASSIS, hasLOS
 } from './GameState.js';
@@ -41,7 +42,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.4';
+export const GAME_VERSION = 'v1.10.5';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -3903,18 +3904,26 @@ export class GameScene extends Phaser.Scene {
       const preview = computeDesignStats(selChassis, [...selMods]);
       const regCost = designRegistrationCost([...selMods]);
       const effTier = computeEffectiveTier(selChassis, [...selMods], preview);
+      const maxTier = getPlayerMaxTrainableTier(gs, p);
       const pl = gs.players[p];
       const canAfford = playerHasResources(pl, regCost);
+      const tierOk = effTier <= maxTier;
 
       const TIER_FILL_HEX = ['#8a9aaa', '#4da3ff', '#e49c3d', '#d9534f', '#c44dff', '#ff3366'];
       objs.push(this.add.text(col2X, ry, `EFFECTIVE UNIT TIER  T${effTier}`, {
         font: 'bold 12px monospace', fill: TIER_FILL_HEX[effTier] || '#8a9aaa',
       }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 1));
       ry += 18;
-      objs.push(this.add.text(col2X, ry, `Chassis T${getChassisTier(selChassis)} + module floor + stat budget`, {
-        font: '9px monospace', fill: '#778877',
+      objs.push(this.add.text(col2X, ry, `Industry cap T${maxTier} · chassis T${getChassisTier(selChassis)} + modules + budget`, {
+        font: '9px monospace', fill: tierOk ? '#778877' : '#cc8866',
       }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 1));
       ry += 14;
+      if (!tierOk) {
+        objs.push(this.add.text(col2X, ry, `⚠ Design exceeds industry — trim modules or upgrade factories`, {
+          font: '9px monospace', fill: '#ffaa66',
+        }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 1));
+        ry += 14;
+      }
 
       // Stat comparison table header
       objs.push(this.add.text(col2X, ry, 'STAT COMPARISON', {
@@ -3972,19 +3981,19 @@ export class GameScene extends Phaser.Scene {
       ry += 22;
 
       // Register button
-      const btnColor = (canAfford && !slotFull) ? 0x226633 : 0x222222;
-      const btnTxtClr = (canAfford && !slotFull) ? '#aaffaa' : '#555555';
+      const btnColor = (canAfford && !slotFull && tierOk) ? 0x226633 : 0x222222;
+      const btnTxtClr = (canAfford && !slotFull && tierOk) ? '#aaffaa' : '#555555';
       const regBtnW = col2W, regBtnH = 30;
       const regBtnBg = this.add.rectangle(col2X + col2W/2, ry + regBtnH/2, regBtnW, regBtnH, btnColor, 1)
-        .setStrokeStyle(1, canAfford && !slotFull ? 0x44aa66 : 0x333333)
+        .setStrokeStyle(1, canAfford && !slotFull && tierOk ? 0x44aa66 : 0x333333)
         .setScrollFactor(0).setDepth(D+1);
       objs.push(regBtnBg);
       const regBtnLbl = this.add.text(col2X + col2W/2, ry + regBtnH/2,
-        slotFull ? '[ DESIGN SLOTS FULL ]' : (canAfford ? '[ NAME & REGISTER DESIGN ]' : '[ CANNOT AFFORD ]'), {
+        slotFull ? '[ DESIGN SLOTS FULL ]' : (!tierOk ? '[ TIER TOO HIGH ]' : (canAfford ? '[ NAME & REGISTER DESIGN ]' : '[ CANNOT AFFORD ]')), {
         font: 'bold 11px monospace', fill: btnTxtClr
       }).setOrigin(0.5).setScrollFactor(0).setDepth(D+2);
       objs.push(regBtnLbl);
-      if (canAfford && !slotFull) {
+      if (canAfford && !slotFull && tierOk) {
         regBtnBg.setInteractive({ useHandCursor: true });
         regBtnBg.on('pointerdown', () => { this._contextMenuClicked = true; onRegister(); });
         regBtnBg.on('pointerover', () => regBtnBg.setFillStyle(0x2a8844));
@@ -5077,7 +5086,16 @@ export class GameScene extends Phaser.Scene {
     const atkKilled = atkHpEnd <= 0;
     const killTag = defKilled && atkKilled ? '  ☠both' : defKilled ? '  ☠def' : atkKilled ? '  ☠atk' : '';
     const hex = entry.targetHex ? ` @${entry.targetHex.q},${entry.targetHex.r}` : '';
-    return `T${turn}  P${entry.attackerOwner} ${atk} → P${entry.targetOwner} ${def}${hex}: ${entry.tier || '?'}  −${entry.dmg || 0}/−${entry.attackerDmg || 0}${killTag}`;
+    let fortTag = '';
+    if (entry.fortName) {
+      fortTag = ` [${entry.fortName} T${entry.fortTier ?? '?'} −${entry.bunkerMod || 0}`;
+      if (entry.fortIndirectBonus) fortTag += ` +${entry.fortIndirectBonus} arty/air`;
+      if (entry.fortAssault) fortTag += ` assault−${entry.fortAssault}`;
+      fortTag += ']';
+    } else if (entry.bunkerMod) {
+      fortTag = ` [fort −${entry.bunkerMod}]`;
+    }
+    return `T${turn}  P${entry.attackerOwner} ${atk} → P${entry.targetOwner} ${def}${hex}: ${entry.tier || '?'}  −${entry.dmg || 0}/−${entry.attackerDmg || 0}${fortTag}${killTag}`;
   }
 
   _recordCombat(entry) {
@@ -5200,12 +5218,15 @@ export class GameScene extends Phaser.Scene {
       .setStrokeStyle(1, 0x445566).setScrollFactor(0).setDepth(D + 1));
     if (selRec?.entry) {
       const e = selRec.entry;
-      const steps = buildResolveSteps(e).slice(0, 6);
+      const steps = buildResolveSteps(e).slice(0, 8);
       objs.push(this.add.text(px - panW / 2 + 20, detailY + 8, 'SELECTED FIGHT', {
         font: 'bold 10px monospace', fill: '#88aacc',
       }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2));
+      const fortLine = e.fortName
+        ? `Fort: ${e.fortName} T${e.fortTier ?? '?'}  cover −${e.bunkerMod || 0}${e.fortIndirectBonus ? `  arty/air +${e.fortIndirectBonus}` : ''}${e.fortAssault ? `  assault −${e.fortAssault}` : ''}`
+        : '';
       objs.push(this.add.text(px - panW / 2 + 20, detailY + 24,
-        `${e.attackerName || e.attackerType} (P${e.attackerOwner}) vs ${e.targetName || e.targetType} (P${e.targetOwner})  ·  score ${e.score ?? '?'}/100`,
+        `${e.attackerName || e.attackerType} (P${e.attackerOwner}) vs ${e.targetName || e.targetType} (P${e.targetOwner})  ·  score ${e.score ?? '?'}/100${fortLine ? `\n${fortLine}` : ''}`,
         { font: '9px monospace', fill: '#dde8f0', wordWrap: { width: panW - 40 } },
       ).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2));
       steps.forEach((s, i) => {
