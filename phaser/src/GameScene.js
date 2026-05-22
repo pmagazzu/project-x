@@ -41,7 +41,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.1';
+export const GAME_VERSION = 'v1.10.2';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -269,6 +269,10 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0, 0).setPosition(bounds.minX - padding, bounds.minY - padding).setDepth(30);
 
     this._log = [];
+    this._combatHistory = [];
+    this._combatLogOpen = false;
+    this._combatLogScroll = 0;
+    this._combatLogSelected = -1;
 
     // UI Layer — all HUD/panel objects go here
     this._uiLayer = this.add.layer().setDepth(99);
@@ -2816,6 +2820,7 @@ export class GameScene extends Phaser.Scene {
       { label: '💱 TRADE', color: 0x3a2a11, cb: () => this._toggleTrade() },
       { label: '🔧 DESIGN', color: 0x1a3322, cb: () => this._toggleDesigner() },
       { label: '📊 ECON+', color: 0x2a2a14, cb: () => this._toggleEconomy() },
+      { label: '⚔ COMBAT LOG', color: 0x3a1828, cb: () => this._toggleCombatLog() },
     ];
     defs.forEach((d, i) => {
       const btn = this._makeBtn(w - 248, 74 + i * 28, d.label, d.color, () => {
@@ -4194,7 +4199,11 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    this.input.keyboard.on('keydown-ESC',   () => { if (this._nameModalOpen) return; if (!this._endTurnPending) this._toggleSettings(); });
+    this.input.keyboard.on('keydown-ESC',   () => {
+      if (this._nameModalOpen) return;
+      if (this._combatLogOpen) { this._closeCombatLog(); return; }
+      if (!this._endTurnPending) this._toggleSettings();
+    });
     this.input.keyboard.on('keydown-X',     () => { if (this._nameModalOpen || this._mapBuilderMode) return; this._confirmEndTurn(); });
     this.input.keyboard.on('keydown-B', () => {
       if (this._nameModalOpen || this._mapBuilderMode || this._designerOpen) return;
@@ -4859,6 +4868,7 @@ export class GameScene extends Phaser.Scene {
     this._closeSettings();
     this._closeTrade?.();
     this._closeEconomy?.();
+    this._closeCombatLog?.();
     this._settingsOpen = true;
     const w = this.scale.width, h = this.scale.height;
     const panelW = 560, panelH = 420, D = 210;
@@ -4986,12 +4996,196 @@ export class GameScene extends Phaser.Scene {
     this._setCommandDockHighlight(false);
   }
 
+  // ── Combat log (full fight history for AI vs AI review) ─────────────────────
+  _toggleCombatLog() {
+    if (this._combatLogOpen) this._closeCombatLog();
+    else this._openCombatLog();
+  }
+
+  _closeCombatLog() {
+    if (this._combatLogObjs) {
+      for (const o of this._combatLogObjs) { try { o.destroy(); } catch (e) {} }
+      this._combatLogObjs = null;
+    }
+    this._combatLogOpen = false;
+  }
+
+  _formatCombatHistoryLine(entry, gs) {
+    if (!entry) return 'Unknown combat';
+    const turn = gs?.turn ?? '?';
+    if (entry.type === 'miss') {
+      const atk = UNIT_TYPES[entry.attackerType]?.name || entry.attackerType || '?';
+      const def = UNIT_TYPES[entry.targetType]?.name || entry.targetType || '?';
+      const why = entry.reason === 'out_of_range' ? 'out of range' : entry.reason === 'no_los' ? 'no LOS' : (entry.reason || 'miss');
+      return `T${turn}  P${entry.attackerOwner ?? '?'} ${atk} → ${def}: ${why}`;
+    }
+    const atk = entry.attackerName || UNIT_TYPES[entry.attackerType]?.name || entry.attackerType || '?';
+    const def = entry.targetName || UNIT_TYPES[entry.targetType]?.name || entry.targetType || '?';
+    const defHpEnd = Math.max(0, (entry.targetHPBefore ?? 0) - (entry.dmg || 0));
+    const atkHpEnd = Math.max(0, (entry.attackerHPBefore ?? 0) - (entry.attackerDmg || 0));
+    const defKilled = defHpEnd <= 0;
+    const atkKilled = atkHpEnd <= 0;
+    const killTag = defKilled && atkKilled ? '  ☠both' : defKilled ? '  ☠def' : atkKilled ? '  ☠atk' : '';
+    const hex = entry.targetHex ? ` @${entry.targetHex.q},${entry.targetHex.r}` : '';
+    return `T${turn}  P${entry.attackerOwner} ${atk} → P${entry.targetOwner} ${def}${hex}: ${entry.tier || '?'}  −${entry.dmg || 0}/−${entry.attackerDmg || 0}${killTag}`;
+  }
+
+  _recordCombat(entry) {
+    if (!entry) return;
+    const gs = this.gameState;
+    const rec = {
+      id: (this._combatHistory?.length || 0) + 1,
+      turn: gs?.turn ?? 0,
+      line: this._formatCombatHistoryLine(entry, gs),
+      entry: { ...entry },
+    };
+    if (!this._combatHistory) this._combatHistory = [];
+    this._combatHistory.push(rec);
+    if (this._combatHistory.length > 300) this._combatHistory.shift();
+    if (this._combatLogOpen) {
+      if (this._combatLogSelected < 0) this._combatLogSelected = this._combatHistory.length - 1;
+      this._openCombatLog();
+    }
+  }
+
+  _openCombatLog() {
+    this._closeCombatLog();
+    this._closeTrade?.();
+    this._closeEconomy?.();
+    this._closeResearch?.();
+    this._closeDesigner?.();
+    this._closeSettings?.();
+    this._combatLogOpen = true;
+
+    const w = this.scale.width;
+    const h = this.scale.height;
+    const D = 224;
+    const panW = Math.min(640, w - 40);
+    const panH = Math.min(h - 80, 560);
+    const px = w - panW / 2 - 12;
+    const py = 70 + panH / 2;
+    const objs = [];
+    const ROW_H = 22;
+    const VISIBLE = Math.floor((panH - 200) / ROW_H);
+
+    const history = this._combatHistory || [];
+    const maxScroll = Math.max(0, history.length - VISIBLE);
+    if (this._combatLogScroll > maxScroll) this._combatLogScroll = maxScroll;
+    if (this._combatLogSelected < 0 && history.length > 0) {
+      this._combatLogSelected = history.length - 1;
+    }
+    const winStart = Math.max(0, history.length - VISIBLE - this._combatLogScroll);
+
+    const bg = this.add.rectangle(px, py, panW, panH, 0x100818, 0.98)
+      .setStrokeStyle(2, 0xff6688).setScrollFactor(0).setDepth(D).setInteractive();
+    bg.on('pointerdown', () => { this._contextMenuClicked = true; });
+    objs.push(bg);
+
+    objs.push(this.add.text(px, py - panH / 2 + 18, `⚔ COMBAT LOG  (${history.length})`, {
+      font: 'bold 14px monospace', fill: '#ffccaa',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 1));
+
+    const closeBtn = this.add.text(px + panW / 2 - 14, py - panH / 2 + 18, '✕', {
+      font: 'bold 16px monospace', fill: '#aaaaaa',
+    }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D + 2).setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerdown', () => { this._contextMenuClicked = true; this._closeCombatLog(); });
+    objs.push(closeBtn);
+
+    const listTop = py - panH / 2 + 44;
+    const listLeft = px - panW / 2 + 12;
+    const listW = panW - 24;
+
+    objs.push(this.add.text(listLeft, listTop - 4, 'Newest at bottom · click row for detail', {
+      font: '9px monospace', fill: '#778899',
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 1));
+
+    const slice = history.slice(winStart, winStart + VISIBLE);
+    slice.forEach((rec, i) => {
+      const idx = winStart + i;
+      const y = listTop + i * ROW_H;
+      const sel = idx === this._combatLogSelected;
+      const rowBg = this.add.rectangle(listLeft + listW / 2, y + ROW_H / 2, listW, ROW_H - 2,
+        sel ? 0x2a1a28 : 0x141018, 1)
+        .setStrokeStyle(1, sel ? 0xff88aa : 0x332233)
+        .setScrollFactor(0).setDepth(D + 1).setInteractive({ useHandCursor: true });
+      rowBg.on('pointerdown', () => {
+        this._contextMenuClicked = true;
+        this._combatLogSelected = idx;
+        this._openCombatLog();
+      });
+      objs.push(rowBg);
+      const tierCol = TIER_COL[rec.entry?.tier] || '#c8d0d8';
+      objs.push(this.add.text(listLeft + 6, y + ROW_H / 2, rec.line, {
+        font: `${sel ? 'bold ' : ''}9px monospace`, fill: tierCol,
+      }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(D + 2));
+    });
+
+    if (history.length === 0) {
+      objs.push(this.add.text(px, listTop + 40, 'No combats yet.\nFights appear here as they resolve.', {
+        font: '11px monospace', fill: '#667788', align: 'center',
+      }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(D + 1));
+    }
+
+    const navY = py + panH / 2 - 168;
+    const mkNav = (label, x, delta) => {
+      const b = this.add.text(x, navY, label, {
+        font: 'bold 11px monospace', fill: '#ccddee', backgroundColor: '#223344', padding: { x: 8, y: 4 },
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 2).setInteractive({ useHandCursor: true });
+      b.on('pointerdown', () => {
+        this._contextMenuClicked = true;
+        this._combatLogScroll = Math.max(0, Math.min(maxScroll, this._combatLogScroll + delta));
+        this._openCombatLog();
+      });
+      objs.push(b);
+    };
+    mkNav('▲ NEWER', px - 80, -1);
+    mkNav('▼ OLDER', px + 80, 1);
+    objs.push(this.add.text(px, navY + 22, `${history.length ? winStart + 1 : 0}–${Math.min(history.length, winStart + slice.length)} of ${history.length}`, {
+      font: '9px monospace', fill: '#8899aa',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 1));
+
+    const detailY = py + panH / 2 - 118;
+    const selRec = history[this._combatLogSelected];
+    objs.push(this.add.rectangle(px, detailY + 54, panW - 20, 108, 0x080c10, 0.96)
+      .setStrokeStyle(1, 0x445566).setScrollFactor(0).setDepth(D + 1));
+    if (selRec?.entry) {
+      const e = selRec.entry;
+      const steps = buildResolveSteps(e).slice(0, 6);
+      objs.push(this.add.text(px - panW / 2 + 20, detailY + 8, 'SELECTED FIGHT', {
+        font: 'bold 10px monospace', fill: '#88aacc',
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2));
+      objs.push(this.add.text(px - panW / 2 + 20, detailY + 24,
+        `${e.attackerName || e.attackerType} (P${e.attackerOwner}) vs ${e.targetName || e.targetType} (P${e.targetOwner})  ·  score ${e.score ?? '?'}/100`,
+        { font: '9px monospace', fill: '#dde8f0', wordWrap: { width: panW - 40 } },
+      ).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2));
+      steps.forEach((s, i) => {
+        objs.push(this.add.text(px - panW / 2 + 20, detailY + 44 + i * 13, s, {
+          font: '8px monospace', fill: '#99aabb',
+        }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2));
+      });
+      const ret = (e.defenderCanRetaliate && (e.retaliationDmg || 0) > 0)
+        ? `Retaliation: ${e.retaliationTier} −${e.retaliationDmg}`
+        : 'Retaliation: none';
+      objs.push(this.add.text(px - panW / 2 + 20, detailY + 98, ret, {
+        font: '9px monospace', fill: '#ffcf95',
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2));
+    } else {
+      objs.push(this.add.text(px, detailY + 40, 'Select a combat row above.', {
+        font: '10px monospace', fill: '#778899',
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 2));
+    }
+
+    this._combatLogObjs = objs;
+    this._addToUI(objs);
+  }
+
   _openEconomy() {
     this._closeEconomy();
     this._closeTrade?.();
     this._closeResearch?.();
     this._closeDesigner?.();
     this._closeSettings?.();
+    this._closeCombatLog?.();
     this._economyOpen = true;
     this._setCommandDockHighlight(true);
 
@@ -6934,6 +7128,7 @@ export class GameScene extends Phaser.Scene {
     let log = [];
     try {
       log = resolveImmediateAttack(gs, attacker.id, targetId, blindFire) || [];
+      if (log[0]) this._recordCombat(log[0]);
       if (target && !target.dead) target._tierIntelConfirmed = true;
       if (attacker) attacker._tierIntelConfirmed = true;
     } catch (e) {
@@ -7481,6 +7676,7 @@ export class GameScene extends Phaser.Scene {
       let log = [];
       try {
         log = resolveImmediateAttack(gs, attacker.id, action.targetId, false) || [];
+        if (log[0]) this._recordCombat(log[0]);
       } catch (e) {
         this._pushLog(`AI attack error: ${e?.message || e}`);
       }

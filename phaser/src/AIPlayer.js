@@ -180,12 +180,12 @@ function getOpeningMilestones(gs, player) {
 }
 
 function getPhaseWeights(turn = 1) {
-  // Multi-objective AI doctrine: supply/econ + recon early, balanced mid, decisive combat late.
+  // Multi-objective AI doctrine: supply/econ + recon early, but keep skirmishes alive (not pure turtling).
   if (turn <= 8) {
-    return { economy: 1.35, logistics: 1.45, recon: 1.35, research: 1.15, combat: 0.75, raiding: 0.8, naval: 0.9, air: 0.85 };
+    return { economy: 1.28, logistics: 1.38, recon: 1.25, research: 1.15, combat: 1.0, raiding: 1.12, naval: 0.92, air: 0.88 };
   }
   if (turn <= 16) {
-    return { economy: 1.15, logistics: 1.25, recon: 1.15, research: 1.25, combat: 1.0, raiding: 1.05, naval: 1.05, air: 1.0 };
+    return { economy: 1.12, logistics: 1.2, recon: 1.1, research: 1.25, combat: 1.08, raiding: 1.12, naval: 1.05, air: 1.0 };
   }
   return { economy: 0.95, logistics: 1.05, recon: 0.95, research: 1.1, combat: 1.3, raiding: 1.25, naval: 1.15, air: 1.2 };
 }
@@ -354,7 +354,10 @@ function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits
   // --- Phase decision with hysteresis ---
   let desiredPhase = 'expand';
   if ((gs.turn || 1) >= 18) desiredPhase = 'pressure';
-  if (roadDeficit >= 4 || unsupplied >= Math.max(3, Math.floor(myUnits.length * 0.25))) desiredPhase = 'stabilize';
+  const turn = gs.turn || 1;
+  const stabilizeRoad = turn < 12 ? 6 : 5;
+  const stabilizeUnsup = turn < 12 ? Math.max(4, Math.floor(myUnits.length * 0.32)) : Math.max(3, Math.floor(myUnits.length * 0.25));
+  if (roadDeficit >= stabilizeRoad || unsupplied >= stabilizeUnsup) desiredPhase = 'stabilize';
 
   const prevPhase = prev.phase || 'expand';
   const prevPhaseTurns = prev.phaseTurns || 0;
@@ -955,7 +958,9 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
     diversion: deceptionActive ? Math.max(3, Math.floor(n * 0.22)) : Math.max(1, Math.floor(n * 0.10)),
     probe: Math.max(1, Math.floor(n * (phase === 'expand' ? 0.14 : 0.08))),
     expand: (phase === 'expand' || phase === 'stabilize') ? Math.max(3, Math.floor(n * 0.30)) : Math.max(1, Math.floor(n * 0.12)),
-    main: phase === 'pressure' ? Math.max(2, Math.floor(n * 0.30)) : Math.max(0, Math.floor(n * 0.10)),
+    main: phase === 'pressure'
+      ? Math.max(2, Math.floor(n * 0.30))
+      : Math.max((turn >= 8 && phase !== 'stabilize') ? 2 : (turn >= 5 ? 1 : 0), Math.floor(n * 0.14)),
   };
 
   const assign = (u, mission, target) => {
@@ -1187,8 +1192,8 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   // Attack/pressure scoring (de-emphasized for engineers/support)
   if (unit.type !== 'ENGINEER' && role !== 'support') {
     const attackable = getAttackableHexes(gs, unit, q, r, null);
-    if (attackable.length > 0 && (rushMissions.has(mission) || mission === 'probe' || mission === 'diversion')) {
-      const atkScale = rushMissions.has(mission) ? 1 : 0.45;
+    if (attackable.length > 0 && (rushMissions.has(mission) || mission === 'probe' || mission === 'diversion' || mission === 'expand')) {
+      const atkScale = rushMissions.has(mission) ? 1 : (mission === 'expand' ? 0.62 : 0.45);
       score += ((cfg.attackBonus + 10) + attackable.length * 3) * phase.combat * atkScale;
       for (const h of attackable) {
         const t = gs.units.find(u => u.q === h.q && u.r === h.r && u.owner !== unit.owner);
@@ -1765,10 +1770,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const killShot = preMoveTarget && (preMoveTarget.health || 99) <= 1;
     const scoutOk = unitMission === 'scout' && killShot;
     const probeOk = (unitMission === 'probe' || unitMission === 'diversion') && (killShot || preTrade >= 5);
+    const expandOk = unitMission === 'expand' && (killShot || (preTrade >= 3 && nearbyFriendliesForCommit >= 1));
     const mainOk = unitMission === 'main' && ((!!unitInSupply && hasCommitMass) || frontlineCommit);
-    const canRiskAttack = scoutOk || probeOk || mainOk
+    const canRiskAttack = scoutOk || probeOk || expandOk || mainOk
       || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && killShot && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
-    const preThreshold = unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 4 : (unitMission === 'main' ? 0 : 6));
+    const preThreshold = unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 4 : (unitMission === 'expand' ? 4 : (unitMission === 'main' ? 0 : 6)));
     if (preMoveTarget && canRiskAttack && preTrade >= preThreshold) {
       actions.push({
         type:       'attack',
@@ -1878,11 +1884,13 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           ? (nearbyFriendliesPost >= 2 || (postMoveTarget && (postMoveTarget.health || 99) <= 1))
           : (nearbyFriendliesPost >= 3 || (postMoveTarget && (postMoveTarget.health || 99) <= 1));
         const postKill = postMoveTarget && (postMoveTarget.health || 99) <= 1;
+        const expandPostOk = unitMission === 'expand' && (postKill || (postTrade >= 3 && nearbyFriendliesPost >= 2));
         const canRiskPostAttack = (unitMission === 'scout' && postKill)
           || ((unitMission === 'probe' || unitMission === 'diversion') && (postKill || postTrade >= 5))
+          || expandPostOk
           || (unitMission === 'main' && ((!!postInSupply && hasCommitMassPost) || frontlineCommitPost))
           || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && postKill && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
-        const postThreshold = unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 4 : (unitMission === 'main' ? 0 : 6));
+        const postThreshold = unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 4 : (unitMission === 'expand' ? 4 : (unitMission === 'main' ? 0 : 6)));
         if (postMoveTarget && canRiskPostAttack && postTrade >= postThreshold) {
           actions.push({
             type:       'attack',
