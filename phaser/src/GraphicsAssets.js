@@ -103,6 +103,15 @@ export function hasBuildingSprite(scene, buildingType) {
   return hasPixelTexture(scene, key);
 }
 
+/** Replace a canvas-backed texture (Phaser 3.90 has no TextureManager.remove). */
+export function replaceCanvasTexture(scene, key, canvas) {
+  if (scene.textures.exists(key)) {
+    const existing = scene.textures.get(key);
+    if (existing?.destroy) existing.destroy();
+  }
+  scene.textures.addCanvas(key, canvas);
+}
+
 /** Bake procedural sprites (call once in GameScene.create). */
 export function initSpriteArt(scene) {
   registerPixelSprites(scene);

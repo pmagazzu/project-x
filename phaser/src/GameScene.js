@@ -22,7 +22,7 @@ import {
 } from './GameState.js';
 import { TECH_TREE, RESEARCH_BRANCHES, prereqsMet, computeTechBonuses, getNextDesignSlotTech } from './ResearchData.js';
 import {
-  GAME_THEME, TERRAIN_COLORS_V2, initSpriteArt,
+  GAME_THEME, TERRAIN_COLORS_V2, initSpriteArt, replaceCanvasTexture,
   getUnitArtTextureKey, getBuildingArtTextureKey, hasUnitSprite, placeWorldSprite,
 } from './GraphicsAssets.js';
 import {
@@ -39,7 +39,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.15';
+export const GAME_VERSION = 'v1.10.16';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -738,10 +738,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    if (this.textures.exists('_terrain_base_baked')) {
-      this.textures.remove('_terrain_base_baked');
-    }
-    this.textures.addCanvas('_terrain_base_baked', canvas);
+    replaceCanvasTexture(this, '_terrain_base_baked', canvas);
 
     if (this._terrainBaseImg) { try { this._terrainBaseImg.destroy(); } catch(e){} }
     // depth 0 within terrainArtLayer so terrain art (depth 2) renders on top
@@ -971,10 +968,7 @@ export class GameScene extends Phaser.Scene {
       ctx.drawImage(srcImg, dx, dy, artW, sprH);
     }
 
-    if (this.textures.exists('_mountain_peaks_baked')) {
-      this.textures.remove('_mountain_peaks_baked');
-    }
-    this.textures.addCanvas('_mountain_peaks_baked', canvas);
+    replaceCanvasTexture(this, '_mountain_peaks_baked', canvas);
 
     if (this._mountainPeaksImg) { try { this._mountainPeaksImg.destroy(); } catch(e){} }
     this._mountainPeaksImg = this.add.image(offX, offY, '_mountain_peaks_baked')

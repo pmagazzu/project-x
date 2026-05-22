@@ -203,7 +203,7 @@ function drawSub(ctx) {
 }
 
 function drawDestroyer(ctx) {
-  drawBoat(20);
+  drawBoat(ctx, 20);
   const { K, S } = PIXEL_PAL;
   rect(ctx, 20, 12, 2, 4, K);
   rect(ctx, 21, 13, 1, 2, S);
@@ -213,7 +213,7 @@ function drawDestroyer(ctx) {
 
 function drawCruiser(ctx, big = false) {
   const w = big ? 24 : 20;
-  drawBoat(w);
+  drawBoat(ctx, w);
   const { K, S } = PIXEL_PAL;
   const x = Math.floor((32 - w) / 2);
   rect(ctx, x + 6, 11, 2, 4, K);
@@ -292,7 +292,7 @@ function drawNavalYard(ctx) {
   rect(ctx, 20, 6, 2, 12, K);
   rect(ctx, 18, 8, 6, 2, K);
   rect(ctx, 19, 9, 4, 1, S);
-  drawBoat(12);
+  drawBoat(ctx, 12);
 }
 
 function drawHarbor(ctx) {
@@ -301,7 +301,7 @@ function drawHarbor(ctx) {
   rect(ctx, 5, 19, 22, 5, B);
   rect(ctx, 4, 22, 10, 4, L);
   rect(ctx, 18, 22, 10, 4, L);
-  drawBoat(10);
+  drawBoat(ctx, 10);
 }
 
 function drawDepot(ctx) {
@@ -356,13 +356,13 @@ const DRAWERS = {
   px_unit_anti_tank: drawAntiTank,
   px_unit_medic: drawMedic,
   px_unit_truck: drawTruck,
-  px_unit_patrol_boat: () => drawBoat(12),
+  px_unit_patrol_boat: (ctx) => drawBoat(ctx, 12),
   px_unit_submarine: drawSub,
   px_unit_destroyer: drawDestroyer,
-  px_unit_cruiser_light: () => drawCruiser(false),
-  px_unit_cruiser_heavy: () => drawCruiser(true),
-  px_unit_battleship: () => drawCruiser(true),
-  px_unit_landing_craft: () => drawBoat(10),
+  px_unit_cruiser_light: (ctx) => drawCruiser(ctx, false),
+  px_unit_cruiser_heavy: (ctx) => drawCruiser(ctx, true),
+  px_unit_battleship: (ctx) => drawCruiser(ctx, true),
+  px_unit_landing_craft: (ctx) => drawBoat(ctx, 10),
   px_unit_aircraft: drawAircraft,
   px_bld_hq: drawHQ,
   px_bld_barracks: drawBarracks,
@@ -394,12 +394,16 @@ const NEAREST_FILTER = 1; // Phaser.ScaleModes.NEAREST
 
 export function registerPixelSprites(scene) {
   for (const id of Object.keys(DRAWERS)) {
-    if (scene.textures.exists(id)) continue;
-    const canvas = getCanvas(id);
-    if (!canvas) continue;
-    scene.textures.addCanvas(id, canvas);
-    const tex = scene.textures.get(id);
-    if (tex?.source?.[0]) tex.source[0].setFilter(NEAREST_FILTER);
+    try {
+      if (scene.textures.exists(id)) continue;
+      const canvas = getCanvas(id);
+      if (!canvas) continue;
+      scene.textures.addCanvas(id, canvas);
+      const tex = scene.textures.get(id);
+      if (tex?.source?.[0]) tex.source[0].setFilter(NEAREST_FILTER);
+    } catch (err) {
+      console.error(`[PixelSpriteArt] failed to register ${id}`, err);
+    }
   }
 }
 
