@@ -24,6 +24,7 @@ import {
   COMBAT_GLYPH, TIER_COL, TIER_BG,
   getCombatIntel, analyzeCombat, buildResolveSteps,
 } from './CombatUI.js';
+import { renderCombatPreviewPanel, renderCombatResultPanel } from './CombatPanelUI.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
 const TERRAIN        = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2, HILL: 3, SHALLOW: 4, OCEAN: 5, SAND: 6 };
@@ -42,7 +43,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.7';
+export const GAME_VERSION = 'v1.10.8';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -3790,18 +3791,19 @@ export class GameScene extends Phaser.Scene {
     const col2W = panW * 0.42;
 
     // Background — interactive to absorb all clicks and prevent bleed-through
-    const bg = this.add.rectangle(w/2, py + panH/2, panW, panH, 0x080c10, 0.97)
-      .setStrokeStyle(2, 0x3a6a3a).setScrollFactor(0).setDepth(D)
+    const bg = this.add.rectangle(w/2, py + panH/2, panW, panH, 0x0c1018, 0.97)
+      .setStrokeStyle(3, 0x88cc66).setScrollFactor(0).setDepth(D)
       .setInteractive();
     bg.on('pointerdown', () => { this._contextMenuClicked = true; });
     objs.push(bg);
 
     // Header strip
-    const hdr = this.add.rectangle(w/2, py + 22, panW, 44, 0x0d1a14, 1)
+    const hdr = this.add.rectangle(w/2, py + 22, panW, 44, 0x1a2838, 1)
       .setScrollFactor(0).setDepth(D);
     objs.push(hdr);
+    this.add.rectangle(w/2, py + 2, panW, 4, 0x66ccff, 1).setScrollFactor(0).setDepth(D + 1);
     objs.push(this.add.text(w/2, py + 22, '🔧  UNIT DESIGNER', {
-      font: 'bold 15px monospace', fill: '#88ddaa'
+      font: 'bold 16px monospace', fill: '#a8e8ff'
     }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1));
 
     // Slot / resource info
@@ -3881,7 +3883,11 @@ export class GameScene extends Phaser.Scene {
           .setScrollFactor(0).setDepth(D + 1);
         if (gate.ok) {
           rowBg.setInteractive({ useHandCursor: true });
-          rowBg.on('pointerdown', () => { this._contextMenuClicked = true; onMod(key); });
+          rowBg.on('pointerdown', () => {
+            this._contextMenuClicked = true;
+            this.tweens.add({ targets: rowBg, scaleX: 1.04, scaleY: 1.04, duration: 70, yoyo: true });
+            onMod(key);
+          });
           rowBg.on('pointerover', () => rowBg.setFillStyle(sel ? 0x1a4a1a : 0x141e14));
           rowBg.on('pointerout', () => rowBg.setFillStyle(sel ? 0x1a3a1a : 0x0e140e));
         }
@@ -5142,8 +5148,8 @@ export class GameScene extends Phaser.Scene {
     const px = w - panW / 2 - 12;
     const py = 70 + panH / 2;
     const objs = [];
-    const ROW_H = 22;
-    const VISIBLE = Math.floor((panH - 200) / ROW_H);
+    const ROW_H = 28;
+    const VISIBLE = Math.floor((panH - 240) / ROW_H);
 
     const history = this._combatHistory || [];
     const maxScroll = Math.max(0, history.length - VISIBLE);
@@ -5192,9 +5198,10 @@ export class GameScene extends Phaser.Scene {
       });
       objs.push(rowBg);
       const tierCol = TIER_COL[rec.entry?.tier] || '#c8d0d8';
-      objs.push(this.add.text(listLeft + 6, y + ROW_H / 2, rec.line, {
-        font: `${sel ? 'bold ' : ''}9px monospace`, fill: tierCol,
-      }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(D + 2));
+      objs.push(this.add.text(listLeft + 6, y + 4, rec.line, {
+        font: `${sel ? 'bold ' : ''}8px monospace`, fill: tierCol,
+        wordWrap: { width: listW - 14 }, lineSpacing: 2,
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2));
     });
 
     if (history.length === 0) {
@@ -5221,34 +5228,42 @@ export class GameScene extends Phaser.Scene {
       font: '9px monospace', fill: '#8899aa',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 1));
 
-    const detailY = py + panH / 2 - 118;
+    const detailY = py + panH / 2 - 148;
+    const detailH = 132;
     const selRec = history[this._combatLogSelected];
-    objs.push(this.add.rectangle(px, detailY + 54, panW - 20, 108, 0x080c10, 0.96)
+    objs.push(this.add.rectangle(px, detailY + detailH / 2, panW - 20, detailH, 0x080c10, 0.96)
       .setStrokeStyle(1, 0x445566).setScrollFactor(0).setDepth(D + 1));
+    objs.push(this.add.text(px - panW / 2 + 18, detailY + 4, 'CODEX: Menu → Attrition Codex for full combat rules', {
+      font: '8px monospace', fill: '#556677',
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2));
     if (selRec?.entry) {
       const e = selRec.entry;
-      const steps = buildResolveSteps(e).slice(0, 8);
-      objs.push(this.add.text(px - panW / 2 + 20, detailY + 8, 'SELECTED FIGHT', {
+      const steps = buildResolveSteps(e);
+      objs.push(this.add.text(px - panW / 2 + 20, detailY + 16, 'SELECTED FIGHT', {
         font: 'bold 10px monospace', fill: '#88aacc',
       }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2));
       const fortLine = e.fortName
         ? `Fort: ${e.fortName} T${e.fortTier ?? '?'}  cover −${e.bunkerMod || 0}${e.fortIndirectBonus ? `  arty/air +${e.fortIndirectBonus}` : ''}${e.fortAssault ? `  assault −${e.fortAssault}` : ''}`
         : '';
-      objs.push(this.add.text(px - panW / 2 + 20, detailY + 24,
-        `${e.attackerName || e.attackerType} (P${e.attackerOwner}) vs ${e.targetName || e.targetType} (P${e.targetOwner})  ·  score ${e.score ?? '?'}/100${fortLine ? `\n${fortLine}` : ''}`,
-        { font: '9px monospace', fill: '#dde8f0', wordWrap: { width: panW - 40 } },
-      ).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2));
-      steps.forEach((s, i) => {
-        objs.push(this.add.text(px - panW / 2 + 20, detailY + 44 + i * 13, s, {
-          font: '8px monospace', fill: '#99aabb',
-        }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2));
+      const summary = this.add.text(px - panW / 2 + 20, detailY + 30,
+        `${e.attackerName || e.attackerType} (P${e.attackerOwner}) → ${e.targetName || e.targetType} (P${e.targetOwner})\nTier ${e.tier || '?'} · score ${e.score ?? '?'}/100 · −${e.dmg || 0} / −${e.attackerDmg || 0}${fortLine ? `\n${fortLine}` : ''}`,
+        { font: '9px monospace', fill: '#dde8f0', wordWrap: { width: panW - 44 }, lineSpacing: 3 },
+      ).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2);
+      objs.push(summary);
+      let stepY = detailY + 30 + summary.height + 6;
+      steps.slice(0, 5).forEach((s) => {
+        const st = this.add.text(px - panW / 2 + 24, stepY, s, {
+          font: '8px monospace', fill: '#99aabb', wordWrap: { width: panW - 52 },
+        }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2);
+        objs.push(st);
+        stepY += st.height + 4;
       });
       const ret = (e.defenderCanRetaliate && (e.retaliationDmg || 0) > 0)
         ? `Retaliation: ${e.retaliationTier} −${e.retaliationDmg}`
         : 'Retaliation: none';
-      objs.push(this.add.text(px - panW / 2 + 20, detailY + 98, ret, {
+      objs.push(this.add.text(px - panW / 2 + 20, detailY + detailH - 14, ret, {
         font: '9px monospace', fill: '#ffcf95',
-      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2));
+      }).setOrigin(0, 1).setScrollFactor(0).setDepth(D + 2));
     } else {
       objs.push(this.add.text(px, detailY + 40, 'Select a combat row above.', {
         font: '10px monospace', fill: '#778899',
@@ -7029,157 +7044,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   _showCombatPreview(attacker, target, blindFire) {
-    const gs = this.gameState;
-    const intel = getCombatIntel(this, gs, attacker, target, blindFire);
-    const analysis = analyzeCombat(gs, this.terrain, this.mapSize, attacker, target, blindFire, intel);
-    const { aDef, tDef, expDmg, expRetDmg, canRet, noRetReason, tier, tierLo, tierHi,
-      preRollScore, scoreMin, scoreMax, baseAtk, verdict, verdictColor, verdictAdvice,
-      atkProfile, defProfile, tips, modRows } = analysis;
-    const defName = intel.showDefenderType ? tDef.name : 'Unknown hostile';
-    const defType = intel.showDefenderType ? target.type : '???';
-    const defHp = intel.showDefenderHP ? target.health : '?';
-    const defMaxHp = intel.showDefenderHP ? (target.maxHealth || tDef.health) : '?';
-    const defDmgProj = intel.showDefenderHP ? expDmg : 0;
-    const defStatsLine = intel.showDefenderStats
-      ? `DEF ${tDef.defense || 0}  ARM ${tDef.armor || 0}  EVA ${tDef.evasion || 0}`
-      : 'Stats hidden — scout or observe target';
-
-    const PC = [null, 0x3366cc, 0xcc3333];
-    const sw = this.scale.width, sh = this.scale.height, cx = sw * 0.5, cy = sh * 0.5, D = 210;
-    const objs = [];
-    const mk = (txt, x, y, col = '#d0dde8', sz = 11, bold = false, ox = 0.5, oy = 0.5, wrapW = null) => {
-      const style = { font: `${bold ? 'bold ' : ''}${sz}px monospace`, fill: col };
-      if (wrapW) style.wordWrap = { width: wrapW };
-      const t = this.add.text(x, y, txt, style).setOrigin(ox, oy).setScrollFactor(0).setDepth(D + 1);
-      objs.push(t);
-      return t;
-    };
-    const bx=(x,y,w,h,fill,alpha=1,stroke=null)=>{
-      const r=this.add.rectangle(x,y,w,h,fill,alpha).setDepth(D).setScrollFactor(0);
-      if(stroke!==null)r.setStrokeStyle(1.5,stroke);objs.push(r);return r;
-    };
-    const hpBar=(x,y,bW,current,max,proj)=>{
-      bx(x,y,bW,10,0x111111,1,0x334455);
-      const f=Math.max(0,current)/Math.max(1,max);
-      bx(x-bW/2+(bW*f)/2,y,bW*f,10,f>0.6?0x44bb44:f>0.3?0xddaa00:0xcc2222);
-      const af=Math.max(0,current-proj)/Math.max(1,max);
-      if(proj>0){const lw=bW*(f-af);bx(x-bW/2+bW*af+lw/2,y,lw,10,0x882222,0.7);}
-    };
-
-    const cW = Math.min(920, sw - 48), cH = Math.min(640, sh - 100);
-    bx(cx, cy, sw, sh, 0x000000, 0.68);
-    bx(cx, cy, cW, cH, 0x100818, 0.98, 0xff66cc);
-
-    bx(cx, cy - cH / 2 + 24, cW, 48, 0x0c1824, 1, 0xffcc44);
-    mk('⚔ COMBAT BRIEFING', cx - 40, cy - cH / 2 + 22, '#ffcc44', 14, true);
-    mk(`INTEL: ${intel.label}`, cx + cW / 2 - 60, cy - cH / 2 + 22, '#bb99ee', 10, true, 1, 0.5);
-    mk(intel.reasons.join(' · '), cx, cy - cH / 2 + 40, '#778899', 9, false, 0.5, 0.5, cW - 40);
-
-    const pW = (cW - 56) * 0.36, pH = 118, pY = cy - cH / 2 + 52 + pH / 2;
-    const lX = cx - cW / 2 + 14 + pW / 2, rX = cx + cW / 2 - 14 - pW / 2;
-    const portrait = (pcx, type, owner, name, hp, maxHp, proj, role, profile) => {
-      bx(pcx, pY, pW, pH, 0x0f151c, 1, PC[owner] || 0x445566);
-      bx(pcx, pY - pH / 2 + 10, pW, 20, owner === 1 ? 0x1a2a44 : 0x3a1414, 1);
-      mk(role, pcx, pY - pH / 2 + 10, role === 'ATTACKER' ? '#77a9ff' : '#ff8888', 9, true);
-      mk(COMBAT_GLYPH[type] || '◌', pcx, pY - 18, '#dde8f0', 28, true);
-      mk(name, pcx, pY + 16, '#eef6ff', 11, true);
-      if (typeof hp === 'number') {
-        hpBar(pcx, pY + 36, pW - 14, hp, maxHp, proj);
-        mk(`HP ${hp}/${maxHp} → ${Math.max(0, hp - proj)}`, pcx, pY + 50, proj > 0 ? '#ff8888' : '#99dd99', 9, true);
-      } else {
-        mk(`HP ${hp}/${maxHp}`, pcx, pY + 42, '#aa88cc', 10, true);
-      }
-      mk(`${profile.role} · ${profile.lines[0] || ''}`, pcx, pY + 64, '#99aabb', 8, false, 0.5, 0.5, pW - 12);
-    };
-    portrait(lX, attacker.type, attacker.owner, aDef.name, attacker.health, attacker.maxHealth || aDef.health, expRetDmg, 'ATTACKER', atkProfile);
-    portrait(rX, defType, target.owner, defName, defHp, defMaxHp, defDmgProj, 'DEFENDER', intel.showDefenderStats ? defProfile : { role: '???', lines: ['Intel insufficient'] });
-
-    bx(cx, pY - 8, 100, 72, 0x1a1028, 0.9, 0x664488);
-    mk(verdict, cx, pY - 22, verdictColor, 12, true);
-    mk(`${baseAtk} ATK`, cx, pY + 2, '#e8d090', 16, true);
-    mk(verdictAdvice, cx, pY + 22, '#99aabb', 8, false, 0.5, 0.5, 90);
-
-    mk(`Your unit: ${atkProfile.lines[0]}`, lX, pY + 78, '#8fb9ff', 8, true, 0.5, 0.5, pW);
-    mk(defStatsLine, rX, pY + 78, '#ffb38f', 8, true, 0.5, 0.5, pW);
-    if (intel.showTargetTier && intel.targetTier) {
-      const ti = intel.targetTier;
-      const tierLine = ti.certain
-        ? `Unit tier: T${ti.tier} (${ti.label})`
-        : `Unit tier est.: ${ti.label}`;
-      mk(tierLine, rX, pY + 92, ti.certain ? '#ffcc66' : '#aa88cc', 9, true, 0.5, 0.5, pW);
-    }
-
-    let tipY = pY + pH / 2 + 18;
-    if (tips.length) {
-      bx(cx, tipY + 28, cW - 20, 52, 0x14101c, 0.95, 0x3a2a44);
-      mk('MATCHUP NOTES', cx - cW / 2 + 16, tipY + 8, '#cc88ff', 9, true, 0, 0);
-      tips.slice(0, 3).forEach((t, i) => mk(`• ${t}`, cx - cW / 2 + 16, tipY + 22 + i * 14, '#d8c8e8', 8, false, 0, 0, cW - 36));
-      tipY += 58;
-    }
-
-    const sbY = tipY + 8;
-    const sbH = intel.showScoreDetail ? 96 : 48;
-    bx(cx, sbY + sbH / 2, cW - 16, sbH, 0x080c10, 0.95, 0x2e3d50);
-    mk('HIT QUALITY (0–100)', cx, sbY + 6, '#6688aa', 10, true, 0.5, 0);
-    if (intel.showScoreDetail) {
-      modRows.slice(0, 6).forEach((row, i) => {
-        mk(`${row[0]}`, cx - cW / 2 + 20, sbY + 22 + i * 13, '#667788', 8, false, 0, 0);
-        mk(row[1], cx + cW / 2 - 20, sbY + 22 + i * 13, row[2], 8, true, 1, 0);
-      });
-      mk(`Pre-roll ${preRollScore} (roll may land ${scoreMin}–${scoreMax})`, cx, sbY + sbH - 10, '#aabbcc', 9, true, 0.5, 1);
-    } else {
-      mk('Detailed modifiers hidden — improve intel to see full breakdown', cx, sbY + 28, '#aa88cc', 9, false, 0.5, 0.5, cW - 40);
-    }
-
-    const outY = sbY + sbH + 10;
-    bx(cx, outY + 14, cW - 16, 30, TIER_BG[tier] || 0x1a1a1a, 1, 0x334455);
-    const rangeStr = tierLo === tierHi ? tier : `${tierLo} → ${tier} → ${tierHi}`;
-    const dmgStr = intel.showDefenderHP ? `est. −${expDmg} defender` : 'damage estimate unclear';
-    const retStr = intel.showRetaliation
-      ? (canRet ? `↩ ret. −${expRetDmg}` : `no ret. (${noRetReason})`)
-      : 'retaliation unknown';
-    mk(`Expected ${rangeStr.toUpperCase()} · ${dmgStr} · ${retStr}`, cx, outY + 14, TIER_COL[tier] || '#ccc', 9, true);
-
-    // ── Buttons ───────────────────────────────────────────────────────────────
-    const btnY = cy+cH/2-22;
-    bx(cx, cy+cH/2-22, cW, 44, 0x080c10, 1, 0x2e3d50);
-    const cancelLabel = verdict === 'RETREAT ADVISED' ? '  BACK OUT  ' : '  CANCEL  ';
-    const atkBtn = this.add.text(cx - 88, btnY, '  ATTACK  ', {
-      font: 'bold 13px monospace', fill: '#ffffff', backgroundColor: '#992211', padding: { x: 16, y: 8 },
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 2).setInteractive({ useHandCursor: true });
-    const canBtn = this.add.text(cx + 88, btnY, cancelLabel, {
-      font: 'bold 13px monospace', fill: '#dddddd', backgroundColor: '#2a2244', padding: { x: 16, y: 8 },
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 2).setInteractive({ useHandCursor: true });
-    this._addToUI([...objs, atkBtn, canBtn]);
-    const popTargets = [...objs, atkBtn, canBtn].filter((o) => o.setAlpha);
-    popTargets.forEach((o) => { o.setAlpha(0); o.setScale?.(0.94); });
-    this.tweens.add({ targets: popTargets, alpha: 1, scaleX: 1, scaleY: 1, duration: 140, ease: 'Back.easeOut' });
-
-    let autoCloseTimer = null;
-    const cleanup=()=>{
-      if (autoCloseTimer) { try { autoCloseTimer.remove(false); } catch(e){} autoCloseTimer = null; }
-      [...objs,atkBtn,canBtn].forEach(o=>{try{o.destroy();}catch(e){}});
-    };
-    atkBtn.on('pointerdown',()=>{
-      this._contextMenuClicked=true;
-      // Short on-card strike animation before resolve
-      const slash = this.add.graphics().setScrollFactor(0).setDepth(D+3);
-      const sx1 = lX + pW*0.15, sy1 = pY - 12;
-      const sx2 = rX - pW*0.15, sy2 = pY - 12;
-      slash.lineStyle(6, 0xff4444, 0.95);
-      slash.beginPath(); slash.moveTo(sx1, sy1); slash.lineTo(sx2, sy2); slash.strokePath();
-      this.tweens.add({ targets: slash, alpha: 0, duration: 140, onComplete: () => { try { slash.destroy(); } catch(e){} } });
-      this.time.delayedCall(120, () => { cleanup(); this._doImmediateAttack(attacker,target.id,blindFire); });
+    renderCombatPreviewPanel(this, attacker, target, blindFire, {
+      onAttack: () => this._doImmediateAttack(attacker, target.id, blindFire),
+      onCancel: () => this._refresh(),
     });
-    canBtn.on('pointerdown',()=>{ this._contextMenuClicked=true; cleanup(); this._refresh(); });
-
-    // Spectator QoL: in AI-vs-AI viewer mode, auto-close preview card after 2s.
-    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
-      autoCloseTimer = this.time.delayedCall(2000, () => { cleanup(); this._refresh(); });
-    }
-
-    atkBtn.on('pointerover',()=>atkBtn.setStyle({fill:'#ffdddd'}));
-    atkBtn.on('pointerout', ()=>atkBtn.setStyle({fill:'#ffffff'}));
   }
 
   _showIndirectConfirm(attacker, target) {
@@ -8122,101 +7990,7 @@ export class GameScene extends Phaser.Scene {
   _wait(ms) { return new Promise(r => this.time.delayedCall(this._simMs(ms), r)); }
 
   _showCombatCard(entry, idx, total) {
-    const objs = [];
-    const sw = this.scale.width, sh = this.scale.height;
-    const cx = sw * 0.5, cy = sh * 0.76;
-    const D = 206;
-    const g = (t) => COMBAT_GLYPH[t] || '◌';
-    const PC = [null, 0x3366cc, 0xcc3333];
-
-    const mk = (txt, x, y, col = '#d0dde8', sz = 10, bold = false, ox = 0.5, oy = 0.5, wrapW = null) => {
-      const style = { font: `${bold ? 'bold ' : ''}${sz}px monospace`, fill: col };
-      if (wrapW) style.wordWrap = { width: wrapW };
-      const t = this.add.text(x, y, txt, style).setOrigin(ox, oy).setScrollFactor(0).setDepth(D + 1);
-      objs.push(t);
-      return t;
-    };
-    const box = (x, y, w, h, fill, alpha = 1, stroke = null) => {
-      const r = this.add.rectangle(x, y, w, h, fill, alpha).setDepth(D).setScrollFactor(0);
-      if (stroke !== null) r.setStrokeStyle(1.5, stroke);
-      objs.push(r);
-      return r;
-    };
-
-    const steps = buildResolveSteps(entry);
-    const cW = Math.min(920, sw - 24);
-    const cH = Math.min(480, sh - 100);
-    const cX = cx;
-    const cY = Math.min(cy, sh - (cH / 2) - 8);
-    box(cX, cY, cW, cH, 0x100818, 0.98, 0xff66cc);
-
-    box(cX, cY - cH / 2 + 22, cW, 44, 0x0d1b2a, 1, 0xffcc44);
-    mk('⚔ COMBAT RESOLVED', cX - 50, cY - cH / 2 + 20, '#ffcc44', 13, true);
-    if (total > 1) mk(`${idx} / ${total}`, cX + cW / 2 - 24, cY - cH / 2 + 20, '#8ea5bc', 10, false, 1, 0.5);
-    mk(`Tier: ${entry.tier || '?'}  ·  Hit quality ${entry.score ?? '?'}/100`, cX + 40, cY - cH / 2 + 20, TIER_COL[entry.tier] || '#ccc', 10, true, 1, 0.5);
-
-    const pW = Math.floor(cW * 0.36), pH = 150;
-    const lCX = cX - cW * 0.28, rCX = cX + cW * 0.28;
-    const pY = cY - cH / 2 + 130;
-    const atkHP0 = entry.attackerHPBefore ?? (entry.attackerDmg || 0);
-    const defHP0 = entry.targetHPBefore ?? (entry.dmg || 0);
-    const atkHP1 = Math.max(0, atkHP0 - (entry.attackerDmg || 0));
-    const defHP1 = Math.max(0, defHP0 - (entry.dmg || 0));
-
-    const hpBar = (x, y, w, hp, max, dmg) => {
-      box(x, y, w, 10, 0x111111, 1, 0x334455);
-      const frac = Math.max(0, hp) / Math.max(1, max);
-      if (frac > 0) box(x - w / 2 + (w * frac) / 2, y, w * frac, 10, frac > 0.6 ? 0x44bb44 : frac > 0.3 ? 0xddaa00 : 0xcc2222);
-      if (dmg > 0) {
-        const lostW = Math.min(w, w * dmg / Math.max(1, max));
-        box(x - w / 2 + w * frac + lostW / 2, y, lostW, 10, 0x882222, 0.65);
-      }
-    };
-
-    const portrait = (pcx, role, type, owner, name, hp0, hp1, dmgTaken) => {
-      box(pcx, pY, pW, pH, 0x0f151c, 1, PC[owner] || 0x445566);
-      mk(role, pcx, pY - pH / 2 + 12, role === 'ATTACKER' ? '#77a9ff' : '#ff8888', 9, true);
-      mk(g(type), pcx, pY - 24, '#eef6ff', 30, true);
-      mk(name || '?', pcx, pY + 10, '#eef6ff', 11, true);
-      hpBar(pcx, pY + 38, pW - 20, hp1, hp0, dmgTaken);
-      mk(`HP ${hp1}/${hp0}${dmgTaken > 0 ? `  (−${dmgTaken})` : ''}`, pcx, pY + 52, dmgTaken > 0 ? '#ffaaaa' : '#99dd99', 9, true);
-    };
-    portrait(lCX, 'ATTACKER', entry.attackerType, entry.attackerOwner, entry.attackerName, atkHP0, atkHP1, entry.attackerDmg || 0);
-    portrait(rCX, 'DEFENDER', entry.targetType, entry.targetOwner, entry.targetName, defHP0, defHP1, entry.dmg || 0);
-
-    const outY = pY + pH / 2 + 20;
-    const outcome = (entry.dmg || 0) > (entry.attackerDmg || 0) ? 'ATTACKER WINS EXCHANGE'
-      : ((entry.attackerDmg || 0) > (entry.dmg || 0) ? 'DEFENDER HOLDS' : 'BLOODY EXCHANGE');
-    const outCol = outcome === 'ATTACKER WINS EXCHANGE' ? '#88ee88' : outcome === 'DEFENDER HOLDS' ? '#ee8888' : '#ddbb66';
-    box(cX, outY, cW - 20, 32, TIER_BG[entry.tier] || 0x2a2200, 1, 0x445566);
-    mk(`${outcome}  ·  −${entry.dmg || 0} def  ·  −${entry.attackerDmg || 0} atk${entry.suppressed ? '  ·  SUPPRESSED' : ''}`, cX, outY, outCol, 10, true);
-
-    const wrap = cW - 44;
-    let stepY = outY + 28;
-    box(cX, stepY + 72, cW - 20, 148, 0x080c10, 0.96, 0x2e3d50);
-    mk('HOW IT WAS CALCULATED', cX - cW / 2 + 16, stepY + 6, '#88aacc', 9, true, 0, 0);
-    steps.slice(0, 8).forEach((s, i) => mk(s, cX - cW / 2 + 16, stepY + 22 + i * 15, '#c8d8e8', 8, false, 0, 0, wrap - 8));
-
-    const retLine = (entry.defenderCanRetaliate && (entry.retaliationDmg || 0) > 0)
-      ? `Retaliation: ${entry.retaliationTier || '?'} for −${entry.retaliationDmg} to attacker`
-      : 'Retaliation: none';
-    mk(retLine, cX, cY + cH / 2 - 44, '#ffcf95', 9, true, 0.5, 0, wrap);
-
-    box(cX, cY + cH / 2 - 16, cW, 30, 0x080b10, 1, 0x2e3d50);
-    mk('CLICK or SPACE to continue', cX, cY + cH / 2 - 16, '#dbe8f5', 10, true);
-
-    objs.forEach((o) => { if (o.setAlpha) { o.setAlpha(0); o.setScale?.(0.96); } });
-    this.tweens.add({
-      targets: objs.filter((o) => o.setAlpha),
-      alpha: 1,
-      scaleX: 1,
-      scaleY: 1,
-      duration: 120,
-      ease: 'Quad.easeOut',
-    });
-
-    this._addToUI(objs);
-    return objs;
+    return renderCombatResultPanel(this, entry, idx, total);
   }
 
   _waitForAdvance(label = '[ SPACE or CLICK → NEXT COMBAT ]') {

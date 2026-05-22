@@ -19,6 +19,7 @@ import {
   getReachableHexes, getAttackableHexes, hexDistance, buildingAt, roadAt, computeSupply, getRecruitFoodCost,
   ROAD_TYPES, unitAt,
 } from './GameState.js';
+import { ensureAIDesigns, pickAIRecruit, getClosingPressure } from './AIDesigner.js';
 
 const AI_TRANSPORT_TYPES = new Set(['LANDING_CRAFT', 'TRANSPORT_SM', 'TRANSPORT_MD', 'TRANSPORT_LG']);
 import { TECH_TREE } from './ResearchData.js';
@@ -560,7 +561,7 @@ function buildFortNeedsForNode(gs, player, nodeQ, nodeR, ctx, unlockedEng, canAf
   return needs;
 }
 
-function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits, enemyHQs) {
+function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits, enemyHQs, closingPressure = 0) {
   gs._aiStrategicMemory = gs._aiStrategicMemory || {};
   const prev = gs._aiStrategicMemory[player] || {};
 
@@ -579,7 +580,7 @@ function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits
 
   // --- Phase decision with hysteresis ---
   let desiredPhase = 'expand';
-  if ((gs.turn || 1) >= 18) desiredPhase = 'pressure';
+  if ((gs.turn || 1) >= 18 || closingPressure >= 0.42) desiredPhase = 'pressure';
   const turn = gs.turn || 1;
   const stabilizeRoad = turn < 12 ? 6 : 5;
   const stabilizeUnsup = turn < 12 ? Math.max(4, Math.floor(myUnits.length * 0.32)) : Math.max(3, Math.floor(myUnits.length * 0.25));
@@ -1497,7 +1498,10 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   if (enemyHQs.length > 0 && !cfg.retreatToHQ && rushMissions.has(mission)) {
     const nd = Math.min(...enemyHQs.map(b => hexDistance(q, r, b.q, b.r)));
     const cd = Math.min(...enemyHQs.map(b => hexDistance(unit.q, unit.r, b.q, b.r)));
-    if (nd < cd) score += (unit.type === 'ENGINEER' ? 2 : 7);
+    const close = ctx.closingPressure || 0;
+    const rushBoost = 7 + Math.floor(close * 22);
+    if (nd < cd) score += (unit.type === 'ENGINEER' ? 2 : rushBoost);
+    if (close >= 0.45 && nd <= 10) score += 6 + close * 14;
   }
   if (ctx.deceptionTurn && probeMissions.has(mission)) {
     const nearest = enemyHQs[0];
@@ -1900,7 +1904,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const role = getUnitRole(u.type);
       return role !== 'engineer' && role !== 'support' && ((d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0);
     });
-  const strategic = buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits, enemyHQs);
+  ensureAIDesigns(gs, player);
+  const closingPressure = getClosingPressure(gs, player);
+  const strategic = buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits, enemyHQs, closingPressure);
   const territorial = buildTerritorialIntel(terrain, mapSize, gs, player, strategic, resourceTargets);
   strategic.territorial = territorial;
   const waterBodies = buildWaterBodyIndex(terrain, mapSize);
@@ -1937,7 +1943,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     roadDeficit: roadDeficitGlobal, roadCaptainId,
     logisticsPressure, logisticsEmergency, dynamicRoadTarget,
     strategic, territorial, transportMission,
-    mapSize,
+    mapSize, closingPressure,
   };
 
   const engineerMemory = initEngineerMemory(gs, player);
@@ -2048,10 +2054,16 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const scoutOk = unitMission === 'scout' && killShot;
     const probeOk = (unitMission === 'probe' || unitMission === 'diversion') && (killShot || preTrade >= 5);
     const expandOk = unitMission === 'expand' && (killShot || (preTrade >= 3 && nearbyFriendliesForCommit >= 1));
-    const mainOk = unitMission === 'main' && ((!!unitInSupply && hasCommitMass) || frontlineCommit);
+    const close = aiCtx?.closingPressure || 0;
+    const mainOk = unitMission === 'main' && (
+      (close >= 0.5 && (killShot || preTrade >= -2 || (!!unitInSupply && nearbyFriendliesForCommit >= 1)))
+      || ((!!unitInSupply && hasCommitMass) || frontlineCommit)
+    );
     const canRiskAttack = scoutOk || probeOk || expandOk || mainOk
+      || (close >= 0.55 && unitMission === 'main' && killShot)
       || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && killShot && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
-    const preThreshold = unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 4 : (unitMission === 'expand' ? 4 : (unitMission === 'main' ? 0 : 6)));
+    const preThreshold = unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 4 : (unitMission === 'expand' ? 4
+      : (unitMission === 'main' ? (close >= 0.5 ? -3 : 0) : 6)));
     if (preMoveTarget && canRiskAttack && preTrade >= preThreshold) {
       actions.push({
         type:       'attack',
@@ -2731,6 +2743,27 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     }
 
     const buildingCanRecruitAny = (set) => sorted.some(t => set.has(t));
+
+    if ((gs.turn || 1) >= 10 && (resSim.components || 0) >= 2 && !logisticsEmergency) {
+      const dPick = pickAIRecruit(gs, player, b, sorted, resSim, gs.turn || 1, true);
+      if (dPick && typeof dPick.unitType === 'number' && dPick.design) {
+        const ch = dPick.design.chassis;
+        const tc = dPick.design.trainCost || {};
+        const foodCost = getRecruitFoodCost(ch);
+        if (resSim.iron >= (tc.iron || 0) && resSim.oil >= (tc.oil || 0) && resSim.wood >= (tc.wood || 0)
+          && resSim.food >= foodCost && resSim.components >= (tc.components || 0)) {
+          actions.push({ type: 'recruit', buildingId: b.id, unitType: dPick.unitType });
+          plannedCount[ch] = (plannedCount[ch] || 0) + 1;
+          resSim.iron -= (tc.iron || 0);
+          resSim.oil -= (tc.oil || 0);
+          resSim.wood -= (tc.wood || 0);
+          resSim.food -= foodCost;
+          resSim.components -= (tc.components || 0);
+          continue;
+        }
+      }
+    }
+
     for (const unitType of sorted) {
       if (isNaval && navalBodyId != null && !waterBodies.recruitAllowed(unitType, navalBodyId, gs, player)) continue;
       const totals = plannedTotals();

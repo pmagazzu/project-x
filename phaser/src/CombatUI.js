@@ -91,6 +91,7 @@ export function getCombatIntel(scene, gs, attacker, target, blindFire = false) {
     showRetaliation: level >= 2,
     showScoreDetail: level >= 1,
     showRecommendations: level >= 2,
+    showDefenderType: level >= 2,
     reasons,
     blindFire: !!blindFire,
     inSight: !!inSight,
@@ -280,11 +281,20 @@ export function analyzeCombat(gs, terrain, mapSize, attacker, target, blindFire,
   }
   modRows.push([`Random roll`, `±${ROLL}`, '#7799aa']);
 
+  const clarity = [
+    { k: 'Hit quality', v: `${preRollScore} (±${ROLL} roll → ${scoreMin}–${scoreMax})`, c: '#e8d090' },
+    { k: 'Attack power', v: `${baseAtk} base (${navalVsLand ? 'naval bombard' : isArmored ? 'hard vs armor' : 'soft'})`, c: '#88ccff' },
+    { k: 'Pierce', v: `${aDef.pierce || 0} vs armor ${tDef.armor || 0} → ×${pierceRatio.toFixed(2)} damage`, c: pierceRatio >= 1 ? '#88ee88' : '#ffaa66' },
+    { k: 'Defense', v: `${effDef} DEF${fortDefenseBonus ? ` + ${fortDefenseBonus} fort DR` : ''}`, c: '#ffbb88' },
+    { k: 'Expected', v: `−${expDmg} to defender${canRet ? `, −${expRetDmg} retaliation` : ''}`, c: '#ffffff' },
+    { k: 'Outcome band', v: tierLo === tierHi ? tier : `${tierLo} … ${tierHi}`, c: TIER_COL[tier] || '#ccc' },
+  ];
+
   return {
     aDef, tDef, dist, baseAtk, pierceRatio, pierceMod, preRollScore, scoreMin, scoreMax,
     tier, tierLo: tierAt(scoreMin), tierHi: tierAt(scoreMax), expDmg, maxDmg, expRetDmg,
     canRet, noRetReason, retTier, effDef, isArmored, navalVsNaval, navalVsLand,
-    atkProfile, defProfile, tips, verdict, verdictColor, verdictAdvice, modRows,
+    atkProfile, defProfile, tips, verdict, verdictColor, verdictAdvice, modRows, clarity,
     terrainMod, dugInMod, bunkerMod, fortTier: fortMods.fortTier, fortIndirectBonus: fortMods.indirectAirBonus,
     fortAssault: fortMods.fortAssault || 0,
     openPlainMod, blindMod, atkSupPen, defSupPen,

@@ -109,6 +109,14 @@ export class MenuScene extends Phaser.Scene {
       font: '10px monospace', fill: '#2a3a2a',
     }).setOrigin(0.5);
 
+    const codex = this.add.text(w / 2, h - 88, '📖  ATTRITION CODEX  (combat rules & systems)', {
+      font: 'bold 13px monospace', fill: '#8899cc',
+      backgroundColor: '#141820', padding: { x: 16, y: 10 },
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    codex.on('pointerover', () => codex.setStyle({ fill: '#ccddee' }));
+    codex.on('pointerout', () => codex.setStyle({ fill: '#8899cc' }));
+    codex.on('pointerdown', () => this.scene.start('EncyclopediaScene', { tab: 'combat' }));
+
     this.add.text(w / 2, h - 56, `${GAME_VERSION}`, {
       font: 'bold 26px monospace', fill: '#6f8f5a', stroke: '#111611', strokeThickness: 4,
     }).setOrigin(0.5);
