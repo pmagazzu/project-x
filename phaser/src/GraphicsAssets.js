@@ -126,7 +126,7 @@ export function placeWorldSprite(scene, layer, textureKey, x, y, maxHeight, tint
     .setDepth(depth);
   if (textureKey.startsWith('px_')) {
     const tex = scene.textures.get(textureKey);
-    if (tex?.source?.[0]) tex.source[0].setFilter(Phaser.ScaleModes.NEAREST);
+    if (tex?.source?.[0]) tex.source[0].setFilter(1); // NEAREST
   }
   if (tint != null) spr.setTint(tint);
   if (layer) layer.add(spr);

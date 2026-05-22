@@ -60,7 +60,7 @@ function outlineRect(ctx, x, y, w, h, fill, edge = PIXEL_PAL.K) {
 // ── Unit drawers ─────────────────────────────────────────────────────────────
 
 function drawInfantry(ctx) {
-  const { K, D, G, L, H } = PIXEL_PAL;
+  const { K, D, M, G, L, H } = PIXEL_PAL;
   // helmet + head
   rect(ctx, 13, 5, 6, 4, K);
   rect(ctx, 14, 6, 4, 2, L);
@@ -390,14 +390,16 @@ function getCanvas(id) {
 }
 
 /** Register all procedural pixel textures on the Phaser scene. */
+const NEAREST_FILTER = 1; // Phaser.ScaleModes.NEAREST
+
 export function registerPixelSprites(scene) {
   for (const id of Object.keys(DRAWERS)) {
+    if (scene.textures.exists(id)) continue;
     const canvas = getCanvas(id);
     if (!canvas) continue;
-    if (scene.textures.exists(id)) scene.textures.remove(id);
     scene.textures.addCanvas(id, canvas);
     const tex = scene.textures.get(id);
-    if (tex?.source?.[0]) tex.source[0].setFilter(Phaser.ScaleModes.NEAREST);
+    if (tex?.source?.[0]) tex.source[0].setFilter(NEAREST_FILTER);
   }
 }
 
