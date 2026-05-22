@@ -39,7 +39,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.9.12';
+export const GAME_VERSION = 'v1.9.13';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -3182,12 +3182,16 @@ export class GameScene extends Phaser.Scene {
       const actions = this._getUnitActions(u);
       actions.slice(0, 6).forEach((a, i) => {
         const col = i % 3, row = Math.floor(i / 3);
+        const bx = ax + col * (bw + gap);
+        const by = ay + row * (bh + gap);
         const btn = this._makeActionBtn(
-          ax + col * (bw + gap),
-          ay + row * (bh + gap),
+          bx, by,
           a.label,
           a.color,
-          a.enabled ? a.cb : () => {}
+          a.enabled ? () => {
+            this._menuAnchor = { x: bx + bw / 2, y: by + bh / 2 };
+            this._runContextMenuItem(a, u);
+          } : () => {}
         );
         if (!a.enabled) btn.setAlpha(0.4);
         this._uiLayer.add(btn);
@@ -4019,7 +4023,10 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       if (ptr.button === 0 && !this._isDragging && !this._panelOpenAtMouseDown) {
-        if (this._contextMenuObjs?.length && this._contextMenuHitTest(ptr.x, ptr.y)) {
+        if (this._contextMenuDismissLock) {
+          this._contextMenuClicked = true;
+          this._contextMenuDismissLock = false;
+        } else if (this._contextMenuObjs?.length && this._contextMenuHitTest(ptr.x, ptr.y)) {
           this._contextMenuClicked = true;
         }
         if (this._contextMenuObjs && !this._contextMenuClicked) {
@@ -4616,20 +4623,28 @@ export class GameScene extends Phaser.Scene {
     const rootTitle = submenu === 'root' && aDef
       ? `${aDef.name}${unit.designName ? ` · ${unit.designName}` : ''}`
       : null;
-    const rowCount = items.length + (title ? 1 : 0) + (rootTitle ? 1 : 0);
+    const rowCount = items.length + (title ? 1 : 0) + (rootTitle ? 1 : 0) + 1; // footer hint row
     const menuH = rowCount * (btnH + gap) + 10;
     let px = anchor.x + 14;
     if (px + btnW > sw - 10) px = anchor.x - btnW - 14;
-    let py = anchor.y - menuH / 2;
-    if (py < PLAYFIELD_UI.top + 4) py = PLAYFIELD_UI.top + 4;
-    if (py + menuH > sh - PLAYFIELD_UI.bottom - 8) py = sh - PLAYFIELD_UI.bottom - 8 - menuH;
+    let py;
+    if (replace && this._contextMenuBounds) {
+      px = this._contextMenuBounds.x;
+      py = this._contextMenuBounds.y;
+    } else {
+      py = anchor.y - menuH / 2;
+      if (py < PLAYFIELD_UI.top + 4) py = PLAYFIELD_UI.top + 4;
+      if (py + menuH > sh - PLAYFIELD_UI.bottom - 8) py = sh - PLAYFIELD_UI.bottom - 8 - menuH;
+    }
 
     const panelCx = px + btnW / 2;
     const panelCy = py + menuH / 2;
     const panelBg = this.add.rectangle(panelCx, panelCy, btnW + 14, menuH + 6, 0x100818, 0.96)
       .setStrokeStyle(2, 0xff66cc).setScrollFactor(0).setDepth(DEPTH - 1).setOrigin(0.5)
-      .setInteractive();
-    panelBg.on('pointerdown', () => { this._contextMenuClicked = true; });
+      .setInteractive({ useHandCursor: false });
+    const absorbMenuPointer = () => { this._contextMenuClicked = true; };
+    panelBg.on('pointerdown', absorbMenuPointer);
+    panelBg.on('pointerup', absorbMenuPointer);
     objs.push(panelBg);
     this._contextMenuBounds = { x: px, y: py, w: btnW + 14, h: menuH + 6 };
     objs.push(this.add.rectangle(panelCx, py + 2, btnW + 8, 3, 0xffcc44, 1)
@@ -4700,10 +4715,15 @@ export class GameScene extends Phaser.Scene {
 
   _runContextMenuItem(item, unit) {
     if (!item?.enabled) return;
+    const now = this.time?.now ?? performance.now();
+    if (this._contextMenuLastPickAt != null && now - this._contextMenuLastPickAt < 100) return;
+    this._contextMenuLastPickAt = now;
     this._contextMenuClicked = true;
     const menuUnit = unit || this._contextMenuUnit;
     if (!menuUnit) return;
     if (item.openSubmenu) {
+      // Same pointerup was dismissing the menu when the taller build submenu re-clamped upward.
+      this._contextMenuDismissLock = true;
       this._showContextMenu(menuUnit, item.openSubmenu, item.page || 0, true);
       return;
     }
@@ -6248,7 +6268,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   _selectUnit(unit) {
-    this._hideContextMenu(true);
+    if (this.selectedUnit?.id !== unit?.id) this._hideContextMenu(true);
     this._inspectorTabManual = null;
     this.selectedUnit = unit;
     const gs = this.gameState;
