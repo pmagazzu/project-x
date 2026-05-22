@@ -39,7 +39,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.9.9';
+export const GAME_VERSION = 'v1.9.10';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -4610,9 +4610,9 @@ export class GameScene extends Phaser.Scene {
     const panelBg = this.add.rectangle(panelCx, panelCy, btnW + 14, menuH + 6, 0x100818, 0.96)
       .setStrokeStyle(2, 0xff66cc).setScrollFactor(0).setDepth(DEPTH - 1).setOrigin(0.5)
       .setInteractive();
-    panelBg.on('pointerdown', () => {
+    panelBg.on('pointerdown', (_pointer, _lx, _ly, event) => {
+      event?.stopPropagation?.();
       this._contextMenuClicked = true;
-      this._hideContextMenu(true);
     });
     objs.push(panelBg);
     objs.push(this.add.rectangle(panelCx, py + 2, btnW + 8, 3, 0xffcc44, 1)
@@ -4660,10 +4660,12 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH + 1);
       if (item.enabled) {
         btn.setInteractive({ useHandCursor: true });
-        btn.on('pointerdown', () => {
+        btn.on('pointerdown', (_pointer, _lx, _ly, event) => {
+          event?.stopPropagation?.();
           this._contextMenuClicked = true;
+          const run = item.cb;
           this._hideContextMenu(true);
-          item.cb();
+          if (run) this.time.delayedCall(0, () => run());
         });
         btn.on('pointerover', () => {
           btn.setAlpha(0.9);
