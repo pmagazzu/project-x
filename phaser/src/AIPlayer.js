@@ -67,7 +67,50 @@ export const AI_STRATEGIES = {
     retreatToHQ:   false,
     digInChance:   0.25,
   },
+  naval_heavy: {
+    label:         'Naval Supremacy',
+    recruitPrio:   ['INFANTRY','ANTI_TANK','MORTAR','SUPPLY_TRUCK'],
+    navalPrio:     ['DESTROYER','CRUISER_LT','SUPPLY_SHIP','TRANSPORT_MD','PATROL_BOAT','MTB','BATTLESHIP'],
+    airPrio:       ['OBS_PLANE','BIPLANE_FIGHTER'],
+    attackBonus:   14,
+    captureBonus:  22,
+    retreatToHQ:   false,
+    digInChance:   0.1,
+    navalWeight:   1.45,
+    airWeight:     0.85,
+  },
+  air_focus: {
+    label:         'Air Dominance',
+    recruitPrio:   ['INFANTRY','ANTI_TANK','ARTILLERY','SUPPLY_TRUCK'],
+    navalPrio:     ['SUPPLY_SHIP','PATROL_BOAT','TRANSPORT_SM'],
+    airPrio:       ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE','MONOPLANE_FIGHTER','DIVE_BOMBER'],
+    attackBonus:   16,
+    captureBonus:  18,
+    retreatToHQ:   false,
+    digInChance:   0.08,
+    navalWeight:   0.9,
+    airWeight:     1.55,
+  },
 };
+
+/** Pick strategy from map composition (naval maps → naval_heavy, etc.). */
+export function pickAIStrategyForMap(terrain, mapSize = 40) {
+  if (!terrain) return 'balanced';
+  let water = 0;
+  let land = 0;
+  for (let q = 0; q < mapSize; q++) {
+    for (let r = 0; r < mapSize; r++) {
+      const t = terrain[`${q},${r}`] ?? 0;
+      if (t === 3 || t === 4 || t === 5) water++;
+      else land++;
+    }
+  }
+  const waterRatio = water / Math.max(1, water + land);
+  if (waterRatio >= 0.38) return 'naval_heavy';
+  if (waterRatio >= 0.22) return Math.random() < 0.55 ? 'naval_heavy' : 'balanced';
+  if (Math.random() < 0.18) return 'air_focus';
+  return 'balanced';
+}
 
 export function randomStrategy() {
   const keys = Object.keys(AI_STRATEGIES);
@@ -2055,6 +2098,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const probeOk = (unitMission === 'probe' || unitMission === 'diversion') && (killShot || preTrade >= 5);
     const expandOk = unitMission === 'expand' && (killShot || (preTrade >= 3 && nearbyFriendliesForCommit >= 1));
     const close = aiCtx?.closingPressure || 0;
+    const midGameAggro = (gs.turn || 1) >= 14 ? -3 : ((gs.turn || 1) >= 10 ? -1 : 0);
     const mainOk = unitMission === 'main' && (
       (close >= 0.5 && (killShot || preTrade >= -2 || (!!unitInSupply && nearbyFriendliesForCommit >= 1)))
       || ((!!unitInSupply && hasCommitMass) || frontlineCommit)
@@ -2062,8 +2106,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const canRiskAttack = scoutOk || probeOk || expandOk || mainOk
       || (close >= 0.55 && unitMission === 'main' && killShot)
       || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && killShot && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
-    const preThreshold = unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 4 : (unitMission === 'expand' ? 4
-      : (unitMission === 'main' ? (close >= 0.5 ? -3 : 0) : 6)));
+    const preThreshold = (unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 2 : (unitMission === 'expand' ? 3
+      : (unitMission === 'main' ? (close >= 0.5 ? -4 : -1) : 6)))) + midGameAggro;
     if (preMoveTarget && canRiskAttack && preTrade >= preThreshold) {
       actions.push({
         type:       'attack',
@@ -2180,7 +2224,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           || expandPostOk
           || (unitMission === 'main' && ((!!postInSupply && hasCommitMassPost) || frontlineCommitPost))
           || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && postKill && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
-        const postThreshold = unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 4 : (unitMission === 'expand' ? 4 : (unitMission === 'main' ? 0 : 6)));
+        const postThreshold = (unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 2 : (unitMission === 'expand' ? 3 : (unitMission === 'main' ? -1 : 6)))) + midGameAggro;
         if (postMoveTarget && canRiskPostAttack && postTrade >= postThreshold) {
           actions.push({
             type:       'attack',
@@ -2691,12 +2735,21 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const recruitRoleScore = (unitType) => {
       const role = getUnitRole(unitType);
       if (unitType === 'SUPPLY_TRUCK' || unitType === 'SUPPLY_SHIP' || unitType === 'ENGINEER') return 18 * phaseWeights.logistics;
+      if (AIR_UNITS.has(unitType)) {
+        const airW = cfg.airWeight || 1;
+        return 22 * (phaseWeights.air || 1) * airW;
+      }
+      if (NAVAL_UNITS.has(unitType)) {
+        const navW = cfg.navalWeight || 1;
+        return 20 * (phaseWeights.naval || 1) * navW;
+      }
       if (role === 'recon') return 10 * phaseWeights.recon;
       if (role === 'indirect' || role === 'assault' || role === 'line') return 9 * phaseWeights.combat;
       return 0;
     };
     const hasWater = Object.values(terrain).some(t => t === 3 || t === 4 || t === 5);
-    const sorted  = [...bType.canRecruit].sort((a, b2) => {
+    const myAirfields = gs.buildings.filter(b => b.owner === player && ['AIRFIELD','ADV_AIRFIELD'].includes(b.type) && !b.underConstruction).length;
+    let sorted  = [...bType.canRecruit].sort((a, b2) => {
       const ai = prio.indexOf(a), bi = prio.indexOf(b2);
       const baseDelta = (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
       let phaseDeltaA = recruitRoleScore(a), phaseDeltaB2 = recruitRoleScore(b2);
@@ -2707,6 +2760,12 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const phaseDelta = phaseDeltaB2 - phaseDeltaA;
       return baseDelta + phaseDelta * 0.1;
     });
+    if (isAir && myAirfields > 0 && sorted.length) {
+      for (const ap of [...cfg.airPrio].reverse()) {
+        const idx = sorted.indexOf(ap);
+        if (idx > 0) { sorted.splice(idx, 1); sorted.unshift(ap); }
+      }
+    }
     // If components are available, prefer units that actually consume components.
     if ((resSim.components || 0) >= 4) {
       sorted.sort((a, b2) => ((UNIT_TYPES[b2]?.cost?.components || 0) - (UNIT_TYPES[a]?.cost?.components || 0)));

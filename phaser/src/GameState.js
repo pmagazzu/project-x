@@ -644,7 +644,10 @@ export const RESOURCE_TYPES = {
   FOOD:   { name: 'Fertile Land',   buildingType: 'FARM',     color: 0x66aa44 },
 };
 
-export const PLAYER_COLORS = { 1: 0x4488ff, 2: 0xff4444 };
+import { clampPlayerCount, getPlayerIds, makeVictoryPointLedger, defaultVictoryZones, VICTORY_MODES } from './GameConfig.js';
+import { tickVictoryPoints, checkVictoryPointWinner } from './VictoryPoints.js';
+
+export { PLAYER_COLORS, MAX_PLAYERS, getPlayerColor } from './GameConfig.js';
 
 export const STARTING_IRON      = 15;
 export const STARTING_OIL       = 4;
@@ -827,6 +830,10 @@ export function createBuilding(type, owner, q, r) {
 
 export function createGameState(scenario = 'default', options = {}) {
   _nextId = 1; // reset IDs on new game
+  const playerCount = clampPlayerCount(options.playerCount || 2);
+  const playerIds = [];
+  for (let p = 1; p <= playerCount; p++) playerIds.push(p);
+
   const makePlayer = (iron, oil, wood) => ({
     iron, oil, wood: wood || 0,
     food: STARTING_FOOD, gold: STARTING_GOLD,
@@ -851,22 +858,35 @@ export function createGameState(scenario = 'default', options = {}) {
   const state = {
     turn: 1, phase: 'planning', currentPlayer: 1,
     scenario,
-    players: {
-      1: makePlayer(STARTING_IRON, STARTING_OIL, 0),
-      2: makePlayer(STARTING_IRON, STARTING_OIL, 0),
-    },
+    playerCount,
+    players: {},
     units: [], buildings: [], resourceHexes: {},
     pendingMoves: {}, pendingAttacks: {}, pendingRecruits: [],
-    designs: { 1: [], 2: [] },
+    designs: {},
     tradeOffers: [],  // active trade contract offers
     supplyEnabled: options.supplyEnabled !== undefined ? !!options.supplyEnabled : true,
+    victoryMode: options.victoryMode || VICTORY_MODES.ELIMINATION,
+    victoryPointTarget: options.victoryPointTarget || 100,
+    victoryZones: options.victoryZones || [],
+    victoryPoints: makeVictoryPointLedger(playerIds),
   };
+  for (const p of playerIds) {
+    state.players[p] = makePlayer(STARTING_IRON, STARTING_OIL, 0);
+    state.designs[p] = [];
+  }
 
   if (scenario === 'random' || scenario === 'custom') {
     // Terrain + spawns placed procedurally by GameScene after terrain gen
     // Give starter wood so early road networking can begin before first lumber cycle.
-    state.players[1].iron = 20; state.players[1].oil = 6; state.players[1].wood = 6; state.players[1].food = 10;
-    state.players[2].iron = 20; state.players[2].oil = 6; state.players[2].wood = 6; state.players[2].food = 10;
+    for (const p of playerIds) {
+      state.players[p].iron = 20;
+      state.players[p].oil = 6;
+      state.players[p].wood = 6;
+      state.players[p].food = 10;
+    }
+    if (state.victoryMode === VICTORY_MODES.POINTS && !state.victoryZones.length) {
+      state.victoryZones = defaultVictoryZones(options.mapSize || 40);
+    }
 
   } else if (scenario === 'scout') {
     // Two engineers each, far apart — explore and build
@@ -1213,6 +1233,23 @@ export function canUnitAttackTarget(state, attacker, target, terrain, blindFire 
 }
 export function buildingAt(state, q, r) {
   return state.buildings.find(b => b.q === q && b.r === r) || null;
+}
+
+/** Prefer non-road structure when multiple buildings share a hex (road + fort, etc.). */
+export function primaryBuildingAt(state, q, r) {
+  const all = state.buildings.filter(b => b.q === q && b.r === r);
+  if (!all.length) return null;
+  const nonRoad = all.find(b => !ROAD_TYPES.has(b.type));
+  return nonRoad || all[0];
+}
+
+/** Engineers may build forts on tiles with roads and friendly units; normal structures need empty land. */
+export function canEngineerBuildAt(state, q, r, buildingType) {
+  const onHex = state.buildings.filter(b => b.q === q && b.r === r);
+  const nonRoad = onHex.filter(b => !ROAD_TYPES.has(b.type));
+  if (ROAD_TYPES.has(buildingType)) return !roadAt(state, q, r);
+  if (FORTIFICATION_KEYS.includes(buildingType)) return nonRoad.length === 0;
+  return nonRoad.length === 0;
 }
 export const ROAD_TYPES = new Set(['ROAD', 'GRAVEL_ROAD', 'CONCRETE_ROAD', 'RAILWAY']);
 
@@ -2820,10 +2857,15 @@ export function resolveEndOfTurn(state, terrain) {
   }
   state.pendingMoves = {}; state.pendingAttacks = {};
 
-  // Switch player
-  state.currentPlayer = Number(player) === 1 ? 2 : 1;
-  // Increment turn counter every time P2 ends their turn (full round)
-  if (player === 2) state.turn++;
+  // Switch player (supports 2–6 teams)
+  const ids = getPlayerIds(state);
+  const curIdx = ids.indexOf(Number(player));
+  const nextIdx = curIdx >= 0 ? (curIdx + 1) % ids.length : 0;
+  state.currentPlayer = ids[nextIdx];
+  if (nextIdx === 0) {
+    state.turn++;
+    tickVictoryPoints(state, events);
+  }
   state.phase = 'planning';
 
   return events;
@@ -2892,11 +2934,21 @@ function findFreeAdjacentHex(state, q, r, unitType = null, terrain = null, spawn
 }
 
 export function checkWinner(state) {
-  // Victory is HQ-based only (prevents accidental early wins from transient unit-count issues).
+  const vpWin = checkVictoryPointWinner(state);
+  if (vpWin) return vpWin;
+
+  const ids = getPlayerIds(state);
+  const alive = ids.filter((p) => state.buildings.some((b) => b.type === 'HQ' && Number(b.owner) === p));
+  if (alive.length === 1) return alive[0];
+  if (alive.length === 0) return null;
+
+  // Legacy 2-player HQ check
   const p1HQ = state.buildings.find(b => b.type === 'HQ' && b.owner === 1);
   const p2HQ = state.buildings.find(b => b.type === 'HQ' && b.owner === 2);
-  if (!p2HQ) return 1;
-  if (!p1HQ) return 2;
+  if (ids.length === 2) {
+    if (!p2HQ) return 1;
+    if (!p1HQ) return 2;
+  }
   return null;
 }
 
