@@ -5,7 +5,7 @@
 
 const W = 32;
 const H = 32;
-const BAKE_REV = 5;
+const BAKE_REV = 6;
 
 export const PIXEL_PAL = {
   OUT: '#0e0c0a',
@@ -317,23 +317,167 @@ function drawEngineer(ctx) {
 }
 
 function drawMedic(ctx) {
-  drawSoldier(ctx);
   const P = PIXEL_PAL;
-  rect(ctx, 13, 12, 6, 6, P.WHITE);
-  px(ctx, 15, 14, P.RED_L);
-  rect(ctx, 15, 13, 1, 4, P.RED_L);
-  px(ctx, 14, 14, P.RED);
-  px(ctx, 13, 12, P.OUT);
+  shadow(ctx, 7, 27, 18, 3);
+  rect(ctx, 10, 24, 6, 3, P.BOOT);
+  rect(ctx, 17, 24, 6, 3, P.BOOT);
+  rect(ctx, 11, 18, 5, 7, P.WHITE);
+  rect(ctx, 17, 18, 5, 7, P.WHITE);
+  rect(ctx, 10, 11, 12, 8, P.WHITE);
+  rect(ctx, 11, 12, 10, 6, 0xe8e4d8);
+  rect(ctx, 13, 14, 6, 4, P.RED_L);
+  px(ctx, 15, 15, P.WHITE);
+  rect(ctx, 15, 14, 1, 4, P.WHITE);
+  rect(ctx, 13, 5, 8, 5, P.WHITE);
+  rect(ctx, 14, 4, 6, 3, 0xf4f0e8);
+  px(ctx, 13, 4, P.OUT);
+  rect(ctx, 14, 8, 6, 2, P.SKIN);
+  px(ctx, 8, 14, P.RED);
 }
 
+/** Scout — binoculars, soft cap, radio; crouched (not rifle infantry). */
 function drawRecon(ctx) {
-  drawSoldier(ctx, { crouch: true });
   const P = PIXEL_PAL;
-  rect(ctx, 19, 10, 3, 3, P.MET);
-  rect(ctx, 23, 10, 3, 3, P.MET);
-  px(ctx, 20, 11, P.MET_H);
-  px(ctx, 24, 11, P.MET_H);
-  px(ctx, 22, 12, P.OUT);
+  shadow(ctx, 7, 28, 18, 3);
+  rect(ctx, 10, 24, 5, 3, P.BOOT);
+  rect(ctx, 18, 24, 5, 3, P.BOOT);
+  rect(ctx, 11, 20, 4, 5, P.OL1);
+  rect(ctx, 18, 20, 4, 5, P.OL1);
+  rect(ctx, 12, 21, 3, 3, P.OL3);
+  rect(ctx, 19, 21, 3, 3, P.OL3);
+  rect(ctx, 11, 13, 10, 8, P.OL0);
+  rect(ctx, 12, 14, 8, 5, P.OL2);
+  rect(ctx, 21, 12, 3, 9, P.MET);
+  rect(ctx, 22, 7, 1, 6, P.MET_H);
+  px(ctx, 22, 6, P.YEL);
+  rect(ctx, 12, 7, 8, 2, P.OL1);
+  rect(ctx, 13, 5, 6, 3, P.OL3);
+  px(ctx, 13, 5, P.OUT);
+  rect(ctx, 14, 9, 5, 2, P.SKIN);
+  rect(ctx, 13, 8, 7, 3, P.MET);
+  rect(ctx, 14, 9, 2, 2, P.WIN_L);
+  rect(ctx, 18, 9, 2, 2, P.WIN_L);
+  px(ctx, 16, 9, P.MET_H);
+  rect(ctx, 7, 16, 4, 2, P.MET);
+  rect(ctx, 6, 16, 2, 3, P.WOOD_D);
+  px(ctx, 7, 17, P.OUT);
+}
+
+/** Assault infantry — SMG + bandolier. */
+function drawAssaultInf(ctx) {
+  const P = PIXEL_PAL;
+  drawSoldier(ctx);
+  rect(ctx, 12, 13, 3, 6, P.YEL);
+  rect(ctx, 19, 14, 8, 2, P.MET);
+  rect(ctx, 20, 15, 4, 3, P.MET_L);
+  px(ctx, 26, 15, P.OUT);
+}
+
+function drawSmgSquad(ctx) {
+  const P = PIXEL_PAL;
+  drawSoldier(ctx);
+  rect(ctx, 18, 14, 9, 2, P.MET);
+  rect(ctx, 21, 15, 3, 4, P.MET_L);
+  px(ctx, 19, 15, P.YEL);
+}
+
+function drawLmgTeam(ctx) {
+  const P = PIXEL_PAL;
+  shadow(ctx, 4, 27, 24, 3);
+  rect(ctx, 8, 22, 16, 5, P.OL0);
+  rect(ctx, 9, 18, 4, 5, P.OL2);
+  rect(ctx, 19, 18, 4, 5, P.OL2);
+  rect(ctx, 10, 12, 12, 7, P.OL1);
+  rect(ctx, 11, 13, 10, 4, P.OL3);
+  rect(ctx, 13, 5, 6, 5, P.OL2);
+  rect(ctx, 14, 8, 5, 2, P.SKIN);
+  rect(ctx, 4, 20, 14, 2, P.MET);
+  rect(ctx, 5, 21, 3, 2, P.MET_L);
+  rect(ctx, 6, 23, 2, 3, P.MET);
+  px(ctx, 17, 20, P.OUT);
+}
+
+function drawHmgTeam(ctx) {
+  const P = PIXEL_PAL;
+  shadow(ctx, 3, 27, 26, 3);
+  foundation(ctx, 6, 22, 20, 2);
+  rect(ctx, 8, 19, 4, 4, P.OL2);
+  rect(ctx, 20, 19, 4, 4, P.OL2);
+  rect(ctx, 2, 16, 18, 3, P.MET);
+  rect(ctx, 3, 17, 14, 1, P.MET_H);
+  rect(ctx, 4, 19, 2, 4, P.MET);
+  rect(ctx, 8, 19, 2, 4, P.MET);
+  rect(ctx, 12, 19, 2, 4, P.MET);
+  rect(ctx, 10, 13, 8, 4, P.OL1);
+  px(ctx, 19, 16, P.OUT);
+}
+
+/** Sniper — prone ghillie + long rifle. */
+function drawSniper(ctx) {
+  const P = PIXEL_PAL;
+  shadow(ctx, 4, 28, 24, 2);
+  rect(ctx, 6, 24, 20, 4, P.OL0);
+  rect(ctx, 8, 25, 16, 2, P.OL2);
+  rect(ctx, 7, 22, 18, 3, P.OL1);
+  for (let i = 0; i < 8; i++) px(ctx, 8 + i * 2, 23, i % 2 ? P.OL3 : P.OL4);
+  rect(ctx, 4, 21, 22, 2, P.MET);
+  rect(ctx, 5, 22, 18, 1, P.WOOD_L);
+  px(ctx, 25, 21, P.OUT);
+  rect(ctx, 10, 19, 6, 3, P.OL3);
+  px(ctx, 11, 20, P.SKIN);
+}
+
+function drawMortar(ctx) {
+  const P = PIXEL_PAL;
+  shadow(ctx, 6, 27, 20, 3);
+  foundation(ctx, 8, 22, 16, 2);
+  rect(ctx, 10, 18, 4, 5, P.OL2);
+  rect(ctx, 18, 18, 4, 5, P.OL2);
+  rect(ctx, 14, 14, 4, 6, P.MET);
+  rect(ctx, 13, 10, 6, 5, P.MET_L);
+  rect(ctx, 12, 8, 8, 3, P.MET);
+  px(ctx, 12, 8, P.MET_H);
+  px(ctx, 19, 9, P.OUT);
+}
+
+function drawMotorcycle(ctx) {
+  const P = PIXEL_PAL;
+  shadow(ctx, 5, 27, 22, 3);
+  rect(ctx, 8, 22, 16, 3, P.MET);
+  rect(ctx, 10, 20, 3, 3, P.MET_L);
+  rect(ctx, 19, 20, 3, 3, P.MET_L);
+  rect(ctx, 12, 16, 8, 5, P.MET_L);
+  rect(ctx, 13, 12, 6, 5, P.OL2);
+  rect(ctx, 14, 10, 4, 3, P.OL3);
+  rect(ctx, 14, 8, 4, 2, P.SKIN);
+  rect(ctx, 11, 14, 10, 2, P.MET_H);
+  px(ctx, 8, 22, P.OUT);
+}
+
+function drawArmoredCar(ctx) {
+  const P = PIXEL_PAL;
+  shadow(ctx, 3, 27, 26, 3);
+  foundation(ctx, 4, 21, 24, 2);
+  rect(ctx, 5, 14, 22, 8, P.OL1);
+  rect(ctx, 6, 15, 20, 5, P.OL3);
+  rect(ctx, 7, 16, 6, 4, P.WIN);
+  rect(ctx, 4, 22, 4, 3, P.OUT);
+  rect(ctx, 24, 22, 4, 3, P.OUT);
+  rect(ctx, 20, 13, 8, 3, P.MET);
+  px(ctx, 27, 14, P.OUT);
+}
+
+function drawHalftrack(ctx) {
+  const P = PIXEL_PAL;
+  shadow(ctx, 2, 27, 28, 3);
+  foundation(ctx, 3, 21, 26, 2);
+  wallFront(ctx, 5, 14, 20, 8, P.OL0, P.OL2, P.OL3, P.OL5);
+  rect(ctx, 3, 20, 8, 5, P.MET);
+  for (let y = 21; y <= 24; y++) px(ctx, 4, y, P.MET_H);
+  rect(ctx, 22, 20, 8, 5, P.OUT);
+  rect(ctx, 23, 21, 2, 2, P.MET_L);
+  rect(ctx, 26, 21, 2, 2, P.MET_L);
+  rect(ctx, 18, 12, 8, 3, P.MET);
 }
 
 function drawTank(ctx) {
@@ -697,13 +841,22 @@ function drawFarm(ctx) {
 
 const DRAWERS = {
   px_unit_infantry: drawInfantry,
+  px_unit_assault: drawAssaultInf,
+  px_unit_smg: drawSmgSquad,
+  px_unit_lmg: drawLmgTeam,
+  px_unit_hmg: drawHmgTeam,
+  px_unit_sniper: drawSniper,
   px_unit_tank: drawTank,
   px_unit_artillery: drawArtillery,
+  px_unit_mortar: drawMortar,
   px_unit_engineer: drawEngineer,
   px_unit_recon: drawRecon,
   px_unit_anti_tank: drawAntiTank,
   px_unit_medic: drawMedic,
   px_unit_truck: drawTruck,
+  px_unit_halftrack: drawHalftrack,
+  px_unit_armored_car: drawArmoredCar,
+  px_unit_motorcycle: drawMotorcycle,
   px_unit_patrol_boat: (ctx) => drawBoat(ctx, 12),
   px_unit_submarine: drawSub,
   px_unit_destroyer: drawDestroyer,

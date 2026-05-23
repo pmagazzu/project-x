@@ -126,8 +126,9 @@ export function getUnitCombatProfile(def, type, ctx = {}) {
 }
 
 export function analyzeCombat(gs, terrain, mapSize, attacker, target, blindFire, intel) {
-  const aDef = UNIT_TYPES[attacker.type];
-  const tDef = UNIT_TYPES[target.type];
+  const aDef = { ...(UNIT_TYPES[attacker.type] || {}), ...attacker };
+  const tDef = { ...(UNIT_TYPES[target.type] || {}), ...target };
+  if (!terrain) terrain = gs._terrain || {};
   const atkIsNaval = NAVAL_UNITS.has(attacker.type) || attacker.type === 'COASTAL_BATTERY';
   const defIsNaval = NAVAL_UNITS.has(target.type);
   const tTerrain = terrain[`${target.q},${target.r}`] ?? 0;

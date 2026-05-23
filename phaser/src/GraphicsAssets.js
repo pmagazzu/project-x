@@ -15,19 +15,19 @@ export const GAME_THEME = {
   fogAlpha:    0.72,
 };
 
-/** unit type → procedural texture key */
+/** unit type → procedural texture key (each role gets a distinct silhouette). */
 export const UNIT_ART = {
   INFANTRY: 'px_unit_infantry',
-  ASSAULT_INFANTRY: 'px_unit_infantry',
-  SMG_SQUAD: 'px_unit_infantry',
-  LMG_TEAM: 'px_unit_infantry',
-  HMG_TEAM: 'px_unit_infantry',
-  SNIPER: 'px_unit_infantry',
+  ASSAULT_INFANTRY: 'px_unit_assault',
+  SMG_SQUAD: 'px_unit_smg',
+  LMG_TEAM: 'px_unit_lmg',
+  HMG_TEAM: 'px_unit_hmg',
+  SNIPER: 'px_unit_sniper',
   TANK: 'px_unit_tank',
   MEDIUM_TANK: 'px_unit_tank',
   ARTILLERY: 'px_unit_artillery',
   SPG: 'px_unit_artillery',
-  MORTAR: 'px_unit_artillery',
+  MORTAR: 'px_unit_mortar',
   ENGINEER: 'px_unit_engineer',
   RECON: 'px_unit_recon',
   ANTI_TANK: 'px_unit_anti_tank',
@@ -48,9 +48,9 @@ export const UNIT_ART = {
   TRANSPORT_LG: 'px_unit_landing_craft',
   SUPPLY_SHIP: 'px_unit_landing_craft',
   SUPPLY_TRUCK: 'px_unit_truck',
-  HALFTRACK: 'px_unit_truck',
-  ARMORED_CAR: 'px_unit_truck',
-  MOTORCYCLE: 'px_unit_recon',
+  HALFTRACK: 'px_unit_halftrack',
+  ARMORED_CAR: 'px_unit_armored_car',
+  MOTORCYCLE: 'px_unit_motorcycle',
   BIPLANE_FIGHTER: 'px_unit_aircraft',
   LIGHT_BOMBER: 'px_unit_aircraft',
   OBS_PLANE: 'px_unit_aircraft',
@@ -58,7 +58,7 @@ export const UNIT_ART = {
   DIVE_BOMBER: 'px_unit_aircraft',
   HEAVY_BOMBER: 'px_unit_aircraft',
   COASTAL_BATTERY: 'px_unit_artillery',
-  AA_EMPLACEMENT: 'px_unit_artillery',
+  AA_EMPLACEMENT: 'px_unit_anti_tank',
 };
 
 export const BUILDING_ART = {

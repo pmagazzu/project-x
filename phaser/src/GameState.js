@@ -1179,6 +1179,33 @@ export function resolveAttackTargetUnit(state, entry) {
   }
   return enemyAtHex(state, entry.q, entry.r);
 }
+
+/** True if unit may still fire offensively this turn. */
+export function unitCanAttack(unit) {
+  if (!unit || unit.attacked || unit.suppressed || unit.embarked || unit.dead) return false;
+  const t = UNIT_TYPES[unit.type] || {};
+  const sa = ustat(unit, 'soft_attack', t.soft_attack || 0);
+  const ha = ustat(unit, 'hard_attack', t.hard_attack || 0);
+  const na = ustat(unit, 'naval_attack', t.naval_attack || 0);
+  return sa + ha + na + (t.attack || 0) > 0;
+}
+
+/** Validates whether attacker may open fire on target (range, LOS, status). */
+export function canUnitAttackTarget(state, attacker, target, terrain, blindFire = false) {
+  if (!attacker || !target || target.dead) return { ok: false, reason: 'No valid target' };
+  if (Number(attacker.owner) === Number(target.owner)) return { ok: false, reason: 'Friendly target' };
+  if (attacker.attacked) return { ok: false, reason: 'Already attacked this turn' };
+  if (attacker.suppressed) return { ok: false, reason: 'Suppressed — cannot fire' };
+  if (!unitCanAttack(attacker)) return { ok: false, reason: 'Unit cannot attack' };
+  const range = ustat(attacker, 'range', UNIT_TYPES[attacker.type]?.range || 1);
+  const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
+  if (dist < 1 || dist > range) return { ok: false, reason: `Out of range (${dist}/${range})` };
+  const indirect = INDIRECT_FIRE.has(attacker.type);
+  const terr = terrain || state._terrain;
+  const losOk = indirect || blindFire || !terr || hasLOS(attacker.q, attacker.r, target.q, target.r, terr);
+  if (!losOk) return { ok: false, reason: 'No line of sight' };
+  return { ok: true, dist, range };
+}
 export function buildingAt(state, q, r) {
   return state.buildings.find(b => b.q === q && b.r === r) || null;
 }
@@ -1393,7 +1420,7 @@ export function getAttackableHexes(state, unit, fromQ, fromR, fog) {
   const _unitDef = UNIT_TYPES[unit.type] || {};
   return state.units
     .filter(u => {
-      if (u.owner === unit.owner || u.dead || u.embarked) return false;
+      if (Number(u.owner) === Number(unit.owner) || u.dead || u.embarked) return false;
       const tq = u.q;
       const tr = u.r;
       if (hexDistance(fromQ, fromR, tq, tr) > range) return false;

@@ -1,6 +1,7 @@
 /**
  * Casino-style combat preview & result panels — clear breakdowns, punchy layout.
  */
+import Phaser from 'phaser';
 import {
   getCombatIntel, analyzeCombat, buildResolveSteps,
   COMBAT_GLYPH, TIER_COL, TIER_BG,
@@ -150,30 +151,26 @@ export function renderCombatPreviewPanel(scene, attacker, target, blindFire, { o
     col: '#fff', sz: 13, bold: true, depth: D_BASE + 3,
   });
   atkBtn.setBackgroundColor('#aa2211').setPadding(16, 10);
-  atkBtn.setInteractive({ useHandCursor: true });
+  atkBtn.setInteractive({ useHandCursor: true, hitArea: new Phaser.Geom.Rectangle(-70, -18, 140, 36), hitAreaCallback: Phaser.Geom.Rectangle.Contains });
   const canLabel = verdict === 'RETREAT ADVISED' ? '  BACK OUT  ' : '  PASS  ';
   const canBtn = mkText(scene, objs, canLabel, cx + 100, btnY, {
     col: '#ddd', sz: 13, bold: true, depth: D_BASE + 3,
   });
   canBtn.setBackgroundColor('#2a2244').setPadding(16, 10);
-  canBtn.setInteractive({ useHandCursor: true });
+  canBtn.setInteractive({ useHandCursor: true, hitArea: new Phaser.Geom.Rectangle(-70, -18, 140, 36), hitAreaCallback: Phaser.Geom.Rectangle.Contains });
 
   scene._addToUI([...objs, atkBtn, canBtn]);
   popIn(scene, [...objs, atkBtn, canBtn]);
 
   const cleanup = () => objs.concat([atkBtn, canBtn]).forEach(o => { try { o.destroy(); } catch (e) {} });
 
-  atkBtn.on('pointerdown', () => {
+  const strike = () => {
     scene._contextMenuClicked = true;
-    const slash = scene.add.graphics().setScrollFactor(0).setDepth(D_BASE + 4);
-    slash.lineStyle(6, 0xff4444, 0.95);
-    slash.beginPath();
-    slash.moveTo(lX + 20, pY - 12);
-    slash.lineTo(rX - 20, pY - 12);
-    slash.strokePath();
-    scene.tweens.add({ targets: slash, alpha: 0, duration: 140, onComplete: () => slash.destroy() });
-    scene.time.delayedCall(120, () => { cleanup(); onAttack?.(); });
-  });
+    cleanup();
+    onAttack?.();
+  };
+  atkBtn.on('pointerdown', (ptr) => { ptr.event?.stopPropagation?.(); strike(); });
+  atkBtn.on('pointerup', (ptr) => { ptr.event?.stopPropagation?.(); });
   canBtn.on('pointerdown', () => { scene._contextMenuClicked = true; cleanup(); onCancel?.(); });
 
   if (scene._aiViewerMode && scene.aiPlayers?.has(1) && scene.aiPlayers?.has(2)) {

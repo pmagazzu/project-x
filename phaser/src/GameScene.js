@@ -7,7 +7,7 @@ import { MenuScene } from './MenuScene.js';
 import { planAITurn, AI_STRATEGIES, randomStrategy, getAIKPIReport } from './AIPlayer.js';
 import {
   createGameState, createUnit, createBuilding, unitAt, buildingAt, roadAt,
-  enemyAtHex, resolveAttackTargetUnit,
+  enemyAtHex, resolveAttackTargetUnit, canUnitAttackTarget, unitCanAttack,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
   findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
   getUnitPopCost, recalcPlayerPopulation,
@@ -40,7 +40,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.21';
+export const GAME_VERSION = 'v1.10.22';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -6354,37 +6354,8 @@ export class GameScene extends Phaser.Scene {
       if (clickedBuilding && Number(clickedBuilding.owner) !== curPClick) clickedBuilding = null;
     }
 
-    // Hard attack shortcut: highlighted attack hex or visible enemy (select/move modes).
-    if (this.selectedUnit && Number(this.selectedUnit.owner) === curPClick && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
-      const attackTarget = (this.attackable || []).find(h => h.q === q && h.r === r);
-      if (attackTarget) {
-        const targetUnit = resolveAttackTargetUnit(gs, attackTarget);
-        if (targetUnit) {
-          this._showCombatPreview(this.selectedUnit, targetUnit, false);
-          return;
-        }
-        if (this.mode !== 'attack' && this.mode !== 'attack_direct') {
-          this._pushLog('Attack target stale/missing on clicked attack hex');
-          this._refresh();
-          return;
-        }
-      }
-
-      const enemyClick = enemyOnHex || (clickedUnit && Number(clickedUnit.owner) !== curPClick ? clickedUnit : null);
-      if (enemyClick && this.mode !== 'attack' && this.mode !== 'attack_direct') {
-        const effRange = this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range ?? 1;
-        const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, enemyClick.q, enemyClick.r);
-        const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
-        const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, enemyClick.q, enemyClick.r, this.terrain, this.mapSize);
-        if (d >= 1 && d <= effRange && losOk) {
-          this._showCombatPreview(this.selectedUnit, enemyClick, false);
-          return;
-        }
-        this._pushLog(`Attack rejected: ${d > effRange ? 'out of range' : (losOk ? 'invalid state' : 'no LOS')}`);
-        this._refresh();
-        return;
-      }
-    }
+    // Unified attack click — any mode; never fall through to deselect on enemy clicks.
+    if (this._tryCombatAtHex(q, r, enemyOnHex, curPClick)) return;
 
     // Left-click cycle support on crowded hexes (units/building).
     // Repeated clicks on same tile rotate selection target.
@@ -6628,88 +6599,14 @@ export class GameScene extends Phaser.Scene {
         }
         return;
       }
-      // In move mode: clicking a visible enemy in range = quick direct fire
-      const moveEnemy = enemyOnHex || (clickedUnit && Number(clickedUnit.owner) !== curPClick ? clickedUnit : null);
-      if (moveEnemy && !this.selectedUnit.attacked) {
-        const range = this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range ?? 1;
-        const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, moveEnemy.q, moveEnemy.r);
-        const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
-        const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, moveEnemy.q, moveEnemy.r, this.terrain, this.mapSize);
-        if (d >= 1 && d <= range && losOk) {
-          this._showCombatPreview(this.selectedUnit, moveEnemy, false);
-          return;
-        }
-      }
     }
 
-    // Direct attack mode — only valid enemy hexes, no blind fire penalty
-    if (this.mode === 'attack_direct') {
-      const target = this.attackable.find(h => h.q === q && h.r === r);
-      if (target) {
-        const tUnit = resolveAttackTargetUnit(gs, target);
-        if (tUnit) {
-          this._showCombatPreview(this.selectedUnit, tUnit, false);
-          return;
-        }
-      }
-
-      const directEnemy = enemyOnHex || (clickedUnit && Number(clickedUnit.owner) !== curPClick ? clickedUnit : null);
-      if (this.selectedUnit && directEnemy) {
-        const aDef = UNIT_TYPES[this.selectedUnit.type] || {};
-        const dist = hexDistance(this.selectedUnit.q, this.selectedUnit.r, directEnemy.q, directEnemy.r);
-        const inRange = dist >= 1 && dist <= (aDef.range || 0);
-        const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
-        const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, directEnemy.q, directEnemy.r, this.terrain, this.mapSize);
-        if (inRange && losOk) {
-          this._showCombatPreview(this.selectedUnit, directEnemy, false);
-          return;
-        }
-        this._pushLog(`Attack rejected: ${!inRange ? 'out of range' : 'no LOS'}`);
-        this._refresh();
-        return;
-      }
-      this._pushLog('Attack: select a highlighted enemy in range');
+    if (this.mode === 'attack_direct' || this.mode === 'attack') {
+      this._pushLog(this.mode === 'attack'
+        ? `Indirect: pick a hex in range${enemyOnHex ? '' : ' with an enemy'}`
+        : 'Attack: click an enemy in range (orange outline)');
       this._refresh();
       return;
-    }
-
-    if (this.mode === 'attack') {
-      const inRange = this.attackable.find(h => h.q === q && h.r === r);
-      const attackEnemy = enemyOnHex || resolveAttackTargetUnit(gs, inRange);
-      if (inRange && attackEnemy) {
-        this._showCombatPreview(this.selectedUnit, attackEnemy, true);
-        return;
-      }
-
-      // Hard fallback: if attackable cache desynced, still allow enemy click by geometric range.
-      if (attackEnemy && this.selectedUnit) {
-        const effRange = this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range ?? 1;
-        const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, attackEnemy.q, attackEnemy.r);
-        if (d >= 1 && d <= effRange) {
-          this._pushLog(`Indirect fallback: geometric-range fire on (${attackEnemy.q},${attackEnemy.r})`);
-          this._showCombatPreview(this.selectedUnit, attackEnemy, true);
-          return;
-        }
-      }
-
-      if (inRange && !attackEnemy) {
-        // Do NOT consume attack on empty tile; keep mode active and explain why.
-        this._pushLog(`Indirect fire: no enemy unit on (${q},${r})`);
-      } else {
-        this._pushLog(`Indirect fire: tile (${q},${r}) out of range`);
-      }
-      this._refresh();
-      return;
-    }
-
-    // Click on attack-indicator enemy target (works in select/move mode — direct fire shortcut)
-    if (this.selectedUnit && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
-      const attackTarget = this.attackable.find(h => h.q === q && h.r === r);
-      const shortcutEnemy = enemyOnHex || resolveAttackTargetUnit(gs, attackTarget);
-      if (attackTarget && shortcutEnemy) {
-        this._showCombatPreview(this.selectedUnit, shortcutEnemy, false);
-        return;
-      }
     }
 
     // Own unit on hex? Always select unit first (even if building is also there)
@@ -6731,7 +6628,39 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    if (this._tryCombatAtHex(q, r, enemyOnHex, curPClick)) return;
     this._clearSelection();
+  }
+
+  /** Live unit reference from game state (avoids stale selection objects). */
+  _liveUnit(unit) {
+    if (!unit) return null;
+    return this.gameState.units.find(u => u.id === unit.id && !u.dead) || null;
+  }
+
+  /**
+   * Try to open combat preview when clicking a hex with a selected friendly attacker.
+   * Returns true if the click was consumed (attack opened or rejection logged).
+   */
+  _tryCombatAtHex(q, r, enemyOnHex, curPClick) {
+    const gs = this.gameState;
+    const attacker = this._liveUnit(this.selectedUnit);
+    if (!attacker || Number(attacker.owner) !== curPClick) return false;
+
+    const attackEntry = (this.attackable || []).find(h => h.q === q && h.r === r);
+    const target = enemyOnHex || resolveAttackTargetUnit(gs, attackEntry);
+    if (!target) return false;
+
+    const blindFire = this.mode === 'attack';
+    const terr = gs._terrain || this.terrain;
+    const check = canUnitAttackTarget(gs, attacker, target, terr, blindFire);
+    if (!check.ok) {
+      this._pushLog(`Cannot attack: ${check.reason}`);
+      this._refresh();
+      return true;
+    }
+    this._showCombatPreview(attacker, target, blindFire);
+    return true;
   }
 
   _selectNextReadyUnit() {
@@ -6770,9 +6699,7 @@ export class GameScene extends Phaser.Scene {
       this.mode = 'select';
     }
     // Always show attackable targets (fog-filtered) as clickable indicators on enemies
-    const _defA = UNIT_TYPES[unit.type] || {};
-    const canOffensivelyAttack = ((_defA.attack || 0) > 0) || ((_defA.soft_attack || 0) > 0) || ((_defA.hard_attack || 0) > 0) || ((_defA.naval_attack || 0) > 0);
-    if (!unit.attacked && !unit.suppressed && canOffensivelyAttack) {
+    if (unitCanAttack(unit)) {
       const attackFog = AIR_UNITS.has(unit.type) ? null : this._currentFog;
       this.attackable = getAttackableHexes(gs, unit, unit.q, unit.r, attackFog);
     } else {
@@ -6844,36 +6771,7 @@ export class GameScene extends Phaser.Scene {
     this._hideRecruitPanel?.();
     this._closeFactoryPanel?.();
 
-    // Hard path: right-click highlighted attack hex / enemy with selected attacker => preview.
-    if (this.selectedUnit && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
-      const attackTarget = (this.attackable || []).find(h => h.q === q && h.r === r);
-      if (attackTarget) {
-        const targetUnit = resolveAttackTargetUnit(gs, attackTarget);
-        if (targetUnit) {
-          this._showCombatPreview(this.selectedUnit, targetUnit, false);
-          return;
-        }
-        if (this.mode !== 'attack' && this.mode !== 'attack_direct') {
-          this._pushLog('Attack target stale/missing (RMB)');
-          this._refresh();
-          return;
-        }
-      }
-      const enemyClick = enemyOnHexRmb || (clickedUnit && Number(clickedUnit.owner) !== curP ? clickedUnit : null);
-      if (enemyClick && this.mode !== 'attack' && this.mode !== 'attack_direct') {
-        const effRange = this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range ?? 1;
-        const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, enemyClick.q, enemyClick.r);
-        const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
-        const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, enemyClick.q, enemyClick.r, this.terrain, this.mapSize);
-        if (d >= 1 && d <= effRange && losOk) {
-          this._showCombatPreview(this.selectedUnit, enemyClick, false);
-          return;
-        }
-        this._pushLog(`Attack rejected (RMB): ${d > effRange ? 'out of range' : (losOk ? 'invalid state' : 'no LOS')}`);
-        this._refresh();
-        return;
-      }
-    }
+    if (this._tryCombatAtHex(q, r, enemyOnHexRmb, curP)) return;
 
     if (clickedUnit && clickedUnit.owner === gs.currentPlayer) {
       if (this.selectedUnit !== clickedUnit) this._selectUnit(clickedUnit);
@@ -6924,11 +6822,15 @@ export class GameScene extends Phaser.Scene {
 
   // Direct attack — only visible enemies, no blind fire penalty
   _onDirectAttackMode() {
-    if (!this.selectedUnit || this.selectedUnit.attacked) return;
+    const u = this._liveUnit(this.selectedUnit);
+    if (!u || !unitCanAttack(u)) return;
+    this.selectedUnit = u;
+    this._hideContextMenu(true);
     this.mode = 'attack_direct';
     this.reachable  = [];
-    const attackFog = AIR_UNITS.has(this.selectedUnit.type) ? null : this._currentFog;
-    this.attackable = getAttackableHexes(this.gameState, this.selectedUnit, this.selectedUnit.q, this.selectedUnit.r, attackFog);
+    const attackFog = AIR_UNITS.has(u.type) ? null : this._currentFog;
+    this.attackable = getAttackableHexes(this.gameState, u, u.q, u.r, attackFog);
+    this._pushLog(`Attack mode: ${this.attackable.length} target${this.attackable.length === 1 ? '' : 's'} — click enemy`);
     this._refresh();
   }
 
@@ -7219,11 +7121,26 @@ export class GameScene extends Phaser.Scene {
   }
 
   _showCombatPreview(attacker, target, blindFire) {
-    if (!attacker || !target) return;
+    const atk = this._liveUnit(attacker);
+    const tgt = this.gameState.units.find(u => u.id === target?.id && !u.dead);
+    if (!atk || !tgt) {
+      this._pushLog('Combat preview failed: unit not found');
+      return;
+    }
     try {
-      renderCombatPreviewPanel(this, attacker, target, blindFire, {
-        onAttack: () => this._doImmediateAttack(attacker, target.id, blindFire),
-        onCancel: () => this._refresh(),
+      if (this._combatPreviewCleanup) {
+        try { this._combatPreviewCleanup(); } catch (e) { /* ignore */ }
+        this._combatPreviewCleanup = null;
+      }
+      this._combatPreviewCleanup = renderCombatPreviewPanel(this, atk, tgt, blindFire, {
+        onAttack: () => {
+          this._combatPreviewCleanup = null;
+          this._doImmediateAttack(atk.id, tgt.id, blindFire);
+        },
+        onCancel: () => {
+          this._combatPreviewCleanup = null;
+          this._refresh();
+        },
       });
     } catch (e) {
       this._pushLog(`Combat preview error: ${e?.message || e}`);
@@ -7247,19 +7164,20 @@ export class GameScene extends Phaser.Scene {
     this._addToUI(objs);
 
     const cleanup = () => objs.forEach(o => { try { o.destroy(); } catch(e){} });
-    atkBtn.on('pointerdown', () => { cleanup(); this._doImmediateAttack(attacker, target.id, false); });
+    atkBtn.on('pointerdown', () => { cleanup(); this._doImmediateAttack(attacker.id, target.id, false); });
     canBtn.on('pointerdown', () => { cleanup(); this._refresh(); });
   }
 
-  _doImmediateAttack(attacker, targetId, blindFire) {
+  _doImmediateAttack(attackerId, targetId, blindFire) {
     // IGOUGO: resolve combat now, show card, refresh
     const gs = this.gameState;
-    const target = gs.units.find(u => u.id === targetId);
+    const attacker = gs.units.find(u => u.id === attackerId && !u.dead);
+    const target = gs.units.find(u => u.id === targetId && !u.dead);
+    if (!attacker) { this._pushLog('Attack failed: attacker missing'); return; }
     if (!target) { this._pushLog('Attack failed: target missing'); return; }
-    const hpBefore = { atk: attacker.health, def: target.health };
     let log = [];
     try {
-      log = resolveImmediateAttack(gs, attacker.id, targetId, blindFire) || [];
+      log = resolveImmediateAttack(gs, attackerId, targetId, blindFire) || [];
       if (log[0]) this._recordCombat(log[0]);
       if (target && !target.dead) target._tierIntelConfirmed = true;
       if (attacker) attacker._tierIntelConfirmed = true;
@@ -7298,7 +7216,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
     // If attacker died from retaliation, clear selection
-    const atkAlive = gs.units.find(u => u.id === attacker.id);
+    const atkAlive = gs.units.find(u => u.id === attackerId);
     if (!atkAlive) this.selectedUnit = null;
     this._refresh();
     // Show combat result card — dismiss on click or space after short delay
