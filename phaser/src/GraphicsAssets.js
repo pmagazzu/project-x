@@ -137,7 +137,18 @@ export function placeWorldSprite(scene, layer, textureKey, x, y, maxHeight, tint
     const tex = scene.textures.get(textureKey);
     if (tex?.source?.[0]) tex.source[0].setFilter(1); // NEAREST
   }
-  if (tint != null) spr.setTint(tint);
+  if (tint != null) {
+    let applied = tint;
+    if (textureKey.startsWith('px_')) {
+      const c = Phaser.Display.Color.IntegerToColor(tint);
+      applied = Phaser.Display.Color.GetColor(
+        Math.min(255, Math.floor(c.red * 0.32 + 168)),
+        Math.min(255, Math.floor(c.green * 0.32 + 168)),
+        Math.min(255, Math.floor(c.blue * 0.32 + 168)),
+      );
+    }
+    spr.setTint(applied);
+  }
   if (layer) layer.add(spr);
   return spr;
 }
