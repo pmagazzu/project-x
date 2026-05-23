@@ -40,7 +40,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.29';
+export const GAME_VERSION = 'v1.10.30';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -2380,7 +2380,9 @@ export class GameScene extends Phaser.Scene {
       }
 
       const sprH = HEX_SIZE * 1.28;
-      const artKey = getUnitArtTextureKey(unit.type, unit.owner);
+      const artKey = hasUnitSprite(this, unit.type, unit.owner)
+        ? getUnitArtTextureKey(unit.type, unit.owner)
+        : null;
       const sprAlpha = spent ? alpha * 0.45 : alpha;
       const unitSpr = artKey
         ? placeWorldSprite(this, this.unitSpriteLayer, artKey, x, y, sprH,
