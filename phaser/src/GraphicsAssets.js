@@ -61,29 +61,14 @@ export const UNIT_ART = {
   AA_EMPLACEMENT: 'px_unit_anti_tank',
 };
 
-export const BUILDING_ART = {
-  HQ: 'px_bld_hq',
-  BARRACKS: 'px_bld_barracks',
-  ADV_BARRACKS: 'px_bld_barracks',
-  MINE: 'px_bld_mine',
-  OIL_PUMP: 'px_bld_oil_pump',
-  NAVAL_YARD: 'px_bld_naval_yard',
-  NAVAL_DOCKYARD: 'px_bld_naval_yard',
-  HARBOR: 'px_bld_harbor',
-  PORT: 'px_bld_harbor',
-  VEHICLE_DEPOT: 'px_bld_vehicle_depot',
-  ARMOR_WORKS: 'px_bld_vehicle_depot',
-  DRY_DOCK: 'px_bld_dry_dock',
-  NAVAL_BASE: 'px_bld_naval_base',
-  OBS_POST: 'px_bld_obs_post',
-  FORT_T0: 'px_bld_bunker',
-  FORT_T1: 'px_bld_bunker',
-  FORT_T2: 'px_bld_bunker',
-  FORT_T3: 'px_bld_bunker',
-  FORT_T4: 'px_bld_bunker',
-  FORT_T5: 'px_bld_bunker',
-  FARM: 'px_bld_farm',
-};
+/**
+ * false = team-tinted counter rectangles (matches unit style).
+ * true  = procedural px_bld_* sprites (legacy — disabled).
+ */
+export const USE_BUILDING_SPRITE_ART = false;
+
+/** Legacy procedural keys — unused while USE_BUILDING_SPRITE_ART is false. */
+export const BUILDING_ART = {};
 
 /** Hex farm overlay (terrain-style, not building icon). */
 export const FARM_TILE_ART = 'px_terrain_farm';
@@ -139,6 +124,7 @@ export function hasUnitSprite(scene, unitType, owner = null) {
 }
 
 export function hasBuildingSprite(scene, buildingType) {
+  if (!USE_BUILDING_SPRITE_ART) return false;
   const key = getBuildingArtTextureKey(buildingType);
   return isTextureReady(scene, key);
 }

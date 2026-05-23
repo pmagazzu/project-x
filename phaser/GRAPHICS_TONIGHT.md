@@ -30,10 +30,9 @@ You can also paste PNGs in Cursor chat — we'll wire them up.
 
 ## 2. Unit art (6 teams × unit types)
 
-### Current mode
-- **On map:** blue/red rectangle counters (classic:Omit-style symbols).
-- **Sprites off** until we flip `USE_UNIT_SPRITE_ART = true` in `GraphicsAssets.js`.
-- **Your PNGs** can still be wired via `USER_UNIT_ART` without turning procedural art back on.
+### Current mode (map)
+- **Units:** blue/red **rectangle counters** — staying for now.
+- **Buildings:** same **team-tinted counter chips** with 2-letter codes (HQ, Ba, Mi, Ny…). Procedural building sprites are **off**.
 
 ### Recommended PNG spec
 | Setting | Value |

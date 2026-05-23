@@ -24,15 +24,17 @@ import {
 } from './GameState.js';
 import { TECH_TREE, RESEARCH_BRANCHES, prereqsMet, computeTechBonuses, getNextDesignSlotTech } from './ResearchData.js';
 import {
-  GAME_THEME, TERRAIN_COLORS_V2, initSpriteArt, replaceCanvasTexture, hasPixelTexture, FARM_TILE_ART,
-  getUnitArtTextureKey, getBuildingArtTextureKey, hasUnitSprite, placeWorldSprite, USER_UNIT_ART_FILES,
+  GAME_THEME, TERRAIN_COLORS_V2, initSpriteArt, replaceCanvasTexture,
+  getUnitArtTextureKey, hasUnitSprite, placeWorldSprite, USER_UNIT_ART_FILES,
 } from './GraphicsAssets.js';
 import {
   COMBAT_GLYPH, TIER_COL, TIER_BG,
   getCombatIntel, analyzeCombat, buildResolveSteps,
 } from './CombatUI.js';
+import { renderCombatPreviewPanel, renderCombatResultPanel } from './CombatPanelUI.js';
 import { getVictoryPointLeader } from './VictoryPoints.js';
 import { PLAYER_LABELS, VICTORY_MODES } from './GameConfig.js';
+import { getBuildingCounterGlyph } from './BuildingCounters.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
 const TERRAIN        = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2, HILL: 3, SHALLOW: 4, OCEAN: 5, SAND: 6 };
@@ -42,7 +44,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.11.0';
+export const GAME_VERSION = 'v1.11.1';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -1687,6 +1689,86 @@ export class GameScene extends Phaser.Scene {
     return { L: cx - hw - buf, R: cx + hw + buf, T: cy - hh - buf, B: cy + hh + buf };
   }
 
+  _drawBuildingCounter(b, x, y, color, s) {
+    const g = this.buildingGfx;
+    const glyph = getBuildingCounterGlyph(b.type);
+    const cW = s * 2.2;
+    const cH = s * 1.65;
+    const cx2 = x - cW / 2;
+    const cy2 = y - cH / 2;
+    const alpha = 1;
+    const _mix = (a, bCol, t) => {
+      const ca = Phaser.Display.Color.IntegerToColor(a);
+      const cb = Phaser.Display.Color.IntegerToColor(bCol);
+      return Phaser.Display.Color.GetColor(
+        Math.floor(ca.red * (1 - t) + cb.red * t),
+        Math.floor(ca.green * (1 - t) + cb.green * t),
+        Math.floor(ca.blue * (1 - t) + cb.blue * t),
+      );
+    };
+    const teamBase = _mix(color, 0x6e6e6e, 0.68);
+    const bodyColor = b.underConstruction ? _mix(teamBase, 0x7f7f7f, 0.45) : teamBase;
+    const accent = _mix(color, 0xffffff, 0.22);
+
+    g.fillStyle(0x000000, 0.38);
+    g.fillRect(cx2 + 2, cy2 + 2, cW, cH);
+    g.fillStyle(bodyColor, alpha);
+    g.fillRect(cx2, cy2, cW, cH);
+  // Slightly squarer than units — double stripe marks "structure"
+    g.fillStyle(accent, alpha * 0.92);
+    g.fillRect(cx2 + 1, cy2 + 1, cW - 2, 3);
+    g.fillRect(cx2 + 1, cy2 + cH - 4, cW - 2, 2);
+
+    g.lineStyle(1, 0xffffff, alpha * 0.28);
+    g.beginPath();
+    g.moveTo(cx2, cy2 + cH - 1);
+    g.lineTo(cx2, cy2);
+    g.lineTo(cx2 + cW - 1, cy2);
+    g.strokePath();
+    g.lineStyle(1.5, accent, alpha);
+    g.strokeRect(cx2, cy2, cW, cH);
+
+    // Small square "structure" notch (vs round unit counters)
+    g.fillStyle(0x0b0f16, alpha * 0.55);
+    g.fillRect(cx2 + 3, cy2 + 5, 5, 5);
+
+    const lbl = this.add.text(x, y + 1, glyph, {
+      font: 'bold 12px monospace',
+      fill: '#eef2ea',
+      stroke: '#0a0a0a',
+      strokeThickness: 3,
+    }).setOrigin(0.5);
+    this.buildingSpriteLayer?.add(lbl);
+
+    if (b.type === 'FACTORY' && b.active === false) {
+      g.fillStyle(0xcc4444, 0.95);
+      g.fillCircle(cx2 + cW - 5, cy2 + 5, 3);
+    }
+
+    if (b.underConstruction) {
+      const prog = b.buildProgress || 0;
+      const total = b.buildTurnsRequired || 1;
+      const fraction = prog / total;
+      const barW = HEX_SIZE * 0.75;
+      const barH = 4;
+      const barX = x - barW / 2;
+      const barY = y + cH * 0.42;
+      g.fillStyle(0x000000, 0.7);
+      g.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+      g.fillStyle(0x888888, 0.85);
+      g.fillRect(barX, barY, barW, barH);
+      g.fillStyle(0xffcc00, 1);
+      g.fillRect(barX, barY, barW * fraction, barH);
+      g.lineStyle(1, 0xffcc00, 0.45);
+      for (let i = -2; i <= 2; i++) {
+        g.beginPath();
+        g.moveTo(x + i * s * 0.35 - s, y - s * 0.35);
+        g.lineTo(x + i * s * 0.35 + s, y + s * 0.35);
+        g.strokePath();
+      }
+    }
+  }
+
   _redrawBuildings() {
     this.buildingGfx.clear();
     if (this.farmTileLayer) this.farmTileLayer.removeAll(true);
@@ -1710,11 +1792,6 @@ export class GameScene extends Phaser.Scene {
         // FARM is rendered as a terrain tile swap/overlay (not a building icon).
         if (b.type === 'FARM') {
           const targetH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH);
-          if (hasPixelTexture(this, FARM_TILE_ART)) {
-            placeWorldSprite(this, this.farmTileLayer, FARM_TILE_ART, x, y, targetH * 0.96,
-              0xffffff, 1, 0);
-            continue;
-          }
           const verts = hexVertices(x, y);
           const targetW = HEX_SIZE * 2;
 
@@ -1758,468 +1835,7 @@ export class GameScene extends Phaser.Scene {
           continue;
         }
 
-        const bldArtKey = getBuildingArtTextureKey(b.type);
-        const bldH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH) * 0.98;
-        const tint = PLAYER_COLORS[b.owner] || 0xffffff;
-        const bldSpr = bldArtKey
-          ? placeWorldSprite(this, this.buildingSpriteLayer, bldArtKey, x, y - bldH * 0.08, bldH, tint, 1, 0)
-          : null;
-        if (bldSpr) {
-          if (b.underConstruction) {
-            const g = this.buildingGfx;
-            const barW = HEX_SIZE * 0.9, barH = 5;
-            const barX = x - barW / 2, barY = y - bldH * 0.55;
-            g.fillStyle(0x000000, 0.7);
-            g.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
-            g.fillStyle(0x888888, 0.8);
-            g.fillRect(barX, barY, barW, barH);
-            g.fillStyle(0xffcc00, 1.0);
-            g.fillRect(barX, barY, barW * ((b.buildProgress || 0) / (b.buildTurnsRequired || 1)), barH);
-          }
-          continue;
-        }
-
-      // ── Helper: pixel-building style with subtle team accents (less color dominance) ──
-      const g = this.buildingGfx;
-      const _mix = (a, b, t) => {
-        const ca = Phaser.Display.Color.IntegerToColor(a);
-        const cb = Phaser.Display.Color.IntegerToColor(b);
-        return Phaser.Display.Color.GetColor(
-          Math.floor(ca.red * (1 - t) + cb.red * t),
-          Math.floor(ca.green * (1 - t) + cb.green * t),
-          Math.floor(ca.blue * (1 - t) + cb.blue * t)
-        );
-      };
-      const teamAccent = _mix(color, 0xffffff, 0.18);
-      const _bldgRect = (bx, by, bw, bh, bodyColor) => {
-        const px = Math.floor(bx), py = Math.floor(by), pw = Math.max(8, Math.floor(bw)), ph = Math.max(6, Math.floor(bh));
-        const mutedBody = _mix(bodyColor, 0x777777, 0.35);
-        g.fillStyle(0x000000, 0.55); g.fillRect(px + 2, py + 2, pw, ph); // shadow
-        g.fillStyle(mutedBody);      g.fillRect(px, py, pw, ph);
-        // subtle checker/noise to feel pixel-art tile-like
-        g.fillStyle(_mix(mutedBody, 0x222222, 0.18), 0.35);
-        for (let ix = 1; ix < pw - 1; ix += 4) {
-          for (let iy = 1; iy < ph - 1; iy += 4) {
-            if (((ix + iy) / 4) % 2 === 0) g.fillRect(px + ix, py + iy, 2, 2);
-          }
-        }
-        // thin team accent strip instead of fully team-colored building
-        g.fillStyle(teamAccent, 0.85); g.fillRect(px + 1, py + 1, pw - 2, 3);
-        g.lineStyle(1.2, teamAccent, 0.95); g.strokeRect(px, py, pw, ph);
-        // inner highlight
-        g.lineStyle(1, 0xffffff, 0.22); g.beginPath();
-        g.moveTo(px, py + ph - 1); g.lineTo(px, py); g.lineTo(px + pw - 1, py);
-        g.strokePath();
-      };
-      const _flagpole = (px, py, fh) => {
-        g.fillStyle(0xdddddd); g.fillRect(px - s*0.06, py - fh, s*0.12, fh);
-        g.fillStyle(teamAccent);
-        g.fillTriangle(px + s*0.06, py - fh + s*0.05, px + s*0.06, py - fh + s*0.4, px + s*0.45, py - fh + s*0.22);
-      };
-
-      if (b.type === 'HQ') {
-        // HQ: command block + center keep + watch windows
-        const bw = s * 2.05, bh = s * 1.35;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x6f6b62);
-        // Keep/tower core
-        _bldgRect(x - s*0.46, y - bh/2 - s*0.62, s*0.92, s*0.62, 0x7b766a);
-        // Roof peak
-        g.fillStyle(0x1f1f1f, 0.85);
-        g.fillTriangle(x - s*0.58, y - bh/2 - s*0.62, x + s*0.58, y - bh/2 - s*0.62, x, y - bh/2 - s*1.08);
-        // Windows/slits
-        g.fillStyle(0xbfd8ff, 0.55);
-        g.fillRect(x - s*0.62, y - s*0.05, s*0.14, s*0.16);
-        g.fillRect(x - s*0.08, y - s*0.05, s*0.14, s*0.16);
-        g.fillRect(x + s*0.46, y - s*0.05, s*0.14, s*0.16);
-        // Door
-        g.fillStyle(0x2a2119, 0.85); g.fillRect(x - s*0.18, y + s*0.16, s*0.36, s*0.34);
-        _flagpole(x + s*0.62, y - bh/2, s * 1.25);
-
-      } else if (b.type === 'MINE') {
-        // Mine: pit mouth + timber frame + ore carts
-        const bw = s * 1.85, bh = s * 0.9;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x57534b);
-        // Shaft mouth
-        g.fillStyle(0x1a1a1a, 0.9); g.fillRect(x - s*0.34, y - s*0.02, s*0.68, s*0.28);
-        // Timber supports
-        g.fillStyle(0x7a6248, 0.95);
-        g.fillRect(x - s*0.4, y - s*0.12, s*0.08, s*0.42);
-        g.fillRect(x + s*0.32, y - s*0.12, s*0.08, s*0.42);
-        g.fillRect(x - s*0.4, y - s*0.12, s*0.8, s*0.08);
-        // Ore carts
-        g.fillStyle(0x8b8f94, 0.9);
-        g.fillRect(x - s*0.72, y + s*0.1, s*0.24, s*0.14);
-        g.fillRect(x + s*0.48, y + s*0.1, s*0.24, s*0.14);
-        g.fillStyle(teamAccent, 0.8); g.fillRect(x - s*0.72, y + s*0.08, s*0.24, s*0.03);
-        g.fillStyle(teamAccent, 0.8); g.fillRect(x + s*0.48, y + s*0.08, s*0.24, s*0.03);
-
-      } else if (b.type === 'OIL_PUMP') {
-        // Oil pump: base pad + derrick + pumpjack arm
-        const bw = s * 1.68, bh = s * 0.76;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x2e2e36);
-        // Derrick frame
-        g.lineStyle(1.4, 0xa4a8ad, 0.9);
-        g.beginPath();
-        g.moveTo(x - s*0.5, y + s*0.18); g.lineTo(x - s*0.28, y - s*0.78);
-        g.lineTo(x - s*0.06, y + s*0.18); g.strokePath();
-        g.beginPath(); g.moveTo(x - s*0.44, y - s*0.46); g.lineTo(x - s*0.12, y - s*0.46); g.strokePath();
-        // Pumpjack arm
-        g.lineStyle(1.8, teamAccent, 0.95);
-        g.beginPath(); g.moveTo(x - s*0.05, y - s*0.55); g.lineTo(x + s*0.55, y - s*0.35); g.strokePath();
-        g.fillStyle(teamAccent, 0.95); g.fillCircle(x + s*0.55, y - s*0.35, s*0.1);
-        // Well head + spill channel
-        g.fillStyle(0x11161a, 0.9); g.fillRect(x + s*0.2, y - s*0.05, s*0.16, s*0.2);
-        g.fillStyle(0x2f3d4f, 0.85); g.fillRect(x + s*0.38, y + s*0.08, s*0.26, s*0.08);
-
-      } else if (b.type === 'VEHICLE_DEPOT' || b.type === 'ARMOR_WORKS') {
-        // Vehicle Depot: wide factory — team-colored walls, dark roof, smokestacks
-        const bw = s * 2.2, bh = s * 1.1;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
-        // Dark roof strip
-        g.fillStyle(0x000000, 0.3); g.fillRect(x - bw/2, y - bh/2, bw, bh*0.3);
-        // Smokestacks
-        g.fillStyle(0x222222); g.fillRect(x - bw*0.28, y - bh/2 - s*0.8, s*0.35, s*0.85);
-        g.fillStyle(0x222222); g.fillRect(x + bw*0.1,  y - bh/2 - s*0.6, s*0.35, s*0.65);
-        g.fillStyle(0xddccbb, 0.5); g.fillRect(x - bw*0.28, y - bh/2 - s*0.85, s*0.35, s*0.12); // rim
-        g.fillStyle(0xddccbb, 0.5); g.fillRect(x + bw*0.1,  y - bh/2 - s*0.65, s*0.35, s*0.12);
-        // Vehicle silhouette (tank outline)
-        g.lineStyle(1.5, 0xffffff, 0.45);
-        g.strokeRect(x - s*0.55, y - s*0.1, s*1.1, s*0.45);
-        g.beginPath(); g.moveTo(x - s*0.2, y - s*0.1); g.lineTo(x + s*0.2, y - s*0.35); g.lineTo(x + s*0.4, y - s*0.1); g.strokePath();
-
-      } else if (b.type === 'FORT_T0' || b.type === 'SANDBAG') {
-        g.fillStyle(0x4a4038, 0.9);
-        g.fillEllipse(x, y + s * 0.08, s * 0.75, s * 0.35);
-        g.lineStyle(2, 0x3a3028, 0.85);
-        g.strokeEllipse(x, y + s * 0.08, s * 0.75, s * 0.35);
-        g.fillStyle(color, 0.5);
-        g.fillCircle(x - s * 0.2, y - s * 0.05, s * 0.1);
-
-      } else if (b.type === 'FORT_T1') {
-        g.fillStyle(0xc8aa66, 0.85);
-        for (let i = -2; i <= 2; i++) g.fillRect(x + i * s * 0.22 - s * 0.08, y - s * 0.12, s * 0.16, s * 0.22);
-        g.lineStyle(2, color, 0.9);
-        g.strokeRect(x - s * 0.55, y - s * 0.18, s * 1.1, s * 0.32);
-
-      } else if (b.type === 'FORT_T2' || b.type === 'TRENCH' || b.type === 'FIELD_OUTPOST') {
-        g.fillStyle(0x887755, 0.7);
-        g.fillRect(x - s * 0.9, y - s * 0.15, s * 1.8, s * 0.3);
-        g.lineStyle(2, 0x665533, 0.9);
-        g.beginPath(); g.moveTo(x - s * 0.8, y); g.lineTo(x - s * 0.4, y - s * 0.3);
-        g.lineTo(x, y + s * 0.1); g.lineTo(x + s * 0.4, y - s * 0.3); g.lineTo(x + s * 0.8, y); g.strokePath();
-        if (b.type === 'FIELD_OUTPOST') {
-          g.fillStyle(color, 0.9);
-          g.fillCircle(x, y - s * 0.35, s * 0.12);
-        }
-
-      } else if (b.type === 'FORT_T3' || b.type === 'BUNKER') {
-        const verts = hexVertices(x, y).map(v => ({ x: x + (v.x - x) * 0.52, y: y + (v.y - y) * 0.52 }));
-        g.fillStyle(0x000000, 0.45);
-        g.beginPath(); g.moveTo(verts[0].x + 2, verts[0].y + 2);
-        for (let i = 1; i < verts.length; i++) g.lineTo(verts[i].x + 2, verts[i].y + 2);
-        g.closePath(); g.fillPath();
-        const bunkColor = Phaser.Display.Color.IntegerToColor(color);
-        g.fillStyle(Phaser.Display.Color.GetColor(
-          Math.floor(bunkColor.red * 0.4 + 0x44 * 0.6),
-          Math.floor(bunkColor.green * 0.4 + 0x55 * 0.6),
-          Math.floor(bunkColor.blue * 0.4 + 0x33 * 0.6)));
-        g.beginPath(); g.moveTo(verts[0].x, verts[0].y);
-        for (let i = 1; i < verts.length; i++) g.lineTo(verts[i].x, verts[i].y);
-        g.closePath(); g.fillPath();
-        g.lineStyle(2.5, color, 1.0);
-        g.beginPath(); g.moveTo(verts[0].x, verts[0].y);
-        for (let i = 1; i < verts.length; i++) g.lineTo(verts[i].x, verts[i].y);
-        g.closePath(); g.strokePath();
-        g.lineStyle(1.5, 0x000000, 0.7);
-        g.beginPath(); g.moveTo(x - s * 0.28, y); g.lineTo(x + s * 0.28, y); g.strokePath();
-        g.beginPath(); g.moveTo(x, y - s * 0.28); g.lineTo(x, y + s * 0.28); g.strokePath();
-
-      } else if (b.type === 'FORT_T4') {
-        const verts = hexVertices(x, y).map(v => ({ x: x + (v.x - x) * 0.62, y: y + (v.y - y) * 0.62 }));
-        g.fillStyle(0x555544, 0.95);
-        g.beginPath(); g.moveTo(verts[0].x, verts[0].y);
-        for (let i = 1; i < verts.length; i++) g.lineTo(verts[i].x, verts[i].y);
-        g.closePath(); g.fillPath();
-        g.lineStyle(3, color, 1);
-        g.strokePath();
-        g.lineStyle(2, 0x333322, 0.8);
-        g.strokeCircle(x, y, s * 0.72);
-
-      } else if (b.type === 'FORT_T5') {
-        const verts = hexVertices(x, y).map(v => ({ x: x + (v.x - x) * 0.72, y: y + (v.y - y) * 0.72 }));
-        g.fillStyle(0x444440, 0.98);
-        g.beginPath(); g.moveTo(verts[0].x, verts[0].y);
-        for (let i = 1; i < verts.length; i++) g.lineTo(verts[i].x, verts[i].y);
-        g.closePath(); g.fillPath();
-        g.lineStyle(3.5, color, 1);
-        g.strokePath();
-        g.fillStyle(0x222222, 0.6);
-        g.fillRect(x - s * 0.15, y - s * 0.45, s * 0.3, s * 0.35);
-
-      } else if (b.type === 'OBS_POST') {
-        g.fillStyle(0x000000, 0.4); g.fillRect(x - s*0.22, y - s*0.3, s*0.44, s*0.7);
-        g.fillStyle(color); g.fillRect(x - s*0.19, y - s*0.3, s*0.38, s*0.65);
-        g.fillStyle(0x000000, 0.4); g.fillRect(x - s*0.16, y - s*1.5, s*0.32, s*1.25);
-        g.fillStyle(color); g.fillRect(x - s*0.13, y - s*1.45, s*0.26, s*1.2);
-        g.fillStyle(0x000000, 0.45); g.fillRect(x - s*0.52, y - s*1.6, s*1.04, s*0.28);
-        g.fillStyle(0xddddcc); g.fillRect(x - s*0.5, y - s*1.58, s*1.0, s*0.25);
-        g.lineStyle(1.5, color, 1.0); g.strokeRect(x - s*0.5, y - s*1.58, s*1.0, s*0.25);
-        g.fillStyle(color); g.fillCircle(x + s*0.3, y - s*1.5, s*0.13);
-
-      } else if (b.type === 'BARRACKS' || b.type === 'ADV_BARRACKS') {
-        // Barracks: long hall + roof + window row (pixel military block)
-        const bw = s * 2.0, bh = s * 1.12;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x6a6f63);
-        // Roof slab
-        g.fillStyle(0x2f3330, 0.9); g.fillRect(x - bw/2 - 1, y - bh/2 - s*0.24, bw + 2, s*0.24);
-        // Roof vents
-        g.fillStyle(0x888, 0.9);
-        g.fillRect(x - s*0.52, y - bh/2 - s*0.22, s*0.18, s*0.1);
-        g.fillRect(x + s*0.34, y - bh/2 - s*0.22, s*0.18, s*0.1);
-        // Window row
-        g.fillStyle(0xb9d0f0, 0.45);
-        for (let i = -2; i <= 2; i++) g.fillRect(x + i*s*0.24 - s*0.06, y - s*0.04, s*0.12, s*0.14);
-        // Door + steps
-        g.fillStyle(0x2b241d, 0.9); g.fillRect(x - s*0.16, y + s*0.12, s*0.32, s*0.36);
-        g.fillStyle(0x555, 0.8); g.fillRect(x - s*0.22, y + s*0.48, s*0.44, s*0.08);
-
-      } else if (b.type === 'LUMBER_CAMP') {
-        // Lumber Camp: team-colored small hut + log cross-sections
-        const bw = s * 1.5, bh = s * 0.9;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
-        g.fillStyle(0x000000, 0.3);
-        g.fillTriangle(x - bw/2 - 1, y - bh/2, x + bw/2 + 1, y - bh/2, x, y - bh/2 - s*0.7);
-        // Axe symbol
-        g.lineStyle(2, 0xffffff, 0.75);
-        g.beginPath(); g.moveTo(x - s*0.5, y + s*0.25); g.lineTo(x + s*0.4, y - s*0.5); g.strokePath();
-        g.fillStyle(0xffffff, 0.75);
-        g.fillTriangle(x + s*0.2, y - s*0.55, x + s*0.55, y - s*0.25, x + s*0.55, y - s*0.6);
-
-      } else if (b.type === 'NAVAL_YARD' || b.type === 'NAVAL_DOCKYARD') {
-        // Naval Yard: dock hall + gantry crane + slipway
-        const bw = s * 2.15, bh = s * 1.02;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x4e5a62);
-        // Slipway basin
-        g.fillStyle(0x233a50, 0.85); g.fillRect(x - bw*0.28, y - bh/2 + s*0.14, bw*0.56, bh*0.66);
-        // Hull chunk
-        g.fillStyle(0x7f909d, 0.85); g.fillRect(x - s*0.32, y + s*0.02, s*0.64, s*0.14);
-        g.fillTriangle(x + s*0.32, y + s*0.02, x + s*0.52, y + s*0.09, x + s*0.32, y + s*0.16);
-        // Crane mast + boom
-        g.fillStyle(0xcfd6dc, 0.95); g.fillRect(x - s*0.7, y - bh/2 - s*0.98, s*0.15, s*1.0);
-        g.fillRect(x - s*0.7, y - bh/2 - s*0.98, s*0.72, s*0.12);
-        g.lineStyle(1, 0xcfd6dc, 0.8); g.beginPath();
-        g.moveTo(x - s*0.18, y - bh/2 - s*0.86); g.lineTo(x - s*0.18, y - bh/2 - s*0.22); g.strokePath();
-
-      } else if (b.type === 'HARBOR') {
-        // Harbor: team-colored pier with dock arms and water suggestion
-        const bw = s * 2.0, bh = s * 0.75;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
-        // Dock arm left
-        g.fillStyle(0xffffff, 0.7); g.fillRect(x - bw*0.42, y - bh/2 - s*0.6, s*0.22, s*0.65);
-        // Dock arm right
-        g.fillStyle(0xffffff, 0.7); g.fillRect(x + bw*0.2, y - bh/2 - s*0.6, s*0.22, s*0.65);
-        // Water squiggle
-        g.lineStyle(1.5, 0x44aaff, 0.6);
-        g.beginPath(); g.moveTo(x - s*0.6, y + s*0.12); g.lineTo(x - s*0.2, y - s*0.05);
-        g.lineTo(x + s*0.2, y + s*0.12); g.lineTo(x + s*0.6, y - s*0.05); g.strokePath();
-
-      } else if (b.type === 'DRY_DOCK') {
-        // Dry Dock: team-colored U-shaped structure with ship hull inside
-        const bw = s * 2.3, bh = s * 1.2;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, color);
-        // Inner dock channel (dark water)
-        g.fillStyle(0x112244); g.fillRect(x - bw*0.27, y - bh/2 + s*0.18, bw*0.54, bh*0.7);
-        // Ship hull cross-section
-        g.lineStyle(1.5, 0x88bbdd, 0.7);
-        g.strokeEllipse(x, y + s*0.15, bw*0.42, s*0.55);
-        // Supports/keel blocks
-        g.fillStyle(0x888888, 0.8);
-        for (let i = -1; i <= 1; i++) {
-          g.fillRect(x + i*s*0.35 - s*0.07, y - bh/2 + s*0.16, s*0.14, s*0.22);
-        }
-
-      } else if (b.type === 'NAVAL_BASE') {
-        // Naval base: fortified command quay + dry basin + tower
-        const bw = s * 2.56, bh = s * 1.44;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x4f5d68);
-        // Inner basin
-        g.fillStyle(0x1e3448, 0.86); g.fillRect(x - bw*0.26, y - bh/2 + s*0.18, bw*0.52, bh*0.74);
-        // Quay blocks
-        g.fillStyle(0x6f7f8b, 0.85);
-        g.fillRect(x - bw*0.42, y + s*0.02, s*0.26, s*0.18);
-        g.fillRect(x + bw*0.16, y + s*0.02, s*0.26, s*0.18);
-        // Command tower
-        _bldgRect(x - bw*0.43, y - bh/2 - s*0.58, s*0.56, s*0.58, 0x707a82);
-        g.fillStyle(0xb8c9d8, 0.45); g.fillRect(x - bw*0.39, y - bh/2 - s*0.42, s*0.38, s*0.12);
-        // Prow silhouette
-        g.fillStyle(0x98adbf, 0.8);
-        g.fillTriangle(x + s*0.1, y + s*0.02, x + s*0.56, y - s*0.16, x + s*0.56, y + s*0.2);
-        _flagpole(x - bw*0.16, y - bh/2, s * 1.0);
-
-      } else if (b.type === 'AIRFIELD' || b.type === 'ADV_AIRFIELD') {
-        // Airfield: tarmac pad + runway markings + hangar slab
-        const bw = s * 2.42, bh = s * 1.52;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x737a80);
-        // Tarmac
-        g.fillStyle(0x565d64, 0.8); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
-        // Runway stripe and centerline
-        g.fillStyle(0x9aa3ac, 0.85); g.fillRect(x - bw*0.42, y - s*0.11, bw*0.84, s*0.22);
-        g.fillStyle(0xe5e8ea, 0.75);
-        for (let i = -2; i <= 2; i++) g.fillRect(x + i*s*0.22 - s*0.03, y - s*0.03, s*0.06, s*0.06);
-        // Hangar block
-        g.fillStyle(0x444a50, 0.95); g.fillRect(x - s*0.95, y - bh/2 + s*0.15, s*0.72, s*0.5);
-        g.fillStyle(0x2b2f33, 0.95); g.fillRect(x - s*0.88, y - bh/2 + s*0.23, s*0.58, s*0.34);
-        // Windsock
-        g.fillStyle(0xd8d8d8, 0.9); g.fillRect(x + bw*0.3, y - bh/2 - s*0.58, s*0.1, s*0.62);
-        g.fillStyle(teamAccent, 0.9);
-        g.fillTriangle(x + bw*0.3 + s*0.1, y - bh/2 - s*0.54,
-          x + bw*0.3 + s*0.1, y - bh/2 - s*0.26,
-          x + bw*0.3 + s*0.52, y - bh/2 - s*0.4);
-
-      } else if (b.type === 'FARM') {
-        // Farm: furrow patch + barn + silo
-        const bw = s * 1.9, bh = s * 1.22;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x5f6b49);
-        // Furrows
-        g.lineStyle(1.2, 0x3f5a31, 0.78);
-        for (let i = 0; i < 5; i++) {
-          const ry = y - bh/2 + 4 + i * (bh - 8) / 4;
-          g.beginPath(); g.moveTo(x - bw/2 + 3, ry); g.lineTo(x + bw/2 - 3, ry); g.strokePath();
-        }
-        // Barn
-        g.fillStyle(0x8c3f2a, 0.95); g.fillRect(x + s*0.2, y - s*0.28, s*0.46, s*0.38);
-        g.fillStyle(0x5c2619, 0.95); g.fillTriangle(x + s*0.16, y - s*0.28, x + s*0.70, y - s*0.28, x + s*0.43, y - s*0.56);
-        // Silo
-        g.fillStyle(0x9b9fa4, 0.9); g.fillRect(x - s*0.72, y - s*0.34, s*0.2, s*0.46);
-        g.fillStyle(0xc9ced3, 0.9); g.fillCircle(x - s*0.62, y - s*0.34, s*0.1);
-
-      } else if (b.type === 'MARKET') {
-        // Market: stalls + canopies + coin sign
-        const bw = s * 1.85, bh = s * 0.96;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x6a5d49);
-        // Canopies
-        const stripeW = bw / 6;
-        for (let i = 0; i < 6; i++) {
-          g.fillStyle(i%2===0 ? 0xd8d2c3 : teamAccent, 0.55);
-          g.fillRect(x - bw/2 + i*stripeW, y - bh/2 - s*0.34, stripeW, s*0.34);
-        }
-        // Stall fronts
-        g.fillStyle(0x463a2b, 0.85);
-        g.fillRect(x - s*0.78, y - s*0.02, s*0.42, s*0.24);
-        g.fillRect(x - s*0.24, y - s*0.02, s*0.42, s*0.24);
-        g.fillRect(x + s*0.30, y - s*0.02, s*0.42, s*0.24);
-        // Coin sign
-        g.fillStyle(0xffcc55, 0.95); g.fillCircle(x, y + s*0.08, s*0.22);
-        g.lineStyle(1.2, 0x000000, 0.35); g.strokeCircle(x, y + s*0.08, s*0.22);
-
-      } else if (b.type === 'PORT') {
-        // Port: pier + crane + container blocks
-        const bw = s * 1.95, bh = s * 1.02;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x355a74);
-        g.fillStyle(0x243b4b, 0.9); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
-        // Pier
-        g.fillStyle(0x9a8f7a, 0.88); g.fillRect(x - s*0.9, y + s*0.08, s*1.8, s*0.18);
-        // Crane
-        g.fillStyle(0xb7c2cc, 0.95); g.fillRect(x - s*0.18, y - s*0.44, s*0.12, s*0.58);
-        g.fillRect(x - s*0.18, y - s*0.44, s*0.52, s*0.1);
-        g.fillStyle(teamAccent, 0.9); g.fillRect(x + s*0.26, y - s*0.34, s*0.08, s*0.18);
-        // Containers
-        g.fillStyle(0x7a3f2a, 0.9); g.fillRect(x - s*0.72, y - s*0.2, s*0.32, s*0.2);
-        g.fillStyle(0x2d6e8a, 0.9); g.fillRect(x - s*0.34, y - s*0.2, s*0.28, s*0.2);
-        g.fillStyle(0x5d6f32, 0.9); g.fillRect(x + s*0.02, y - s*0.2, s*0.30, s*0.2);
-
-      } else if (b.type === 'SCIENCE_LAB') {
-        // Science lab: modular lab block + dish + glass tanks
-        const bw = s * 1.78, bh = s * 1.14;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x556171);
-        g.fillStyle(0x2f3e4d, 0.88); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
-        // Satellite dish
-        g.lineStyle(1.6, 0xd5dde5, 0.9);
-        g.strokeEllipse(x - s*0.42, y - bh/2 - s*0.42, s*0.5, s*0.24);
-        g.beginPath(); g.moveTo(x - s*0.42, y - bh/2 - s*0.3); g.lineTo(x - s*0.26, y - bh/2 - s*0.08); g.strokePath();
-        // Lab glass columns
-        g.fillStyle(0x95c6ff, 0.45);
-        g.fillRect(x - s*0.06, y - s*0.2, s*0.14, s*0.42);
-        g.fillRect(x + s*0.2, y - s*0.2, s*0.14, s*0.42);
-        // Accent probe light
-        g.fillStyle(teamAccent, 0.85); g.fillCircle(x + s*0.52, y - bh/2 - s*0.2, s*0.1);
-
-      } else if (b.type === 'FACTORY') {
-        // Factory: industrial block with sawtooth roof, vents, and status lamp
-        const bw = s * 1.96, bh = s * 1.24;
-        _bldgRect(x - bw/2, y - bh/2, bw, bh, 0x656565);
-        g.fillStyle(0x3f3f3f, 0.9); g.fillRect(x - bw/2 + 2, y - bh/2 + 2, bw - 4, bh - 4);
-        // Sawtooth roof profile
-        g.fillStyle(0x2f2f2f, 0.95);
-        for (let i = -2; i <= 1; i++) {
-          const rx = x + i*s*0.36;
-          g.fillTriangle(rx - s*0.16, y - bh/2 + s*0.08, rx + s*0.16, y - bh/2 + s*0.08, rx + s*0.02, y - bh/2 - s*0.18);
-        }
-        // Smokestacks
-        g.fillStyle(0x5a5a5a, 1.0);
-        g.fillRect(x - s*0.58, y - bh/2 - s*0.48, s*0.2, s*0.48);
-        g.fillRect(x - s*0.12, y - bh/2 - s*0.58, s*0.2, s*0.58);
-        g.fillRect(x + s*0.34, y - bh/2 - s*0.4, s*0.2, s*0.4);
-        // Window strip
-        g.fillStyle(0xb8c7d8, 0.35);
-        for (let i = -2; i <= 2; i++) g.fillRect(x + i*s*0.22 - s*0.06, y + s*0.03, s*0.12, s*0.1);
-        // Status light (green when active, red when toggled off)
-        const active = (b.active !== false);
-        g.fillStyle(active ? 0x44cc66 : 0xcc4444, 0.95);
-        g.fillCircle(x + s*0.62, y + s*0.28, s*0.12);
-
-      } else if (b.type === 'AT_DITCH') {
-        // AT Ditch: dark diagonal cuts
-        g.fillStyle(0x553300, 0.8); g.fillRect(x - s*0.9, y - s*0.2, s*1.8, s*0.4);
-        g.lineStyle(2, 0x221100, 0.9);
-        for (let i = -3; i <= 3; i++) {
-          g.beginPath(); g.moveTo(x + i*s*0.28 - s*0.15, y - s*0.2);
-          g.lineTo(x + i*s*0.28 + s*0.15, y + s*0.2); g.strokePath();
-        }
-
-      } else if (b.type === 'PONTOON_BRIDGE') {
-        // Pontoon Bridge: light brown planks over water
-        g.fillStyle(0xccbb88, 0.85); g.fillRect(x - s*0.95, y - s*0.18, s*1.9, s*0.36);
-        g.lineStyle(1.5, 0x998866, 0.8);
-        for (let i = -3; i <= 3; i++) {
-          const bx = x + i * s*0.28;
-          g.beginPath(); g.moveTo(bx, y - s*0.18); g.lineTo(bx, y + s*0.18); g.strokePath();
-        }
-        // Float circles
-        g.fillStyle(0x8899aa, 0.6);
-        for (let i = -2; i <= 2; i++) g.fillCircle(x + i*s*0.35, y, s*0.1);
-      }
-
-      // ── Under-construction overlay ──────────────────────────────────────
-      if (b.underConstruction) {
-        const prog = b.buildProgress || 0;
-        const total = b.buildTurnsRequired || 1;
-        const fraction = prog / total;
-        const hw = HEX_SIZE * 0.42;
-
-        // Diagonal scaffolding hatching
-        this.buildingGfx.lineStyle(1.5, 0xffcc00, 0.55);
-        for (let i = -3; i <= 3; i++) {
-          this.buildingGfx.beginPath();
-          this.buildingGfx.moveTo(x + i * hw * 0.5 - hw, y - hw * 0.5);
-          this.buildingGfx.lineTo(x + i * hw * 0.5 + hw, y + hw * 0.5);
-          this.buildingGfx.strokePath();
-        }
-
-        // Progress bar background
-        const barW = HEX_SIZE * 0.7, barH = 5;
-        const barX = x - barW / 2, barY = y + HEX_SIZE * 0.28;
-        this.buildingGfx.fillStyle(0x000000, 0.7);
-        this.buildingGfx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
-        this.buildingGfx.fillStyle(0x888888, 0.8);
-        this.buildingGfx.fillRect(barX, barY, barW, barH);
-        this.buildingGfx.fillStyle(0xffcc00, 1.0);
-        this.buildingGfx.fillRect(barX, barY, barW * fraction, barH);
-
-        // Turn counter text: "2/3"
-        this.buildingGfx.fillStyle(0x000000, 0.75);
-        this.buildingGfx.fillRect(x - 10, barY - 12, 20, 11);
-      }
+        this._drawBuildingCounter(b, x, y, color, s);
       } catch (e) {
         // Prevent a single bad building definition from wiping the whole layer
         continue;
