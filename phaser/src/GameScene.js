@@ -44,7 +44,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.11.1';
+export const GAME_VERSION = 'v1.11.3';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -283,8 +283,8 @@ export class GameScene extends Phaser.Scene {
     this._supplyOverlayOn = false; // toggled by [L] or SUP button (not S — WASD pan)
     this.highlightGfx = this.add.graphics().setDepth(10);
     this.farmTileLayer = this.add.layer().setDepth(14);
-    this.buildingSpriteLayer = this.add.layer().setDepth(15);
     this.buildingGfx  = this.add.graphics().setDepth(16);
+    this.buildingSpriteLayer = this.add.layer().setDepth(17); // labels above buildingGfx
     this.unitSpriteLayer = this.add.layer().setDepth(19);
     this.unitGfx      = this.add.graphics().setDepth(20);
     // Fog: RenderTexture instead of Graphics — handles large maps (120×120+) without vertex overflow
@@ -303,6 +303,7 @@ export class GameScene extends Phaser.Scene {
     // Build static UI panels
     this._createTopBar();
     this._initCommandDockRows();
+    this._layoutCommandDock(this.scale.height);
     this._createBottomPanel();
     this._createRecruitPanel();
     if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
@@ -630,17 +631,8 @@ export class GameScene extends Phaser.Scene {
     this.btnResearch?.setPosition(w - 334, 42);
     this.btnMore?.setPosition(w - 248, 42);
     this.btnSettings?.setPosition(w - 162, 42);
-    const dockY = Math.min(260, gs.height * 0.38);
-    this.sidebarEcoBg?.setPosition(72, dockY).setSize(128, 328);
-    this.sidebarEcoTitle?.setPosition(10, dockY - 152);
-    this.sidebarUpkeepBanner?.setPosition(10, dockY - 134);
-    this.sidebarResearchBar?.setPosition(10, dockY - 112);
-    const resYs = [dockY - 88, dockY - 62, dockY - 36, dockY - 10, dockY + 16, dockY + 42, dockY + 68, dockY + 94, dockY + 120];
-    [this.resIron, this.resOil, this.resWood, this.resFood, this.resPop, this.resGold, this.resComp, this.resSteel, this.resAlloy, this.resRp].forEach((r, i) => {
-      if (!r) return;
-      r.setPosition(10, resYs[i]);
-      r.getData('valueText')?.setPosition(32, resYs[i]);
-    });
+    this.btnMenu?.setPosition(10, 8).setDepth(130);
+    this._layoutCommandDock(h);
     this.btnSubmit?.setPosition(w - 8, 42);
     this.turnBadge?.setPosition(w - 8, 8);
 
@@ -1692,6 +1684,7 @@ export class GameScene extends Phaser.Scene {
   _drawBuildingCounter(b, x, y, color, s) {
     const g = this.buildingGfx;
     const glyph = getBuildingCounterGlyph(b.type);
+    const typeDef = BUILDING_TYPES[b.type];
     const cW = s * 2.2;
     const cH = s * 1.65;
     const cx2 = x - cW / 2;
@@ -1709,6 +1702,7 @@ export class GameScene extends Phaser.Scene {
     const teamBase = _mix(color, 0x6e6e6e, 0.68);
     const bodyColor = b.underConstruction ? _mix(teamBase, 0x7f7f7f, 0.45) : teamBase;
     const accent = _mix(color, 0xffffff, 0.22);
+    const typeAccent = typeDef?.color ? _mix(typeDef.color, color, 0.42) : accent;
 
     g.fillStyle(0x000000, 0.38);
     g.fillRect(cx2 + 2, cy2 + 2, cW, cH);
@@ -1717,6 +1711,7 @@ export class GameScene extends Phaser.Scene {
   // Slightly squarer than units — double stripe marks "structure"
     g.fillStyle(accent, alpha * 0.92);
     g.fillRect(cx2 + 1, cy2 + 1, cW - 2, 3);
+    g.fillStyle(typeAccent, alpha * 0.95);
     g.fillRect(cx2 + 1, cy2 + cH - 4, cW - 2, 2);
 
     g.lineStyle(1, 0xffffff, alpha * 0.28);
@@ -1728,8 +1723,8 @@ export class GameScene extends Phaser.Scene {
     g.lineStyle(1.5, accent, alpha);
     g.strokeRect(cx2, cy2, cW, cH);
 
-    // Small square "structure" notch (vs round unit counters)
-    g.fillStyle(0x0b0f16, alpha * 0.55);
+    // Small square "structure" notch tinted by building role
+    g.fillStyle(_mix(typeAccent, 0x0b0f16, 0.55), alpha * 0.85);
     g.fillRect(cx2 + 3, cy2 + 5, 5, 5);
 
     const lbl = this.add.text(x, y + 1, glyph, {
@@ -1737,7 +1732,7 @@ export class GameScene extends Phaser.Scene {
       fill: '#eef2ea',
       stroke: '#0a0a0a',
       strokeThickness: 3,
-    }).setOrigin(0.5);
+    }).setOrigin(0.5).setDepth(17);
     this.buildingSpriteLayer?.add(lbl);
 
     if (b.type === 'FACTORY' && b.active === false) {
@@ -2494,8 +2489,8 @@ export class GameScene extends Phaser.Scene {
     this.topBarDivider = this.add.rectangle(w/2, 37, w, 1, 0x2a3550, 1).setScrollFactor(0).setDepth(D + 1);
     this.topBarAccent = this.add.rectangle(w/2, 74, w, 2, GAME_THEME.hudAccent, 1).setScrollFactor(0).setDepth(D + 1);
 
-    // Row 1: nav + state
-    this.btnMenu = this._makeBtn(10, 8, '← MENU', 0x222222, () => this.scene.start('MenuScene'), D);
+    // Row 1: nav + state (depth above logistics dock so ← MENU stays clickable)
+    this.btnMenu = this._makeBtn(10, 8, '← MENU', 0x222222, () => this.scene.start('MenuScene'), D + 30);
     this.turnLbl = this._makeLabel(w/2, 8, 'Turn 1 | Player 1 | PLANNING', D, true);
 
     // Version tag
@@ -2527,29 +2522,29 @@ export class GameScene extends Phaser.Scene {
       backgroundColor: '#3a3312', padding: { x: 8, y: 4 }
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(D + 2);
 
-    // Left command dock — Balatro-style logistics panel
-    const dockX = 8, dockW = 152, dockH = 392, dockY = 196;
-    this.sidebarEcoBg = this.add.rectangle(dockX + dockW / 2, dockY, dockW, dockH, 0x0a0812, 0.96)
+    // Left command dock — positioned in _layoutCommandDock (below top bar, not over ← MENU)
+    const dockW = 152;
+    this.sidebarEcoBg = this.add.rectangle(0, 0, dockW, 200, 0x0a0812, 0.96)
       .setStrokeStyle(2, 0xff66cc).setScrollFactor(0).setDepth(D)
       .setInteractive({ useHandCursor: true });
     this.sidebarEcoBg.on('pointerdown', () => this._toggleEconomy());
-    this.add.rectangle(dockX + dockW / 2, dockY - dockH / 2 + 3, dockW, 5, 0xffcc44, 1)
+    this._dockTopStripe = this.add.rectangle(0, 0, dockW, 5, 0xffcc44, 1)
       .setScrollFactor(0).setDepth(D + 1);
-    this.sidebarEcoTitle = this.add.text(dockX + 10, dockY - dockH / 2 + 14, 'LOGISTICS', {
+    this.sidebarEcoTitle = this.add.text(0, 0, 'LOGISTICS', {
       font: 'bold 14px monospace', fill: '#ffcc44',
     }).setScrollFactor(0).setDepth(D + 1);
-    this.sidebarUpkeepBanner = this.add.text(dockX + 10, dockY - dockH / 2 + 36, '', {
+    this.sidebarUpkeepBanner = this.add.text(0, 0, '', {
       font: '11px monospace', fill: '#cc88aa', wordWrap: { width: dockW - 16 },
     }).setScrollFactor(0).setDepth(D + 1);
-    this.sidebarResearchBar = this.add.text(dockX + 10, dockY - dockH / 2 + 68, '', {
+    this.sidebarResearchBar = this.add.text(0, 0, '', {
       font: '11px monospace', fill: '#bb99ee', wordWrap: { width: dockW - 16 },
     }).setScrollFactor(0).setDepth(D + 1);
   }
 
   _makeCommandCard(x, y, w, h, label, depth) {
-    this.add.rectangle(x + w / 2, y + h / 2, w, h, 0x141018, 0.98)
+    const bg = this.add.rectangle(x + w / 2, y + h / 2, w, h, 0x141018, 0.98)
       .setStrokeStyle(1, 0x3a2848).setScrollFactor(0).setDepth(depth);
-    this.add.rectangle(x + 3, y + 4, 3, h - 8, 0xff66cc, 0.85)
+    const stripe = this.add.rectangle(x + 3, y + 4, 3, h - 8, 0xff66cc, 0.85)
       .setScrollFactor(0).setDepth(depth + 1);
     const title = this.add.text(x + 10, y + 4, label, {
       font: 'bold 10px monospace', fill: '#8899aa',
@@ -2557,20 +2552,51 @@ export class GameScene extends Phaser.Scene {
     const val = this.add.text(x + 10, y + 18, '—', {
       font: 'bold 13px monospace', fill: '#e8ead8',
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(depth + 1);
-    return { title, val };
+    return { bg, stripe, title, val };
+  }
+
+  _positionCommandCard(card, x, y, w, h) {
+    if (!card) return;
+    card.bg?.setPosition(x + w / 2, y + h / 2).setSize(w, h);
+    card.stripe?.setPosition(x + 3, y + 4).setSize(3, Math.max(4, h - 8));
+    card.title?.setPosition(x + 10, y + 4);
+    card.val?.setPosition(x + 10, y + 18);
+  }
+
+  _layoutCommandDock(viewH = this.scale.height) {
+    const dockX = 8;
+    const dockW = 152;
+    const dockTop = 82; // below 74px top bar + ← MENU
+    const dockH = Math.min(368, Math.max(240, viewH - dockTop - 148));
+    const dockY = dockTop + dockH / 2;
+    const dockLeft = dockX;
+
+    this._dockGeom = { dockX, dockW, dockH, dockY, dockTop };
+
+    this.sidebarEcoBg?.setPosition(dockLeft + dockW / 2, dockY).setSize(dockW, dockH);
+    this._dockTopStripe?.setPosition(dockLeft + dockW / 2, dockTop + 2.5);
+    this.sidebarEcoTitle?.setPosition(dockLeft + 10, dockTop + 14);
+    this.sidebarUpkeepBanner?.setPosition(dockLeft + 10, dockTop + 36);
+    this.sidebarResearchBar?.setPosition(dockLeft + 10, dockTop + 58);
+
+    const cardW = dockW - 12;
+    const cardH = 34;
+    const gap = 4;
+    let cy = dockTop + 82;
+    const keys = ['iron', 'oil', 'wood', 'food', 'pop', 'gold', 'parts', 'steel', 'alloy', 'rp'];
+    for (const key of keys) {
+      this._positionCommandCard(this._cmdCards?.[key], dockLeft + 6, cy, cardW, cardH);
+      cy += cardH + gap;
+    }
   }
 
   _initCommandDockRows() {
     const D = 101;
-    const dockX = 8, dockW = 152;
-    const dockY = 196, dockH = 392;
-    const cardW = dockW - 12, cardH = 34, gap = 4;
-    let cy = dockY - dockH / 2 + 92;
-    const mk = (label) => {
-      const card = this._makeCommandCard(dockX + 6, cy, cardW, cardH, label, D);
-      cy += cardH + gap;
-      return card;
-    };
+    const dockX = 8;
+    const dockW = 152;
+    const cardW = dockW - 12;
+    const cardH = 34;
+    const mk = (label) => this._makeCommandCard(dockX + 6, 0, cardW, cardH, label, D);
     this._cmdCards = {
       iron: mk('IRON'),
       oil: mk('OIL'),
