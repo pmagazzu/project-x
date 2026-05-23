@@ -7,6 +7,7 @@ import { MenuScene } from './MenuScene.js';
 import { planAITurn, AI_STRATEGIES, randomStrategy, getAIKPIReport } from './AIPlayer.js';
 import {
   createGameState, createUnit, createBuilding, unitAt, buildingAt, roadAt,
+  enemyAtHex, resolveAttackTargetUnit,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
   findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
   getUnitPopCost, recalcPlayerPopulation,
@@ -22,7 +23,7 @@ import {
 } from './GameState.js';
 import { TECH_TREE, RESEARCH_BRANCHES, prereqsMet, computeTechBonuses, getNextDesignSlotTech } from './ResearchData.js';
 import {
-  GAME_THEME, TERRAIN_COLORS_V2, initSpriteArt, replaceCanvasTexture,
+  GAME_THEME, TERRAIN_COLORS_V2, initSpriteArt, replaceCanvasTexture, hasPixelTexture, FARM_TILE_ART,
   getUnitArtTextureKey, getBuildingArtTextureKey, hasUnitSprite, placeWorldSprite,
 } from './GraphicsAssets.js';
 import {
@@ -39,7 +40,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.18';
+export const GAME_VERSION = 'v1.10.21';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -219,6 +220,7 @@ export class GameScene extends Phaser.Scene {
     });
     this.gameState._techTree = TECH_TREE; // inject for resolveEndOfTurn research tick
     this.terrain   = this._generateTerrain();
+    this.gameState._terrain = this.terrain;
     // After terrain is known, relocate any naval unit that spawned on invalid terrain
     this._fixNavalSpawns();
 
@@ -1473,9 +1475,9 @@ export class GameScene extends Phaser.Scene {
       const fog = this._currentFog;
       for (const { q, r } of this.attackable) {
         const hasVisibleEnemy = gs.units.some(u => {
-          if (u.owner === gs.currentPlayer || u.dead) return false;
+          if (u.owner === gs.currentPlayer || u.dead || u.embarked) return false;
           if (u.q !== q || u.r !== r) return false;
-          if (fog && !fog.has(`${dq},${dr}`)) return false;
+          if (fog && !fog.has(`${q},${r}`)) return false;
           return true;
         });
         outlineHex(q, r, ATTACK_HIGHLIGHT, 2.5, hasVisibleEnemy ? 1.0 : 0.3);
@@ -1696,19 +1698,17 @@ export class GameScene extends Phaser.Scene {
         // FARM is rendered as a terrain tile swap/overlay (not a building icon).
         if (b.type === 'FARM') {
           const targetH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH);
-          const farmIdx = Math.abs((b.q * 17 + b.r * 31 + (b.id || 0)) % FARM_VARIANTS);
-          const farmKey = FARM_VARIANT_FILES[farmIdx]?.key;
-          if (farmKey && this.textures.exists(farmKey)) {
-            placeWorldSprite(this, this.farmTileLayer, farmKey, x, y, targetH * 0.92,
-              PLAYER_COLORS[b.owner] || 0xffffff, 1, 0);
+          if (hasPixelTexture(this, FARM_TILE_ART)) {
+            placeWorldSprite(this, this.farmTileLayer, FARM_TILE_ART, x, y, targetH * 0.96,
+              0xffffff, 1, 0);
             continue;
           }
           const verts = hexVertices(x, y);
           const targetW = HEX_SIZE * 2;
 
           const farmFx = this.add.graphics().setDepth(0);
-          // Base farm fill
-          farmFx.fillStyle(0x7f5a2a, 0.95);
+          // Base farm fill (olive palette — matches grass hexes)
+          farmFx.fillStyle(0x6a8448, 0.92);
           farmFx.beginPath();
           farmFx.moveTo(verts[0].x, verts[0].y);
           for (let i = 1; i < verts.length; i++) farmFx.lineTo(verts[i].x, verts[i].y);
@@ -1717,8 +1717,8 @@ export class GameScene extends Phaser.Scene {
 
           // Strong furrow stripes (primary visibility cue)
           for (let fy = y - targetH * 0.30, row = 0; fy <= y + targetH * 0.30; fy += 4, row++) {
-            const col = row % 2 === 0 ? 0x4f3517 : 0xa8793a;
-            const a = row % 2 === 0 ? 0.82 : 0.55;
+            const col = row % 2 === 0 ? 0x5a7838 : 0x9ab068;
+            const a = row % 2 === 0 ? 0.75 : 0.5;
             farmFx.lineStyle(2.0, col, a);
             farmFx.beginPath();
             farmFx.moveTo(x - targetW * 0.34, fy);
@@ -1727,7 +1727,7 @@ export class GameScene extends Phaser.Scene {
           }
 
           // Crop speckles for texture identity
-          farmFx.fillStyle(0x9fc05e, 0.55);
+          farmFx.fillStyle(0xb8cc88, 0.5);
           for (let i = 0; i < 42; i++) {
             const rx = x - targetW * 0.30 + ((i * 13) % Math.floor(targetW * 0.60));
             const ry = y - targetH * 0.26 + ((i * 17) % Math.floor(targetH * 0.52));
@@ -1735,7 +1735,7 @@ export class GameScene extends Phaser.Scene {
           }
 
           // Bold bright outline so farm is unmistakable.
-          farmFx.lineStyle(2.4, 0xf0c36b, 0.98);
+          farmFx.lineStyle(2.0, 0x7a9850, 0.85);
           farmFx.beginPath();
           farmFx.moveTo(verts[0].x, verts[0].y);
           for (let i = 1; i < verts.length; i++) farmFx.lineTo(verts[i].x, verts[i].y);
@@ -6343,40 +6343,35 @@ export class GameScene extends Phaser.Scene {
     const gs = this.gameState;
     let clickedUnit     = unitAt(gs, q, r);
     let clickedBuilding = buildingAt(gs, q, r);
-    const enemyAtDisplayHex = gs.units.find(u => {
-      if (u.dead || Number(u.owner) === Number(gs.currentPlayer)) return false;
-      const dq = (u._origQ !== undefined) ? u._origQ : u.q;
-      const dr = (u._origR !== undefined) ? u._origR : u.r;
-      return dq === q && dr === r;
-    });
 
     // Fog safety: do not allow interaction with unseen enemy units/buildings
     const fog = this._currentFog;
     const isVisibleHex = !fog || fog.has(`${q},${r}`);
     const curPClick = Number(gs.currentPlayer);
+    const enemyOnHex = isVisibleHex ? enemyAtHex(gs, q, r, curPClick) : null;
     if (!isVisibleHex) {
       if (clickedUnit && Number(clickedUnit.owner) !== curPClick) clickedUnit = null;
       if (clickedBuilding && Number(clickedBuilding.owner) !== curPClick) clickedBuilding = null;
     }
 
-    // Hard attack shortcut: if selected unit clicks any highlighted attack hex, always open preview.
+    // Hard attack shortcut: highlighted attack hex or visible enemy (select/move modes).
     if (this.selectedUnit && Number(this.selectedUnit.owner) === curPClick && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
       const attackTarget = (this.attackable || []).find(h => h.q === q && h.r === r);
       if (attackTarget) {
-        const targetUnit = gs.units.find(u => u.id === attackTarget.targetId && !u.dead)
-          || gs.units.find(u => !u.dead && Number(u.owner) !== curPClick && u.q === attackTarget.q && u.r === attackTarget.r);
+        const targetUnit = resolveAttackTargetUnit(gs, attackTarget);
         if (targetUnit) {
           this._showCombatPreview(this.selectedUnit, targetUnit, false);
           return;
         }
-        this._pushLog('Attack target stale/missing on clicked attack hex');
-        this._refresh();
-        return;
+        if (this.mode !== 'attack' && this.mode !== 'attack_direct') {
+          this._pushLog('Attack target stale/missing on clicked attack hex');
+          this._refresh();
+          return;
+        }
       }
 
-      // Fallback enemy click check (range/LOS rule) using display-hex enemy lookup.
-      const enemyClick = enemyAtDisplayHex || (clickedUnit && Number(clickedUnit.owner) !== curPClick ? clickedUnit : null);
-      if (enemyClick) {
+      const enemyClick = enemyOnHex || (clickedUnit && Number(clickedUnit.owner) !== curPClick ? clickedUnit : null);
+      if (enemyClick && this.mode !== 'attack' && this.mode !== 'attack_direct') {
         const effRange = this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range ?? 1;
         const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, enemyClick.q, enemyClick.r);
         const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
@@ -6634,10 +6629,14 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       // In move mode: clicking a visible enemy in range = quick direct fire
-      if (clickedUnit && clickedUnit.owner !== gs.currentPlayer && !this.selectedUnit.attacked) {
-        const range = UNIT_TYPES[this.selectedUnit.type].range;
-        if (hexDistance(this.selectedUnit.q, this.selectedUnit.r, q, r) <= range) {
-          this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+      const moveEnemy = enemyOnHex || (clickedUnit && Number(clickedUnit.owner) !== curPClick ? clickedUnit : null);
+      if (moveEnemy && !this.selectedUnit.attacked) {
+        const range = this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range ?? 1;
+        const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, moveEnemy.q, moveEnemy.r);
+        const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
+        const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, moveEnemy.q, moveEnemy.r, this.terrain, this.mapSize);
+        if (d >= 1 && d <= range && losOk) {
+          this._showCombatPreview(this.selectedUnit, moveEnemy, false);
           return;
         }
       }
@@ -6647,50 +6646,53 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'attack_direct') {
       const target = this.attackable.find(h => h.q === q && h.r === r);
       if (target) {
-        const tUnit = gs.units.find(u => u.id === target.targetId) ||
-          gs.units.find(u => !u.dead && Number(u.owner) !== Number(gs.currentPlayer) && u.q === target.q && u.r === target.r);
+        const tUnit = resolveAttackTargetUnit(gs, target);
         if (tUnit) {
-          // Emergency stability hotfix: execute direct attack immediately on valid click
-          // to avoid preview-path desync blocking combat.
           this._showCombatPreview(this.selectedUnit, tUnit, false);
           return;
         }
       }
 
-      // Strong fallback: clicked enemy gets direct validity check from live state.
-      if (this.selectedUnit && clickedUnit && Number(clickedUnit.owner) !== Number(gs.currentPlayer)) {
+      const directEnemy = enemyOnHex || (clickedUnit && Number(clickedUnit.owner) !== curPClick ? clickedUnit : null);
+      if (this.selectedUnit && directEnemy) {
         const aDef = UNIT_TYPES[this.selectedUnit.type] || {};
-        const dist = hexDistance(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r);
+        const dist = hexDistance(this.selectedUnit.q, this.selectedUnit.r, directEnemy.q, directEnemy.r);
         const inRange = dist >= 1 && dist <= (aDef.range || 0);
         const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
-        const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, clickedUnit.q, clickedUnit.r, this.terrain, this.mapSize);
+        const losOk = indirect || hasLOS(this.selectedUnit.q, this.selectedUnit.r, directEnemy.q, directEnemy.r, this.terrain, this.mapSize);
         if (inRange && losOk) {
-          this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+          this._showCombatPreview(this.selectedUnit, directEnemy, false);
           return;
         }
+        this._pushLog(`Attack rejected: ${!inRange ? 'out of range' : 'no LOS'}`);
+        this._refresh();
+        return;
       }
+      this._pushLog('Attack: select a highlighted enemy in range');
+      this._refresh();
+      return;
     }
 
     if (this.mode === 'attack') {
       const inRange = this.attackable.find(h => h.q === q && h.r === r);
-      const enemyOnHex = gs.units.find(u => !u.dead && Number(u.owner) !== Number(gs.currentPlayer) && u.q === q && u.r === r);
-      if (inRange && enemyOnHex) {
-        this._showCombatPreview(this.selectedUnit, enemyOnHex, true);
+      const attackEnemy = enemyOnHex || resolveAttackTargetUnit(gs, inRange);
+      if (inRange && attackEnemy) {
+        this._showCombatPreview(this.selectedUnit, attackEnemy, true);
         return;
       }
 
       // Hard fallback: if attackable cache desynced, still allow enemy click by geometric range.
-      if (enemyOnHex && this.selectedUnit) {
+      if (attackEnemy && this.selectedUnit) {
         const effRange = this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range ?? 1;
-        const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, q, r);
+        const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, attackEnemy.q, attackEnemy.r);
         if (d >= 1 && d <= effRange) {
-          this._pushLog(`Indirect fallback: geometric-range fire on (${q},${r})`);
-          this._showCombatPreview(this.selectedUnit, enemyOnHex, true);
+          this._pushLog(`Indirect fallback: geometric-range fire on (${attackEnemy.q},${attackEnemy.r})`);
+          this._showCombatPreview(this.selectedUnit, attackEnemy, true);
           return;
         }
       }
 
-      if (inRange && !enemyOnHex) {
+      if (inRange && !attackEnemy) {
         // Do NOT consume attack on empty tile; keep mode active and explain why.
         this._pushLog(`Indirect fire: no enemy unit on (${q},${r})`);
       } else {
@@ -6703,8 +6705,9 @@ export class GameScene extends Phaser.Scene {
     // Click on attack-indicator enemy target (works in select/move mode — direct fire shortcut)
     if (this.selectedUnit && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
       const attackTarget = this.attackable.find(h => h.q === q && h.r === r);
-      if (attackTarget && clickedUnit && clickedUnit.owner !== gs.currentPlayer) {
-        this._showCombatPreview(this.selectedUnit, clickedUnit, false);
+      const shortcutEnemy = enemyOnHex || resolveAttackTargetUnit(gs, attackTarget);
+      if (attackTarget && shortcutEnemy) {
+        this._showCombatPreview(this.selectedUnit, shortcutEnemy, false);
         return;
       }
     }
@@ -6832,13 +6835,9 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'transport_load' || this.mode === 'transport_unload') { this._cancelTransportMode(); return; }
 
     const gs = this.gameState;
-    const clickedUnit = gs.units.find(u => u.q === q && u.r === r && !u.dead);
-    const enemyAtDisplayHex = gs.units.find(u => {
-      if (u.dead || Number(u.owner) === Number(gs.currentPlayer)) return false;
-      const dq = (u._origQ !== undefined) ? u._origQ : u.q;
-      const dr = (u._origR !== undefined) ? u._origR : u.r;
-      return dq === q && dr === r;
-    });
+    const curP = Number(gs.currentPlayer);
+    const clickedUnit = unitAt(gs, q, r);
+    const enemyOnHexRmb = enemyAtHex(gs, q, r, curP);
 
     // Right-click anywhere should first close transient menus/panels.
     this._hideContextMenu(true);
@@ -6847,18 +6846,21 @@ export class GameScene extends Phaser.Scene {
 
     // Hard path: right-click highlighted attack hex / enemy with selected attacker => preview.
     if (this.selectedUnit && !this.selectedUnit.attacked && !this.selectedUnit.suppressed) {
-      const curP = Number(gs.currentPlayer);
       const attackTarget = (this.attackable || []).find(h => h.q === q && h.r === r);
       if (attackTarget) {
-        const targetUnit = gs.units.find(u => u.id === attackTarget.targetId && !u.dead)
-          || gs.units.find(u => !u.dead && Number(u.owner) !== curP && u.q === attackTarget.q && u.r === attackTarget.r);
+        const targetUnit = resolveAttackTargetUnit(gs, attackTarget);
         if (targetUnit) {
           this._showCombatPreview(this.selectedUnit, targetUnit, false);
           return;
         }
+        if (this.mode !== 'attack' && this.mode !== 'attack_direct') {
+          this._pushLog('Attack target stale/missing (RMB)');
+          this._refresh();
+          return;
+        }
       }
-      const enemyClick = enemyAtDisplayHex || (clickedUnit && Number(clickedUnit.owner) !== curP ? clickedUnit : null);
-      if (enemyClick) {
+      const enemyClick = enemyOnHexRmb || (clickedUnit && Number(clickedUnit.owner) !== curP ? clickedUnit : null);
+      if (enemyClick && this.mode !== 'attack' && this.mode !== 'attack_direct') {
         const effRange = this.selectedUnit.range ?? UNIT_TYPES[this.selectedUnit.type]?.range ?? 1;
         const d = hexDistance(this.selectedUnit.q, this.selectedUnit.r, enemyClick.q, enemyClick.r);
         const indirect = (this.selectedUnit.type === 'ARTILLERY' || this.selectedUnit.type === 'MORTAR');
@@ -7217,10 +7219,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   _showCombatPreview(attacker, target, blindFire) {
-    renderCombatPreviewPanel(this, attacker, target, blindFire, {
-      onAttack: () => this._doImmediateAttack(attacker, target.id, blindFire),
-      onCancel: () => this._refresh(),
-    });
+    if (!attacker || !target) return;
+    try {
+      renderCombatPreviewPanel(this, attacker, target, blindFire, {
+        onAttack: () => this._doImmediateAttack(attacker, target.id, blindFire),
+        onCancel: () => this._refresh(),
+      });
+    } catch (e) {
+      this._pushLog(`Combat preview error: ${e?.message || e}`);
+      console.error(e);
+    }
   }
 
   _showIndirectConfirm(attacker, target) {

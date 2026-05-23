@@ -1159,7 +1159,25 @@ export function createGameState(scenario = 'default', options = {}) {
 
 // ── Accessors ──────────────────────────────────────────────────────────────
 export function unitAt(state, q, r) {
-  return state.units.find(u => u.q === q && u.r === r) || null;
+  return state.units.find(u => !u.dead && !u.embarked && u.q === q && u.r === r) || null;
+}
+
+/** Living enemy at hex (IGOUGO — uses actual unit position). */
+export function enemyAtHex(state, q, r, forPlayer = state.currentPlayer) {
+  const fp = Number(forPlayer);
+  return state.units.find(u =>
+    !u.dead && !u.embarked && Number(u.owner) !== fp && u.q === q && u.r === r
+  ) || null;
+}
+
+/** Map attackable hex entry → living target unit. */
+export function resolveAttackTargetUnit(state, entry) {
+  if (!entry) return null;
+  if (entry.targetId != null) {
+    const byId = state.units.find(u => u.id === entry.targetId && !u.dead);
+    if (byId) return byId;
+  }
+  return enemyAtHex(state, entry.q, entry.r);
 }
 export function buildingAt(state, q, r) {
   return state.buildings.find(b => b.q === q && b.r === r) || null;
@@ -1370,34 +1388,27 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
 
 // Returns hexes occupied by visible enemies — used for "known target" highlighting
 // fog: optional Set of visible hex keys `"q,r"` — if provided, only enemies in fog-visible hexes are returned
-// Enemy units with pending moves are treated as being at their ORIGINAL (turn-start) position —
-// prevents revealing where enemies moved to before the turn resolves.
 export function getAttackableHexes(state, unit, fromQ, fromR, fog) {
   const range = ustat(unit, 'range', UNIT_TYPES[unit.type]?.range || 1);
   const _unitDef = UNIT_TYPES[unit.type] || {};
   return state.units
     .filter(u => {
-      if (u.owner === unit.owner || u.dead) return false;
-      // Use display position (orig if moved) — same as what the player sees
-      const dq = (u._origQ !== undefined) ? u._origQ : u.q;
-      const dr = (u._origR !== undefined) ? u._origR : u.r;
-      if (hexDistance(fromQ, fromR, dq, dr) > range) return false;
-      if (fog && !fog.has(`${dq},${dr}`)) return false; // hidden in fog
+      if (u.owner === unit.owner || u.dead || u.embarked) return false;
+      const tq = u.q;
+      const tr = u.r;
+      if (hexDistance(fromQ, fromR, tq, tr) > range) return false;
+      if (fog && !fog.has(`${tq},${tr}`)) return false; // hidden in fog
       // antiNavalOnly (torpedo) units can only target water hexes
       if (_unitDef.antiNavalOnly) {
-        const tgt = state._terrain?.[`${dq},${dr}`] ?? 0;
+        const tgt = state._terrain?.[`${tq},${tr}`] ?? 0;
         if (tgt !== 4 && tgt !== 5) return false;
       }
       // Direct-fire units require LOS for known-target attack mode.
       const indirect = INDIRECT_FIRE.has(unit.type);
-      if (!indirect && state._terrain && !hasLOS(fromQ, fromR, dq, dr, state._terrain)) return false;
+      if (!indirect && state._terrain && !hasLOS(fromQ, fromR, tq, tr, state._terrain)) return false;
       return true;
     })
-    .map(u => {
-      const dq = (u._origQ !== undefined) ? u._origQ : u.q;
-      const dr = (u._origR !== undefined) ? u._origR : u.r;
-      return { q: dq, r: dr, targetId: u.id };
-    });
+    .map(u => ({ q: u.q, r: u.r, targetId: u.id }));
 }
 
 // ── Line-of-sight helpers ─────────────────────────────────────────────────

@@ -5,7 +5,7 @@
 
 const W = 32;
 const H = 32;
-const BAKE_REV = 3;
+const BAKE_REV = 5;
 
 export const PIXEL_PAL = {
   OUT: '#0e0c0a',
@@ -53,6 +53,14 @@ export const PIXEL_PAL = {
   RED_L: '#c84848',
   WHITE: '#e8e4d8',
   YEL: '#c8a840',
+  YEL_H: '#e8d060',
+  VEST: '#c86818',
+  VEST_H: '#e89030',
+  VEST_D: '#8a4010',
+  HAT: '#e0c848',
+  HAT_D: '#a89028',
+  TAN: '#7a6a50',
+  TAN_D: '#5a4a38',
   RUST: '#7a4830',
 };
 
@@ -244,14 +252,68 @@ function drawSoldier(ctx, opts = {}) {
 
 function drawInfantry(ctx) { drawSoldier(ctx); }
 
+/** Engineer — hard hat, hi-vis vest, tools (no rifle; must not read as infantry). */
 function drawEngineer(ctx) {
-  drawSoldier(ctx);
   const P = PIXEL_PAL;
-  rect(ctx, 14, 4, 6, 2, P.YEL);
-  px(ctx, 15, 4, P.OL5);
-  rect(ctx, 21, 13, 5, 2, P.MET_L);
-  px(ctx, 22, 14, P.YEL);
-  px(ctx, 24, 12, P.MET_H);
+  shadow(ctx, 7, 27, 18, 3);
+
+  // Boots
+  rect(ctx, 10, 24, 6, 3, P.BOOT);
+  rect(ctx, 17, 24, 6, 3, P.BOOT);
+  px(ctx, 10, 24, P.OUT);
+  px(ctx, 22, 24, P.OUT);
+
+  // Work pants (tan, not olive fatigues)
+  rect(ctx, 11, 18, 5, 7, P.TAN_D);
+  rect(ctx, 17, 18, 5, 7, P.TAN_D);
+  rect(ctx, 12, 19, 3, 5, P.TAN);
+  rect(ctx, 18, 19, 3, 5, P.TAN);
+  px(ctx, 11, 18, P.OUT);
+
+  // Torso — hi-vis vest over dark shirt
+  rect(ctx, 10, 11, 12, 8, P.OL0);
+  rect(ctx, 11, 12, 10, 6, P.VEST_D);
+  rect(ctx, 11, 12, 10, 6, P.VEST);
+  // Reflective stripes
+  rect(ctx, 11, 13, 10, 2, P.VEST_H);
+  rect(ctx, 11, 16, 10, 2, P.YEL_H);
+  px(ctx, 10, 12, P.VEST_H);
+  px(ctx, 20, 17, P.VEST_D);
+  px(ctx, 10, 18, P.OUT);
+
+  // Hard hat (flat brim — not infantry helmet)
+  rect(ctx, 12, 4, 10, 3, P.HAT);
+  rect(ctx, 13, 3, 8, 2, P.YEL_H);
+  rect(ctx, 12, 6, 10, 1, P.HAT_D);
+  px(ctx, 12, 3, P.OUT);
+  px(ctx, 21, 4, P.OUT);
+  rect(ctx, 14, 7, 6, 2, P.SKIN);
+  px(ctx, 15, 7, P.SKIN_D);
+
+  // Backpack / tool roll on back (left)
+  rect(ctx, 9, 12, 3, 7, P.WOOD_D);
+  rect(ctx, 10, 13, 2, 5, P.WOOD);
+  px(ctx, 9, 12, P.OUT);
+
+  // Shovel (left hand, vertical)
+  rect(ctx, 8, 10, 2, 12, P.MET);
+  rect(ctx, 7, 9, 3, 2, P.MET_L);
+  px(ctx, 8, 10, P.MET_H);
+  px(ctx, 7, 9, P.OUT);
+
+  // Large wrench (right hand — signature silhouette)
+  rect(ctx, 20, 12, 2, 8, P.MET_L);
+  rect(ctx, 22, 12, 6, 2, P.MET);
+  rect(ctx, 24, 11, 4, 2, P.MET_H);
+  rect(ctx, 26, 12, 2, 3, P.MET);
+  px(ctx, 27, 12, P.YEL);
+  px(ctx, 20, 19, P.OUT);
+  px(ctx, 26, 14, P.OUT);
+
+  // Toolbox at feet
+  rect(ctx, 13, 26, 6, 2, P.MET);
+  rect(ctx, 14, 25, 4, 1, P.MET_H);
+  px(ctx, 13, 26, P.OUT);
 }
 
 function drawMedic(ctx) {
@@ -590,15 +652,40 @@ function drawObsPost(ctx) {
   px(ctx, 15, 3, P.YEL);
 }
 
+/** Cultivated hex overlay — matches olive grass terrain, no building silhouette. */
+function drawFarmTile(ctx) {
+  const P = PIXEL_PAL;
+  rect(ctx, 1, 9, 30, 21, P.OL2);
+  rect(ctx, 3, 11, 26, 17, P.OL3);
+  rect(ctx, 5, 13, 22, 13, P.OL4);
+  for (let y = 13; y < 27; y += 2) {
+    const bright = y % 4 === 0;
+    rect(ctx, 4, y, 24, 1, bright ? P.CROP_L : P.CROP);
+    if (bright) {
+      for (let x = 6; x < 26; x += 4) px(ctx, x, y, P.YEL_H);
+    } else {
+      for (let x = 8; x < 24; x += 5) px(ctx, x, y + 1, P.OL1);
+    }
+  }
+  rect(ctx, 13, 10, 6, 19, P.SAND_D);
+  rect(ctx, 14, 11, 4, 17, P.SAND);
+  px(ctx, 14, 11, P.SAND_D);
+  px(ctx, 17, 11, P.SAND_D);
+  rect(ctx, 22, 15, 7, 5, P.WOOD_D);
+  wallFront(ctx, 23, 16, 5, 4, P.WOOD_D, P.WOOD, P.WOOD_L, P.WOOD_L);
+  roofFlat(ctx, 22, 13, 7, 3);
+  for (let x = 2; x < 30; x++) px(ctx, x, 29, P.OUT);
+  for (let x = 2; x < 8; x++) px(ctx, x, 10 + (x % 3), P.OL1);
+  for (let x = 24; x < 30; x++) px(ctx, x, 11 + ((x + 1) % 3), P.OL1);
+}
+
+/** Farm icon (inspector / menus) — small barn on field. */
 function drawFarm(ctx) {
   const P = PIXEL_PAL;
   shadow(ctx, 3, 29, 26, 2);
-  rect(ctx, 4, 14, 24, 14, P.SAND);
-  px(ctx, 4, 14, P.SAND_D);
-  for (let y = 16; y < 26; y += 2) {
-    const c = y % 4 === 0 ? P.CROP_L : P.CROP;
-    rect(ctx, 5, y, 22, 1, c);
-    if (y % 4 === 0) px(ctx, 5, y, P.OL4);
+  rect(ctx, 3, 18, 26, 12, P.OL3);
+  for (let y = 19; y < 28; y += 2) {
+    rect(ctx, 4, y, 24, 1, y % 4 === 0 ? P.CROP_L : P.CROP);
   }
   rect(ctx, 20, 10, 8, 6, P.WOOD_D);
   wallFront(ctx, 21, 11, 6, 5, P.WOOD_D, P.WOOD, P.WOOD_L, P.WOOD_L);
@@ -637,6 +724,7 @@ const DRAWERS = {
   px_bld_obs_post: drawObsPost,
   px_bld_bunker: drawBunker,
   px_bld_farm: drawFarm,
+  px_terrain_farm: drawFarmTile,
 };
 
 const baked = new Map();

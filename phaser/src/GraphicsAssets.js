@@ -85,6 +85,9 @@ export const BUILDING_ART = {
   FARM: 'px_bld_farm',
 };
 
+/** Hex farm overlay (terrain-style, not building icon). */
+export const FARM_TILE_ART = 'px_terrain_farm';
+
 export function getUnitArtTextureKey(unitType) {
   return UNIT_ART[unitType] || null;
 }
@@ -102,6 +105,8 @@ export function hasBuildingSprite(scene, buildingType) {
   const key = getBuildingArtTextureKey(buildingType);
   return hasPixelTexture(scene, key);
 }
+
+export { hasPixelTexture };
 
 /** Replace a canvas-backed texture (Phaser 3.90 has no TextureManager.remove). */
 export function replaceCanvasTexture(scene, key, canvas) {
