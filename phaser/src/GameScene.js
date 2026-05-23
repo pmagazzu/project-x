@@ -7,7 +7,7 @@ import { MenuScene } from './MenuScene.js';
 import { planAITurn, AI_STRATEGIES, randomStrategy, getAIKPIReport } from './AIPlayer.js';
 import {
   createGameState, createUnit, createBuilding, unitAt, buildingAt, roadAt,
-  enemyAtHex, resolveAttackTargetUnit, canUnitAttackTarget, unitCanAttack,
+  enemyAtHex, resolveAttackTargetUnit, canUnitAttackTarget, unitCanAttack, isUnitAlive,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
   findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
   getUnitPopCost, recalcPlayerPopulation,
@@ -40,7 +40,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.22';
+export const GAME_VERSION = 'v1.10.25';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -1327,6 +1327,7 @@ export class GameScene extends Phaser.Scene {
   _refresh() {
     // Normalize currentPlayer defensively (prevents '2' string vs 2 number bugs across visibility logic)
     this.gameState.currentPlayer = Number(this.gameState.currentPlayer) || 1;
+    this.gameState._terrain = this.terrain;
     // Recompute fog based on current unit positions (own units may have moved during planning).
     // We-go integrity is maintained by _origQ/_origR on enemy units — enemy display positions
     // are locked to turn-start regardless of fog recomputation.
@@ -3292,7 +3293,6 @@ export class GameScene extends Phaser.Scene {
     }).setScrollFactor(0).setDepth(101).setInteractive({ useHandCursor: true });
     const run = () => {
       this._contextMenuClicked = true;
-      this._contextMenuSuppressDismissUntil = (this.time?.now ?? performance.now()) + 280;
       cb();
     };
     btn.on('pointerdown', () => { this._contextMenuClicked = true; });
@@ -4204,7 +4204,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointerup', (ptr) => {
-      const now = this.time?.now ?? performance.now();
+      let overMenu = false;
       // When the standalone designer is open, block world-click handling entirely.
       if (this._designerOpen) {
         this._contextMenuClicked = false;
@@ -4212,13 +4212,11 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       if (ptr.button === 0 && !this._isDragging && !this._panelOpenAtMouseDown) {
-        if (this._contextMenuSuppressDismissUntil && now < this._contextMenuSuppressDismissUntil) {
-          this._contextMenuClicked = true;
-        }
+        overMenu = !!(this._contextMenuObjs?.length && this._contextMenuHitTest(ptr.x, ptr.y));
         if (this._contextMenuDismissLock) {
           this._contextMenuClicked = true;
           this._contextMenuDismissLock = false;
-        } else if (this._contextMenuObjs?.length && this._contextMenuHitTest(ptr.x, ptr.y)) {
+        } else if (overMenu) {
           this._contextMenuClicked = true;
         }
         if (this._contextMenuObjs && !this._contextMenuClicked) {
@@ -4231,7 +4229,7 @@ export class GameScene extends Phaser.Scene {
           if (isValid(hex.q, hex.r, this.mapSize)) this._onHexClick(hex.q, hex.r);
         }
       }
-      const keepMenuClick = this._contextMenuSuppressDismissUntil && now < this._contextMenuSuppressDismissUntil;
+      const keepMenuClick = overMenu && this._contextMenuClicked;
       if (!keepMenuClick) this._contextMenuClicked = false;
       if (ptr.button === 2 && !this._isDragging) {
         const world = cam.getWorldPoint(ptr.x, ptr.y);
@@ -6635,12 +6633,12 @@ export class GameScene extends Phaser.Scene {
   /** Live unit reference from game state (avoids stale selection objects). */
   _liveUnit(unit) {
     if (!unit) return null;
-    return this.gameState.units.find(u => u.id === unit.id && !u.dead) || null;
+    return this.gameState.units.find(u => u.id == unit.id && isUnitAlive(u)) || null;
   }
 
   /**
-   * Try to open combat preview when clicking a hex with a selected friendly attacker.
-   * Returns true if the click was consumed (attack opened or rejection logged).
+   * Civ-style attack: validate target and resolve combat immediately (no preview gate).
+   * Returns true if the click was consumed.
    */
   _tryCombatAtHex(q, r, enemyOnHex, curPClick) {
     const gs = this.gameState;
@@ -6659,7 +6657,9 @@ export class GameScene extends Phaser.Scene {
       this._refresh();
       return true;
     }
-    this._showCombatPreview(attacker, target, blindFire);
+
+    // IGOUGO / Civ-style: fire now, show result card (move + attack same turn).
+    this._doImmediateAttack(attacker.id, target.id, blindFire);
     return true;
   }
 
@@ -6825,12 +6825,14 @@ export class GameScene extends Phaser.Scene {
     const u = this._liveUnit(this.selectedUnit);
     if (!u || !unitCanAttack(u)) return;
     this.selectedUnit = u;
+    this._contextMenuClicked = false;
+    this._contextMenuSuppressDismissUntil = 0;
     this._hideContextMenu(true);
     this.mode = 'attack_direct';
     this.reachable  = [];
     const attackFog = AIR_UNITS.has(u.type) ? null : this._currentFog;
     this.attackable = getAttackableHexes(this.gameState, u, u.q, u.r, attackFog);
-    this._pushLog(`Attack mode: ${this.attackable.length} target${this.attackable.length === 1 ? '' : 's'} — click enemy`);
+    this._pushLog(`ATTACK: click an enemy in range (${this.attackable.length} target${this.attackable.length === 1 ? '' : 's'})`);
     this._refresh();
   }
 
@@ -7169,18 +7171,34 @@ export class GameScene extends Phaser.Scene {
   }
 
   _doImmediateAttack(attackerId, targetId, blindFire) {
-    // IGOUGO: resolve combat now, show card, refresh
+    // IGOUGO / Civ-style: resolve combat now, show result card, refresh
     const gs = this.gameState;
-    const attacker = gs.units.find(u => u.id === attackerId && !u.dead);
-    const target = gs.units.find(u => u.id === targetId && !u.dead);
+    const attacker = gs.units.find(u => u.id == attackerId && isUnitAlive(u));
+    const target = gs.units.find(u => u.id == targetId && isUnitAlive(u));
     if (!attacker) { this._pushLog('Attack failed: attacker missing'); return; }
     if (!target) { this._pushLog('Attack failed: target missing'); return; }
+
+    if (this._combatPreviewCleanup) {
+      try { this._combatPreviewCleanup(); } catch (e) { /* ignore */ }
+      this._combatPreviewCleanup = null;
+    }
+
     let log = [];
     try {
       log = resolveImmediateAttack(gs, attackerId, targetId, blindFire) || [];
+      if (log[0]?.type === 'miss') {
+        const reason = log[0].reason;
+        const msg = reason === 'no_los' ? 'no line of sight'
+          : reason === 'out_of_range' ? 'out of range'
+          : reason === 'invalid_target' ? 'invalid target'
+          : 'attack failed';
+        this._pushLog(`Attack failed: ${msg}`);
+        this._refresh();
+        return;
+      }
       if (log[0]) this._recordCombat(log[0]);
-      if (target && !target.dead) target._tierIntelConfirmed = true;
-      if (attacker) attacker._tierIntelConfirmed = true;
+      if (target && isUnitAlive(target)) target._tierIntelConfirmed = true;
+      if (attacker && isUnitAlive(attacker)) attacker._tierIntelConfirmed = true;
     } catch (e) {
       this._pushLog(`Attack resolver error: ${e?.message || e}`);
       this._refresh();

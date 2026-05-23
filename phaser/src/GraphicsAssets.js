@@ -1,4 +1,4 @@
-/** UI theme + procedural pixel sprite keys (32×32, see PixelSpriteArt.js). */
+/** UI theme + procedural pixel sprite keys (64×64 arcade units, see PixelSpriteArt.js). */
 
 import { registerPixelSprites, hasPixelTexture } from './PixelSpriteArt.js';
 
@@ -132,8 +132,10 @@ export function preloadSpriteArt() {
 export function placeWorldSprite(scene, layer, textureKey, x, y, maxHeight, tint, alpha = 1, depth = 0) {
   if (!textureKey || !scene.textures.exists(textureKey)) return null;
   const frame = scene.textures.getFrame(textureKey);
-  const h = frame?.height || 32;
-  const scale = maxHeight / Math.max(1, h);
+  const frameH = frame?.height || 64;
+  // Procedural px_* art is high-res (64²) but occupies a ~32px world footprint.
+  const footprint = textureKey.startsWith('px_') ? 32 : frameH;
+  const scale = maxHeight / Math.max(1, footprint);
   const spr = scene.add.image(x, y, textureKey)
     .setScale(scale)
     .setAlpha(alpha)
@@ -147,9 +149,9 @@ export function placeWorldSprite(scene, layer, textureKey, x, y, maxHeight, tint
     if (textureKey.startsWith('px_')) {
       const c = Phaser.Display.Color.IntegerToColor(tint);
       applied = Phaser.Display.Color.GetColor(
-        Math.min(255, Math.floor(c.red * 0.32 + 168)),
-        Math.min(255, Math.floor(c.green * 0.32 + 168)),
-        Math.min(255, Math.floor(c.blue * 0.32 + 168)),
+        Math.min(255, Math.floor(c.red * 0.45 + 140)),
+        Math.min(255, Math.floor(c.green * 0.45 + 140)),
+        Math.min(255, Math.floor(c.blue * 0.45 + 130)),
       );
     }
     spr.setTint(applied);

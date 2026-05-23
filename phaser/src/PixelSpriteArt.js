@@ -1,92 +1,57 @@
 /**
- * Procedural 32×32 sprites — high-contrast WWII isometric pixel art.
- * Light top-left · dark outline · cast shadow · intentional 3-tone surfaces.
+ * Procedural pixel sprites — 64×64 arcade units, 64×64 buildings (from 32px art).
+ * Light top-left · bold outline · cast shadow · 3-tone surfaces.
  */
 
-const W = 32;
-const H = 32;
-const BAKE_REV = 6;
+import { PIXEL_PAL } from './PixelPalette.js';
+export { PIXEL_PAL } from './PixelPalette.js';
+import {
+  drawInfantry, drawEngineer, drawMedic, drawRecon, drawAssaultInf, drawSmgSquad,
+  drawLmgTeam, drawHmgTeam, drawSniper, drawMortar, drawMotorcycle, drawArmoredCar,
+  drawHalftrack, drawTank, drawArtillery, drawAntiTank, drawTruck, drawBoat, drawSub,
+  drawDestroyer, drawCruiser, drawAircraft,
+} from './ArcadeUnits64.js';
 
-export const PIXEL_PAL = {
-  OUT: '#0e0c0a',
-  SH: '#080706',
-  SH2: '#141210',
-  OL0: '#243018',
-  OL1: '#3a4e28',
-  OL2: '#4f6836',
-  OL3: '#6a8448',
-  OL4: '#9ab068',
-  OL5: '#b8cc88',
-  SKIN: '#d4b070',
-  SKIN_D: '#9a7848',
-  WOOD: '#5a3c20',
-  WOOD_L: '#7a5834',
-  WOOD_D: '#3a2814',
-  MET: '#282830',
-  MET_L: '#484858',
-  MET_H: '#686878',
-  BOOT: '#101014',
-  BRK_D: '#3a342c',
-  BRK: '#5a5044',
-  BRK_L: '#7a7064',
-  BRK_H: '#9a9084',
-  CONC_D: '#404038',
-  CONC: '#5a5850',
-  CONC_L: '#7a7870',
-  CONC_H: '#9a9890',
-  ROOF_D: '#3a3020',
-  ROOF: '#5a4830',
-  ROOF_L: '#7a6848',
-  ROOF_H: '#a08858',
-  WIN: '#2a3848',
-  WIN_L: '#4a6888',
-  WIN_H: '#6a98b8',
-  DOOR: '#2a2018',
-  WATER: '#1e3a48',
-  WATER_L: '#3a6a7a',
-  WATER_H: '#5a9aaa',
-  SAND: '#8a7a54',
-  SAND_D: '#6a5a3c',
-  CROP: '#5a7838',
-  CROP_L: '#7a9850',
-  RED: '#9a2828',
-  RED_L: '#c84848',
-  WHITE: '#e8e4d8',
-  YEL: '#c8a840',
-  YEL_H: '#e8d060',
-  VEST: '#c86818',
-  VEST_H: '#e89030',
-  VEST_D: '#8a4010',
-  HAT: '#e0c848',
-  HAT_D: '#a89028',
-  TAN: '#7a6a50',
-  TAN_D: '#5a4a38',
-  RUST: '#7a4830',
-};
+const W = 64;
+const H = 64;
+const BAKE_REV = 8;
 
-function bake(id, drawFn) {
+function isLegacy32Drawer(id) {
+  return id.startsWith('px_bld_') || id === 'px_terrain_farm';
+}
+
+function bake(id, drawFn, legacy32 = false) {
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.imageSmoothingEnabled = false;
-  drawFn(ctx);
-  const img = ctx.getImageData(0, 0, W, H);
-  const d = img.data;
-  for (let i = 0; i < d.length; i += 4) {
-    if (d[i + 3] < 8) continue;
-    const n = ((id.charCodeAt((i / 4) % id.length) * 11 + (i / 4)) % 23);
-    if (n === 0) {
-      d[i] = Math.max(0, d[i] - 6);
-      d[i + 1] = Math.max(0, d[i + 1] - 6);
-      d[i + 2] = Math.max(0, d[i + 2] - 8);
-    } else if (n === 1 && d[i] + d[i + 1] + d[i + 2] < 380) {
-      d[i] = Math.min(255, d[i] + 5);
-      d[i + 1] = Math.min(255, d[i + 1] + 5);
-      d[i + 2] = Math.min(255, d[i + 2] + 4);
-    }
+  if (legacy32) {
+    ctx.save();
+    ctx.scale(2, 2);
+    drawFn(ctx);
+    ctx.restore();
+  } else {
+    drawFn(ctx);
   }
-  ctx.putImageData(img, 0, 0);
+  if (!legacy32) {
+    const img = ctx.getImageData(0, 0, W, H);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] < 8) continue;
+      const n = ((id.charCodeAt((i / 4) % id.length) * 7 + (i / 4)) % 31);
+      if (n === 0) {
+        d[i] = Math.max(0, d[i] - 4);
+        d[i + 1] = Math.max(0, d[i + 1] - 4);
+        d[i + 2] = Math.max(0, d[i + 2] - 5);
+      } else if (n === 1 && d[i] + d[i + 1] + d[i + 2] < 400) {
+        d[i] = Math.min(255, d[i] + 4);
+        d[i + 1] = Math.min(255, d[i + 1] + 4);
+        d[i + 2] = Math.min(255, d[i + 2] + 3);
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
   return canvas;
 }
 
@@ -197,360 +162,10 @@ function roofFlat(ctx, x, y, w, d = 3) {
   px(ctx, x, y + d - 1, P.OUT);
 }
 
-// ── Units ────────────────────────────────────────────────────────────────────
+// Unit sprites: ArcadeUnits64.js (64x64 arcade art).
 
-function drawSoldier(ctx, opts = {}) {
-  const P = PIXEL_PAL;
-  const crouch = !!opts.crouch;
-  const y0 = crouch ? 2 : 0;
-
-  shadow(ctx, 7, 27 + y0, 18, 3);
-
-  rect(ctx, 10, 24 + y0, 6, 3, P.BOOT);
-  rect(ctx, 17, 24 + y0, 6, 3, P.BOOT);
-  px(ctx, 10, 24 + y0, P.OUT);
-  px(ctx, 22, 24 + y0, P.OUT);
-  px(ctx, 11, 24 + y0, P.MET_H);
-
-  rect(ctx, 11, 18 + y0, 5, 7, P.OL0);
-  rect(ctx, 17, 18 + y0, 5, 7, P.OL0);
-  rect(ctx, 12, 19 + y0, 3, 5, P.OL2);
-  rect(ctx, 18, 19 + y0, 3, 5, P.OL2);
-  px(ctx, 11, 18 + y0, P.OL4);
-  px(ctx, 17, 18 + y0, P.OL4);
-  px(ctx, 15, 23 + y0, P.OL0);
-
-  rect(ctx, 10, 11 + y0, 12, 8, P.OL1);
-  rect(ctx, 11, 12 + y0, 10, 6, P.OL2);
-  rect(ctx, 12, 13 + y0, 8, 4, P.OL3);
-  px(ctx, 10, 11 + y0, P.OL5);
-  px(ctx, 11, 11 + y0, P.OL5);
-  px(ctx, 20, 17 + y0, P.OL0);
-  px(ctx, 21, 16 + y0, P.OL0);
-  px(ctx, 10, 18 + y0, P.OUT);
-
-  rect(ctx, 13, 5 + y0, 8, 5, P.OL1);
-  rect(ctx, 14, 4 + y0, 6, 3, P.OL3);
-  rect(ctx, 15, 3 + y0, 4, 2, P.OL4);
-  px(ctx, 15, 3 + y0, P.OL5);
-  px(ctx, 18, 4 + y0, P.OL2);
-  rect(ctx, 14, 8 + y0, 6, 2, P.SKIN);
-  px(ctx, 15, 8 + y0, P.SKIN_D);
-  px(ctx, 13, 5 + y0, P.OUT);
-  px(ctx, 20, 6 + y0, P.OUT);
-  px(ctx, 14, 4 + y0, P.OUT);
-
-  rect(ctx, 14, 13 + y0, 4, 5, P.WOOD);
-  rect(ctx, 15, 14 + y0, 3, 3, P.WOOD_L);
-  rect(ctx, 18, 14 + y0, 10, 2, P.MET);
-  rect(ctx, 19, 13 + y0, 8, 1, P.MET_H);
-  rect(ctx, 27, 14 + y0, 2, 3, P.MET);
-  px(ctx, 28, 14 + y0, P.MET_L);
-  px(ctx, 18, 16 + y0, P.OUT);
-  px(ctx, 27, 16 + y0, P.OUT);
-}
-
-function drawInfantry(ctx) { drawSoldier(ctx); }
-
-/** Engineer — hard hat, hi-vis vest, tools (no rifle; must not read as infantry). */
-function drawEngineer(ctx) {
-  const P = PIXEL_PAL;
-  shadow(ctx, 7, 27, 18, 3);
-
-  // Boots
-  rect(ctx, 10, 24, 6, 3, P.BOOT);
-  rect(ctx, 17, 24, 6, 3, P.BOOT);
-  px(ctx, 10, 24, P.OUT);
-  px(ctx, 22, 24, P.OUT);
-
-  // Work pants (tan, not olive fatigues)
-  rect(ctx, 11, 18, 5, 7, P.TAN_D);
-  rect(ctx, 17, 18, 5, 7, P.TAN_D);
-  rect(ctx, 12, 19, 3, 5, P.TAN);
-  rect(ctx, 18, 19, 3, 5, P.TAN);
-  px(ctx, 11, 18, P.OUT);
-
-  // Torso — hi-vis vest over dark shirt
-  rect(ctx, 10, 11, 12, 8, P.OL0);
-  rect(ctx, 11, 12, 10, 6, P.VEST_D);
-  rect(ctx, 11, 12, 10, 6, P.VEST);
-  // Reflective stripes
-  rect(ctx, 11, 13, 10, 2, P.VEST_H);
-  rect(ctx, 11, 16, 10, 2, P.YEL_H);
-  px(ctx, 10, 12, P.VEST_H);
-  px(ctx, 20, 17, P.VEST_D);
-  px(ctx, 10, 18, P.OUT);
-
-  // Hard hat (flat brim — not infantry helmet)
-  rect(ctx, 12, 4, 10, 3, P.HAT);
-  rect(ctx, 13, 3, 8, 2, P.YEL_H);
-  rect(ctx, 12, 6, 10, 1, P.HAT_D);
-  px(ctx, 12, 3, P.OUT);
-  px(ctx, 21, 4, P.OUT);
-  rect(ctx, 14, 7, 6, 2, P.SKIN);
-  px(ctx, 15, 7, P.SKIN_D);
-
-  // Backpack / tool roll on back (left)
-  rect(ctx, 9, 12, 3, 7, P.WOOD_D);
-  rect(ctx, 10, 13, 2, 5, P.WOOD);
-  px(ctx, 9, 12, P.OUT);
-
-  // Shovel (left hand, vertical)
-  rect(ctx, 8, 10, 2, 12, P.MET);
-  rect(ctx, 7, 9, 3, 2, P.MET_L);
-  px(ctx, 8, 10, P.MET_H);
-  px(ctx, 7, 9, P.OUT);
-
-  // Large wrench (right hand — signature silhouette)
-  rect(ctx, 20, 12, 2, 8, P.MET_L);
-  rect(ctx, 22, 12, 6, 2, P.MET);
-  rect(ctx, 24, 11, 4, 2, P.MET_H);
-  rect(ctx, 26, 12, 2, 3, P.MET);
-  px(ctx, 27, 12, P.YEL);
-  px(ctx, 20, 19, P.OUT);
-  px(ctx, 26, 14, P.OUT);
-
-  // Toolbox at feet
-  rect(ctx, 13, 26, 6, 2, P.MET);
-  rect(ctx, 14, 25, 4, 1, P.MET_H);
-  px(ctx, 13, 26, P.OUT);
-}
-
-function drawMedic(ctx) {
-  const P = PIXEL_PAL;
-  shadow(ctx, 7, 27, 18, 3);
-  rect(ctx, 10, 24, 6, 3, P.BOOT);
-  rect(ctx, 17, 24, 6, 3, P.BOOT);
-  rect(ctx, 11, 18, 5, 7, P.WHITE);
-  rect(ctx, 17, 18, 5, 7, P.WHITE);
-  rect(ctx, 10, 11, 12, 8, P.WHITE);
-  rect(ctx, 11, 12, 10, 6, 0xe8e4d8);
-  rect(ctx, 13, 14, 6, 4, P.RED_L);
-  px(ctx, 15, 15, P.WHITE);
-  rect(ctx, 15, 14, 1, 4, P.WHITE);
-  rect(ctx, 13, 5, 8, 5, P.WHITE);
-  rect(ctx, 14, 4, 6, 3, 0xf4f0e8);
-  px(ctx, 13, 4, P.OUT);
-  rect(ctx, 14, 8, 6, 2, P.SKIN);
-  px(ctx, 8, 14, P.RED);
-}
-
-/** Scout — binoculars, soft cap, radio; crouched (not rifle infantry). */
-function drawRecon(ctx) {
-  const P = PIXEL_PAL;
-  shadow(ctx, 7, 28, 18, 3);
-  rect(ctx, 10, 24, 5, 3, P.BOOT);
-  rect(ctx, 18, 24, 5, 3, P.BOOT);
-  rect(ctx, 11, 20, 4, 5, P.OL1);
-  rect(ctx, 18, 20, 4, 5, P.OL1);
-  rect(ctx, 12, 21, 3, 3, P.OL3);
-  rect(ctx, 19, 21, 3, 3, P.OL3);
-  rect(ctx, 11, 13, 10, 8, P.OL0);
-  rect(ctx, 12, 14, 8, 5, P.OL2);
-  rect(ctx, 21, 12, 3, 9, P.MET);
-  rect(ctx, 22, 7, 1, 6, P.MET_H);
-  px(ctx, 22, 6, P.YEL);
-  rect(ctx, 12, 7, 8, 2, P.OL1);
-  rect(ctx, 13, 5, 6, 3, P.OL3);
-  px(ctx, 13, 5, P.OUT);
-  rect(ctx, 14, 9, 5, 2, P.SKIN);
-  rect(ctx, 13, 8, 7, 3, P.MET);
-  rect(ctx, 14, 9, 2, 2, P.WIN_L);
-  rect(ctx, 18, 9, 2, 2, P.WIN_L);
-  px(ctx, 16, 9, P.MET_H);
-  rect(ctx, 7, 16, 4, 2, P.MET);
-  rect(ctx, 6, 16, 2, 3, P.WOOD_D);
-  px(ctx, 7, 17, P.OUT);
-}
-
-/** Assault infantry — SMG + bandolier. */
-function drawAssaultInf(ctx) {
-  const P = PIXEL_PAL;
-  drawSoldier(ctx);
-  rect(ctx, 12, 13, 3, 6, P.YEL);
-  rect(ctx, 19, 14, 8, 2, P.MET);
-  rect(ctx, 20, 15, 4, 3, P.MET_L);
-  px(ctx, 26, 15, P.OUT);
-}
-
-function drawSmgSquad(ctx) {
-  const P = PIXEL_PAL;
-  drawSoldier(ctx);
-  rect(ctx, 18, 14, 9, 2, P.MET);
-  rect(ctx, 21, 15, 3, 4, P.MET_L);
-  px(ctx, 19, 15, P.YEL);
-}
-
-function drawLmgTeam(ctx) {
-  const P = PIXEL_PAL;
-  shadow(ctx, 4, 27, 24, 3);
-  rect(ctx, 8, 22, 16, 5, P.OL0);
-  rect(ctx, 9, 18, 4, 5, P.OL2);
-  rect(ctx, 19, 18, 4, 5, P.OL2);
-  rect(ctx, 10, 12, 12, 7, P.OL1);
-  rect(ctx, 11, 13, 10, 4, P.OL3);
-  rect(ctx, 13, 5, 6, 5, P.OL2);
-  rect(ctx, 14, 8, 5, 2, P.SKIN);
-  rect(ctx, 4, 20, 14, 2, P.MET);
-  rect(ctx, 5, 21, 3, 2, P.MET_L);
-  rect(ctx, 6, 23, 2, 3, P.MET);
-  px(ctx, 17, 20, P.OUT);
-}
-
-function drawHmgTeam(ctx) {
-  const P = PIXEL_PAL;
-  shadow(ctx, 3, 27, 26, 3);
-  foundation(ctx, 6, 22, 20, 2);
-  rect(ctx, 8, 19, 4, 4, P.OL2);
-  rect(ctx, 20, 19, 4, 4, P.OL2);
-  rect(ctx, 2, 16, 18, 3, P.MET);
-  rect(ctx, 3, 17, 14, 1, P.MET_H);
-  rect(ctx, 4, 19, 2, 4, P.MET);
-  rect(ctx, 8, 19, 2, 4, P.MET);
-  rect(ctx, 12, 19, 2, 4, P.MET);
-  rect(ctx, 10, 13, 8, 4, P.OL1);
-  px(ctx, 19, 16, P.OUT);
-}
-
-/** Sniper — prone ghillie + long rifle. */
-function drawSniper(ctx) {
-  const P = PIXEL_PAL;
-  shadow(ctx, 4, 28, 24, 2);
-  rect(ctx, 6, 24, 20, 4, P.OL0);
-  rect(ctx, 8, 25, 16, 2, P.OL2);
-  rect(ctx, 7, 22, 18, 3, P.OL1);
-  for (let i = 0; i < 8; i++) px(ctx, 8 + i * 2, 23, i % 2 ? P.OL3 : P.OL4);
-  rect(ctx, 4, 21, 22, 2, P.MET);
-  rect(ctx, 5, 22, 18, 1, P.WOOD_L);
-  px(ctx, 25, 21, P.OUT);
-  rect(ctx, 10, 19, 6, 3, P.OL3);
-  px(ctx, 11, 20, P.SKIN);
-}
-
-function drawMortar(ctx) {
-  const P = PIXEL_PAL;
-  shadow(ctx, 6, 27, 20, 3);
-  foundation(ctx, 8, 22, 16, 2);
-  rect(ctx, 10, 18, 4, 5, P.OL2);
-  rect(ctx, 18, 18, 4, 5, P.OL2);
-  rect(ctx, 14, 14, 4, 6, P.MET);
-  rect(ctx, 13, 10, 6, 5, P.MET_L);
-  rect(ctx, 12, 8, 8, 3, P.MET);
-  px(ctx, 12, 8, P.MET_H);
-  px(ctx, 19, 9, P.OUT);
-}
-
-function drawMotorcycle(ctx) {
-  const P = PIXEL_PAL;
-  shadow(ctx, 5, 27, 22, 3);
-  rect(ctx, 8, 22, 16, 3, P.MET);
-  rect(ctx, 10, 20, 3, 3, P.MET_L);
-  rect(ctx, 19, 20, 3, 3, P.MET_L);
-  rect(ctx, 12, 16, 8, 5, P.MET_L);
-  rect(ctx, 13, 12, 6, 5, P.OL2);
-  rect(ctx, 14, 10, 4, 3, P.OL3);
-  rect(ctx, 14, 8, 4, 2, P.SKIN);
-  rect(ctx, 11, 14, 10, 2, P.MET_H);
-  px(ctx, 8, 22, P.OUT);
-}
-
-function drawArmoredCar(ctx) {
-  const P = PIXEL_PAL;
-  shadow(ctx, 3, 27, 26, 3);
-  foundation(ctx, 4, 21, 24, 2);
-  rect(ctx, 5, 14, 22, 8, P.OL1);
-  rect(ctx, 6, 15, 20, 5, P.OL3);
-  rect(ctx, 7, 16, 6, 4, P.WIN);
-  rect(ctx, 4, 22, 4, 3, P.OUT);
-  rect(ctx, 24, 22, 4, 3, P.OUT);
-  rect(ctx, 20, 13, 8, 3, P.MET);
-  px(ctx, 27, 14, P.OUT);
-}
-
-function drawHalftrack(ctx) {
-  const P = PIXEL_PAL;
-  shadow(ctx, 2, 27, 28, 3);
-  foundation(ctx, 3, 21, 26, 2);
-  wallFront(ctx, 5, 14, 20, 8, P.OL0, P.OL2, P.OL3, P.OL5);
-  rect(ctx, 3, 20, 8, 5, P.MET);
-  for (let y = 21; y <= 24; y++) px(ctx, 4, y, P.MET_H);
-  rect(ctx, 22, 20, 8, 5, P.OUT);
-  rect(ctx, 23, 21, 2, 2, P.MET_L);
-  rect(ctx, 26, 21, 2, 2, P.MET_L);
-  rect(ctx, 18, 12, 8, 3, P.MET);
-}
-
-function drawTank(ctx) {
-  const P = PIXEL_PAL;
-  shadow(ctx, 3, 27, 26, 3);
-  rect(ctx, 3, 21, 26, 5, P.OUT);
-  rect(ctx, 4, 22, 24, 3, P.MET);
-  for (let x = 5; x < 26; x += 3) {
-    rect(ctx, x, 22, 2, 2, P.MET_L);
-    px(ctx, x, 23, P.MET_H);
-  }
-  rect(ctx, 5, 14, 22, 8, P.OL0);
-  rect(ctx, 6, 15, 20, 5, P.OL2);
-  rect(ctx, 7, 16, 18, 3, P.OL3);
-  px(ctx, 5, 14, P.OL5);
-  px(ctx, 6, 15, P.OL4);
-  px(ctx, 24, 20, P.OL0);
-  rect(ctx, 10, 8, 14, 7, P.OL1);
-  rect(ctx, 11, 9, 12, 4, P.OL3);
-  px(ctx, 11, 8, P.OL5);
-  rect(ctx, 22, 9, 9, 3, P.MET);
-  rect(ctx, 23, 10, 7, 1, P.MET_H);
-  px(ctx, 30, 10, P.OUT);
-}
-
-function drawArtillery(ctx) {
-  const P = PIXEL_PAL;
-  shadow(ctx, 5, 27, 22, 3);
-  foundation(ctx, 7, 22, 18, 2);
-  rect(ctx, 8, 18, 16, 5, P.OL1);
-  rect(ctx, 9, 19, 14, 3, P.OL3);
-  px(ctx, 9, 18, P.OL5);
-  rect(ctx, 6, 23, 4, 3, P.OUT);
-  rect(ctx, 7, 24, 2, 2, P.MET_L);
-  rect(ctx, 22, 23, 4, 3, P.OUT);
-  rect(ctx, 23, 24, 2, 2, P.MET_L);
-  rect(ctx, 11, 7, 4, 14, P.WOOD);
-  rect(ctx, 12, 5, 2, 16, P.WOOD_L);
-  rect(ctx, 13, 2, 12, 4, P.MET);
-  rect(ctx, 14, 3, 10, 2, P.MET_H);
-  px(ctx, 24, 3, P.OUT);
-  px(ctx, 12, 4, P.OUT);
-}
-
-function drawAntiTank(ctx) {
-  const P = PIXEL_PAL;
-  shadow(ctx, 6, 27, 20, 3);
-  foundation(ctx, 9, 21, 14, 2);
-  wallFront(ctx, 10, 15, 12, 6, P.CONC_D, P.CONC, P.CONC_L, P.CONC_H);
-  rect(ctx, 5, 12, 16, 3, P.MET);
-  rect(ctx, 6, 13, 14, 1, P.MET_H);
-  rect(ctx, 3, 11, 4, 5, P.OL0);
-  rect(ctx, 20, 13, 5, 6, P.OL1);
-  px(ctx, 21, 14, P.OL3);
-  px(ctx, 4, 11, P.OUT);
-}
-
-function drawTruck(ctx) {
-  const P = PIXEL_PAL;
-  shadow(ctx, 2, 27, 28, 3);
-  foundation(ctx, 3, 21, 26, 2);
-  wallFront(ctx, 4, 14, 22, 8, P.OL0, P.OL2, P.OL3, P.OL5);
-  wallLeft(ctx, 4, 14, 8, P.OL0, P.OL1);
-  wallRight(ctx, 26, 14, 8, P.OL2, P.OL4);
-  wallFront(ctx, 17, 8, 10, 7, P.OL1, P.OL3, P.OL4, P.OL5);
-  windowBlock(ctx, 19, 10, 3, 2);
-  rect(ctx, 5, 23, 5, 3, P.OUT);
-  rect(ctx, 6, 24, 3, 2, P.MET_L);
-  rect(ctx, 22, 23, 5, 3, P.OUT);
-  rect(ctx, 23, 24, 3, 2, P.MET_L);
-}
-
-function drawBoat(ctx, w = 14) {
+/** Decorative boat for building icons (32px logical, scaled 2x at bake). */
+function drawBoat32(ctx, w = 14) {
   const P = PIXEL_PAL;
   const x = Math.floor((32 - w) / 2);
   shadow(ctx, x, 26, w, 3);
@@ -563,60 +178,6 @@ function drawBoat(ctx, w = 14) {
   px(ctx, x + 6, 14, P.OL5);
   rect(ctx, x + 7, 15, 3, 3, P.MET_L);
   px(ctx, x + 8, 15, P.MET_H);
-}
-
-function drawSub(ctx) {
-  const P = PIXEL_PAL;
-  shadow(ctx, 7, 26, 18, 3);
-  rect(ctx, 8, 16, 16, 6, P.MET);
-  rect(ctx, 9, 17, 14, 4, P.MET_L);
-  px(ctx, 9, 17, P.MET_H);
-  rect(ctx, 13, 10, 6, 7, P.MET);
-  rect(ctx, 14, 11, 4, 5, P.MET_H);
-  px(ctx, 13, 10, P.OUT);
-  rect(ctx, 15, 12, 2, 2, P.WIN_L);
-}
-
-function drawDestroyer(ctx) {
-  drawBoat(ctx, 20);
-  const P = PIXEL_PAL;
-  rect(ctx, 11, 11, 3, 5, P.OL2);
-  rect(ctx, 21, 11, 3, 5, P.OL2);
-  rect(ctx, 19, 10, 3, 6, P.MET_L);
-  px(ctx, 20, 10, P.MET_H);
-}
-
-function drawCruiser(ctx, big = false) {
-  const w = big ? 24 : 20;
-  drawBoat(ctx, w);
-  const P = PIXEL_PAL;
-  const x = Math.floor((32 - w) / 2);
-  rect(ctx, x + 4, 10, 3, 5, P.OL2);
-  rect(ctx, x + w - 7, 10, 3, 5, P.OL2);
-  if (big) {
-    rect(ctx, x + 8, 9, 3, 6, P.MET_L);
-    rect(ctx, x + 13, 9, 3, 6, P.MET_L);
-    px(ctx, x + 9, 9, P.MET_H);
-  }
-}
-
-function drawAircraft(ctx) {
-  const P = PIXEL_PAL;
-  shadow(ctx, 4, 28, 24, 2);
-  rect(ctx, 13, 13, 6, 10, P.OL1);
-  rect(ctx, 14, 14, 4, 8, P.OL3);
-  px(ctx, 14, 13, P.OL5);
-  rect(ctx, 4, 14, 24, 5, P.OL2);
-  rect(ctx, 5, 15, 22, 3, P.OL3);
-  px(ctx, 5, 14, P.OL5);
-  rect(ctx, 2, 13, 5, 6, P.OL1);
-  rect(ctx, 25, 13, 5, 6, P.OL1);
-  px(ctx, 3, 13, P.OL5);
-  px(ctx, 26, 13, P.OL5);
-  rect(ctx, 12, 7, 8, 5, P.OL0);
-  rect(ctx, 13, 8, 6, 3, P.OL2);
-  px(ctx, 13, 7, P.OL5);
-  px(ctx, 12, 11, P.OUT);
 }
 
 // ── Buildings (iso structures) ─────────────────────────────────────────────
@@ -715,7 +276,7 @@ function drawNavalYard(ctx) {
   rect(ctx, 19, 7, 5, 1, P.YEL);
   rect(ctx, 21, 3, 2, 4, P.MET_L);
   px(ctx, 21, 2, P.MET_H);
-  drawBoat(ctx, 11);
+  drawBoat32(ctx, 11);
   rect(ctx, 6, 14, 4, 2, P.RUST);
 }
 
@@ -738,7 +299,7 @@ function drawHarbor(ctx) {
   wallFront(ctx, 20, 13, 8, 8, P.WOOD_D, P.WOOD, P.WOOD_L, P.WOOD_L);
   windowBlock(ctx, 22, 15, 2, 2);
   roofFlat(ctx, 19, 10, 10, 3);
-  drawBoat(ctx, 9);
+  drawBoat32(ctx, 9);
   rect(ctx, 4, 18, 6, 3, P.BRK);
   px(ctx, 5, 18, P.BRK_L);
 }
@@ -857,13 +418,13 @@ const DRAWERS = {
   px_unit_halftrack: drawHalftrack,
   px_unit_armored_car: drawArmoredCar,
   px_unit_motorcycle: drawMotorcycle,
-  px_unit_patrol_boat: (ctx) => drawBoat(ctx, 12),
+  px_unit_patrol_boat: (ctx) => drawBoat(ctx, 28),
   px_unit_submarine: drawSub,
   px_unit_destroyer: drawDestroyer,
   px_unit_cruiser_light: (ctx) => drawCruiser(ctx, false),
   px_unit_cruiser_heavy: (ctx) => drawCruiser(ctx, true),
   px_unit_battleship: (ctx) => drawCruiser(ctx, true),
-  px_unit_landing_craft: (ctx) => drawBoat(ctx, 10),
+  px_unit_landing_craft: (ctx) => drawBoat(ctx, 22),
   px_unit_aircraft: drawAircraft,
   px_bld_hq: drawHQ,
   px_bld_barracks: drawBarracks,
@@ -887,7 +448,7 @@ function getCanvas(id) {
   if (!baked.has(key)) {
     const fn = DRAWERS[id];
     if (!fn) return null;
-    baked.set(key, bake(key, fn));
+    baked.set(key, bake(id, fn, isLegacy32Drawer(id)));
   }
   return baked.get(key);
 }

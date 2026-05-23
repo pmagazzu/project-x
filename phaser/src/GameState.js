@@ -1158,15 +1158,20 @@ export function createGameState(scenario = 'default', options = {}) {
 }
 
 // ── Accessors ──────────────────────────────────────────────────────────────
+/** Living unit check (health-based — dead flag may be unset). */
+export function isUnitAlive(u) {
+  return !!(u && !u.embarked && (u.health ?? 1) > 0 && !u.dead);
+}
+
 export function unitAt(state, q, r) {
-  return state.units.find(u => !u.dead && !u.embarked && u.q === q && u.r === r) || null;
+  return state.units.find(u => isUnitAlive(u) && u.q === q && u.r === r) || null;
 }
 
 /** Living enemy at hex (IGOUGO — uses actual unit position). */
 export function enemyAtHex(state, q, r, forPlayer = state.currentPlayer) {
   const fp = Number(forPlayer);
   return state.units.find(u =>
-    !u.dead && !u.embarked && Number(u.owner) !== fp && u.q === q && u.r === r
+    isUnitAlive(u) && Number(u.owner) !== fp && u.q === q && u.r === r
   ) || null;
 }
 
@@ -1174,7 +1179,7 @@ export function enemyAtHex(state, q, r, forPlayer = state.currentPlayer) {
 export function resolveAttackTargetUnit(state, entry) {
   if (!entry) return null;
   if (entry.targetId != null) {
-    const byId = state.units.find(u => u.id === entry.targetId && !u.dead);
+    const byId = state.units.find(u => u.id == entry.targetId && isUnitAlive(u));
     if (byId) return byId;
   }
   return enemyAtHex(state, entry.q, entry.r);
@@ -1182,7 +1187,7 @@ export function resolveAttackTargetUnit(state, entry) {
 
 /** True if unit may still fire offensively this turn. */
 export function unitCanAttack(unit) {
-  if (!unit || unit.attacked || unit.suppressed || unit.embarked || unit.dead) return false;
+  if (!unit || !isUnitAlive(unit) || unit.attacked || unit.suppressed) return false;
   const t = UNIT_TYPES[unit.type] || {};
   const sa = ustat(unit, 'soft_attack', t.soft_attack || 0);
   const ha = ustat(unit, 'hard_attack', t.hard_attack || 0);
@@ -1192,7 +1197,7 @@ export function unitCanAttack(unit) {
 
 /** Validates whether attacker may open fire on target (range, LOS, status). */
 export function canUnitAttackTarget(state, attacker, target, terrain, blindFire = false) {
-  if (!attacker || !target || target.dead) return { ok: false, reason: 'No valid target' };
+  if (!attacker || !target || !isUnitAlive(target)) return { ok: false, reason: 'No valid target' };
   if (Number(attacker.owner) === Number(target.owner)) return { ok: false, reason: 'Friendly target' };
   if (attacker.attacked) return { ok: false, reason: 'Already attacked this turn' };
   if (attacker.suppressed) return { ok: false, reason: 'Suppressed — cannot fire' };
@@ -1420,7 +1425,7 @@ export function getAttackableHexes(state, unit, fromQ, fromR, fog) {
   const _unitDef = UNIT_TYPES[unit.type] || {};
   return state.units
     .filter(u => {
-      if (Number(u.owner) === Number(unit.owner) || u.dead || u.embarked) return false;
+      if (Number(u.owner) === Number(unit.owner) || !isUnitAlive(u)) return false;
       const tq = u.q;
       const tr = u.r;
       if (hexDistance(fromQ, fromR, tq, tr) > range) return false;
@@ -2194,9 +2199,9 @@ export function resolveTurn(state, terrain) {
 // Call when the attacker clicks attack during their turn.
 // Returns a combatLog entry (single entry array) for UI display.
 export function resolveImmediateAttack(state, attackerId, targetId, blindFire = false) {
-  const attacker = state.units.find(u => u.id === attackerId);
-  const target   = state.units.find(u => u.id === targetId);
-  if (!attacker || !target) return [];
+  const attacker = state.units.find(u => u.id == attackerId && isUnitAlive(u));
+  const target   = state.units.find(u => u.id == targetId && isUnitAlive(u));
+  if (!attacker || !target) return [{ type: 'miss', reason: 'invalid_target', attackerId, targetId }];
   const events = [];
 
   // antiNavalOnly units (torpedoes) cannot attack land targets
