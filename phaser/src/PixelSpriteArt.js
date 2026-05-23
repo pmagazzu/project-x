@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Procedural pixel sprites — 64×64 arcade units, 64×64 buildings (from 32px art).
  * Light top-left · bold outline · cast shadow · 3-tone surfaces.
  */
@@ -459,7 +459,7 @@ export function registerPixelSprites(scene) {
   for (const id of Object.keys(DRAWERS)) {
     try {
       if (scene.textures.exists(id)) {
-        scene.textures.get(id)?.destroy();
+        try { scene.textures.remove(id); } catch (e) { /* ignore */ }
       }
       const canvas = getCanvas(id);
       if (!canvas) continue;

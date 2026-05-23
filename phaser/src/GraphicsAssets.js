@@ -111,16 +111,25 @@ export function getBuildingArtTextureKey(buildingType) {
   return BUILDING_ART[buildingType] || null;
 }
 
+/** True when texture exists and has a drawable frame (avoids empty stub keys). */
+export function isTextureReady(scene, key) {
+  if (!key || !scene.textures?.exists(key)) return false;
+  try {
+    const frame = scene.textures.getFrame(key);
+    return (frame?.width > 0 && frame?.height > 0);
+  } catch (e) {
+    return false;
+  }
+}
+
 export function hasUnitSprite(scene, unitType, owner = null) {
   const key = getUnitArtTextureKey(unitType, owner);
-  if (!key) return false;
-  if (key.startsWith('user_')) return scene.textures?.exists(key);
-  return hasPixelTexture(scene, key);
+  return isTextureReady(scene, key);
 }
 
 export function hasBuildingSprite(scene, buildingType) {
   const key = getBuildingArtTextureKey(buildingType);
-  return hasPixelTexture(scene, key);
+  return isTextureReady(scene, key);
 }
 
 export { hasPixelTexture };
@@ -128,39 +137,47 @@ export { hasPixelTexture };
 /** Replace a canvas-backed texture (Phaser 3.90 has no TextureManager.remove). */
 export function replaceCanvasTexture(scene, key, canvas) {
   if (scene.textures.exists(key)) {
-    const existing = scene.textures.get(key);
-    if (existing?.destroy) existing.destroy();
+    try { scene.textures.remove(key); } catch (e) { /* ignore */ }
   }
   scene.textures.addCanvas(key, canvas);
 }
 
 /** Knock out near-black JPEG background so PNG-less exports still work. */
-export function stripNearBlackBackground(scene, key, threshold = 32) {
+export function stripNearBlackBackground(scene, key, threshold = 24) {
   if (!scene.textures.exists(key)) return;
-  const tex = scene.textures.get(key);
-  const img = tex.getSourceImage?.() || tex.source?.[0]?.image;
-  if (!img?.width) return;
-  const canvas = document.createElement('canvas');
-  canvas.width = img.width;
-  canvas.height = img.height;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(img, 0, 0);
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const d = data.data;
-  for (let i = 0; i < d.length; i += 4) {
-    if (d[i] < threshold && d[i + 1] < threshold && d[i + 2] < threshold) d[i + 3] = 0;
+  try {
+    const tex = scene.textures.get(key);
+    const img = tex.getSourceImage?.() || tex.source?.[0]?.image;
+    if (!img?.width || !img?.height) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0);
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = data.data;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i] <= threshold && d[i + 1] <= threshold && d[i + 2] <= threshold) d[i + 3] = 0;
+    }
+    ctx.putImageData(data, 0, 0);
+    replaceCanvasTexture(scene, key, canvas);
+    const out = scene.textures.get(key);
+    if (out?.source?.[0]) out.source[0].setFilter(1);
+  } catch (err) {
+    console.warn(`[GraphicsAssets] stripNearBlackBackground failed for ${key}`, err);
   }
-  ctx.putImageData(data, 0, 0);
-  replaceCanvasTexture(scene, key, canvas);
-  const out = scene.textures.get(key);
-  if (out?.source?.[0]) out.source[0].setFilter(1);
 }
 
 /** Bake procedural sprites + post-process user PNGs (call once in GameScene.create). */
 export function initSpriteArt(scene) {
   registerPixelSprites(scene);
   for (const key of Object.keys(USER_UNIT_ART_FILES)) {
-    if (scene.textures.exists(key)) stripNearBlackBackground(scene, key);
+    if (!scene.textures.exists(key)) continue;
+    try {
+      stripNearBlackBackground(scene, key);
+    } catch (err) {
+      console.warn(`[GraphicsAssets] user art post-process skipped for ${key}`, err);
+    }
   }
 }
 
@@ -172,7 +189,7 @@ export function preloadSpriteArt() {
  * Place a world-space sprite scaled to max height; returns the image or null.
  */
 export function placeWorldSprite(scene, layer, textureKey, x, y, maxHeight, tint, alpha = 1, depth = 0) {
-  if (!textureKey || !scene.textures.exists(textureKey)) return null;
+  if (!isTextureReady(scene, textureKey)) return null;
   const frame = scene.textures.getFrame(textureKey);
   const frameH = frame?.height || 64;
   const isPx = textureKey.startsWith('px_');

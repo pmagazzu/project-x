@@ -40,7 +40,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.26';
+export const GAME_VERSION = 'v1.10.27';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -1751,10 +1751,12 @@ export class GameScene extends Phaser.Scene {
         }
 
         const bldArtKey = getBuildingArtTextureKey(b.type);
-        if (bldArtKey && this.textures.exists(bldArtKey)) {
-          const bldH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH) * 0.98;
-          const tint = PLAYER_COLORS[b.owner] || 0xffffff;
-          placeWorldSprite(this, this.buildingSpriteLayer, bldArtKey, x, y - bldH * 0.08, bldH, tint, 1, 0);
+        const bldH = Math.round(HEX_SIZE * Math.sqrt(3) * ISO_SQUISH) * 0.98;
+        const tint = PLAYER_COLORS[b.owner] || 0xffffff;
+        const bldSpr = bldArtKey
+          ? placeWorldSprite(this, this.buildingSpriteLayer, bldArtKey, x, y - bldH * 0.08, bldH, tint, 1, 0)
+          : null;
+        if (bldSpr) {
           if (b.underConstruction) {
             const g = this.buildingGfx;
             const barW = HEX_SIZE * 0.9, barH = 5;
@@ -2377,20 +2379,14 @@ export class GameScene extends Phaser.Scene {
         this.unitGfx.strokePath();
       }
 
-      const useUnitSprite = hasUnitSprite(this, unit.type, unit.owner);
       const sprH = HEX_SIZE * 1.28;
-      if (useUnitSprite) {
-        const artKey = getUnitArtTextureKey(unit.type, unit.owner);
-        const sprAlpha = spent ? alpha * 0.45 : alpha;
-        placeWorldSprite(this, this.unitSpriteLayer, artKey, x, y, sprH,
-          PLAYER_COLORS[unit.owner] || 0xffffff, sprAlpha, 0);
-        if (this.selectedUnit === unit) {
-          this.unitGfx.lineStyle(3, SELECTED_STROKE, alpha);
-          this.unitGfx.strokeCircle(x, y, sprH * 0.55);
-        }
-        this.unitGfx.fillStyle(0x000000, alpha * 0.35);
-        this.unitGfx.fillEllipse(x + 2, y + sprH * 0.42, sprH * 0.7, sprH * 0.18);
-      }
+      const artKey = getUnitArtTextureKey(unit.type, unit.owner);
+      const sprAlpha = spent ? alpha * 0.45 : alpha;
+      const unitSpr = artKey
+        ? placeWorldSprite(this, this.unitSpriteLayer, artKey, x, y, sprH,
+          PLAYER_COLORS[unit.owner] || 0xffffff, sprAlpha, 0)
+        : null;
+      const drewUnitSprite = !!unitSpr;
 
       // ── Wargame counter (NATO-style) — fallback when no unit sprite art ─────
       const NAVAL_SHAPES = new Set(['boat_sm','sub','destroyer','cruiser','cruiser_hv','battleship','transport','landing','battery']);
@@ -2400,7 +2396,13 @@ export class GameScene extends Phaser.Scene {
       const cx2 = x - cW/2, cy2 = y - cH/2;
       const fillAlpha = spent ? alpha * 0.5 : alpha;
 
-      if (useUnitSprite) {
+      if (drewUnitSprite) {
+        if (this.selectedUnit === unit) {
+          this.unitGfx.lineStyle(3, SELECTED_STROKE, alpha);
+          this.unitGfx.strokeCircle(x, y, sprH * 0.55);
+        }
+        this.unitGfx.fillStyle(0x000000, alpha * 0.35);
+        this.unitGfx.fillEllipse(x + 2, y + sprH * 0.42, sprH * 0.7, sprH * 0.18);
         // Tier pips + HP only (sprite carries the unit silhouette)
         const tierIntel = this._unitTierIntelLabel(unit);
         const shownTier = tierIntel.tier;
