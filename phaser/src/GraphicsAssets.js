@@ -1,4 +1,4 @@
-/** UI theme + procedural pixel sprite keys (64×64 arcade units, see PixelSpriteArt.js). */
+/** UI theme + procedural pixel sprite keys (32×32 units, see PixelSpriteArt.js). */
 
 import { registerPixelSprites, hasPixelTexture } from './PixelSpriteArt.js';
 
@@ -88,15 +88,13 @@ export const BUILDING_ART = {
 /** Hex farm overlay (terrain-style, not building icon). */
 export const FARM_TILE_ART = 'px_terrain_farm';
 
-/** Optional PNG overrides in public/user_art/ (see USER_UNIT_ART). */
-export const USER_UNIT_ART = {
-  /** P1 infantry test sprite from user_art/infantry_p1_test.png */
-  '1:INFANTRY': 'user_infantry_p1',
-};
+/**
+ * Optional PNG overrides in public/user_art/ — drop files + add entries here later.
+ * Example: '1:INFANTRY': 'user_infantry_p1' with USER_UNIT_ART_FILES.user_infantry_p1 path.
+ */
+export const USER_UNIT_ART = {};
 
-export const USER_UNIT_ART_FILES = {
-  user_infantry_p1: 'user_art/infantry_p1_test.png',
-};
+export const USER_UNIT_ART_FILES = {};
 
 export function getUnitArtTextureKey(unitType, owner = null) {
   const o = owner != null ? Number(owner) : null;
@@ -194,7 +192,6 @@ export function placeWorldSprite(scene, layer, textureKey, x, y, maxHeight, tint
   const frameH = frame?.height || 64;
   const isPx = textureKey.startsWith('px_');
   const isUser = textureKey.startsWith('user_');
-  // Procedural px_* art is high-res (64²) but occupies a ~32px world footprint.
   const footprint = isPx ? 32 : (isUser ? 96 : frameH);
   const scale = maxHeight / Math.max(1, footprint);
   const spr = scene.add.image(x, y, textureKey)
