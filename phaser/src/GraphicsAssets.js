@@ -89,6 +89,12 @@ export const BUILDING_ART = {
 export const FARM_TILE_ART = 'px_terrain_farm';
 
 /**
+ * false = classic P1 blue / P2 red counter rectangles on the map.
+ * true  = procedural px_* sprites (and any USER_UNIT_ART PNG overrides).
+ */
+export const USE_UNIT_SPRITE_ART = false;
+
+/**
  * Optional PNG overrides in public/user_art/ — drop files + add entries here later.
  * Example: '1:INFANTRY': 'user_infantry_p1' with USER_UNIT_ART_FILES.user_infantry_p1 path.
  */
@@ -121,6 +127,13 @@ export function isTextureReady(scene, key) {
 }
 
 export function hasUnitSprite(scene, unitType, owner = null) {
+  const o = owner != null ? Number(owner) : null;
+  // User PNG drops still work when USE_UNIT_SPRITE_ART is off (for batch import later).
+  if (!USE_UNIT_SPRITE_ART) {
+    if (o == null) return false;
+    const userKey = USER_UNIT_ART[`${o}:${unitType}`];
+    return userKey ? isTextureReady(scene, userKey) : false;
+  }
   const key = getUnitArtTextureKey(unitType, owner);
   return isTextureReady(scene, key);
 }
