@@ -88,7 +88,22 @@ export const BUILDING_ART = {
 /** Hex farm overlay (terrain-style, not building icon). */
 export const FARM_TILE_ART = 'px_terrain_farm';
 
-export function getUnitArtTextureKey(unitType) {
+/** Optional PNG overrides in public/user_art/ (see USER_UNIT_ART). */
+export const USER_UNIT_ART = {
+  /** P1 infantry test sprite from user_art/infantry_p1_test.png */
+  '1:INFANTRY': 'user_infantry_p1',
+};
+
+export const USER_UNIT_ART_FILES = {
+  user_infantry_p1: 'user_art/infantry_p1_test.png',
+};
+
+export function getUnitArtTextureKey(unitType, owner = null) {
+  const o = owner != null ? Number(owner) : null;
+  if (o != null) {
+    const userKey = USER_UNIT_ART[`${o}:${unitType}`];
+    if (userKey) return userKey;
+  }
   return UNIT_ART[unitType] || null;
 }
 
@@ -96,8 +111,10 @@ export function getBuildingArtTextureKey(buildingType) {
   return BUILDING_ART[buildingType] || null;
 }
 
-export function hasUnitSprite(scene, unitType) {
-  const key = getUnitArtTextureKey(unitType);
+export function hasUnitSprite(scene, unitType, owner = null) {
+  const key = getUnitArtTextureKey(unitType, owner);
+  if (!key) return false;
+  if (key.startsWith('user_')) return scene.textures?.exists(key);
   return hasPixelTexture(scene, key);
 }
 
@@ -117,9 +134,34 @@ export function replaceCanvasTexture(scene, key, canvas) {
   scene.textures.addCanvas(key, canvas);
 }
 
-/** Bake procedural sprites (call once in GameScene.create). */
+/** Knock out near-black JPEG background so PNG-less exports still work. */
+export function stripNearBlackBackground(scene, key, threshold = 32) {
+  if (!scene.textures.exists(key)) return;
+  const tex = scene.textures.get(key);
+  const img = tex.getSourceImage?.() || tex.source?.[0]?.image;
+  if (!img?.width) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0);
+  const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = data.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i] < threshold && d[i + 1] < threshold && d[i + 2] < threshold) d[i + 3] = 0;
+  }
+  ctx.putImageData(data, 0, 0);
+  replaceCanvasTexture(scene, key, canvas);
+  const out = scene.textures.get(key);
+  if (out?.source?.[0]) out.source[0].setFilter(1);
+}
+
+/** Bake procedural sprites + post-process user PNGs (call once in GameScene.create). */
 export function initSpriteArt(scene) {
   registerPixelSprites(scene);
+  for (const key of Object.keys(USER_UNIT_ART_FILES)) {
+    if (scene.textures.exists(key)) stripNearBlackBackground(scene, key);
+  }
 }
 
 export function preloadSpriteArt() {
@@ -133,20 +175,24 @@ export function placeWorldSprite(scene, layer, textureKey, x, y, maxHeight, tint
   if (!textureKey || !scene.textures.exists(textureKey)) return null;
   const frame = scene.textures.getFrame(textureKey);
   const frameH = frame?.height || 64;
+  const isPx = textureKey.startsWith('px_');
+  const isUser = textureKey.startsWith('user_');
   // Procedural px_* art is high-res (64²) but occupies a ~32px world footprint.
-  const footprint = textureKey.startsWith('px_') ? 32 : frameH;
+  const footprint = isPx ? 32 : (isUser ? 96 : frameH);
   const scale = maxHeight / Math.max(1, footprint);
   const spr = scene.add.image(x, y, textureKey)
     .setScale(scale)
     .setAlpha(alpha)
     .setDepth(depth);
-  if (textureKey.startsWith('px_')) {
+  if (isPx || isUser) {
     const tex = scene.textures.get(textureKey);
     if (tex?.source?.[0]) tex.source[0].setFilter(1); // NEAREST
   }
   if (tint != null) {
     let applied = tint;
-    if (textureKey.startsWith('px_')) {
+    if (isUser) {
+      applied = null; // user PNGs keep authored colors
+    } else if (isPx) {
       const c = Phaser.Display.Color.IntegerToColor(tint);
       applied = Phaser.Display.Color.GetColor(
         Math.min(255, Math.floor(c.red * 0.45 + 140)),
@@ -154,7 +200,7 @@ export function placeWorldSprite(scene, layer, textureKey, x, y, maxHeight, tint
         Math.min(255, Math.floor(c.blue * 0.45 + 130)),
       );
     }
-    spr.setTint(applied);
+    if (applied != null) spr.setTint(applied);
   }
   if (layer) layer.add(spr);
   return spr;

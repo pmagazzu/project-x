@@ -24,7 +24,7 @@ import {
 import { TECH_TREE, RESEARCH_BRANCHES, prereqsMet, computeTechBonuses, getNextDesignSlotTech } from './ResearchData.js';
 import {
   GAME_THEME, TERRAIN_COLORS_V2, initSpriteArt, replaceCanvasTexture, hasPixelTexture, FARM_TILE_ART,
-  getUnitArtTextureKey, getBuildingArtTextureKey, hasUnitSprite, placeWorldSprite,
+  getUnitArtTextureKey, getBuildingArtTextureKey, hasUnitSprite, placeWorldSprite, USER_UNIT_ART_FILES,
 } from './GraphicsAssets.js';
 import {
   COMBAT_GLYPH, TIER_COL, TIER_BG,
@@ -40,7 +40,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.10.25';
+export const GAME_VERSION = 'v1.10.26';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -131,6 +131,9 @@ export class GameScene extends Phaser.Scene {
       this.load.image(key, file);
     }
     for (const {key, file} of FARM_VARIANT_FILES) {
+      this.load.image(key, file);
+    }
+    for (const [key, file] of Object.entries(USER_UNIT_ART_FILES)) {
       this.load.image(key, file);
     }
     this.load.on('loaderror', () => {}); // suppress console errors for missing tiles
@@ -2374,10 +2377,10 @@ export class GameScene extends Phaser.Scene {
         this.unitGfx.strokePath();
       }
 
-      const useUnitSprite = hasUnitSprite(this, unit.type);
+      const useUnitSprite = hasUnitSprite(this, unit.type, unit.owner);
       const sprH = HEX_SIZE * 1.28;
       if (useUnitSprite) {
-        const artKey = getUnitArtTextureKey(unit.type);
+        const artKey = getUnitArtTextureKey(unit.type, unit.owner);
         const sprAlpha = spent ? alpha * 0.45 : alpha;
         placeWorldSprite(this, this.unitSpriteLayer, artKey, x, y, sprH,
           PLAYER_COLORS[unit.owner] || 0xffffff, sprAlpha, 0);
