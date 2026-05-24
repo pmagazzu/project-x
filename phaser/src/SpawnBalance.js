@@ -12,6 +12,12 @@ function distFromMapCenter(q, r, mapSize) {
   return hexDistance(q, r, c, c);
 }
 
+/** Absolute minimum land tiles (non-water) for an island HQ — user-facing fairness floor. */
+export const MIN_ISLAND_LAND_TILES = 15;
+
+/** Walkable tiles needed on that island to fit HQ + starter buildings. */
+export const MIN_ISLAND_WALKABLE_TILES = 8;
+
 /** Minimum hex distance every HQ must keep from all others. */
 export function minSpawnSeparation(mapSize, playerCount) {
   const n = Math.max(2, playerCount);
@@ -30,8 +36,161 @@ export function minVictoryZoneHqDistance(mapSize, playerCount) {
   );
 }
 
-function candidateQuality(c) {
-  return (c.walkNeighbors || 0) * 8 + Math.min(36, (c.compSize || 0) * 0.1);
+function candidateQuality(c, islandMode = false) {
+  const base = (c.walkNeighbors || 0) * 8 + Math.min(36, (c.compSize || 0) * 0.1);
+  if (!islandMode) return base;
+  return base + (c.landCompSize || 0) * 4 + (c.compSize || 0) * 2;
+}
+
+/** Enumerate connected land (non-water) components with walkable counts. */
+export function enumerateLandComponents({ mapSize, isLand, isWalkable, isValid }) {
+  const ms = mapSize;
+  const seenGlobal = new Set();
+  const components = [];
+
+  for (let q = 0; q < ms; q++) {
+    for (let r = 0; r < ms; r++) {
+      const key = `${q},${r}`;
+      if (seenGlobal.has(key) || !isLand(q, r)) continue;
+
+      const landTiles = new Set();
+      const walkableTiles = [];
+      const queue = [{ q, r }];
+      while (queue.length) {
+        const cur = queue.pop();
+        const k = `${cur.q},${cur.r}`;
+        if (landTiles.has(k)) continue;
+        if (!isLand(cur.q, cur.r)) continue;
+        landTiles.add(k);
+        if (isWalkable(cur.q, cur.r)) walkableTiles.push({ q: cur.q, r: cur.r });
+        for (const [dq, dr] of NEIGHBORS) {
+          const nq = cur.q + dq, nr = cur.r + dr;
+          if (!isValid?.(nq, nr, ms)) continue;
+          const nk = `${nq},${nr}`;
+          if (!landTiles.has(nk) && isLand(nq, nr)) queue.push({ q: nq, r: nr });
+        }
+      }
+      for (const k of landTiles) seenGlobal.add(k);
+      if (landTiles.size === 0) continue;
+
+      components.push({
+        landSize: landTiles.size,
+        walkableSize: walkableTiles.length,
+        walkableTiles,
+      });
+    }
+  }
+
+  return components.sort((a, b) => b.landSize - a.landSize);
+}
+
+/**
+ * Island-map spawns: one HQ per large landmass (15+ land tiles), never tiny islets.
+ */
+export function pickIslandSpawnPoints({
+  mapSize,
+  playerCount,
+  isLand,
+  isWalkable,
+  isValid,
+  walkCompSize,
+  minLandTiles = MIN_ISLAND_LAND_TILES,
+  minWalkableTiles = MIN_ISLAND_WALKABLE_TILES,
+}) {
+  const n = Math.max(2, Math.min(6, playerCount));
+  const ms = mapSize;
+  const center = Math.floor(ms / 2);
+  const minSep = minSpawnSeparation(ms, n);
+
+  let components = enumerateLandComponents({ mapSize: ms, isLand, isWalkable, isValid })
+    .filter((c) => c.landSize >= minLandTiles && c.walkableSize >= minWalkableTiles);
+
+  if (!components.length) {
+    components = enumerateLandComponents({ mapSize: ms, isLand, isWalkable, isValid })
+      .filter((c) => c.landSize >= minLandTiles && c.walkableSize >= 4);
+  }
+
+  if (!components.length) return [];
+
+  const usedComponents = new Set();
+  const picked = [];
+
+  const hqOnComponent = (comp, sectorIdx) => {
+    const targetAngle = (2 * Math.PI * sectorIdx) / n - Math.PI / 2;
+    let best = null, bestScore = -Infinity;
+    for (const t of comp.walkableTiles) {
+      const compSize = walkCompSize?.(t.q, t.r) ?? comp.walkableSize;
+      if (compSize < Math.min(minWalkableTiles, 4)) continue;
+      const walkNeighbors = NEIGHBORS.filter(([dq, dr]) => isWalkable(t.q + dq, t.r + dr)).length;
+      if (walkNeighbors < 3) continue;
+      const angle = Math.atan2(t.r - center, t.q - center);
+      const ad = angleDiff(angle, targetAngle);
+      const score =
+        comp.landSize * 50 +
+        comp.walkableSize * 8 +
+        walkNeighbors * 10 +
+        distFromMapCenter(t.q, t.r, ms) * 6 -
+        ad * 12;
+      if (score > bestScore) { bestScore = score; best = { q: t.q, r: t.r, landCompSize: comp.landSize, compSize }; }
+    }
+    return best;
+  };
+
+  for (let i = 0; i < n; i++) {
+    const targetAngle = (2 * Math.PI * i) / n - Math.PI / 2;
+    let bestComp = null, bestCompScore = -Infinity;
+
+    for (let ci = 0; ci < components.length; ci++) {
+      if (usedComponents.has(ci)) continue;
+      const comp = components[ci];
+      // Component centroid angle for sector matching
+      let cq = 0, cr = 0;
+      for (const t of comp.walkableTiles) { cq += t.q; cr += t.r; }
+      cq /= comp.walkableTiles.length;
+      cr /= comp.walkableTiles.length;
+      const angle = Math.atan2(cr - center, cq - center);
+      const ad = angleDiff(angle, targetAngle);
+      let minD = Infinity;
+      for (const p of picked) minD = Math.min(minD, hexDistance(cq, cr, p.q, p.r));
+      const score = comp.landSize * 100 - ad * 40 + minD * 8;
+      if (score > bestCompScore) { bestCompScore = score; bestComp = ci; }
+    }
+
+    if (bestComp == null) {
+      for (let ci = 0; ci < components.length; ci++) {
+        if (usedComponents.has(ci)) continue;
+        if (bestComp == null || components[ci].landSize > components[bestComp].landSize) {
+          bestComp = ci;
+        }
+      }
+    }
+
+    if (bestComp == null) break;
+    usedComponents.add(bestComp);
+    const hq = hqOnComponent(components[bestComp], i);
+    if (hq) {
+      let ok = true;
+      for (const p of picked) {
+        if (hexDistance(hq.q, hq.r, p.q, p.r) < Math.max(6, Math.floor(minSep * 0.5))) { ok = false; break; }
+      }
+      if (ok) picked.push(hq);
+    }
+  }
+
+  // If we still need spawns, take next-largest unused islands.
+  while (picked.length < n) {
+    let best = null, bestScore = -1, bestCi = -1;
+    for (let ci = 0; ci < components.length; ci++) {
+      if (usedComponents.has(ci)) continue;
+      if (components[ci].landSize > bestScore) { bestScore = components[ci].landSize; bestCi = ci; }
+    }
+    if (bestCi < 0) break;
+    usedComponents.add(bestCi);
+    const hq = hqOnComponent(components[bestCi], picked.length);
+    if (hq) picked.push(hq);
+  }
+
+  return picked;
 }
 
 function normalizeAngle(a) {
@@ -57,6 +216,8 @@ export function pickBalancedSpawnPoints({
   isWalkable,
   walkCompSize,
   minSpawnComp,
+  islandMode = false,
+  minLandComp = MIN_ISLAND_LAND_TILES,
 }) {
   const n = Math.max(2, Math.min(6, playerCount));
   const ms = mapSize;
@@ -92,7 +253,18 @@ export function pickBalancedSpawnPoints({
     centerDist: distFromMapCenter(c.q, c.r, ms),
   }));
 
-  let pool = enriched.filter((c) => c.centerDist >= minPerimeter);
+  let pool = enriched.filter((c) => {
+    if (islandMode && (c.landCompSize || 0) < minLandComp) return false;
+    return c.centerDist >= minPerimeter;
+  });
+  if (pool.length < n) {
+    pool = islandMode
+      ? enriched.filter((c) => (c.landCompSize || 0) >= minLandComp)
+      : enriched;
+  }
+  if (pool.length < n && islandMode) {
+    pool = enriched.filter((c) => (c.landCompSize || c.compSize || 0) >= minLandComp);
+  }
   if (pool.length < n) pool = enriched;
   if (!pool.length) return [];
 
@@ -119,7 +291,7 @@ export function pickBalancedSpawnPoints({
       const score =
         minD * 120 +
         c.centerDist * 18 +
-        candidateQuality(c) -
+        candidateQuality(c, islandMode) -
         ad * 22 -
         Math.abs(c.r - center) * 0.4;
 
@@ -139,7 +311,7 @@ export function pickBalancedSpawnPoints({
         const key = `${c.q},${c.r}`;
         if (used.has(key)) continue;
         const minD = minDistToPicked(c);
-        const score = minD * 100 + c.centerDist * 10 + candidateQuality(c);
+        const score = minD * 100 + c.centerDist * 10 + candidateQuality(c, islandMode);
         if (score > bestScore) { bestScore = score; best = { q: c.q, r: c.r }; }
       }
       pt = best;
@@ -169,7 +341,7 @@ export function pickBalancedSpawnPoints({
       if (used.has(key) && `${picked[replaceIdx].q},${picked[replaceIdx].r}` !== key) continue;
       let minD = Infinity;
       for (const p of others) minD = Math.min(minD, hexDistance(c.q, c.r, p.q, p.r));
-      const score = minD * 100 + c.centerDist * 12 + candidateQuality(c);
+      const score = minD * 100 + c.centerDist * 12 + candidateQuality(c, islandMode);
       if (score > bestScore) { bestScore = score; best = { q: c.q, r: c.r }; }
     }
     if (best) {

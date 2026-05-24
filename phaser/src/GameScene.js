@@ -34,7 +34,7 @@ import {
 import { renderCombatPreviewPanel, renderCombatResultPanel } from './CombatPanelUI.js';
 import { getVictoryPointLeader } from './VictoryPoints.js';
 import { PLAYER_LABELS, VICTORY_MODES, clampPlayerCount } from './GameConfig.js';
-import { pickBalancedSpawnPoints, pickBalancedVictoryZones } from './SpawnBalance.js';
+import { pickBalancedSpawnPoints, pickBalancedVictoryZones, pickIslandSpawnPoints, MIN_ISLAND_LAND_TILES } from './SpawnBalance.js';
 import { getBuildingCounterGlyph } from './BuildingCounters.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.12.1';
+export const GAME_VERSION = 'v1.12.2';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -8745,35 +8745,70 @@ export class GameScene extends Phaser.Scene {
   }
 
   _pickNSpawnPoints(playerCount, ctx) {
-    const { ms, map, isWalkable, _walkCompSize, minSpawnComp, NEIGHBORS } = ctx;
+    const {
+      ms, map, isWalkable, isLand, isValid, _walkCompSize, _landCompSize,
+      minSpawnComp, minLandComp, NEIGHBORS, islandMode,
+    } = ctx;
     const center = Math.floor(ms / 2);
+    const n = Math.max(2, Math.min(6, playerCount));
+
+    if (islandMode && isLand && isValid) {
+      const islandPicked = pickIslandSpawnPoints({
+        mapSize: ms,
+        playerCount: n,
+        isLand,
+        isWalkable,
+        isValid,
+        walkCompSize: _walkCompSize,
+        minLandTiles: minLandComp,
+      });
+      if (islandPicked.length >= n) return islandPicked;
+    }
 
     const candidates = [];
     for (let q = 1; q < ms - 1; q++) {
       for (let r = 1; r < ms - 1; r++) {
         if (!isWalkable(q, r)) continue;
         const compSize = _walkCompSize(q, r);
+        const landCompSize = _landCompSize?.(q, r) ?? compSize;
+        if (islandMode && landCompSize < minLandComp) continue;
         if (compSize < minSpawnComp) continue;
         const walkNeighbors = NEIGHBORS.filter(([dq, dr]) => isWalkable(q + dq, r + dr)).length;
         if (walkNeighbors < 4) continue;
-        candidates.push({ q, r, compSize, walkNeighbors });
+        candidates.push({ q, r, compSize, landCompSize, walkNeighbors });
       }
     }
 
     const picked = pickBalancedSpawnPoints({
       mapSize: ms,
-      playerCount,
+      playerCount: n,
       candidates,
-      twoPlayerBands: true,
+      twoPlayerBands: !islandMode,
       isWalkable,
       walkCompSize: _walkCompSize,
       minSpawnComp,
+      islandMode,
+      minLandComp: minLandComp,
     });
 
-    if (picked.length >= playerCount) return picked;
+    if (picked.length >= n) return picked;
 
-    // Hard fallback: perimeter ring, never map center.
-    const n = Math.max(2, Math.min(6, playerCount));
+    // Island fallback: largest qualifying landmasses, never tiny islets.
+    if (islandMode && isLand && isValid) {
+      const retry = pickIslandSpawnPoints({
+        mapSize: ms,
+        playerCount: n,
+        isLand,
+        isWalkable,
+        isValid,
+        walkCompSize: _walkCompSize,
+        minLandTiles: Math.max(10, minLandComp - 4),
+        minWalkableTiles: 4,
+      });
+      if (retry.length >= n) return retry;
+    }
+
+    // Last resort: perimeter ring on walkable / cleared plains (non-island or desperate).
     const fallback = [];
     for (let i = 0; i < n; i++) {
       const angle = (2 * Math.PI * i) / n - Math.PI / 2;
@@ -8831,14 +8866,47 @@ export class GameScene extends Phaser.Scene {
       return size;
     };
 
+    const _landCompCache = new Map();
+    const _landCompSize = (sq, sr) => {
+      const seedK = `${sq},${sr}`;
+      if (_landCompCache.has(seedK)) return _landCompCache.get(seedK);
+      if (!isLand(sq, sr)) return 0;
+      const qv = [{ q: sq, r: sr }];
+      const seen = new Set();
+      while (qv.length) {
+        const cur = qv.pop();
+        const k = `${cur.q},${cur.r}`;
+        if (seen.has(k)) continue;
+        if (!isLand(cur.q, cur.r)) continue;
+        seen.add(k);
+        for (const [dq, dr] of NEIGHBORS) {
+          const nq = cur.q + dq, nr = cur.r + dr;
+          if (!isValid(nq, nr, ms)) continue;
+          const nk = `${nq},${nr}`;
+          if (!seen.has(nk) && isLand(nq, nr)) qv.push({ q: nq, r: nr });
+        }
+      }
+      const size = seen.size;
+      for (const k of seen) _landCompCache.set(k, size);
+      _landCompCache.set(seedK, size);
+      return size;
+    };
+
     const landProfile = this.procLandProfile || 'continent';
+    const islandLike = new Set(['islands', 'large_islands', 'archipelago', 'naval_supremacy']);
+    const islandMode = islandLike.has(landProfile);
+    const minLandComp = MIN_ISLAND_LAND_TILES;
     const minSpawnComp = (() => {
+      if (islandMode) return Math.max(8, Math.floor(ms * 0.35));
       if (landProfile === 'continent' || landProfile === 'two_continents') return Math.max(40, Math.floor(ms * ms * 0.08));
       if (landProfile === 'landlocked') return Math.max(36, Math.floor(ms * ms * 0.07));
       return Math.max(16, Math.floor(ms * ms * 0.03));
     })();
 
-    const spawnCtx = { ms, map, isWalkable, _walkCompSize, minSpawnComp, NEIGHBORS };
+    const spawnCtx = {
+      ms, map, isWalkable, isLand, isValid, _walkCompSize, _landCompSize,
+      minSpawnComp, minLandComp, NEIGHBORS, islandMode,
+    };
     const playerCount = this.playerCount || gs.playerCount || 2;
     let spawnPoints = this._pickNSpawnPoints(playerCount, spawnCtx);
     let p1 = spawnPoints[0];
@@ -8875,49 +8943,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Island profiles: spread spawns across landmasses when possible.
-    const islandLike = new Set(['islands','large_islands','archipelago','naval_supremacy']);
-    if (spawnPoints.length >= 2 && islandLike.has(this.procLandProfile || 'islands')) {
-      const isLandTile = (q, r) => {
-        const t = map[`${q},${r}`];
-        return t !== undefined && t !== 4 && t !== 5;
-      };
-      const compFrom = (start) => {
-        const seen = new Set();
-        const qv = [start];
-        while (qv.length) {
-          const cur = qv.pop();
-          const k = `${cur.q},${cur.r}`;
-          if (seen.has(k)) continue;
-          seen.add(k);
-          for (const [dq, dr] of NEIGHBORS) {
-            const nq = cur.q + dq, nr = cur.r + dr;
-            if (!isValid(nq, nr, ms) || !isLandTile(nq, nr)) continue;
-            const nk = `${nq},${nr}`;
-            if (!seen.has(nk)) qv.push({ q: nq, r: nr });
-          }
-        }
-        return seen;
-      };
-      const c1 = compFrom(spawnPoints[0]);
-      if (spawnPoints.length >= 2 && c1.has(`${spawnPoints[1].q},${spawnPoints[1].r}`)) {
-        // Find alternate spawn on a different component for player 2+
-        for (let pi = 1; pi < spawnPoints.length; pi++) {
-          if (!c1.has(`${spawnPoints[pi].q},${spawnPoints[pi].r}`)) continue;
-          let alt = null, best = -1;
-          for (let q = Math.floor(ms * 0.55); q < Math.floor(ms * 0.95); q++) {
-            for (let r = 1; r < ms - 1; r++) {
-              if (!isLandTile(q, r)) continue;
-              const k = `${q},${r}`;
-              if (c1.has(k)) continue;
-              const score = (q / ms) * 100 + Math.abs((ms * 0.5) - r) * -0.2;
-              if (score > best) { best = score; alt = { q, r }; }
-            }
-          }
-          if (alt) spawnPoints[pi] = alt;
-        }
-      }
-    }
+    // Island spawns handled in _pickNSpawnPoints via pickIslandSpawnPoints (15+ tile landmasses).
 
     // Force HQ hexes and nearby hexes to walkable plains
     const clearForSpawn = (q, r) => {
