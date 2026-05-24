@@ -1,6 +1,27 @@
 import Phaser from 'phaser';
 import { GAME_VERSION } from './GameScene.js';
 import { MAP_SIZE_SKIRMISH, MAP_SIZE_ENDLESS, MAP_SIZE_BUILDER } from './MapSizePresets.js';
+import { VICTORY_MODES } from './GameConfig.js';
+
+const PLAYER_COUNT_OPTIONS = [2, 3, 4, 5, 6].map((n) => ({
+  label: `${n} players`,
+  count: n,
+  sub: n === 2 ? 'duel' : `${n}-way FFA`,
+}));
+
+const VICTORY_MODE_OPTIONS = [
+  { key: VICTORY_MODES.ELIMINATION, label: 'Elimination', sub: 'destroy all HQs' },
+  { key: VICTORY_MODES.POINTS, label: 'Victory Points', sub: 'hold zones on map' },
+];
+
+const VP_TARGET_OPTIONS = [
+  { label: '50 VP', target: 50 },
+  { label: '75 VP', target: 75 },
+  { label: '100 VP', target: 100 },
+  { label: '150 VP', target: 150 },
+];
+
+const PLAYER_LABELS_SHORT = { 1: 'Blue', 2: 'Red', 3: 'Green', 4: 'Gold', 5: 'Purple', 6: 'Orange' };
 
 export const LAND_PROFILES = [
   { key: 'islands', label: 'Islands' },
@@ -65,6 +86,10 @@ function defaultConfig(mode, aiP2Default = true) {
     aiViewerMode: false,
     startSupplyTruck: false,
     mapBuilder: false,
+    playerCount: 2,
+    humanPlayer: 1,
+    victoryMode: VICTORY_MODES.ELIMINATION,
+    victoryPointTarget: 100,
   };
   if (mode === 'skirmish') {
     return { ...base, mapSize: 40, procLandProfile: 'continent', debugNoFog: false, supplyEnabled: true, aiP2: aiP2Default };
@@ -95,6 +120,10 @@ export class SetupScene extends Phaser.Scene {
     this._sizeIdx = 1;
     this._landIdx = LAND_PROFILES.findIndex(p => p.key === this.cfg.procLandProfile) || 0;
     this._gapIdx = GAP_OPTIONS.findIndex(g => g.gap === this.cfg.combatLineGap) || 2;
+    this._playerCountIdx = PLAYER_COUNT_OPTIONS.findIndex(o => o.count === this.cfg.playerCount) || 0;
+    this._victoryModeIdx = VICTORY_MODE_OPTIONS.findIndex(o => o.key === this.cfg.victoryMode) || 0;
+    this._vpTargetIdx = VP_TARGET_OPTIONS.findIndex(o => o.target === this.cfg.victoryPointTarget) || 2;
+    this._humanIdx = 0;
     if (this.mode === 'endless') this._sizeIdx = 1;
   }
 
@@ -108,7 +137,7 @@ export class SetupScene extends Phaser.Scene {
     this.add.rectangle(w / 2, 2, w, 4, meta.accent, 0.85);
 
     const panelW = Math.min(620, w - 48);
-    const panelH = Math.min(560, h - 100);
+    const panelH = Math.min(this.mode === 'skirmish' || this.mode === 'endless' ? 620 : 560, h - 88);
     const px = w / 2, py = h / 2 + 8;
 
     const panel = this.add.rectangle(px, py, panelW, panelH, meta.panel, 0.98)
@@ -179,15 +208,61 @@ export class SetupScene extends Phaser.Scene {
     });
     y += rowGap;
 
-    if (this.mode === 'skirmish') {
-      this._addToggle(rowLeft, y, rowW, 'Player 2 is AI', () => this.cfg.aiP2, (v) => {
-        this.cfg.aiP2 = v;
+    if (this.mode === 'skirmish' || this.mode === 'endless') {
+      this._addCycleRow(rowLeft, y, rowW, 'Players', PLAYER_COUNT_OPTIONS, () => this._playerCountIdx, (i) => {
+        this._playerCountIdx = i;
+        this.cfg.playerCount = PLAYER_COUNT_OPTIONS[i].count;
+        if (this._humanIdx >= this.cfg.playerCount) this._humanIdx = 0;
+        this.cfg.humanPlayer = this._humanIdx + 1;
         this._refreshSummary();
       });
       y += rowGap;
     }
 
+    if (this.mode === 'skirmish') {
+      this._addCycleRow(rowLeft, y, rowW, 'Your team', () => Array.from({ length: this.cfg.playerCount }, (_, i) => ({
+        label: `You are P${i + 1}`,
+        player: i + 1,
+        sub: PLAYER_LABELS_SHORT[i + 1] || `P${i + 1}`,
+      })), () => this._humanIdx, (i) => {
+        this._humanIdx = i;
+        this.cfg.humanPlayer = i + 1;
+        this._refreshSummary();
+      });
+      y += rowGap;
+
+      this._addCycleRow(rowLeft, y, rowW, 'Win condition', VICTORY_MODE_OPTIONS, () => this._victoryModeIdx, (i) => {
+        this._victoryModeIdx = i;
+        this.cfg.victoryMode = VICTORY_MODE_OPTIONS[i].key;
+        this._refreshSummary();
+      });
+      y += rowGap;
+
+      if (this.cfg.victoryMode === VICTORY_MODES.POINTS) {
+        this._vpTargetRow = this._addCycleRow(rowLeft, y, rowW, 'VP target', VP_TARGET_OPTIONS, () => this._vpTargetIdx, (i) => {
+          this._vpTargetIdx = i;
+          this.cfg.victoryPointTarget = VP_TARGET_OPTIONS[i].target;
+          this._refreshSummary();
+        });
+        y += rowGap;
+      }
+    }
+
     if (this.mode === 'endless') {
+      this._addCycleRow(rowLeft, y, rowW, 'Win condition', VICTORY_MODE_OPTIONS, () => this._victoryModeIdx, (i) => {
+        this._victoryModeIdx = i;
+        this.cfg.victoryMode = VICTORY_MODE_OPTIONS[i].key;
+        this._refreshSummary();
+      });
+      y += rowGap;
+      if (this.cfg.victoryMode === VICTORY_MODES.POINTS) {
+        this._addCycleRow(rowLeft, y, rowW, 'VP target', VP_TARGET_OPTIONS, () => this._vpTargetIdx, (i) => {
+          this._vpTargetIdx = i;
+          this.cfg.victoryPointTarget = VP_TARGET_OPTIONS[i].target;
+          this._refreshSummary();
+        });
+        y += rowGap;
+      }
       this._addToggle(rowLeft, y, rowW, 'Start supply trucks', () => this.cfg.startSupplyTruck, (v) => {
         this.cfg.startSupplyTruck = v;
         this._refreshSummary();
@@ -246,16 +321,22 @@ export class SetupScene extends Phaser.Scene {
     const nameTxt = this.add.text(x + w / 2, y + 4, '', { font: 'bold 15px monospace', fill: '#f0e898' }).setOrigin(0.5);
     const subTxt = this.add.text(x + w / 2, y + 18, '', { font: '10px monospace', fill: '#667766' }).setOrigin(0.5);
 
+    const getOptions = () => (typeof options === 'function' ? options() : options);
+
     const refresh = () => {
-      const i = getIdx();
-      const o = options[i];
+      const opts = getOptions();
+      if (!opts.length) return;
+      const i = Math.min(getIdx(), opts.length - 1);
+      const o = opts[i];
       nameTxt.setText(o.label);
       subTxt.setText(o.sub || o.key || '');
     };
     refresh();
 
     const pick = (delta) => {
-      const n = (getIdx() + delta + options.length) % options.length;
+      const opts = getOptions();
+      if (!opts.length) return;
+      const n = (Math.min(getIdx(), opts.length - 1) + delta + opts.length) % opts.length;
       onPick(n);
       refresh();
       this.tweens.add({ targets: [nameTxt], scaleX: 1.08, scaleY: 1.08, duration: 70, yoyo: true });
@@ -308,9 +389,49 @@ export class SetupScene extends Phaser.Scene {
     }
     parts.push(this.cfg.supplyEnabled ? 'Supply ON' : 'Supply OFF');
     parts.push(this.cfg.debugNoFog ? 'Fog OFF' : 'Fog ON');
-    if (this.mode === 'skirmish') parts.push(this.cfg.aiP2 ? 'P2 AI' : 'P2 Human');
-    if (this.mode === 'endless') parts.push('Spectator AI duel');
+    if (this.mode === 'skirmish' || this.mode === 'endless') {
+      parts.push(`${this.cfg.playerCount}P`);
+      if (this.cfg.victoryMode === VICTORY_MODES.POINTS) {
+        parts.push(`VP ${this.cfg.victoryPointTarget}`);
+      } else {
+        parts.push('Elimination');
+      }
+    }
+    if (this.mode === 'skirmish') {
+      const aiCount = Math.max(0, this.cfg.playerCount - 1);
+      parts.push(`You: P${this.cfg.humanPlayer}`, `${aiCount} AI`);
+    }
+    if (this.mode === 'endless') parts.push(`${this.cfg.playerCount}-AI spectator`);
     this._summaryTxt.setText(parts.join('  ·  '));
+  }
+
+  _buildAiPlayers() {
+    const c = this.cfg;
+    const aiPlayers = [];
+    if (this.mode === 'endless') {
+      for (let p = 1; p <= c.playerCount; p++) aiPlayers.push(p);
+      return aiPlayers;
+    }
+    if (this.mode === 'skirmish') {
+      for (let p = 1; p <= c.playerCount; p++) {
+        if (p !== c.humanPlayer) aiPlayers.push(p);
+      }
+      return aiPlayers;
+    }
+    if (c.aiP1) aiPlayers.push(1);
+    if (c.aiP2) aiPlayers.push(2);
+    return aiPlayers;
+  }
+
+  _sharedLaunchData() {
+    const c = this.cfg;
+    return {
+      playerCount: c.playerCount,
+      humanPlayer: c.humanPlayer,
+      victoryMode: c.victoryMode,
+      victoryPointTarget: c.victoryPointTarget,
+      aiPlayers: this._buildAiPlayers(),
+    };
   }
 
   _burst(x, y, color) {
@@ -361,11 +482,10 @@ export class SetupScene extends Phaser.Scene {
         procQuickStart: c.procQuickStart,
         supplyEnabled: c.supplyEnabled,
         debugNoFog: c.debugNoFog,
-        aiP1: true,
-        aiP2: true,
         aiStrategy: c.aiStrategy,
         aiViewerMode: true,
         startSupplyTruck: c.startSupplyTruck,
+        ...this._sharedLaunchData(),
       });
       return;
     }
@@ -376,8 +496,8 @@ export class SetupScene extends Phaser.Scene {
       procQuickStart: c.procQuickStart,
       supplyEnabled: c.supplyEnabled,
       debugNoFog: c.debugNoFog,
-      aiP2: c.aiP2,
       aiStrategy: c.aiStrategy,
+      ...this._sharedLaunchData(),
     });
   }
 

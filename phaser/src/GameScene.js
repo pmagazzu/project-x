@@ -33,7 +33,7 @@ import {
 } from './CombatUI.js';
 import { renderCombatPreviewPanel, renderCombatResultPanel } from './CombatPanelUI.js';
 import { getVictoryPointLeader } from './VictoryPoints.js';
-import { PLAYER_LABELS, VICTORY_MODES } from './GameConfig.js';
+import { PLAYER_LABELS, VICTORY_MODES, clampPlayerCount, victoryZonesForSpawns } from './GameConfig.js';
 import { getBuildingCounterGlyph } from './BuildingCounters.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -44,7 +44,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.11.3';
+export const GAME_VERSION = 'v1.12.0';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -205,13 +205,25 @@ export class GameScene extends Phaser.Scene {
     // Map sizes per scenario
     const MAP_SIZES = { scout: 25, naval: 35, combat: 20, combat_test: data.customSize || Math.max(28, this.combatLineGap + 26), grand: 120, ai_viewer: 360, random: 40, air_test: 20, mortar_test: 20, coastal_battery_test: 20, custom: data.customSize || 40, default: 25 };
     this.mapSize   = MAP_SIZES[this.scenario] || MAP_SIZE;
+    this.playerCount = clampPlayerCount(data.playerCount || 2);
+    this.humanPlayer = clampPlayerCount(data.humanPlayer || 1);
+    if (this.humanPlayer > this.playerCount) this.humanPlayer = 1;
     // AI players: set of player numbers controlled by AI
     this.aiPlayers  = new Set();
-    if (data.aiP1) this.aiPlayers.add(1);
-    if (data.aiP2) this.aiPlayers.add(2);
-    // AI strategy — map-aware default for P2 when not specified
+    if (Array.isArray(data.aiPlayers) && data.aiPlayers.length) {
+      for (const p of data.aiPlayers) this.aiPlayers.add(Number(p));
+    } else {
+      if (data.aiP1) this.aiPlayers.add(1);
+      if (data.aiP2) this.aiPlayers.add(2);
+      if (!data.aiP1 && !data.aiP2 && !this._aiViewerMode) {
+        for (let p = 1; p <= this.playerCount; p++) {
+          if (p !== this.humanPlayer) this.aiPlayers.add(p);
+        }
+      }
+    }
+    // AI strategy — map-aware default per AI slot
     this.aiStrategy = data.aiStrategy || pickAIStrategyForMap(null, this.mapSize);
-    this.aiStrategies = data.aiStrategies || { 2: this.aiStrategy };
+    this.aiStrategies = data.aiStrategies ? { ...data.aiStrategies } : {};
     // Random/custom maps: mixed seed so endless runs don't feel like clones
     if (this.scenario === 'random' || this.scenario === 'custom') {
       const t = Date.now() >>> 0;
@@ -225,13 +237,19 @@ export class GameScene extends Phaser.Scene {
       combatLineGap: this.combatLineGap,
       mapSize: this.mapSize,
       supplyEnabled: this.supplyEnabled,
+      playerCount: this.playerCount,
+      victoryMode: data.victoryMode || VICTORY_MODES.ELIMINATION,
+      victoryPointTarget: data.victoryPointTarget || 100,
     });
     this.gameState._techTree = TECH_TREE; // inject for resolveEndOfTurn research tick
     this.terrain   = this._generateTerrain();
     this.gameState._terrain = this.terrain;
-    if (!data.aiStrategy && this.aiPlayers.has(2)) {
-      this.aiStrategy = pickAIStrategyForMap(this.terrain, this.mapSize);
-      this.aiStrategies[2] = this.aiStrategy;
+    for (const p of this.aiPlayers) {
+      if (!this.aiStrategies[p]) {
+        this.aiStrategies[p] = data.aiStrategy
+          ? data.aiStrategy
+          : pickAIStrategyForMap(this.terrain, this.mapSize);
+      }
     }
     // After terrain is known, relocate any naval unit that spawned on invalid terrain
     this._fixNavalSpawns();
@@ -282,6 +300,7 @@ export class GameScene extends Phaser.Scene {
     this.supplyGfx    = this.add.graphics().setDepth(7);  // supply overlay — above roads, below highlights
     this._supplyOverlayOn = false; // toggled by [L] or SUP button (not S — WASD pan)
     this.highlightGfx = this.add.graphics().setDepth(10);
+    this.victoryZoneGfx = this.add.graphics().setDepth(11);
     this.farmTileLayer = this.add.layer().setDepth(14);
     this.buildingGfx  = this.add.graphics().setDepth(16);
     this.buildingSpriteLayer = this.add.layer().setDepth(17); // labels above buildingGfx
@@ -306,7 +325,7 @@ export class GameScene extends Phaser.Scene {
     this._layoutCommandDock(this.scale.height);
     this._createBottomPanel();
     this._createRecruitPanel();
-    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+    if (this._aiViewerMode && this._isSpectatorDuel()) {
       const labelFor = (s) => s >= 4 ? 'TURBO' : (s >= 2 ? 'FAST' : 'NORMAL');
       this._aiSpeedBtn = this.add.text(this.scale.width - 12, 54, `[AI SPEED: ${labelFor(this._aiSimSpeed)}]`, {
         font: 'bold 11px monospace', fill: '#88ffcc', backgroundColor: '#102018', padding: { x: 8, y: 5 }
@@ -323,7 +342,7 @@ export class GameScene extends Phaser.Scene {
     const worldObjs = new Set([
       this.terrainGfx, this.terrainArtLayer, this.mountainPeakLayer, this.terrainArtRT, this.terrainRT,
       this.roadGfx, this.supplyGfx,
-      this.highlightGfx, this.farmTileLayer, this.buildingSpriteLayer, this.buildingGfx,
+      this.highlightGfx, this.victoryZoneGfx, this.farmTileLayer, this.buildingSpriteLayer, this.buildingGfx,
       this.unitSpriteLayer, this.unitGfx, this.fogRT, this._uiLayer
     ]);
     for (const obj of [...this.children.list]) {
@@ -352,7 +371,7 @@ export class GameScene extends Phaser.Scene {
     this.uiCamera.ignore([
       this.terrainGfx, this.terrainArtLayer, this.mountainPeakLayer, this.terrainArtRT, this.terrainRT,
       this.roadGfx, this.supplyGfx,
-      this.highlightGfx, this.farmTileLayer, this.buildingSpriteLayer, this.buildingGfx,
+      this.highlightGfx, this.victoryZoneGfx, this.farmTileLayer, this.buildingSpriteLayer, this.buildingGfx,
       this.unitSpriteLayer, this.unitGfx, this.fogRT,
     ]);
     this.scale.on('resize', (gs) => this._onResize(gs));
@@ -527,9 +546,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   _validateBuilderMap() {
-    const hq1 = this.gameState.buildings.some(b => b.type === 'HQ' && Number(b.owner) === 1);
-    const hq2 = this.gameState.buildings.some(b => b.type === 'HQ' && Number(b.owner) === 2);
-    if (!hq1 || !hq2) return { ok: false, reason: 'Map needs HQ for both P1 and P2.' };
+    const pc = this.playerCount || this.gameState.playerCount || 2;
+    for (let p = 1; p <= pc; p++) {
+      const hasHq = this.gameState.buildings.some(b => b.type === 'HQ' && Number(b.owner) === p);
+      if (!hasHq) return { ok: false, reason: `Map needs HQ for P${p}.` };
+    }
 
     for (const u of this.gameState.units) {
       const tt = this.terrain?.[`${u.q},${u.r}`] ?? 0;
@@ -1224,6 +1245,7 @@ export class GameScene extends Phaser.Scene {
   _drawStaticLayers() {
     this._drawTerrainDirect();
     this._redrawRoads();
+    this._drawVictoryZones();
   }
 
   _redrawRoads() {
@@ -1667,6 +1689,41 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ── Buildings ─────────────────────────────────────────────────────────────
+  _isSpectatorDuel() {
+    return this._aiViewerMode && this.aiPlayers.size >= 2;
+  }
+
+  _drawVictoryZones() {
+    this.victoryZoneGfx?.clear();
+    const gs = this.gameState;
+    if (gs.victoryMode !== VICTORY_MODES.POINTS) return;
+    const zones = gs.victoryZones || [];
+    if (!zones.length) return;
+
+    const g = this.victoryZoneGfx;
+    for (const zone of zones) {
+      const { x, y } = hexToWorld(zone.q, zone.r);
+      const verts = hexVertices(x, y);
+      g.fillStyle(0xffcc44, 0.14);
+      g.beginPath();
+      g.moveTo(verts[0].x, verts[0].y);
+      for (let i = 1; i < verts.length; i++) g.lineTo(verts[i].x, verts[i].y);
+      g.closePath();
+      g.fillPath();
+      g.lineStyle(2.5, 0xffcc44, 0.82);
+      g.beginPath();
+      g.moveTo(verts[0].x, verts[0].y);
+      for (let i = 1; i < verts.length; i++) g.lineTo(verts[i].x, verts[i].y);
+      g.closePath();
+      g.strokePath();
+      const pts = zone.pointsPerTurn || 1;
+      g.fillStyle(0x1a1408, 0.88);
+      g.fillCircle(x, y - 2, 9);
+      g.lineStyle(1, 0xffcc44, 0.95);
+      g.strokeCircle(x, y - 2, 9);
+    }
+  }
+
   // Compute camera viewport bounds in world space from scroll+zoom directly.
   // Using camera.worldView can return stale/zero dimensions during input event handlers,
   // causing all units/buildings to fail the cull check and disappear.
@@ -2506,7 +2563,7 @@ export class GameScene extends Phaser.Scene {
     this.btnSubmit   = this._makeBtn(w - 8,   42, 'END TURN',0x1a5c1a, () => this._confirmEndTurn(), D, 'right');
     this._moreToolsOpen = false;
     this._moreToolsBtns = [];
-    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+    if (this._aiViewerMode && this._isSpectatorDuel()) {
       this.btnPauseAI = this._makeBtn(w - 610, 8, '⏸ AI', 0x3a2a11, () => {
         this._aiAutoplayPaused = !this._aiAutoplayPaused;
         this._pushLog(this._aiAutoplayPaused ? 'AI autoplay paused.' : 'AI autoplay resumed.');
@@ -2818,9 +2875,17 @@ export class GameScene extends Phaser.Scene {
     if (gs.victoryMode === VICTORY_MODES.POINTS) {
       const vp = gs.victoryPoints?.[p] || 0;
       const tgt = gs.victoryPointTarget || 100;
-      this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  VP ${vp}/${tgt}  |  ${modeStr}`);
+      const ids = Object.keys(gs.players || {}).map(Number).filter(n => n >= 1).sort((a, b) => a - b);
+      const vpBoard = ids.map(id => {
+        const pts = gs.victoryPoints?.[id] || 0;
+        const tag = (PLAYER_LABELS[id] || `P${id}`).slice(0, 1);
+        return `${tag}${pts}`;
+      }).join(' ');
+      this.turnLbl.setText(`Turn ${gs.turn}  |  P${p} (${PLAYER_LABELS[p] || '?'})  |  VP ${vp}/${tgt}  |  ${vpBoard}  |  ${modeStr}`);
+    } else if ((gs.playerCount || 2) > 2) {
+      this.turnLbl.setText(`Turn ${gs.turn}  |  P${p} (${PLAYER_LABELS[p] || '?'})  |  ${modeStr}${queueStr}`);
     } else {
-      this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  ${modeStr}`);
+      this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  ${modeStr}${queueStr}`);
     }
     this.turnBadge?.setText(`TURN ${gs.turn}`);
     if (this.btnPauseAI) this.btnPauseAI.setText(this._aiAutoplayPaused ? '▶ AI' : '⏸ AI');
@@ -4156,7 +4221,7 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard.on('keydown', (ev) => this._onContextMenuHotkey(ev));
     this.input.keyboard.on('keydown-SPACE', () => {
       if (this._nameModalOpen) return;
-      if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+      if (this._aiViewerMode && this._isSpectatorDuel()) {
         this._aiAutoplayPaused = !this._aiAutoplayPaused;
         this._pushLog(this._aiAutoplayPaused ? 'AI autoplay paused.' : 'AI autoplay resumed.');
         if (!this._aiAutoplayPaused && this.aiPlayers.has(this.gameState.currentPlayer)) {
@@ -6064,7 +6129,7 @@ export class GameScene extends Phaser.Scene {
     if (moving && this._contextMenuObjs) this._hideContextMenu(true);
 
     // AI autoplay self-heal: only restart when truly idle (never while a turn's timers are live).
-    if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2) && !this._aiAutoplayPaused) {
+    if (this._aiViewerMode && this._isSpectatorDuel() && !this._aiAutoplayPaused) {
       const now = Date.now();
       const idleMs = now - (this._aiLastProgressAt || 0);
       if (this._aiTurnInProgress && idleMs > 25000 && this._aiActiveFinishTurn) {
@@ -7014,7 +7079,7 @@ export class GameScene extends Phaser.Scene {
         this.input.on('pointerup', dismiss);
         this.input.keyboard?.once('keydown-SPACE', dismiss);
       });
-      if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+      if (this._aiViewerMode && this._isSpectatorDuel()) {
         this.time.delayedCall(2000, () => {
           if (this._splashDismiss === dismiss) dismiss();
         });
@@ -7327,7 +7392,7 @@ export class GameScene extends Phaser.Scene {
     // Status bar (replaces pass screen for AI turn)
     const preKPI = getAIKPIReport(gs, gs.currentPlayer);
     let overlay = null, lbl = null, kpiLbl = null;
-    const spectatorMode = this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2);
+    const spectatorMode = this._isSpectatorDuel();
     if (!spectatorMode) {
       overlay = this.add.rectangle(w/2, 34, w, 68, 0x1a1200, 0.92)
         .setScrollFactor(0).setDepth(200);
@@ -7534,7 +7599,7 @@ export class GameScene extends Phaser.Scene {
           this.input.on('pointerup', dismiss);
           this.input.keyboard?.once('keydown-SPACE', dismiss);
         }, turnId);
-        if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+        if (this._aiViewerMode && this._isSpectatorDuel()) {
           this._scheduleAIStep(900, () => { if (!done) dismiss(); }, turnId);
         }
         this._scheduleAIStep(2500, () => { if (!done) dismiss(); }, turnId);
@@ -7895,7 +7960,7 @@ export class GameScene extends Phaser.Scene {
       this.input.once('pointerdown', onClick);
 
       // AI-vs-AI spectator mode: auto-advance combat cards after ~2s.
-      if (this._aiViewerMode && this.aiPlayers.has(1) && this.aiPlayers.has(2)) {
+      if (this._aiViewerMode && this._isSpectatorDuel()) {
         autoTimer = this.time.delayedCall(this._simMs(900), () => done());
       }
     });
@@ -7982,6 +8047,7 @@ export class GameScene extends Phaser.Scene {
 
   _showResolution(events, winner) {
     const w = this.scale.width, h = this.scale.height;
+    const gs = this.gameState;
     const overlay = this.add.rectangle(w/2, h/2, w, h, 0x0a0a0a, 0.93).setScrollFactor(0).setDepth(200);
     const combatLog = this.gameState._lastCombatLog || [];
     const objects = [overlay];
@@ -8067,7 +8133,11 @@ export class GameScene extends Phaser.Scene {
 
     if (winner) {
       yPos += 10;
-      addLine(`🏆  PLAYER ${winner} WINS!`, '#ffdd44', true);
+      const label = PLAYER_LABELS[winner] || `Player ${winner}`;
+      const vpWin = gs.victoryMode === VICTORY_MODES.POINTS;
+      addLine(vpWin
+        ? `🏆  ${label.toUpperCase()} (P${winner}) WINS — ${gs.victoryPoints?.[winner] || 0} VP!`
+        : `🏆  ${label.toUpperCase()} (P${winner}) WINS!`, '#ffdd44', true);
       yPos += 6;
       addLine(`Game over — thanks for playing Attrition`, '#888888');
       this._addToUI(objects);
@@ -8079,7 +8149,11 @@ export class GameScene extends Phaser.Scene {
       // IGOUGO: after resolution, pass to current player (already set by resolveTurn)
       const nextP = this.gameState.currentPlayer;
       this._showSplash(objects, () => {
-        this._showPassScreen(`Player ${nextP}'s turn — take the controls`);
+        if (this.aiPlayers.has(nextP)) {
+          if (!this._aiAutoplayPaused) this._runAITurn();
+        } else {
+          this._showPassScreen(`Player ${nextP}'s turn — take the controls`);
+        }
       });
     }
   }
@@ -8669,6 +8743,112 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  _pickNSpawnPoints(playerCount, ctx) {
+    const { ms, map, isWalkable, _walkCompSize, minSpawnComp, NEIGHBORS } = ctx;
+    const n = Math.max(2, Math.min(6, playerCount));
+    const centerQ = ms / 2, centerR = ms / 2;
+
+    const candidates = [];
+    for (let q = 1; q < ms - 1; q++) {
+      for (let r = 1; r < ms - 1; r++) {
+        if (!isWalkable(q, r)) continue;
+        const compSize = _walkCompSize(q, r);
+        if (compSize < minSpawnComp) continue;
+        const walkNeighbors = NEIGHBORS.filter(([dq, dr]) => isWalkable(q + dq, r + dr)).length;
+        if (walkNeighbors < 4) continue;
+        candidates.push({
+          q, r, compSize, walkNeighbors,
+          angle: Math.atan2(r - centerR, q - centerQ),
+        });
+      }
+    }
+
+    const minSep = Math.max(8, Math.floor(ms * 0.48 / Math.sqrt(n)));
+    const picked = [];
+
+    const scoreForSector = (c, sectorIdx) => {
+      const targetAngle = (2 * Math.PI * sectorIdx) / n - Math.PI / 2;
+      let diff = Math.abs(c.angle - targetAngle);
+      if (diff > Math.PI) diff = 2 * Math.PI - diff;
+      const centerR2 = Math.floor(ms / 2);
+      return c.walkNeighbors * 10 + Math.min(30, c.compSize * 0.08)
+        - Math.abs(c.r - centerR2) * 0.35 - diff * 18;
+    };
+
+    const pickBestInSector = (sectorIdx, excludeKeys) => {
+      let best = null, bestScore = -Infinity;
+      for (const c of candidates) {
+        const key = `${c.q},${c.r}`;
+        if (excludeKeys.has(key)) continue;
+        let ok = true;
+        for (const p of picked) {
+          const d = Math.abs(c.q - p.q) + Math.abs(c.r - p.r);
+          if (d < minSep) { ok = false; break; }
+        }
+        if (!ok) continue;
+        const score = scoreForSector(c, sectorIdx);
+        if (score > bestScore) { bestScore = score; best = { q: c.q, r: c.r }; }
+      }
+      return best;
+    };
+
+    // Two-player maps: keep classic left/right bands when possible.
+    if (n === 2) {
+      const findSpawnBand = (qMin, qMax) => {
+        const centerR = Math.floor(ms / 2);
+        let best = null, bestScore = -Infinity;
+        for (let q = qMin; q <= qMax; q++) {
+          for (let r = 1; r < ms - 1; r++) {
+            if (!isWalkable(q, r)) continue;
+            const compSize = _walkCompSize(q, r);
+            if (compSize < minSpawnComp) continue;
+            const walkNeighbors = NEIGHBORS.filter(([dq, dr]) => isWalkable(q + dq, r + dr)).length;
+            if (walkNeighbors < 4) continue;
+            const score = walkNeighbors * 10 - Math.abs(r - centerR) + Math.min(30, compSize * 0.08);
+            if (score > bestScore) { bestScore = score; best = { q, r }; }
+          }
+        }
+        return best;
+      };
+      let p1 = findSpawnBand(Math.floor(ms * 0.08), Math.floor(ms * 0.28));
+      let p2 = findSpawnBand(Math.floor(ms * 0.72), Math.floor(ms * 0.92));
+      if (p1 && p2) return [p1, p2];
+    }
+
+    const used = new Set();
+    for (let i = 0; i < n; i++) {
+      let pt = pickBestInSector(i, used);
+      if (!pt && candidates.length) {
+        // Fallback: farthest from existing picks
+        let best = null, bestMin = -1;
+        for (const c of candidates) {
+          const key = `${c.q},${c.r}`;
+          if (used.has(key)) continue;
+          let minD = Infinity;
+          for (const p of picked) minD = Math.min(minD, Math.abs(c.q - p.q) + Math.abs(c.r - p.r));
+          if (minD > bestMin) { bestMin = minD; best = { q: c.q, r: c.r }; }
+        }
+        pt = best;
+      }
+      if (pt) {
+        picked.push(pt);
+        used.add(`${pt.q},${pt.r}`);
+      }
+    }
+
+    // Hard fallback if terrain is barren
+    while (picked.length < n) {
+      const idx = picked.length;
+      const fb = {
+        q: Math.max(2, Math.min(ms - 3, Math.round(ms * (0.12 + idx * (0.76 / Math.max(1, n - 1)))))),
+        r: Math.floor(ms / 2),
+      };
+      map[`${fb.q},${fb.r}`] = 0;
+      picked.push(fb);
+    }
+    return picked;
+  }
+
   // ── Proc-gen spawn placement ──────────────────────────────────────────────
   _placeProcSpawns(seed) {
     const gs   = this.gameState;
@@ -8722,28 +8902,11 @@ export class GameScene extends Phaser.Scene {
       return Math.max(16, Math.floor(ms * ms * 0.03));
     })();
 
-    // Find best HQ spawn: walkable, on sufficiently large landmass, near center-row
-    const findSpawn = (qMin, qMax) => {
-      const centerR = Math.floor(ms / 2);
-      let best = null, bestScore = -Infinity;
-      for (let q = qMin; q <= qMax; q++) {
-        for (let r = 1; r < ms - 1; r++) {
-          if (!isWalkable(q, r)) continue;
-          const compSize = _walkCompSize(q, r);
-          if (compSize < minSpawnComp) continue; // reject tiny islands/peninsulas
-          const walkNeighbors = NEIGHBORS.filter(([dq,dr]) => isWalkable(q+dq, r+dr)).length;
-          if (walkNeighbors < 4) continue; // needs room for buildings
-          const score = walkNeighbors * 10 - Math.abs(r - centerR) + Math.min(30, compSize * 0.08);
-          if (score > bestScore) { bestScore = score; best = { q, r }; }
-        }
-      }
-      return best;
-    };
-
-    let p1 = findSpawn(Math.floor(ms * 0.08), Math.floor(ms * 0.28));
-    let p2 = findSpawn(Math.floor(ms * 0.72), Math.floor(ms * 0.92));
-
-
+    const spawnCtx = { ms, map, isWalkable, _walkCompSize, minSpawnComp, NEIGHBORS };
+    const playerCount = this.playerCount || gs.playerCount || 2;
+    let spawnPoints = this._pickNSpawnPoints(playerCount, spawnCtx);
+    let p1 = spawnPoints[0];
+    let p2 = spawnPoints[1] || spawnPoints[0];
 
     if (!p1 || !p2) {
       // Fallback pass: pick best walkable hex on largest available component by side.
@@ -8768,13 +8931,17 @@ export class GameScene extends Phaser.Scene {
       const fb1 = { q: Math.floor(ms * 0.15), r: Math.floor(ms * 0.5) };
       const fb2 = { q: Math.floor(ms * 0.85), r: Math.floor(ms * 0.5) };
       [fb1, fb2].forEach(pos => { map[`${pos.q},${pos.r}`] = 0; });
-      if (!p1) { map[`${fb1.q},${fb1.r}`] = 0; Object.assign(p1 = fb1, {}); }
-      if (!p2) { map[`${fb2.q},${fb2.r}`] = 0; Object.assign(p2 = fb2, {}); }
+      if (!p1) { map[`${fb1.q},${fb1.r}`] = 0; p1 = fb1; }
+      if (!p2) { map[`${fb2.q},${fb2.r}`] = 0; p2 = fb2; }
+      spawnPoints = spawnPoints.length ? spawnPoints : [p1, p2];
+      if (spawnPoints.length < playerCount) {
+        spawnPoints = this._pickNSpawnPoints(playerCount, spawnCtx);
+      }
     }
 
-    // Island profiles: prefer opposite landmasses for P1/P2 when possible.
+    // Island profiles: spread spawns across landmasses when possible.
     const islandLike = new Set(['islands','large_islands','archipelago','naval_supremacy']);
-    if (p1 && p2 && islandLike.has(this.procLandProfile || 'islands')) {
+    if (spawnPoints.length >= 2 && islandLike.has(this.procLandProfile || 'islands')) {
       const isLandTile = (q, r) => {
         const t = map[`${q},${r}`];
         return t !== undefined && t !== 4 && t !== 5;
@@ -8796,20 +8963,23 @@ export class GameScene extends Phaser.Scene {
         }
         return seen;
       };
-      const c1 = compFrom(p1);
-      if (c1.has(`${p2.q},${p2.r}`)) {
-        // Find best alternate spawn on a different component, biased to right side.
-        let alt = null, best = -1;
-        for (let q = Math.floor(ms * 0.55); q < Math.floor(ms * 0.95); q++) {
-          for (let r = 1; r < ms - 1; r++) {
-            if (!isLandTile(q, r)) continue;
-            const k = `${q},${r}`;
-            if (c1.has(k)) continue;
-            const score = (q / ms) * 100 + Math.abs((ms * 0.5) - r) * -0.2;
-            if (score > best) { best = score; alt = { q, r }; }
+      const c1 = compFrom(spawnPoints[0]);
+      if (spawnPoints.length >= 2 && c1.has(`${spawnPoints[1].q},${spawnPoints[1].r}`)) {
+        // Find alternate spawn on a different component for player 2+
+        for (let pi = 1; pi < spawnPoints.length; pi++) {
+          if (!c1.has(`${spawnPoints[pi].q},${spawnPoints[pi].r}`)) continue;
+          let alt = null, best = -1;
+          for (let q = Math.floor(ms * 0.55); q < Math.floor(ms * 0.95); q++) {
+            for (let r = 1; r < ms - 1; r++) {
+              if (!isLandTile(q, r)) continue;
+              const k = `${q},${r}`;
+              if (c1.has(k)) continue;
+              const score = (q / ms) * 100 + Math.abs((ms * 0.5) - r) * -0.2;
+              if (score > best) { best = score; alt = { q, r }; }
+            }
           }
+          if (alt) spawnPoints[pi] = alt;
         }
-        if (alt) p2 = alt;
       }
     }
 
@@ -8818,8 +8988,7 @@ export class GameScene extends Phaser.Scene {
       map[`${q},${r}`] = 0;
       NEIGHBORS.forEach(([dq,dr]) => { if (isValid(q+dq,r+dr,ms)) map[`${q+dq},${r+dr}`] = 0; });
     };
-    clearForSpawn(p1.q, p1.r);
-    clearForSpawn(p2.q, p2.r);
+    for (const sp of spawnPoints) clearForSpawn(sp.q, sp.r);
 
     // Helper: find nearest hex of a specific terrain type within radius
     const findNearby = (cq, cr, terrainSet, maxR = 6) => {
@@ -9015,10 +9184,29 @@ export class GameScene extends Phaser.Scene {
       }
     };
 
-    placeSpawns(1, p1, p2);
-    placeSpawns(2, p2, p1);
-    recalcPlayerPopulation(gs, 1);
-    recalcPlayerPopulation(gs, 2);
+    const nearestEnemyHq = (player, hq) => {
+      let best = null, bestD = Infinity;
+      for (let i = 0; i < spawnPoints.length; i++) {
+        const pNum = i + 1;
+        if (pNum === player) continue;
+        const sp = spawnPoints[i];
+        const d = Math.abs(sp.q - hq.q) + Math.abs(sp.r - hq.r);
+        if (d < bestD) { bestD = d; best = sp; }
+      }
+      return best;
+    };
+
+    for (let i = 0; i < spawnPoints.length; i++) {
+      const player = i + 1;
+      const hq = spawnPoints[i];
+      placeSpawns(player, hq, nearestEnemyHq(player, hq));
+      recalcPlayerPopulation(gs, player);
+    }
+
+    if (gs.victoryMode === VICTORY_MODES.POINTS) {
+      gs.victoryZones = victoryZonesForSpawns(ms, spawnPoints);
+    }
+    this._drawVictoryZones();
 
     // Scatter extra iron/oil resources across the map
     this._placeResources(seed);
@@ -9104,26 +9292,25 @@ export class GameScene extends Phaser.Scene {
     forcePlace('IRON', [IRON_PREFER, IRON_OK], MIN_IRON - c.iron);
     forcePlace('OIL',  [OIL_TERRAIN],           MIN_OIL  - c.oil);
 
-    // Contested oil: a few deposits in the central band between HQs (fight over them).
-    const hq1 = gs.buildings.find(b => b.type === 'HQ' && Number(b.owner) === 1);
-    const hq2 = gs.buildings.find(b => b.type === 'HQ' && Number(b.owner) === 2);
-    if (hq1 && hq2) {
+    // Contested oil: deposits near map center, balanced between all HQs.
+    const hqs = gs.buildings.filter(b => b.type === 'HQ');
+    if (hqs.length >= 2) {
       const contested = [];
-      const midQ = (hq1.q + hq2.q) / 2, midR = (hq1.r + hq2.r) / 2;
+      const midQ = hqs.reduce((s, b) => s + b.q, 0) / hqs.length;
+      const midR = hqs.reduce((s, b) => s + b.r, 0) / hqs.length;
       for (let q = 0; q < ms; q++) {
         for (let r = 0; r < ms; r++) {
           if (!free(q, r)) continue;
           const t = map[`${q},${r}`];
           if (!isLandType(t) || !OIL_TERRAIN.has(t)) continue;
-          const d1 = hexDistance(q, r, hq1.q, hq1.r);
-          const d2 = hexDistance(q, r, hq2.q, hq2.r);
-          const balance = Math.abs(d1 - d2);
+          const dists = hqs.map(h => hexDistance(q, r, h.q, h.r));
+          const balance = Math.max(...dists) - Math.min(...dists);
           const midness = hexDistance(q, r, midQ, midR);
-          if (balance <= 10 && midness <= ms * 0.38) contested.push({ key: `${q},${r}`, score: balance * 2 + midness });
+          if (balance <= 12 && midness <= ms * 0.42) contested.push({ key: `${q},${r}`, score: balance * 2 + midness });
         }
       }
       contested.sort((a, b) => a.score - b.score);
-      const want = Math.min(4, Math.max(2, Math.round(MIN_OIL * 0.35)));
+      const want = Math.min(6, Math.max(2, Math.round(MIN_OIL * 0.35)));
       let placed = 0;
       for (const c of contested) {
         if (placed >= want) break;
@@ -9134,12 +9321,15 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Third pass: side-fairness guarantee for iron (prevents one-side starvation).
-    if (hq1 && hq2) {
+    // Side-fairness guarantee for iron (prevents one-side starvation).
+    if (hqs.length >= 2) {
       const sideOf = (q, r) => {
-        const d1 = Math.abs(q - hq1.q) + Math.abs(r - hq1.r);
-        const d2 = Math.abs(q - hq2.q) + Math.abs(r - hq2.r);
-        return d1 <= d2 ? 1 : 2;
+        let best = hqs[0].owner, bestD = Infinity;
+        for (const h of hqs) {
+          const d = hexDistance(q, r, h.q, h.r);
+          if (d < bestD) { bestD = d; best = Number(h.owner); }
+        }
+        return best;
       };
 
       const sideIronCount = (side) => {
@@ -9153,8 +9343,9 @@ export class GameScene extends Phaser.Scene {
         return n;
       };
 
-      const minPerSideIron = Math.max(6, Math.round(MIN_IRON * 0.4));
-      for (const side of [1, 2]) {
+      const minPerSideIron = Math.max(4, Math.round(MIN_IRON * 0.28));
+      for (const h of hqs) {
+        const side = Number(h.owner);
         let need = minPerSideIron - sideIronCount(side);
         if (need <= 0) continue;
 

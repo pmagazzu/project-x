@@ -55,3 +55,25 @@ export function defaultVictoryZones(mapSize = 40) {
     { q: c + 4, r: c, pointsPerTurn: 1, name: 'East Approach' },
   ];
 }
+
+/** VP zones from procedural HQ placements (center + contested wedges). */
+export function victoryZonesForSpawns(mapSize, spawns = []) {
+  const c = Math.floor(mapSize / 2);
+  const zones = [{ q: c, r: c, pointsPerTurn: 3, name: 'Central Crossroads' }];
+  if (!spawns?.length) return defaultVictoryZones(mapSize);
+
+  const ordered = [...spawns]
+    .map((s, i) => ({ ...s, _i: i }))
+    .sort((a, b) => Math.atan2(a.r - c, a.q - c) - Math.atan2(b.r - c, b.q - c));
+
+  for (let i = 0; i < ordered.length; i++) {
+    const s = ordered[i];
+    const next = ordered[(i + 1) % ordered.length];
+    const q = Math.max(1, Math.min(mapSize - 2, Math.round((s.q + next.q + c) / 3)));
+    const r = Math.max(1, Math.min(mapSize - 2, Math.round((s.r + next.r + c) / 3)));
+    const dup = zones.some(z => z.q === q && z.r === r);
+    if (dup) continue;
+    zones.push({ q, r, pointsPerTurn: 1, name: `Contested Zone ${i + 1}` });
+  }
+  return zones;
+}

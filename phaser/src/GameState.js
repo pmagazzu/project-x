@@ -1133,7 +1133,7 @@ export function createGameState(scenario = 'default', options = {}) {
 
   // Spawn one starting Supply Truck per team (near HQ) if not already present.
   const START_NBRS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
-  for (const p of [1,2]) {
+  for (const p of getPlayerIds(state)) {
     const hasTruck = state.units.some(u => Number(u.owner) === p && u.type === 'SUPPLY_TRUCK');
     if (hasTruck) continue;
     const hq = state.buildings.find(b => Number(b.owner) === p && b.type === 'HQ');
@@ -1148,8 +1148,8 @@ export function createGameState(scenario = 'default', options = {}) {
     state.units.push(createUnit('SUPPLY_TRUCK', p, spawnQ, spawnR));
   }
 
-  // Ensure both teams start with one Vehicle Depot near HQ for faster land-force ramp.
-  for (const p of [1,2]) {
+  // Ensure each team starts with one Vehicle Depot near HQ for faster land-force ramp.
+  for (const p of getPlayerIds(state)) {
     const hasDepot = state.buildings.some(b => Number(b.owner) === p && b.type === 'VEHICLE_DEPOT');
     if (hasDepot) continue;
     const hq = state.buildings.find(b => Number(b.owner) === p && b.type === 'HQ');
@@ -1172,7 +1172,7 @@ export function createGameState(scenario = 'default', options = {}) {
     if (!hasRoad) state.buildings.push(createBuilding('ROAD', b.owner, b.q, b.r));
   }
 
-  for (const p of [1, 2]) recalcPlayerPopulation(state, p);
+  for (const p of getPlayerIds(state)) recalcPlayerPopulation(state, p);
 
   return state;
 }

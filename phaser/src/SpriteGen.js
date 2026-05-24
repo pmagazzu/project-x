@@ -16,7 +16,7 @@ export function generateAllSprites(scene, UNIT_TYPES, BUILDING_TYPES, PLAYER_COL
 
 function generateUnitTextures(scene, UNIT_TYPES, PLAYER_COLORS) {
   for (const [type, def] of Object.entries(UNIT_TYPES)) {
-    for (const owner of [1, 2]) {
+    for (const owner of [1, 2, 3, 4, 5, 6]) {
       const key = unitTextureKey(type, owner);
       if (scene.textures.exists(key)) continue;
       const g = scene.make.graphics({ x: 0, y: 0, add: false });
@@ -164,7 +164,7 @@ function drawUnitByShape(g, shape, s, color) {
 function generateBuildingTextures(scene, BUILDING_TYPES, PLAYER_COLORS) {
   for (const [type] of Object.entries(BUILDING_TYPES)) {
     if (type === 'ROAD') continue;
-    for (const owner of [1, 2]) {
+    for (const owner of [1, 2, 3, 4, 5, 6]) {
       const key = buildingTextureKey(type, owner);
       if (scene.textures.exists(key)) continue;
       const g = scene.make.graphics({ x: 0, y: 0, add: false });
