@@ -377,20 +377,88 @@ function isForbiddenVictoryHex(q, r, spawns, minHqDist) {
   return false;
 }
 
-/** Place VP zones on strategic, equidistant hexes — never on/near HQs. */
+/** Minimum hex distance between any two VP zones. */
+export function minVictoryZoneSeparation(mapSize, playerCount) {
+  const n = Math.max(2, playerCount);
+  return Math.max(
+    8,
+    Math.floor(mapSize * 0.14),
+    Math.floor((mapSize * 0.38) / Math.sqrt(n)),
+  );
+}
+
+function buildLandComponentIndex({ mapSize, isLand, isValid }) {
+  const compIdByKey = new Map();
+  const components = [];
+  const seen = new Set();
+
+  for (let q = 0; q < mapSize; q++) {
+    for (let r = 0; r < mapSize; r++) {
+      const key = `${q},${r}`;
+      if (seen.has(key) || !isLand?.(q, r)) continue;
+
+      const landKeys = new Set();
+      const queue = [{ q, r }];
+      while (queue.length) {
+        const cur = queue.pop();
+        const k = `${cur.q},${cur.r}`;
+        if (landKeys.has(k)) continue;
+        if (!isLand(cur.q, cur.r)) continue;
+        landKeys.add(k);
+        for (const [dq, dr] of NEIGHBORS) {
+          const nq = cur.q + dq, nr = cur.r + dr;
+          if (!isValid?.(nq, nr, mapSize)) continue;
+          const nk = `${nq},${nr}`;
+          if (!landKeys.has(nk) && isLand(nq, nr)) queue.push({ q: nq, r: nr });
+        }
+      }
+      const id = components.length;
+      for (const k of landKeys) {
+        seen.add(k);
+        compIdByKey.set(k, id);
+      }
+      components.push({ id, landSize: landKeys.size });
+    }
+  }
+  components.sort((a, b) => b.landSize - a.landSize);
+  return { compIdByKey, components };
+}
+
+/** Place VP zones on strategic, equidistant hexes — spread across landmasses on island maps. */
 export function pickBalancedVictoryZones({
   mapSize,
   spawns = [],
   terrain = {},
   isWalkable,
   isValid,
+  isLand,
+  islandMode = false,
 }) {
   const ms = mapSize;
   const center = Math.floor(mapSize / 2);
   const n = spawns.length;
   const minHqDist = minVictoryZoneHqDistance(ms, n);
+  const minZoneSep = minVictoryZoneSeparation(ms, n);
   const zones = [];
   const used = new Set();
+  const zoneComponentsUsed = new Set();
+
+  const landIndex = isLand
+    ? buildLandComponentIndex({ mapSize: ms, isLand, isValid })
+    : null;
+  const compIdByKey = landIndex?.compIdByKey ?? null;
+  const spawnCompIds = new Set(
+    spawns.map((s) => compIdByKey?.get(`${s.q},${s.r}`)).filter((c) => c != null),
+  );
+
+  const tooCloseToZones = (q, r) => {
+    for (const z of zones) {
+      if (hexDistance(q, r, z.q, z.r) < minZoneSep) return true;
+    }
+    return false;
+  };
+
+  const componentAt = (q, r) => compIdByKey?.get(`${q},${r}`) ?? null;
 
   const tryAddZone = (q, r, pointsPerTurn, name) => {
     const key = `${q},${r}`;
@@ -398,8 +466,11 @@ export function pickBalancedVictoryZones({
     if (!isValid?.(q, r, ms)) return false;
     if (!isWalkable?.(q, r)) return false;
     if (isForbiddenVictoryHex(q, r, spawns, minHqDist)) return false;
+    if (tooCloseToZones(q, r)) return false;
     zones.push({ q, r, pointsPerTurn, name });
     used.add(key);
+    const cid = componentAt(q, r);
+    if (cid != null) zoneComponentsUsed.add(cid);
     return true;
   };
 
@@ -410,7 +481,25 @@ export function pickBalancedVictoryZones({
     const centerness = opts.preferCentral
       ? -Math.abs(centerDist - ms * 0.12) * 1.2
       : -centerDist * 0.15;
-    return distanceBalanceScore(dists) + terrainStrategicScore(t) + centerness;
+
+    let spreadBonus = 0;
+    for (const z of zones) spreadBonus += hexDistance(q, r, z.q, z.r) * 2.8;
+
+    let componentBonus = 0;
+    const cid = componentAt(q, r);
+    if (compIdByKey && cid != null) {
+      const comp = landIndex.components.find((c) => c.id === cid);
+      if (opts.preferNewComponent) {
+        if (zoneComponentsUsed.has(cid)) componentBonus -= 95;
+        else if (!spawnCompIds.has(cid)) componentBonus += (comp?.landSize || 0) * 0.65 + 28;
+        else componentBonus -= 35;
+      }
+      if (islandMode && spawnCompIds.has(cid) && zoneComponentsUsed.size > 0) {
+        componentBonus -= 60;
+      }
+    }
+
+    return distanceBalanceScore(dists) + terrainStrategicScore(t) + centerness + spreadBonus + componentBonus;
   };
 
   const bestHex = (opts = {}) => {
@@ -422,6 +511,7 @@ export function pickBalancedVictoryZones({
         if (!isValid?.(q, r, ms)) continue;
         if (!isWalkable?.(q, r)) continue;
         if (isForbiddenVictoryHex(q, r, spawns, minHqDist)) continue;
+        if (tooCloseToZones(q, r)) continue;
         const score = scoreHex(q, r, opts);
         if (score > bestScore) { bestScore = score; best = { q, r }; }
       }
@@ -429,7 +519,11 @@ export function pickBalancedVictoryZones({
     return best;
   };
 
-  const hub = bestHex({ preferCentral: true });
+  const hubOpts = islandMode && (landIndex?.components?.length || 0) > 1
+    ? { preferNewComponent: true, preferCentral: false }
+    : { preferCentral: true, preferNewComponent: true };
+
+  const hub = bestHex(hubOpts);
   if (hub) tryAddZone(hub.q, hub.r, 3, 'Central Crossroads');
   else tryAddZone(center, center, 3, 'Central Crossroads');
 
@@ -450,14 +544,13 @@ export function pickBalancedVictoryZones({
           if (!isValid?.(q, r, ms)) continue;
           if (!isWalkable?.(q, r)) continue;
           if (isForbiddenVictoryHex(q, r, spawns, minHqDist)) continue;
+          if (tooCloseToZones(q, r)) continue;
 
           const da = hexDistance(q, r, a.q, a.r);
           const db = hexDistance(q, r, b.q, b.r);
           const corridor = -Math.abs(da - db) * 2.2 + Math.min(da, db) * 0.35;
           const t = terrain[`${q},${r}`] ?? 0;
-          const score = corridor + terrainStrategicScore(t) + distanceBalanceScore(
-            spawns.map((s) => hexDistance(q, r, s.q, s.r)),
-          );
+          const score = corridor + terrainStrategicScore(t) + scoreHex(q, r, { preferNewComponent: true });
 
           if (score > bestScore) { bestScore = score; best = { q, r }; }
         }

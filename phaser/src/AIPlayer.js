@@ -112,6 +112,56 @@ export function pickAIStrategyForMap(terrain, mapSize = 40) {
   return 'balanced';
 }
 
+/** Map + threat context for situational AI planning (islands, isolation, VP mode). */
+export function assessMapSituation(terrain, mapSize, gs, player) {
+  if (!terrain) return { waterRatio: 0, islandMap: false, safeAtHome: false, vpMode: false };
+  let water = 0, land = 0;
+  const ms = mapSize || gs?._mapSize || 40;
+  for (let q = 0; q < ms; q++) {
+    for (let r = 0; r < ms; r++) {
+      const t = terrain[`${q},${r}`] ?? 0;
+      if (t === 3 || t === 4 || t === 5) water++;
+      else land++;
+    }
+  }
+  const waterRatio = water / Math.max(1, water + land);
+  const islandMap = waterRatio >= 0.22;
+
+  const myHQ = gs?.buildings?.find(b => b.type === 'HQ' && Number(b.owner) === Number(player));
+  let nearestThreat = Infinity;
+  if (myHQ) {
+    for (const u of (gs?.units || [])) {
+      if (Number(u.owner) === Number(player) || u.embarked) continue;
+      nearestThreat = Math.min(nearestThreat, hexDistance(myHQ.q, myHQ.r, u.q, u.r));
+    }
+    for (const b of (gs?.buildings || [])) {
+      if (b.type !== 'HQ' || Number(b.owner) === Number(player)) continue;
+      nearestThreat = Math.min(nearestThreat, hexDistance(myHQ.q, myHQ.r, b.q, b.r));
+    }
+  }
+  const safeAtHome = islandMap && nearestThreat > Math.max(12, Math.floor(ms * 0.22));
+  const vpMode = gs?.victoryMode === 'points';
+
+  return { waterRatio, islandMap, safeAtHome, vpMode, nearestThreat };
+}
+
+function pickBestVictoryZoneTarget(gs, player) {
+  const zones = gs.victoryZones || [];
+  if (!zones.length) return null;
+  const myHQ = gs.buildings.find(b => b.type === 'HQ' && b.owner === player);
+  let best = null, bestScore = -Infinity;
+  for (const z of zones) {
+    const occupants = gs.units.filter(u => !u.embarked && hexDistance(u.q, u.r, z.q, z.r) <= 1);
+    const myCount = occupants.filter(u => u.owner === player).length;
+    const enemyCount = occupants.filter(u => u.owner !== player).length;
+    if (myCount > enemyCount && myCount > 0) continue;
+    const dist = myHQ ? hexDistance(myHQ.q, myHQ.r, z.q, z.r) : 0;
+    const score = (z.pointsPerTurn || 1) * 12 - dist * 0.25 - enemyCount * 6;
+    if (score > bestScore) { bestScore = score; best = { q: z.q, r: z.r, type: 'victory_zone' }; }
+  }
+  return best || { q: zones[0].q, r: zones[0].r, type: 'victory_zone' };
+}
+
 export function randomStrategy() {
   const keys = Object.keys(AI_STRATEGIES);
   return keys[Math.floor(Math.random() * keys.length)];
@@ -173,7 +223,7 @@ function getUnitRole(unitType) {
   return 'line';
 }
 
-function getOpeningMilestones(gs, player) {
+function getOpeningMilestones(gs, player, situation = null) {
   const turn = gs.turn || 1;
   const myBuildings = gs.buildings.filter(b => b.owner === player && !b.underConstruction);
   const myUnits = gs.units.filter(u => u.owner === player && !u.embarked);
@@ -193,8 +243,9 @@ function getOpeningMilestones(gs, player) {
     supplyTrucks: unitCount(['SUPPLY_TRUCK']),
   };
 
+  const islandBoost = situation?.safeAtHome || situation?.islandMap ? 1.45 : 1;
   const desired = {
-    roads:       turn <= 3 ? 1 : turn <= 6 ? 2 : turn <= 9 ? 4 : turn <= 14 ? 8 : 12,
+    roads:       Math.round((turn <= 3 ? 2 : turn <= 6 ? 4 : turn <= 9 ? 8 : turn <= 14 ? 14 : 20) * islandBoost),
     mines:       turn <= 4 ? 2 : turn <= 10 ? 3 : turn <= 18 ? 4 : 5,
     pumps:       turn <= 5 ? 1 : turn <= 10 ? 2 : turn <= 18 ? 3 : 4,
     farms:       turn <= 6 ? 1 : turn <= 10 ? 2 : turn <= 16 ? 3 : 4,
@@ -223,15 +274,33 @@ function getOpeningMilestones(gs, player) {
   };
 }
 
-function getPhaseWeights(turn = 1) {
+function getPhaseWeights(turn = 1, situation = null) {
   // Multi-objective AI doctrine: supply/econ + recon early, but keep skirmishes alive (not pure turtling).
+  let w;
   if (turn <= 8) {
-    return { economy: 1.28, logistics: 1.38, recon: 1.25, research: 1.15, combat: 1.0, raiding: 1.12, naval: 0.92, air: 0.88 };
+    w = { economy: 1.28, logistics: 1.38, recon: 1.25, research: 1.15, combat: 1.0, raiding: 1.12, naval: 0.92, air: 0.88 };
+  } else if (turn <= 16) {
+    w = { economy: 1.12, logistics: 1.2, recon: 1.1, research: 1.25, combat: 1.08, raiding: 1.12, naval: 1.05, air: 1.0 };
+  } else {
+    w = { economy: 0.95, logistics: 1.05, recon: 0.95, research: 1.1, combat: 1.3, raiding: 1.25, naval: 1.15, air: 1.2 };
   }
-  if (turn <= 16) {
-    return { economy: 1.12, logistics: 1.2, recon: 1.1, research: 1.25, combat: 1.08, raiding: 1.12, naval: 1.05, air: 1.0 };
+  if (situation?.safeAtHome && turn <= 24) {
+    w.economy *= 1.32;
+    w.logistics *= 1.42;
+    w.research *= 1.18;
+    w.naval *= 1.48;
+    w.combat *= 0.68;
+    w.raiding *= 0.72;
   }
-  return { economy: 0.95, logistics: 1.05, recon: 0.95, research: 1.1, combat: 1.3, raiding: 1.25, naval: 1.15, air: 1.2 };
+  if (situation?.islandMap && turn <= 22) {
+    w.naval *= 1.22;
+    w.logistics *= 1.12;
+  }
+  if (situation?.vpMode && turn <= 30) {
+    w.raiding *= 1.15;
+    w.recon *= 1.1;
+  }
+  return w;
 }
 
 function getRoadFloor(turn = 1) {
@@ -262,7 +331,7 @@ function getFrontlineDistanceEstimate(gs, player) {
   return Math.min(...myHQs.map(h => hexDistance(h.q, h.r, nearestEnemy.q, nearestEnemy.r)));
 }
 
-function getDynamicRoadTarget(gs, player) {
+function getDynamicRoadTarget(gs, player, situation = null) {
   const base = getRoadFloor(gs.turn || 1);
   const myUnits = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked);
   const unsupplied = myUnits.filter(u => (u.outOfSupply || 0) > 0).length;
@@ -271,11 +340,12 @@ function getDynamicRoadTarget(gs, player) {
 
   const unitPressure = Math.ceil(myUnits.length / 6);
   const supplyPressure = unsupplied >= 1 ? (1 + Math.ceil(unsupplied / 2)) : 0;
-  const spanPressure = Math.ceil(frontlineDist / 6);
+  const spanPressure = situation?.safeAtHome ? Math.ceil(frontlineDist / 10) : Math.ceil(frontlineDist / 6);
   const mapPressure = Math.max(0, Math.ceil((mapN - 40) / 18));
-  const cap = Math.min(48, Math.max(20, Math.floor(mapN * 0.30) + 12));
+  const islandPressure = (situation?.islandMap || situation?.safeAtHome) ? Math.ceil(mapN / 14) : 0;
+  const cap = Math.min(64, Math.max(24, Math.floor(mapN * 0.34) + 14));
 
-  return Math.max(base, Math.min(cap, base + unitPressure + supplyPressure + spanPressure + mapPressure));
+  return Math.max(base, Math.min(cap, base + unitPressure + supplyPressure + spanPressure + mapPressure + islandPressure));
 }
 
 function getLaneForR(r, mapSize) {
@@ -604,12 +674,12 @@ function buildFortNeedsForNode(gs, player, nodeQ, nodeR, ctx, unlockedEng, canAf
   return needs;
 }
 
-function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits, enemyHQs, closingPressure = 0) {
+function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits, enemyHQs, closingPressure = 0, situation = null) {
   gs._aiStrategicMemory = gs._aiStrategicMemory || {};
   const prev = gs._aiStrategicMemory[player] || {};
 
   const roadsNow = countPlayerRoadLike(gs, player);
-  const dynamicRoadTarget = getDynamicRoadTarget(gs, player);
+  const dynamicRoadTarget = getDynamicRoadTarget(gs, player, situation);
   const roadDeficit = Math.max(0, dynamicRoadTarget - roadsNow);
   const myUnits = gs.units.filter(u => u.owner === player && !u.embarked);
   const unsupplied = myUnits.filter(u => (u.outOfSupply || 0) > 0).length;
@@ -624,6 +694,7 @@ function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits
   // --- Phase decision with hysteresis ---
   let desiredPhase = 'expand';
   if ((gs.turn || 1) >= 18 || closingPressure >= 0.42) desiredPhase = 'pressure';
+  if (situation?.safeAtHome && (gs.turn || 1) < 28) desiredPhase = 'expand';
   const turn = gs.turn || 1;
   const stabilizeRoad = turn < 12 ? 6 : 5;
   const stabilizeUnsup = turn < 12 ? Math.max(4, Math.floor(myUnits.length * 0.32)) : Math.max(3, Math.floor(myUnits.length * 0.25));
@@ -1194,6 +1265,12 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
   const expandTarget = resourceAnchor || forwardAnchor
     || { q: Math.round(myHQ.q + (laneEnemy.q - myHQ.q) * 0.45), r: Math.round(myHQ.r + (laneEnemy.r - myHQ.r) * 0.25) };
 
+  let missionExpandTarget = expandTarget;
+  if (gs.victoryMode === 'points' && (gs.victoryZones || []).length) {
+    const vpTarget = pickBestVictoryZoneTarget(gs, player);
+    if (vpTarget && phase !== 'stabilize') missionExpandTarget = vpTarget;
+  }
+
   let probeTarget = expandTarget;
   if (forwardAnchor) {
     probeTarget = {
@@ -1257,7 +1334,7 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
   };
   batch(quotas.diversion, 'diversion', diversionTarget);
   batch(quotas.probe, 'probe', probeTarget);
-  batch(quotas.expand, 'expand', expandTarget);
+  batch(quotas.expand, 'expand', missionExpandTarget);
   batch(quotas.main, 'main', { q: laneEnemy.q, r: laneEnemy.r });
 
   for (const u of pools.indirect) {
@@ -1269,7 +1346,7 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
     assign(u, 'garrison', choke || expandTarget);
   });
   while (idx < remaining.length) {
-    assign(remaining[idx++], phase === 'pressure' ? 'probe' : 'expand', expandTarget);
+    assign(remaining[idx++], phase === 'pressure' ? 'probe' : 'expand', missionExpandTarget);
   }
 
   return { unitObjective, deceptionActive, missionCounts };
@@ -1930,7 +2007,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const getEnemies = () => gs.units.filter(u => u.owner !== player && !u.embarked);
   const getMyHQs   = () => gs.buildings.filter(b => b.owner === player && b.type === 'HQ');
   const mySupply   = computeSupply(gs, player, mapSize);
-  const phaseWeights = getPhaseWeights(gs.turn || 1);
+  const situation = assessMapSituation(terrain, mapSize, gs, player);
+  const phaseWeights = getPhaseWeights(gs.turn || 1, situation);
   const resourceTargets = Object.entries(gs.resourceHexes || {})
     .map(([k, v]) => ({ k, q: Number(k.split(',')[0]), r: Number(k.split(',')[1]), type: v?.type }))
     .filter(t => {
@@ -1949,7 +2027,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     });
   ensureAIDesigns(gs, player);
   const closingPressure = getClosingPressure(gs, player);
-  const strategic = buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits, enemyHQs, closingPressure);
+  const strategic = buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits, enemyHQs, closingPressure, situation);
   const territorial = buildTerritorialIntel(terrain, mapSize, gs, player, strategic, resourceTargets);
   strategic.territorial = territorial;
   const waterBodies = buildWaterBodyIndex(terrain, mapSize);
@@ -1968,9 +2046,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   assignResourceGarrisonMissions(gs, player, unitObjective, sortedCombat);
   assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjective, sortedCombat, flankCountForGarrison);
 
-  const opening = getOpeningMilestones(gs, player);
+  const opening = getOpeningMilestones(gs, player, situation);
   const roadFloor = getRoadFloor(gs.turn || 1);
-  const dynamicRoadTarget = getDynamicRoadTarget(gs, player);
+  const dynamicRoadTarget = getDynamicRoadTarget(gs, player, situation);
   const roadsNow = countPlayerRoadLike(gs, player);
   const roadDeficitGlobal = Math.max(0, dynamicRoadTarget - roadsNow);
   const myUnitsNow = gs.units.filter(u => u.owner === player && !u.embarked);
@@ -1986,7 +2064,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     roadDeficit: roadDeficitGlobal, roadCaptainId,
     logisticsPressure, logisticsEmergency, dynamicRoadTarget,
     strategic, territorial, transportMission,
-    mapSize, closingPressure,
+    mapSize, closingPressure, situation,
   };
 
   const engineerMemory = initEngineerMemory(gs, player);
@@ -2452,9 +2530,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             if (gs.turn >= 7 && myVehicleDepot < 1) needs.push({ type: 'VEHICLE_DEPOT', score: 8.2 * phaseWeights.combat });
             if (gs.turn >= 12 && myVehicleDepot < 2) needs.push({ type: 'VEHICLE_DEPOT', score: 6.2 * phaseWeights.combat });
             if (gs.turn >= 10 && myAirfield < 1) needs.push({ type: 'AIRFIELD', score: 7.0 * phaseWeights.combat });
-            if (gs.turn >= 10 && myHarbor < 1 && waterBodies.shouldBuildNavalYardHere(gs, player, unit.q, unit.r)) {
+            if (gs.turn >= 6 && myHarbor < 1 && waterBodies.shouldBuildNavalYardHere(gs, player, unit.q, unit.r)) {
               const wb = waterBodies.getBody(waterBodies.getBodyIdNear(unit.q, unit.r));
-              const yardScore = wb?.kind === 'lake' ? 3.2 : 5.8;
+              const yardScore = wb?.kind === 'lake' ? 3.2 : (situation?.islandMap ? 7.2 : 5.8);
               needs.push({ type: 'NAVAL_YARD', score: yardScore * phaseWeights.logistics });
             }
             if ((gs.turn >= 12 && nearbyEnemies >= 2) && myBunkers < 2 && unlockedEng.has('bunker')) {
@@ -2495,6 +2573,13 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
               const nt = terrain[`${unit.q + dq},${unit.r + dr}`] ?? 0;
               return nt === 4 || nt === 5;
             });
+            if (situation?.islandMap && gs.turn >= 5 && myHarbor < 1 && (isOnCoastal || isAdjacentCoastal)) {
+              needs.push({ type: 'NAVAL_YARD', score: 6.5 * phaseWeights.naval });
+            }
+            const mySupplyPorts = gs.buildings.filter(bb => bb.owner === player && bb.type === 'SUPPLY_PORT' && !bb.underConstruction).length;
+            if (situation?.islandMap && unlockedEng.has('supply_depot') && (isOnCoastal || isAdjacentCoastal) && gs.turn >= 7 && mySupplyPorts < 2) {
+              needs.push({ type: 'SUPPLY_PORT', score: (18 + situation.waterRatio * 28 - mySupplyPorts * 9) * phaseWeights.logistics });
+            }
             if ((isOnCoastal || isAdjacentCoastal) && gs.turn >= 8) {
               const nearbyOwnCB = gs.units.filter(u2 => u2.owner === player && u2.type === 'COASTAL_BATTERY' && hexDistance(u2.q, u2.r, unit.q, unit.r) <= 6).length
                 + gs.buildings.filter(b2 => b2.owner === player && b2.type === 'COASTAL_BATTERY' && hexDistance(b2.q, b2.r, unit.q, unit.r) <= 6).length;
@@ -2744,6 +2829,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         return 20 * (phaseWeights.naval || 1) * navW;
       }
       if (role === 'recon') return 10 * phaseWeights.recon;
+      if (situation?.safeAtHome && (gs.turn || 1) <= 18) {
+        const r = getUnitRole(unitType);
+        if (r === 'line' || r === 'assault') return 9 * phaseWeights.combat * 0.55;
+      }
       if (role === 'indirect' || role === 'assault' || role === 'line') return 9 * phaseWeights.combat;
       return 0;
     };
@@ -2994,7 +3083,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   // Hard logistics quota under pressure: ensure at least one concrete logistics action is scheduled.
   const logisticsPlanned = actions.filter(a =>
-    (a.type === 'build' && ['ROAD','SUPPLY_DEPOT','SUPPLY_WAREHOUSE'].includes(a.buildingType)) ||
+    (a.type === 'build' && ['ROAD','SUPPLY_DEPOT','SUPPLY_WAREHOUSE','SUPPLY_PORT'].includes(a.buildingType)) ||
     (a.type === 'recruit' && a.unitType === 'SUPPLY_TRUCK')
   ).length;
   if (logisticsPressure && logisticsPlanned === 0) {
@@ -3017,7 +3106,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
     // 2) If still nothing, force a road action from an engineer.
     const logisticsPlanned2 = actions.filter(a =>
-      (a.type === 'build' && ['ROAD','SUPPLY_DEPOT','SUPPLY_WAREHOUSE'].includes(a.buildingType)) ||
+      (a.type === 'build' && ['ROAD','SUPPLY_DEPOT','SUPPLY_WAREHOUSE','SUPPLY_PORT'].includes(a.buildingType)) ||
       (a.type === 'recruit' && a.unitType === 'SUPPLY_TRUCK')
     ).length;
     if (logisticsPlanned2 === 0) {
@@ -3040,7 +3129,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
     // 3) Last fallback: queue truck.
     const logisticsPlanned3 = actions.filter(a =>
-      (a.type === 'build' && ['ROAD','SUPPLY_DEPOT','SUPPLY_WAREHOUSE'].includes(a.buildingType)) ||
+      (a.type === 'build' && ['ROAD','SUPPLY_DEPOT','SUPPLY_WAREHOUSE','SUPPLY_PORT'].includes(a.buildingType)) ||
       (a.type === 'recruit' && a.unitType === 'SUPPLY_TRUCK')
     ).length;
     if (logisticsPlanned3 === 0) {
@@ -3200,7 +3289,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const u = unitById.get(a.unitId);
       if (u?.type === 'ENGINEER') {
         if (a.buildingType === 'ROAD') aiDebug.engineerAssignments.road += 1;
-        else if (a.buildingType === 'SUPPLY_DEPOT' || a.buildingType === 'SUPPLY_WAREHOUSE') aiDebug.engineerAssignments.fob += 1;
+        else if (a.buildingType === 'SUPPLY_DEPOT' || a.buildingType === 'SUPPLY_WAREHOUSE' || a.buildingType === 'SUPPLY_PORT') aiDebug.engineerAssignments.fob += 1;
         else if (a.buildingType === 'MINE' || a.buildingType === 'OIL_PUMP' || a.buildingType === 'FARM' || a.buildingType === 'LUMBER_CAMP') aiDebug.engineerAssignments.resource += 1;
         else aiDebug.engineerAssignments.other += 1;
       }

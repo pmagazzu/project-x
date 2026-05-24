@@ -345,6 +345,7 @@ export const BUILDING_TYPES = {
   FARM:          { name: 'Farm',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 3, goldPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 3 }, color: 0x66aa44, sight: 2, placementTerrain: new Set([0, 6, 7]) }, // plains/sand/light woods only
   MARKET:        { name: 'Market',         ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 2, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 4 }, color: 0xddaa22, sight: 2 },
   PORT:          { name: 'Port',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 1, buildTurns: 3, canRecruit: [], buildCost: { iron: 5, oil: 1, wood: 4 }, color: 0x3d7fb0, sight: 2, coastalOnly: true, tier: 1 },
+  SUPPLY_PORT:   { name: 'Supply Port',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: [], buildCost: { iron: 6, oil: 2, wood: 3, components: 1 }, color: 0x5599cc, sight: 2, coastalOnly: true, supplyPort: true, supplyRadius: 3, fragile: true, tier: 1, requiresTech: 'supply_depot' },
   SCIENCE_LAB:   { name: 'Science Lab',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, rpPerTurn: 3,  buildTurns: 4, canRecruit: [], buildCost: { iron: 6, oil: 0, wood: 4 }, color: 0x8844cc, sight: 2 },
   FACTORY:       { name: 'Factory',        ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, componentsPerTurn: 1, buildTurns: 4, canRecruit: [], buildCost: { iron: 10, oil: 3, wood: 8 }, color: 0x666666, sight: 2, fragile: true },
   // Fortification tiers T0–T5 (~100 m hex): foxhole → superfortress
@@ -821,7 +822,7 @@ export function createUnit(type, owner, q, r) {
 
 export function createBuilding(type, owner, q, r) {
   const b = { id: _nextId++, type, owner, q, r };
-  if (type === 'SUPPLY_DEPOT' || type === 'SUPPLY_WAREHOUSE') {
+  if (type === 'SUPPLY_DEPOT' || type === 'SUPPLY_WAREHOUSE' || type === 'SUPPLY_PORT') {
     b.supplyReserve = 0;
     b.supplyLinked = false;
   }
@@ -1261,6 +1262,9 @@ export const DEPOT_SUPPLY_RADIUS = 4;
 export const WAREHOUSE_SUPPLY_RADIUS = 5;
 /** Turns a depot keeps projecting supply after its road link to HQ is cut. */
 export const DEPOT_SUPPLY_DRAIN_MAX = 3;
+/** Max water hexes between linked supply ports that bridge HQ road networks. */
+export const SUPPLY_PORT_BRIDGE_RANGE = 14;
+export const SUPPLY_PORT_SUPPLY_RADIUS = 3;
 
 /** Mobile / unit supply bubble radius (includes research unitStatBonus.supplyRadius). */
 export function getUnitSupplyRadius(state, player, unit) {
@@ -2960,6 +2964,7 @@ export const BUILDING_SUPPLY_RADIUS = {
   HQ: HQ_SUPPLY_RADIUS,
   SUPPLY_DEPOT: DEPOT_SUPPLY_RADIUS,
   SUPPLY_WAREHOUSE: WAREHOUSE_SUPPLY_RADIUS,
+  SUPPLY_PORT: SUPPLY_PORT_SUPPLY_RADIUS,
   BARRACKS: 4,
   VEHICLE_DEPOT: 4,
   AIRFIELD: 3,
@@ -3075,6 +3080,100 @@ export function buildHQRoadNetwork(state, player, mapSize) {
   return roadConnected;
 }
 
+/** Flood same-player road tiles reachable from a seed hex (land roads only). */
+function floodPlayerRoadsFrom(state, player, startQ, startR, roadConnected, isValid, isOwnedRoadHex) {
+  const queue = [];
+  const seedKey = `${startQ},${startR}`;
+  if (isValid(startQ, startR) && isOwnedRoadHex(startQ, startR) && !roadConnected.has(seedKey)) {
+    roadConnected.add(seedKey);
+    queue.push({ q: startQ, r: startR });
+  }
+  for (const [dq, dr] of HEX_NEIGHBORS) {
+    const nq = startQ + dq, nr = startR + dr;
+    if (!isValid(nq, nr) || !isOwnedRoadHex(nq, nr)) continue;
+    const nk = `${nq},${nr}`;
+    if (roadConnected.has(nk)) continue;
+    roadConnected.add(nk);
+    queue.push({ q: nq, r: nr });
+  }
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const nq = cur.q + dq, nr = cur.r + dr;
+      if (!isValid(nq, nr) || !isOwnedRoadHex(nq, nr)) continue;
+      const nk = `${nq},${nr}`;
+      if (roadConnected.has(nk)) continue;
+      roadConnected.add(nk);
+      queue.push({ q: nq, r: nr });
+    }
+  }
+}
+
+/** Linked supply ports bridge HQ road networks across water to other road-linked ports. */
+export function extendRoadNetworkWithSupplyPorts(state, player, mapSize, roadConnected) {
+  const ms = mapSize || state._mapSize || 25;
+  const _isValid = (q, r) => q >= 0 && r >= 0 && q < ms && r < ms;
+  const isWater = (q, r) => {
+    const t = state.terrain?.[`${q},${r}`] ?? 0;
+    return t === 4 || t === 5;
+  };
+  const isOwnedRoadHex = (q, r) => state.buildings.some(b =>
+    ROAD_TYPES.has(b.type) && b.q === q && b.r === r && Number(b.owner) === Number(player));
+
+  const ports = state.buildings.filter(b =>
+    b.type === 'SUPPLY_PORT' && Number(b.owner) === Number(player) && !b.underConstruction);
+  if (!ports.length) return roadConnected;
+
+  const linkedPorts = ports.filter(p => isDepotLinkedToHQRoad(p, roadConnected));
+  if (!linkedPorts.length) return roadConnected;
+
+  const findPortsViaWater = (fromPort, range) => {
+    const found = new Set();
+    const queue = [];
+    const visited = new Map();
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const nq = fromPort.q + dq, nr = fromPort.r + dr;
+      if (!_isValid(nq, nr) || !isWater(nq, nr)) continue;
+      const key = `${nq},${nr}`;
+      visited.set(key, range);
+      queue.push({ q: nq, r: nr, rem: range });
+    }
+    while (queue.length) {
+      const { q, r, rem } = queue.shift();
+      for (const p of ports) {
+        if (p === fromPort) continue;
+        if (hexDistance(q, r, p.q, p.r) <= 1) found.add(p);
+      }
+      if (rem <= 0) continue;
+      for (const [dq, dr] of HEX_NEIGHBORS) {
+        const nq = q + dq, nr = r + dr;
+        if (!_isValid(nq, nr) || !isWater(nq, nr)) continue;
+        const nk = `${nq},${nr}`;
+        const nextRem = rem - 1;
+        if (nextRem > (visited.get(nk) ?? -1)) {
+          visited.set(nk, nextRem);
+          queue.push({ q: nq, r: nr, rem: nextRem });
+        }
+      }
+    }
+    return found;
+  };
+
+  const bridged = new Set();
+  for (const src of linkedPorts) {
+    const reachable = findPortsViaWater(src, SUPPLY_PORT_BRIDGE_RANGE);
+    for (const dst of reachable) {
+      if (!isDepotLinkedToHQRoad(dst, roadConnected)) continue;
+      const pairKey = src.id < dst.id ? `${src.id}:${dst.id}` : `${dst.id}:${src.id}`;
+      if (bridged.has(pairKey)) continue;
+      bridged.add(pairKey);
+      roadConnected.add(`${dst.q},${dst.r}`);
+      floodPlayerRoadsFrom(state, player, dst.q, dst.r, roadConnected, _isValid, isOwnedRoadHex);
+    }
+  }
+  return roadConnected;
+}
+
 export function isDepotLinkedToHQRoad(building, roadConnected) {
   const keys = [`${building.q},${building.r}`];
   for (const [dq, dr] of HEX_NEIGHBORS) keys.push(`${building.q + dq},${building.r + dr}`);
@@ -3085,7 +3184,7 @@ export function isDepotLinkedToHQRoad(building, roadConnected) {
 export function tickSupplyDepotReserves(state, player, roadConnected) {
   const events = [];
   for (const b of state.buildings) {
-    if (b.type !== 'SUPPLY_DEPOT' && b.type !== 'SUPPLY_WAREHOUSE') continue;
+    if (b.type !== 'SUPPLY_DEPOT' && b.type !== 'SUPPLY_WAREHOUSE' && b.type !== 'SUPPLY_PORT') continue;
     if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
 
     const linked = isDepotLinkedToHQRoad(b, roadConnected);
@@ -3120,7 +3219,9 @@ export function computeSupply(state, player, mapSize) {
   const ms = mapSize || state._mapSize || 25;
   const _isValid = (q, r) => q >= 0 && r >= 0 && q < ms && r < ms;
 
-  const roadConnected = buildHQRoadNetwork(state, player, ms);
+  const roadConnected = extendRoadNetworkWithSupplyPorts(
+    state, player, ms, buildHQRoadNetwork(state, player, ms),
+  );
   const isRoadHex = (q, r) => roadConnected.has(`${q},${r}`);
 
   const hqs = state.buildings.filter(b =>
@@ -3180,12 +3281,14 @@ export function computeSupply(state, player, mapSize) {
 
   // Forward supply depots: road-linked to HQ, or draining onboard reserves after a cut.
   for (const b of state.buildings) {
-    if (b.type !== 'SUPPLY_DEPOT' && b.type !== 'SUPPLY_WAREHOUSE') continue;
+    if (b.type !== 'SUPPLY_DEPOT' && b.type !== 'SUPPLY_WAREHOUSE' && b.type !== 'SUPPLY_PORT') continue;
     if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
     const linked = isDepotLinkedToHQRoad(b, roadConnected);
     const reserve = linked ? DEPOT_SUPPLY_DRAIN_MAX : Math.max(0, b.supplyReserve ?? 0);
     if (reserve <= 0) continue;
-    const rad = b.type === 'SUPPLY_WAREHOUSE' ? WAREHOUSE_SUPPLY_RADIUS : DEPOT_SUPPLY_RADIUS;
+    const rad = b.type === 'SUPPLY_WAREHOUSE' ? WAREHOUSE_SUPPLY_RADIUS
+      : b.type === 'SUPPLY_PORT' ? SUPPLY_PORT_SUPPLY_RADIUS
+      : DEPOT_SUPPLY_RADIUS;
     supplied.add(`${b.q},${b.r}`);
     hexRadiusFlood(supplied, b.q, b.r, rad, _isValid);
   }

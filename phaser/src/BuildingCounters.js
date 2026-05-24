@@ -16,6 +16,7 @@ export const BUILDING_COUNTER_GLYPH = {
   NAVAL_DOCKYARD: 'Nd',
   HARBOR: 'Hb',
   PORT: 'Pt',
+  SUPPLY_PORT: 'Sp',
   DRY_DOCK: 'Dd',
   NAVAL_BASE: 'Nb',
   OBS_POST: 'Ob',

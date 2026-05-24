@@ -33,7 +33,7 @@ import {
 } from './CombatUI.js';
 import { renderCombatPreviewPanel, renderCombatResultPanel } from './CombatPanelUI.js';
 import { getVictoryPointLeader } from './VictoryPoints.js';
-import { PLAYER_LABELS, VICTORY_MODES, clampPlayerCount } from './GameConfig.js';
+import { PLAYER_LABELS, VICTORY_MODES, clampPlayerCount, getPlayerIds } from './GameConfig.js';
 import { pickBalancedSpawnPoints, pickBalancedVictoryZones, pickIslandSpawnPoints, MIN_ISLAND_LAND_TILES } from './SpawnBalance.js';
 import { getBuildingCounterGlyph } from './BuildingCounters.js';
 
@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.12.2';
+export const GAME_VERSION = 'v1.13.0';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -1351,8 +1351,33 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  _invalidateSupplyCache() {
+    this._supplyCache = null;
+    this._supplyCacheKey = null;
+  }
+
+  _getCachedSupply(player) {
+    const gs = this.gameState;
+    const key = `${gs.turn}|${gs.buildings.length}|${gs.units.length}`;
+    if (this._supplyCacheKey !== key) {
+      this._supplyCacheKey = key;
+      this._supplyCache = {};
+    }
+    const p = Number(player);
+    if (!this._supplyCache[p]) {
+      this._supplyCache[p] = computeSupply(gs, p, this.mapSize);
+    }
+    return this._supplyCache[p];
+  }
+
   // ── Full refresh ──────────────────────────────────────────────────────────
-  _refresh() {
+  _refresh(opts = {}) {
+    if (opts.light) {
+      this._updateTopBar();
+      this._updateBottomPanel();
+      return;
+    }
+    this._invalidateSupplyCache();
     // Normalize currentPlayer defensively (prevents '2' string vs 2 number bugs across visibility logic)
     this.gameState.currentPlayer = Number(this.gameState.currentPlayer) || 1;
     this.gameState._terrain = this.terrain;
@@ -1365,16 +1390,24 @@ export class GameScene extends Phaser.Scene {
     } else {
       this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
       // Track discovered hex memory per player (used for fogged-road visibility)
-      this._discovered = this._discovered || { 1: new Set(), 2: new Set() };
+      this._discovered = this._discovered || {};
       const cp = Number(this.gameState.currentPlayer) || 1;
+      if (!this._discovered[cp]) this._discovered[cp] = new Set();
+      for (const pid of getPlayerIds(this.gameState)) {
+        if (!this._discovered[pid]) this._discovered[pid] = new Set();
+      }
       for (const k of this._currentFog || []) this._discovered[cp].add(k);
       if (this.fogRT) this.fogRT.setVisible(true);
+      this._fogDirty = true;
     }
     this._redrawHighlights();
     this._redrawRoads();
     this._redrawBuildings();
     this._redrawUnits();
-    this._redrawFog();
+    if (this._fogDirty) {
+      this._redrawFog();
+      this._fogDirty = false;
+    }
     this._drawSupplyOverlay();
     this._updateTopBar();
     this._updateBottomPanel();
@@ -1390,7 +1423,7 @@ export class GameScene extends Phaser.Scene {
     const p  = gs.currentPlayer;
     const ms = this.mapSize;
     if (!gs.supplyEnabled) return;
-    const supplied = computeSupply(gs, p, ms);
+    const supplied = this._getCachedSupply(p);
     const NBR = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
 
     // 1) Base area fill (draw full set; no viewport cull to avoid camera-dependent artifacts)
@@ -1728,7 +1761,7 @@ export class GameScene extends Phaser.Scene {
   // Compute camera viewport bounds in world space from scroll+zoom directly.
   // Using camera.worldView can return stale/zero dimensions during input event handlers,
   // causing all units/buildings to fail the cull check and disappear.
-  _vpBounds(buf = HEX_SIZE * 3) {
+  _vpBounds(buf = HEX_SIZE * 4) {
     const cam = this.cameras.main;
     const cw  = cam.width  || this.scale.width;
     const ch  = cam.height || this.scale.height;
@@ -1837,8 +1870,7 @@ export class GameScene extends Phaser.Scene {
         // Fog-of-war: hide enemy buildings only when fog set is valid/non-empty
         if (fog && fog.size > 0 && Number(b.owner) !== curP && !fog.has(`${b.q},${b.r}`)) continue;
         const { x, y } = hexToWorld(b.q, b.r);
-        // TEMP safety: disable building viewport culling to prevent disappearance regressions
-        // if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
+        if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
         const color = PLAYER_COLORS[b.owner] || 0x888888;
         const s = HEX_SIZE * 0.3;
 
@@ -1944,10 +1976,11 @@ export class GameScene extends Phaser.Scene {
     this._unitTierLabels = [];
     const gs  = this.gameState;
     const fog = this._currentFog;
-    const supplyByOwner = gs.supplyEnabled === false ? { 1: null, 2: null } : {
-      1: computeSupply(gs, 1, this.mapSize),
-      2: computeSupply(gs, 2, this.mapSize),
-    };
+    const supplyByOwner = gs.supplyEnabled === false ? {} : (() => {
+      const out = {};
+      for (const pid of getPlayerIds(gs)) out[pid] = this._getCachedSupply(pid);
+      return out;
+    })();
 
     // Build stacked-hex map: key "q,r" -> count of non-embarked visible units on that hex
     const _stackCount = new Map();
@@ -1994,8 +2027,7 @@ export class GameScene extends Phaser.Scene {
         x = basePos.x;
         y = basePos.y;
       }
-      // TEMP safety: disable unit viewport culling to prevent disappearance regressions
-      // if (x < _uvpL || x > _uvpR || y < _uvpT || y > _uvpB) continue;
+      if (x < _uvpL || x > _uvpR || y < _uvpT || y > _uvpB) continue;
 
       const color = PLAYER_COLORS[unit.owner];
       const dim   = (Number(unit.owner) !== Number(gs.currentPlayer));
@@ -4638,6 +4670,8 @@ export class GameScene extends Phaser.Scene {
         allOpts.push({ label: `Barbed Wire 1🪵`, cost:{iron:0,oil:0,wood:1}, enabled: wood>=1, cb: () => this._onBuildStructure('BARBED_WIRE',0,0,1) });
       if (unlocked.has('supply_depot') && noBuilding)
         allOpts.push({ label: `Supply Depot 3⚙ 1🛢 1🪵 (HQ road, +4)`, cost:{iron:3,oil:1,wood:1}, enabled: iron>=3&&oil>=1&&wood>=1, cb: () => this._onBuildStructure('SUPPLY_DEPOT',3,1,1) });
+      if (unlocked.has('supply_depot') && noBuilding && coastal)
+        allOpts.push({ label: `Supply Port 6⚙ 2🛢 3🪵 1🧩 (bridge supply)`, cost:{iron:6,oil:2,wood:3,components:1}, enabled: iron>=6&&oil>=2&&wood>=3&&comp>=1, cb: () => this._onBuildStructure('SUPPLY_PORT',6,2,3,1) });
       addHeader('POPULATION & HOUSING');
       const popLine = (key, label, cost, extra = '') => {
         const d = BUILDING_TYPES[key];
@@ -6867,7 +6901,8 @@ export class GameScene extends Phaser.Scene {
       }
     }
     const NAVAL_FACILITIES = new Set(['NAVAL_YARD','HARBOR','DRY_DOCK','NAVAL_BASE','NAVAL_DOCKYARD']);
-    if (NAVAL_FACILITIES.has(type) && !this._isCoastalHex(u.q, u.r)) {
+    const coastalBuildings = new Set([...NAVAL_FACILITIES, 'PORT', 'SUPPLY_PORT']);
+    if (coastalBuildings.has(type) && !this._isCoastalHex(u.q, u.r)) {
       this._log.unshift('Build failed: naval facilities require a coastal hex');
       this._log = this._log.slice(0, 8);
       this._refresh();
@@ -7619,7 +7654,7 @@ export class GameScene extends Phaser.Scene {
       const unit = gs.units.find(u => u.id === action.unitId);
       if (unit && UNIT_TYPES[unit.type]?.canDigIn) {
         unit.dugIn = true; unit.moved = true;
-        this._refresh();
+        this._redrawUnits();
       }
       next();
 
@@ -7683,7 +7718,9 @@ export class GameScene extends Phaser.Scene {
 
       unit.moved = true;
       unit.building = true;
-      this._refresh();
+      this._invalidateSupplyCache();
+      this._redrawRoads();
+      this._redrawBuildings();
       this._scheduleAIStep(120, next, turnId);
 
     } else if (action.type === 'design') {
@@ -9172,6 +9209,11 @@ export class GameScene extends Phaser.Scene {
         terrain: map,
         isWalkable,
         isValid,
+        isLand: (q, r) => {
+          const t = map[`${q},${r}`];
+          return t !== 4 && t !== 5;
+        },
+        islandMode,
       });
     }
     this._drawVictoryZones();
