@@ -33,7 +33,8 @@ import {
 } from './CombatUI.js';
 import { renderCombatPreviewPanel, renderCombatResultPanel } from './CombatPanelUI.js';
 import { getVictoryPointLeader } from './VictoryPoints.js';
-import { PLAYER_LABELS, VICTORY_MODES, clampPlayerCount, victoryZonesForSpawns } from './GameConfig.js';
+import { PLAYER_LABELS, VICTORY_MODES, clampPlayerCount } from './GameConfig.js';
+import { pickBalancedSpawnPoints, pickBalancedVictoryZones } from './SpawnBalance.js';
 import { getBuildingCounterGlyph } from './BuildingCounters.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -44,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.12.0';
+export const GAME_VERSION = 'v1.12.1';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -8745,8 +8746,7 @@ export class GameScene extends Phaser.Scene {
 
   _pickNSpawnPoints(playerCount, ctx) {
     const { ms, map, isWalkable, _walkCompSize, minSpawnComp, NEIGHBORS } = ctx;
-    const n = Math.max(2, Math.min(6, playerCount));
-    const centerQ = ms / 2, centerR = ms / 2;
+    const center = Math.floor(ms / 2);
 
     const candidates = [];
     for (let q = 1; q < ms - 1; q++) {
@@ -8756,97 +8756,33 @@ export class GameScene extends Phaser.Scene {
         if (compSize < minSpawnComp) continue;
         const walkNeighbors = NEIGHBORS.filter(([dq, dr]) => isWalkable(q + dq, r + dr)).length;
         if (walkNeighbors < 4) continue;
-        candidates.push({
-          q, r, compSize, walkNeighbors,
-          angle: Math.atan2(r - centerR, q - centerQ),
-        });
+        candidates.push({ q, r, compSize, walkNeighbors });
       }
     }
 
-    const minSep = Math.max(8, Math.floor(ms * 0.48 / Math.sqrt(n)));
-    const picked = [];
+    const picked = pickBalancedSpawnPoints({
+      mapSize: ms,
+      playerCount,
+      candidates,
+      twoPlayerBands: true,
+      isWalkable,
+      walkCompSize: _walkCompSize,
+      minSpawnComp,
+    });
 
-    const scoreForSector = (c, sectorIdx) => {
-      const targetAngle = (2 * Math.PI * sectorIdx) / n - Math.PI / 2;
-      let diff = Math.abs(c.angle - targetAngle);
-      if (diff > Math.PI) diff = 2 * Math.PI - diff;
-      const centerR2 = Math.floor(ms / 2);
-      return c.walkNeighbors * 10 + Math.min(30, c.compSize * 0.08)
-        - Math.abs(c.r - centerR2) * 0.35 - diff * 18;
-    };
+    if (picked.length >= playerCount) return picked;
 
-    const pickBestInSector = (sectorIdx, excludeKeys) => {
-      let best = null, bestScore = -Infinity;
-      for (const c of candidates) {
-        const key = `${c.q},${c.r}`;
-        if (excludeKeys.has(key)) continue;
-        let ok = true;
-        for (const p of picked) {
-          const d = Math.abs(c.q - p.q) + Math.abs(c.r - p.r);
-          if (d < minSep) { ok = false; break; }
-        }
-        if (!ok) continue;
-        const score = scoreForSector(c, sectorIdx);
-        if (score > bestScore) { bestScore = score; best = { q: c.q, r: c.r }; }
-      }
-      return best;
-    };
-
-    // Two-player maps: keep classic left/right bands when possible.
-    if (n === 2) {
-      const findSpawnBand = (qMin, qMax) => {
-        const centerR = Math.floor(ms / 2);
-        let best = null, bestScore = -Infinity;
-        for (let q = qMin; q <= qMax; q++) {
-          for (let r = 1; r < ms - 1; r++) {
-            if (!isWalkable(q, r)) continue;
-            const compSize = _walkCompSize(q, r);
-            if (compSize < minSpawnComp) continue;
-            const walkNeighbors = NEIGHBORS.filter(([dq, dr]) => isWalkable(q + dq, r + dr)).length;
-            if (walkNeighbors < 4) continue;
-            const score = walkNeighbors * 10 - Math.abs(r - centerR) + Math.min(30, compSize * 0.08);
-            if (score > bestScore) { bestScore = score; best = { q, r }; }
-          }
-        }
-        return best;
-      };
-      let p1 = findSpawnBand(Math.floor(ms * 0.08), Math.floor(ms * 0.28));
-      let p2 = findSpawnBand(Math.floor(ms * 0.72), Math.floor(ms * 0.92));
-      if (p1 && p2) return [p1, p2];
-    }
-
-    const used = new Set();
+    // Hard fallback: perimeter ring, never map center.
+    const n = Math.max(2, Math.min(6, playerCount));
+    const fallback = [];
     for (let i = 0; i < n; i++) {
-      let pt = pickBestInSector(i, used);
-      if (!pt && candidates.length) {
-        // Fallback: farthest from existing picks
-        let best = null, bestMin = -1;
-        for (const c of candidates) {
-          const key = `${c.q},${c.r}`;
-          if (used.has(key)) continue;
-          let minD = Infinity;
-          for (const p of picked) minD = Math.min(minD, Math.abs(c.q - p.q) + Math.abs(c.r - p.r));
-          if (minD > bestMin) { bestMin = minD; best = { q: c.q, r: c.r }; }
-        }
-        pt = best;
-      }
-      if (pt) {
-        picked.push(pt);
-        used.add(`${pt.q},${pt.r}`);
-      }
+      const angle = (2 * Math.PI * i) / n - Math.PI / 2;
+      const q = Math.max(2, Math.min(ms - 3, Math.round(center + Math.cos(angle) * ms * 0.38)));
+      const r = Math.max(2, Math.min(ms - 3, Math.round(center + Math.sin(angle) * ms * 0.28)));
+      map[`${q},${r}`] = 0;
+      fallback.push({ q, r });
     }
-
-    // Hard fallback if terrain is barren
-    while (picked.length < n) {
-      const idx = picked.length;
-      const fb = {
-        q: Math.max(2, Math.min(ms - 3, Math.round(ms * (0.12 + idx * (0.76 / Math.max(1, n - 1)))))),
-        r: Math.floor(ms / 2),
-      };
-      map[`${fb.q},${fb.r}`] = 0;
-      picked.push(fb);
-    }
-    return picked;
+    return fallback;
   }
 
   // ── Proc-gen spawn placement ──────────────────────────────────────────────
@@ -9204,7 +9140,13 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (gs.victoryMode === VICTORY_MODES.POINTS) {
-      gs.victoryZones = victoryZonesForSpawns(ms, spawnPoints);
+      gs.victoryZones = pickBalancedVictoryZones({
+        mapSize: ms,
+        spawns: spawnPoints,
+        terrain: map,
+        isWalkable,
+        isValid,
+      });
     }
     this._drawVictoryZones();
 
