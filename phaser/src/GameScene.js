@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.15.0';
+export const GAME_VERSION = 'v1.15.1';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -201,6 +201,9 @@ export class GameScene extends Phaser.Scene {
     this._aiLabExport = !!data.aiLabExport;
     this._startSupplyTruck = !!data.startSupplyTruck;
     this._aiLabTurns = [];
+    this._runHistory = [];
+    this._aiLastPlans = {};
+    this._maxRunHistoryTurns = 300;
     if (this._mapBuilderMode) this.debugNoFog = true;
     this._customMapData = data.customMap || null;
     // Map sizes per scenario
@@ -2783,6 +2786,7 @@ export class GameScene extends Phaser.Scene {
     ];
     if (this.aiPlayers?.size >= 1) {
       defs.push({ label: '🤖 AI LAB', color: 0x2a1844, cb: () => this._toggleAIOverview() });
+      defs.push({ label: '📥 EXPORT JSON', color: 0x1a3344, cb: () => this._downloadRunJson('manual') });
     }
     defs.forEach((d, i) => {
       const btn = this._makeBtn(w - 248, 74 + i * 28, d.label, d.color, () => {
@@ -5046,8 +5050,8 @@ export class GameScene extends Phaser.Scene {
       objs.push(sb);
     });
 
-    const dlBtn = this.add.text(w/2, h/2 + panelH/2 - 66, '[ DOWNLOAD JSON REPORT ]', {
-      font: 'bold 12px monospace', fill: '#ffffff', backgroundColor: '#2a4a6a', padding: { x: 12, y: 6 }
+    const dlBtn = this.add.text(w/2, h/2 + panelH/2 - 66, '📥 DOWNLOAD JSON REPORT', {
+      font: 'bold 15px monospace', fill: '#ffffff', backgroundColor: '#2a4a6a', padding: { x: 14, y: 8 }
     }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor: true });
     dlBtn.on('pointerdown', () => this._downloadRunJson('manual'));
     dlBtn.on('pointerover', () => dlBtn.setAlpha(0.8));
@@ -5120,35 +5124,44 @@ export class GameScene extends Phaser.Scene {
     const rows = buildAIOverviewForGame(gs, this.terrain, this.mapSize, this.aiPlayers, this.aiStrategies);
     const w = this.scale.width, h = this.scale.height;
     const D = 222;
-    const panW = Math.min(420, Math.floor(w * 0.42));
-    const panH = Math.min(h - 70, 560);
-    const px = w - panW / 2 - 12;
-    const py = 74 + panH / 2;
+    const panW = Math.min(620, Math.floor(w * 0.52));
+    const panH = Math.min(h - 48, Math.floor(h * 0.82));
+    const px = w - panW / 2 - 14;
+    const py = 52 + panH / 2;
     const objs = [];
 
     const bg = this.add.rectangle(px, py, panW, panH, 0x100818, 0.98)
-      .setStrokeStyle(2, 0x6644aa).setScrollFactor(0).setDepth(D).setInteractive();
+      .setStrokeStyle(3, 0x8866cc).setScrollFactor(0).setDepth(D).setInteractive();
     bg.on('pointerdown', () => { this._contextMenuClicked = true; });
     objs.push(bg);
 
-    objs.push(this.add.text(px, py - panH / 2 + 16, '🤖 AI LAB (DEV)', {
-      font: 'bold 14px monospace', fill: '#e8d4ff',
+    objs.push(this.add.text(px, py - panH / 2 + 22, '🤖 AI LAB', {
+      font: 'bold 24px monospace', fill: '#f0e0ff',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 1));
 
-    const closeBtn = this.add.text(px + panW / 2 - 12, py - panH / 2 + 16, '✕', {
-      font: 'bold 16px monospace', fill: '#aaaaaa',
+    const closeBtn = this.add.text(px + panW / 2 - 16, py - panH / 2 + 22, '✕', {
+      font: 'bold 22px monospace', fill: '#cccccc',
     }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D + 2).setInteractive({ useHandCursor: true });
     closeBtn.on('pointerdown', () => { this._contextMenuClicked = true; this._closeAIOverview(); });
     objs.push(closeBtn);
 
-    const turnLine = this.add.text(px, py - panH / 2 + 36, `Turn ${gs.turn} · ${rows.length} AI`, {
-      font: '10px monospace', fill: '#9988bb',
+    const histN = (this._runHistory?.length || 0) + (this._aiLabTurns?.length || 0);
+    const turnLine = this.add.text(px, py - panH / 2 + 52, `Turn ${gs.turn} · ${rows.length} AI · ${histN} turns logged`, {
+      font: '15px monospace', fill: '#bbaadd',
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(D + 1);
     objs.push(turnLine);
 
-    let y = py - panH / 2 + 54;
-    const left = px - panW / 2 + 14;
-    const wrap = panW - 28;
+    const dlBtn = this.add.text(px - panW / 2 + 20, py - panH / 2 + 50, '📥 DOWNLOAD JSON', {
+      font: 'bold 14px monospace', fill: '#ffffff', backgroundColor: '#2a4a6a', padding: { x: 10, y: 6 },
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 2).setInteractive({ useHandCursor: true });
+    dlBtn.on('pointerdown', () => { this._contextMenuClicked = true; this._downloadRunJson('ai-lab'); });
+    dlBtn.on('pointerover', () => dlBtn.setAlpha(0.85));
+    dlBtn.on('pointerout', () => dlBtn.setAlpha(1));
+    objs.push(dlBtn);
+
+    let y = py - panH / 2 + 88;
+    const left = px - panW / 2 + 20;
+    const wrap = panW - 40;
 
     const missionStr = (m) => {
       const parts = Object.entries(m || {}).filter(([, n]) => n > 0).map(([k, n]) => `${k}:${n}`);
@@ -5156,7 +5169,7 @@ export class GameScene extends Phaser.Scene {
     };
 
     for (const row of rows) {
-      if (y > py + panH / 2 - 24) break;
+      if (y > py + panH / 2 - 36) break;
       const econ = row.economy || {};
       const bud = row.armyBudget || {};
       const block = [
@@ -5173,18 +5186,18 @@ export class GameScene extends Phaser.Scene {
         `Designs: ${row.designs?.length ? row.designs.map(d => d.name).join(', ') : 'none'}`,
       ].join('\n');
       const t = this.add.text(left, y, block, {
-        font: '9px monospace', fill: '#d8cce8', wordWrap: { width: wrap }, lineSpacing: 2,
+        font: '13px monospace', fill: '#e8dcf8', wordWrap: { width: wrap }, lineSpacing: 5,
       }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 1);
       objs.push(t);
-      y += t.height + 10;
-      objs.push(this.add.rectangle(px, y - 5, panW - 24, 1, 0x443366, 0.6)
+      y += t.height + 14;
+      objs.push(this.add.rectangle(px, y - 6, panW - 32, 2, 0x554477, 0.7)
         .setScrollFactor(0).setDepth(D + 1));
-      y += 4;
+      y += 6;
     }
 
     if (!rows.length) {
       objs.push(this.add.text(px, py, 'No AI players in this match.', {
-        font: '11px monospace', fill: '#887799',
+        font: '16px monospace', fill: '#9988aa',
       }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 1));
     }
 
@@ -7322,25 +7335,183 @@ export class GameScene extends Phaser.Scene {
     return false;
   }
 
+  _summarizeAIAction(a) {
+    if (!a || !a.type) return null;
+    switch (a.type) {
+      case 'move': return { type: 'move', unitId: a.unitId, to: [a.q, a.r] };
+      case 'attack': return { type: 'attack', unitId: a.unitId, target: [a.targetQ ?? a.q, a.targetR ?? a.r] };
+      case 'build': return { type: 'build', buildingType: a.buildingType, at: [a.q, a.r], unitId: a.unitId };
+      case 'recruit': return { type: 'recruit', unitType: a.unitType, buildingId: a.buildingId };
+      case 'research_queue': return { type: 'research_queue', techId: a.techId };
+      case 'design': return { type: 'design', chassis: a.chassis, name: a.name };
+      case 'transport_load': return { type: 'transport_load', transportId: a.transportId, cargoUnitId: a.cargoUnitId };
+      case 'transport_unload': return { type: 'transport_unload', transportId: a.transportId };
+      default: return { type: a.type };
+    }
+  }
+
+  _snapshotPlayerEconomy(gs, p) {
+    const pl = gs.players?.[p] || {};
+    const inc = calcIncome(gs, p);
+    const upk = calcUpkeep(gs, p);
+    const units = gs.units.filter(u => Number(u.owner) === p && !u.embarked);
+    const combat = units.filter(u => {
+      const d = UNIT_TYPES[u.type] || {};
+      return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
+    });
+    const byType = {};
+    for (const u of units) { byType[u.type] = (byType[u.type] || 0) + 1; }
+    const bld = gs.buildings.filter(b => Number(b.owner) === p);
+    const bldCounts = {};
+    for (const b of bld) { bldCounts[b.type] = (bldCounts[b.type] || 0) + 1; }
+    const res = pl.research || {};
+    const techTree = gs._techTree || TECH_TREE || {};
+    return {
+      resources: {
+        iron: pl.iron || 0, oil: pl.oil || 0, wood: pl.wood || 0, food: pl.food || 0,
+        components: pl.components || 0, rp: pl.rp || 0, gold: pl.gold || 0,
+        hardenedSteel: pl.hardenedSteel || 0, aviationAlloy: pl.aviationAlloy || 0,
+      },
+      income: inc,
+      upkeep: upk,
+      net: {
+        iron: +(inc.iron - upk.iron).toFixed(2),
+        oil: +(inc.oil - upk.oil).toFixed(2),
+        food: +((inc.food || 0) - (upk.food || 0)).toFixed(2),
+        rp: +(inc.rp || 0).toFixed(2),
+      },
+      units: units.length,
+      combatUnits: combat.length,
+      unsupplied: units.filter(u => (u.outOfSupply || 0) > 0).length,
+      unitTypes: byType,
+      buildings: bldCounts,
+      research: {
+        queue: (res.queue || []).map(item => {
+          const tech = techTree[item.techId];
+          const pct = tech ? Math.min(100, Math.round(((item.rpSpent || 0) / tech.cost) * 100)) : 0;
+          return { techId: item.techId, name: tech?.name || item.techId, pct };
+        }),
+        unlockedCount: (res.unlocked || []).length,
+      },
+      designs: (gs.designs[p] || []).map(d => ({
+        name: d.name, chassis: d.chassis, role: d.aiRole || 'custom', tier: d.effectiveTier,
+      })),
+      victoryPoints: gs.victoryPoints?.[p] ?? null,
+    };
+  }
+
+  _recordTurnSnapshot(endingPlayer) {
+    const gs = this.gameState;
+    if (!gs) return;
+    const snapTurn = this._autoStopTurn > 0 ? Math.min(gs.turn, this._autoStopTurn) : gs.turn;
+    const playerIds = getPlayerIds(gs);
+    const players = {};
+    for (const p of playerIds) {
+      players[p] = this._snapshotPlayerEconomy(gs, p);
+    }
+    const ai = {};
+    for (const p of this.aiPlayers) {
+      ai[p] = {
+        strategy: this.aiStrategies[p] || this.aiStrategy,
+        debug: gs._aiDebug?.[p] ? JSON.parse(JSON.stringify(gs._aiDebug[p])) : null,
+        telemetry: this._aiTelemetry?.[p] ? { ...this._aiTelemetry[p] } : null,
+        lastPlan: this._aiLastPlans?.[p] ? { ...this._aiLastPlans[p] } : null,
+      };
+    }
+    const entry = {
+      turn: snapTurn,
+      endingPlayer,
+      currentPlayer: gs.currentPlayer,
+      phase: gs.phase,
+      players,
+      ai,
+      aiOverview: buildAIOverviewForGame(gs, this.terrain, this.mapSize, this.aiPlayers, this.aiStrategies),
+      victoryPoints: gs.victoryMode === VICTORY_MODES.POINTS ? { ...gs.victoryPoints } : undefined,
+    };
+    this._runHistory = this._runHistory || [];
+    this._runHistory.push(entry);
+    const cap = this._maxRunHistoryTurns || 300;
+    if (this._runHistory.length > cap) {
+      this._runHistory.splice(0, this._runHistory.length - cap);
+    }
+    // Legacy AI-lab harness field (same data, richer format in _runHistory)
+    if (this._aiLabExport) {
+      this._aiLabTurns.push(entry);
+    }
+  }
+
+  _compactCombatLog(limit = 120) {
+    const hist = this._combatHistory || [];
+    return hist.slice(-limit).map(e => {
+      if (!e?.entry) return { turn: e?.turn, type: e?.type || 'unknown' };
+      const x = e.entry;
+      return {
+        turn: e.turn ?? this.gameState?.turn,
+        attacker: `${x.attackerName || x.attackerType} P${x.attackerOwner}`,
+        target: `${x.targetName || x.targetType} P${x.targetOwner}`,
+        dmg: x.dmg, attackerDmg: x.attackerDmg, score: x.score,
+        fort: x.fortName || null,
+      };
+    });
+  }
+
   _buildRunPayload(reason = 'manual') {
     const gs = this.gameState;
-    const outTurn = (reason === 'ai-lab-auto-stop' && this._autoStopTurn > 0) ? Math.min(gs.turn, this._autoStopTurn) : gs.turn;
+    const outTurn = (reason === 'ai-lab-auto-stop' && this._autoStopTurn > 0)
+      ? Math.min(gs.turn, this._autoStopTurn) : gs.turn;
+    const playerIds = getPlayerIds(gs);
+    const playersNow = {};
+    for (const p of playerIds) {
+      playersNow[p] = this._snapshotPlayerEconomy(gs, p);
+    }
+    const history = (this._runHistory?.length ? this._runHistory : this._aiLabTurns) || [];
     return {
-      reason,
-      version: GAME_VERSION,
+      meta: {
+        reason,
+        exportedAt: new Date().toISOString(),
+        version: GAME_VERSION,
+        turn: outTurn,
+        mapSize: this.mapSize,
+        scenario: this.scenario,
+        playerCount: this.playerCount,
+        humanPlayer: this.humanPlayer,
+        aiPlayers: [...this.aiPlayers],
+        aiStrategies: { ...this.aiStrategies },
+        aiStrategy: this.aiStrategy,
+        victoryMode: gs.victoryMode,
+        victoryPointTarget: gs.victoryPointTarget,
+        supplyEnabled: gs.supplyEnabled,
+        mapSeed: this.mapSeed || 0,
+      },
       turn: outTurn,
-      mapSize: this.mapSize,
-      scenario: this.scenario,
-      aiStrategy: this.aiStrategy,
-      turns: this._aiLabTurns,
+      // Per-turn timeline: economy, AI debug, missions, plans
+      turns: history,
+      // Current snapshot (even mid-game manual export)
+      current: {
+        players: playersNow,
+        aiOverview: buildAIOverviewForGame(gs, this.terrain, this.mapSize, this.aiPlayers, this.aiStrategies),
+        aiDebug: gs._aiDebug ? JSON.parse(JSON.stringify(gs._aiDebug)) : {},
+        lastAiPlans: { ...(this._aiLastPlans || {}) },
+        victoryPoints: gs.victoryPoints ? { ...gs.victoryPoints } : undefined,
+        victoryZones: (gs.victoryZones || []).map(z => ({ q: z.q, r: z.r, pointsPerTurn: z.pointsPerTurn })),
+      },
       final: {
         players: gs.players,
-        units: gs.units,
-        buildings: gs.buildings,
+        units: gs.units.map(u => ({
+          id: u.id, type: u.type, owner: u.owner, q: u.q, r: u.r,
+          health: u.health, outOfSupply: u.outOfSupply || 0, embarked: !!u.embarked,
+        })),
+        buildings: gs.buildings.map(b => ({
+          id: b.id, type: b.type, owner: b.owner, q: b.q, r: b.r,
+          underConstruction: !!b.underConstruction,
+        })),
         resourceHexes: gs.resourceHexes,
       },
       telemetry: this._aiTelemetry || {},
-      log: this._log || [],
+      combatLog: this._compactCombatLog(150),
+      gameLog: (this._log || []).slice(-400),
+      // Back-compat alias
+      log: (this._log || []).slice(-400),
     };
   }
 
@@ -7356,20 +7527,32 @@ export class GameScene extends Phaser.Scene {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+    const turns = payload.turns?.length || 0;
+    this._pushLog(`📥 JSON exported (${(txt.length / 1024).toFixed(0)} KB, ${turns} turns logged)`);
   }
 
   _showAILabExport(reason = 'ai-lab-auto-stop', titleText = null) {
     const gs = this.gameState;
 
     const w = this.scale.width, h = this.scale.height;
-    const bg = this.add.rectangle(w/2, h/2, 600, 196, 0x0d1118, 0.96).setScrollFactor(0).setDepth(220).setStrokeStyle(2, 0x446688);
+    const boxW = Math.min(760, w - 40);
+    const boxH = 280;
+    const bg = this.add.rectangle(w/2, h/2, boxW, boxH, 0x0d1118, 0.97).setScrollFactor(0).setDepth(220).setStrokeStyle(3, 0x6688cc);
     const defaultTitle = reason === 'game-end'
-      ? `AI LAB RUN COMPLETE (GAME ENDED · TURN ${gs.turn})`
-      : `AI LAB RUN COMPLETE (AUTO-STOP · TURN ${gs.turn})`;
-    const title = this.add.text(w/2, h/2 - 62, titleText || defaultTitle, { font: 'bold 16px monospace', fill: '#d0e6ff' }).setOrigin(0.5).setScrollFactor(0).setDepth(221);
-    const sub = this.add.text(w/2, h/2 - 28, 'Download JSON report now, or close and continue.', { font: '12px monospace', fill: '#8fb1d6' }).setOrigin(0.5).setScrollFactor(0).setDepth(221);
-    const dl = this.add.text(w/2, h/2 + 14, '[ DOWNLOAD REPORT ]', { font: 'bold 13px monospace', fill: '#ffffff', backgroundColor: '#2a4a6a', padding: {x: 12, y: 8} }).setOrigin(0.5).setScrollFactor(0).setDepth(221).setInteractive({ useHandCursor: true });
-    const close = this.add.text(w/2, h/2 + 58, '[ CLOSE ]', { font: '12px monospace', fill: '#bbbbbb', backgroundColor: '#222222', padding: {x: 10, y: 6} }).setOrigin(0.5).setScrollFactor(0).setDepth(221).setInteractive({ useHandCursor: true });
+      ? `RUN COMPLETE — GAME ENDED · TURN ${gs.turn}`
+      : `RUN COMPLETE — AUTO-STOP · TURN ${gs.turn}`;
+    const title = this.add.text(w/2, h/2 - 88, titleText || defaultTitle, {
+      font: 'bold 24px monospace', fill: '#e8f4ff', wordWrap: { width: boxW - 48 },
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(221);
+    const sub = this.add.text(w/2, h/2 - 36, 'Download the full JSON report (economy timeline, AI decisions, combat log).', {
+      font: '16px monospace', fill: '#9fb8d8', wordWrap: { width: boxW - 56 }, align: 'center',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(221);
+    const dl = this.add.text(w/2, h/2 + 28, '📥 DOWNLOAD JSON REPORT', {
+      font: 'bold 18px monospace', fill: '#ffffff', backgroundColor: '#2a5a8a', padding: { x: 18, y: 12 },
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(221).setInteractive({ useHandCursor: true });
+    const close = this.add.text(w/2, h/2 + 88, 'CLOSE', {
+      font: 'bold 15px monospace', fill: '#cccccc', backgroundColor: '#333333', padding: { x: 16, y: 10 },
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(221).setInteractive({ useHandCursor: true });
     this._addToUI([bg, title, sub, dl, close]);
 
     dl.on('pointerdown', () => this._downloadRunJson(reason));
@@ -7396,60 +7579,9 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Capture turn snapshot for AI lab runs
-    if (this._aiLabExport) {
-      const snapPlayer = (p) => {
-        const pl = gs.players?.[p] || {};
-        const units = gs.units.filter(u => Number(u.owner) === p && !u.embarked);
-        return {
-          resources: { iron: pl.iron||0, oil: pl.oil||0, wood: pl.wood||0, food: pl.food||0, components: pl.components||0 },
-          units: units.length,
-          unsupplied: units.filter(u => (u.outOfSupply || 0) > 0).length,
-          roads: gs.buildings.filter(b => Number(b.owner) === p && b.type === 'ROAD').length,
-          mines: gs.buildings.filter(b => Number(b.owner) === p && b.type === 'MINE').length,
-          oils: gs.buildings.filter(b => Number(b.owner) === p && b.type === 'OIL_PUMP').length,
-          farms: gs.buildings.filter(b => Number(b.owner) === p && b.type === 'FARM').length,
-        };
-      };
-      const snapTurn = this._autoStopTurn > 0 ? Math.min(gs.turn, this._autoStopTurn) : gs.turn;
-      const compactMapState = () => {
-        const byPlayer = (p) => {
-          const units = gs.units.filter(u => Number(u.owner) === p && !u.embarked);
-          const buildings = gs.buildings.filter(b => Number(b.owner) === p);
-          const combat = units.filter(u => {
-            const d = UNIT_TYPES[u.type] || {};
-            return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
-          });
-          const centroid = (arr) => arr.length ? {
-            q: Number((arr.reduce((s, x) => s + x.q, 0) / arr.length).toFixed(2)),
-            r: Number((arr.reduce((s, x) => s + x.r, 0) / arr.length).toFixed(2)),
-          } : null;
-          return {
-            hq: buildings.filter(b => b.type === 'HQ').map(b => ({ q: b.q, r: b.r })),
-            depots: buildings.filter(b => b.type === 'SUPPLY_DEPOT').map(b => ({ q: b.q, r: b.r })),
-            warehouses: buildings.filter(b => b.type === 'SUPPLY_WAREHOUSE').map(b => ({ q: b.q, r: b.r })),
-            vehicleDepots: buildings.filter(b => b.type === 'VEHICLE_DEPOT').map(b => ({ q: b.q, r: b.r })),
-            roads: buildings.filter(b => b.type === 'ROAD').map(b => ({ q: b.q, r: b.r })),
-            engineers: units.filter(u => u.type === 'ENGINEER').map(u => ({ id: u.id, q: u.q, r: u.r, oos: u.outOfSupply || 0 })),
-            supplyTrucks: units.filter(u => u.type === 'SUPPLY_TRUCK').map(u => ({ id: u.id, q: u.q, r: u.r, oos: u.outOfSupply || 0 })),
-            combatCentroid: centroid(combat),
-            unitCount: units.length,
-          };
-        };
-        return { p1: byPlayer(1), p2: byPlayer(2) };
-      };
-
-      this._aiLabTurns.push({
-        turn: snapTurn,
-        currentPlayer: gs.currentPlayer,
-        p1: snapPlayer(1),
-        p2: snapPlayer(2),
-        telemetry: {
-          p1: this._aiTelemetry?.[1] || null,
-          p2: this._aiTelemetry?.[2] || null,
-        },
-        mapState: compactMapState(),
-      });
+    // Per-turn run history (all games with AI; richer economy + doctrine timeline)
+    if (this.aiPlayers?.size > 0) {
+      this._recordTurnSnapshot(endingPlayer);
     }
 
     const winner = checkWinner(gs);
@@ -7584,6 +7716,14 @@ export class GameScene extends Phaser.Scene {
     const logisticsOverride = unsuppliedNow >= Math.max(2, Math.floor(myUnitsNow.length * 0.2));
     const strategicMem = gs._aiStrategicMemory?.[gs.currentPlayer] || null;
     const aiDebug = gs._aiDebug?.[gs.currentPlayer] || null;
+    this._aiLastPlans = this._aiLastPlans || {};
+    this._aiLastPlans[gs.currentPlayer] = {
+      turn: gs.turn,
+      strategy: this.aiStrategies?.[gs.currentPlayer] || this.aiStrategy,
+      actionCounts: { ...aiCounts },
+      debug: aiDebug ? JSON.parse(JSON.stringify(aiDebug)) : null,
+      actions: actions.slice(0, 150).map(a => this._summarizeAIAction(a)).filter(Boolean),
+    };
     this._aiTelemetry = this._aiTelemetry || {};
     const roadsNow = gs.buildings.filter(b => Number(b.owner) === Number(gs.currentPlayer) && b.type === 'ROAD').length;
     const roadFloor = (gs.turn <= 5) ? 2 : (gs.turn <= 10) ? 5 : (gs.turn <= 15) ? 8 : 12;
