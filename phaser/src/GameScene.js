@@ -12,7 +12,7 @@ import {
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
   findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
   getUnitPopCost, recalcPlayerPopulation,
-  calcUpkeep, calcRPFromLabs, computeSupply, isHexInSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS, getRecruitFoodCost, getUnitSupplyRadius,
+  calcUpkeep, calcRPFromLabs, computeSupply, invalidateSupplyCache, isHexInSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS, getRecruitFoodCost, getUnitSupplyRadius,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, getMaxDesignSlots, BASE_DESIGN_SLOTS,
   designRegistrationCost, designTrainCost, computeDesignStats, computeEffectiveTier,
@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.15.3';
+export const GAME_VERSION = 'v1.15.4';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -203,7 +203,8 @@ export class GameScene extends Phaser.Scene {
     this._aiLabTurns = [];
     this._runHistory = [];
     this._aiLastPlans = {};
-    this._maxRunHistoryTurns = 100;
+    this._maxRunHistoryTurns = 60;
+    this._lastSnapshotGameTurn = -1;
     if (this._mapBuilderMode) this.debugNoFog = true;
     this._customMapData = data.customMap || null;
     // Map sizes per scenario
@@ -1288,10 +1289,13 @@ export class GameScene extends Phaser.Scene {
       return (((rng >> 3) & 0xFF) / 255 - 0.5) * 6 * (1 - t); // max ±3px, zero at endpoints
     };
 
+    const { L: vpL, R: vpR, T: vpT, B: vpB } = this._vpBounds?.() || { L: -1e9, R: 1e9, T: -1e9, B: 1e9 };
+
     // Draw road segments — each edge drawn from both hexes, deduplicate by only drawing q<=nq
     for (const [key, { tier }] of roadMap) {
       const [q, r] = key.split(',').map(Number);
       const { x, y } = hexToWorld(q, r);
+      if (x < vpL - 80 || x > vpR + 80 || y < vpT - 80 || y > vpB + 80) continue;
       const style = TIER_STYLE[tier] || TIER_STYLE[0];
 
       for (const [dq, dr] of HEX_NEIGHBORS_LOCAL) {
@@ -1355,8 +1359,22 @@ export class GameScene extends Phaser.Scene {
   }
 
   _invalidateSupplyCache() {
+    invalidateSupplyCache(this.gameState);
     this._supplyCache = null;
     this._supplyCacheKey = null;
+  }
+
+  /** AI turn: avoid full map redraw every move/attack (major late-game perf win). */
+  _aiRefreshUnitsOnly() {
+    this._redrawUnits();
+    this._updateTopBar();
+  }
+
+  _aiRefreshAfterBuild() {
+    this._invalidateSupplyCache();
+    this._redrawRoads();
+    this._redrawBuildings();
+    this._redrawUnits();
   }
 
   _getCachedSupply(player) {
@@ -7338,7 +7356,7 @@ export class GameScene extends Phaser.Scene {
   _summarizeAIAction(a) {
     if (!a || !a.type) return null;
     switch (a.type) {
-      case 'move': return { type: 'move', unitId: a.unitId, to: [a.q, a.r] };
+      case 'move': return { type: 'move', unitId: a.unitId, to: [a.toQ ?? a.q, a.toR ?? a.r] };
       case 'attack': return { type: 'attack', unitId: a.unitId, target: [a.targetQ ?? a.q, a.targetR ?? a.r] };
       case 'build': return { type: 'build', buildingType: a.buildingType, at: [a.q, a.r], unitId: a.unitId };
       case 'recruit': return { type: 'recruit', unitType: a.unitType, buildingId: a.buildingId };
@@ -7432,10 +7450,29 @@ export class GameScene extends Phaser.Scene {
     const gs = this.gameState;
     if (!gs) return;
     const snapTurn = this._autoStopTurn > 0 ? Math.min(gs.turn, this._autoStopTurn) : gs.turn;
+    // One snapshot per game turn (not per player end-turn in 1v1).
+    if (this._lastSnapshotGameTurn === snapTurn) return;
+    this._lastSnapshotGameTurn = snapTurn;
+    const turn = snapTurn;
+    if (turn > 24 && turn % 2 !== 0) return;
+    if (turn > 48 && turn % 4 !== 0) return;
+
+    const lite = turn > 32;
     const playerIds = getPlayerIds(gs);
     const players = {};
     for (const p of playerIds) {
-      players[p] = this._snapshotPlayerEconomy(gs, p);
+      if (lite) {
+        const full = this._snapshotPlayerEconomy(gs, p);
+        players[p] = {
+          resources: full.resources,
+          units: full.units,
+          combatUnits: full.combatUnits,
+          unsupplied: full.unsupplied,
+          buildings: full.buildings,
+        };
+      } else {
+        players[p] = this._snapshotPlayerEconomy(gs, p);
+      }
     }
     const ai = {};
     for (const p of this.aiPlayers) {
@@ -7840,10 +7877,12 @@ export class GameScene extends Phaser.Scene {
           this._pushLog(`⚠ MASS LOSS P${p}: ${preUnitsByOwner[p]} -> ${postUnitsByOwner[p]} (Δ${delta}) on AI P${gs.currentPlayer} turn`);
         }
       }
-      // All done — dismiss status bar and end AI's turn
+      // All done — one full redraw then end turn
       try { overlay?.destroy(); } catch(e){}
       try { lbl?.destroy();     } catch(e){}
       try { kpiLbl?.destroy();  } catch(e){}
+      this._freezeFog();
+      this._refresh();
       this._onSubmit();
     };
 
@@ -7898,7 +7937,7 @@ export class GameScene extends Phaser.Scene {
         toY: hexToWorld(action.toQ, action.toR).y,
         startTime: performance.now(), duration: 220,
       };
-      this._refresh();
+      this._aiRefreshUnitsOnly();
       // Wait for slide to finish + small gap
       this._scheduleAIStep(350, next, turnId);
 
@@ -7916,7 +7955,7 @@ export class GameScene extends Phaser.Scene {
         this._pushLog(`AI attack error: ${e?.message || e}`);
       }
       attacker.attacked = true;
-      this._refresh();
+      this._aiRefreshUnitsOnly();
 
       // Show combat flash + card for transparency
       this._showAICombatFlash(action.attackerQ, action.attackerR, action.targetQ, action.targetR);
@@ -8000,7 +8039,6 @@ export class GameScene extends Phaser.Scene {
       if (bType === 'ROAD') {
         gs.buildings.push(createBuilding('ROAD', p, unit.q, unit.r));
         if (telem) telem.roadsSucceeded += 1;
-        this._redrawRoads();
       } else {
         const def = BUILDING_TYPES[bType] || {};
         const b = createBuilding(bType, p, unit.q, unit.r);
@@ -8020,9 +8058,7 @@ export class GameScene extends Phaser.Scene {
 
       unit.moved = true;
       unit.building = true;
-      this._invalidateSupplyCache();
-      this._redrawRoads();
-      this._redrawBuildings();
+      this._aiRefreshAfterBuild();
       this._scheduleAIStep(120, next, turnId);
 
     } else if (action.type === 'design') {
@@ -8069,7 +8105,7 @@ export class GameScene extends Phaser.Scene {
           }
         }
       }
-      this._refresh();
+      this._aiRefreshUnitsOnly();
       next();
 
     } else if (action.type === 'transport_unload') {
@@ -8091,7 +8127,7 @@ export class GameScene extends Phaser.Scene {
           }
         }
       }
-      this._refresh();
+      this._aiRefreshUnitsOnly();
       next();
 
     } else {

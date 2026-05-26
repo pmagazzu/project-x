@@ -119,23 +119,120 @@ Keep the response short and practical. **Always include all four items:**
 
 ## Current known priorities
 
-### AI overhaul (active — playtest reference: **v1.14.0**)
+### AI overhaul — master plan (playtest reference: **v1.15.3**)
 
-The AI was underperforming on most maps (island FFA VP turtling, same-island unit blobs, no navy, browser lag from uncapped recruits). **v1.14.0** started the doctrine pass (`phaser/src/AIDoctrine.js` + `AIPlayer.js`):
+Canonical code: `phaser/src/AIDoctrine.js`, `phaser/src/AIPlayer.js`, `phaser/src/AIDesigner.js`, export/UI in `GameScene.js`.
 
-- army/recruit caps (anti-spam / perf)
-- FFA primary-enemy pick + local closing pressure
-- VP-first objectives; `safeAtHome` toned down for VP/FFA
-- stronger anti-blob when stacking with no good fight
+#### Shipped (baseline for new work)
 
-**Next AI phases** (unless user redirects):
+| Version | What landed |
+|---------|-------------|
+| **v1.14.0** | Doctrine module; army caps (~44 units / ~34 combat); FFA `pickPrimaryEnemyHQ`; local closing pressure; VP-first; anti-blob; `safeAtHome` off for VP/FFA |
+| **v1.15.0** | `closing` phase + HQ rush missions; theater intel (`buildTheaterIntel`); stockpile spend pressure; **AI Lab** dev panel (☰ MORE) |
+| **v1.15.1** | Larger AI Lab UI; **JSON run export** (MORE / Settings / AI Lab); per-turn economy + AI debug timeline |
+| **v1.15.2** | JSON download on **victory / game-over** screen |
+| **v1.15.3** | Perf: cached landmass index, theater resource bucketing, slim/deferred turn snapshots (fix tab freeze) |
+| **v1.15.4** | Late-game perf: fix Dijkstra queue sort, AI light refresh (no full redraw per move), supply cache, road hard cap, thinner turn logging |
 
-1. **Phase 2 — Theater graph** — landmass ↔ VP ↔ owner; missions target real theaters, not north/center/south lanes.
-2. **Phase 3 — Expedition playbook** — forced naval yard → transports → assault on water/VP maps; supply ports/ships/trucks as expansion enablers.
-3. **Phase 4 — Same-island combat quality** — flanks, chokes, hold/fire support; stop feeding unsupported hexes.
-4. **Phase 5 — Strategy personalities** — raider / expander / naval doctrines that actually diverge.
+**Dev tools (for playtest feedback):**
 
-**Reference scenario for tuning:** 5-player island map, victory points mode.
+- ☰ MORE → **🤖 AI LAB** — live doctrine/economy/missions per AI
+- ☰ MORE → **📥 EXPORT JSON** or victory screen **DOWNLOAD JSON** — feed files back to agent for analysis
+- Settings → DOWNLOAD JSON REPORT (same payload)
+
+Export payload: `meta`, `turns[]` (economy per player per turn), `current`, `lastAiPlans`, `combatLog`, `gameLog`. Known export bugs to fix: **duplicate turn rows** (2 snapshots per game-turn in 1v1), **move actions** sometimes `[null,null]` (use `toQ`/`toR`).
+
+---
+
+#### Playtest findings (consolidated)
+
+**Scenario A — 4 AI, small 1-continent (elimination)**  
+- Fight quality improved vs old AI.  
+- P2 did not **finish** P1 when advantaged (no final push).  
+- Heavy **resource hoarding**.  
+- Hard to see research/designer usage → led to AI Lab + JSON export.  
+- **Browser/OS stress** from unit spam → caps helped; v1.15.3 fixed logging-induced freezes.
+
+**Scenario B — 1v1 AI, 35×35 custom, elimination, 11 turns** (`attrition-run-game-end-turn11-*.json`, P1 win)  
+
+*Doctrine / combat*
+
+- **Asymmetric endgame:** P1 in `closing` (80% endgame, 6× `closing` missions) from ~turn 3; P2 stayed in **`expand`** (20% endgame) despite similar army size — “could have ended it but didn’t” on the loser side too.
+- **Closing doesn’t close:** P1 final turn = 14 moves, 5 road builds, **0 attacks**, `logistics_override` + 3 unsupplied while sitting on **60+ iron**.
+- **Theater mode on** (south lane, objective `enemy_hq`) — lanes/theater wired but logistics and phase timing override kill push.
+- P1 won by **capturing P2 HQ** (owned both HQs); tanks decisive late.
+
+*Economy (main lesson: extraction ≫ conversion)*
+
+- Both ended **~64–70 iron** (~5–6 turns of income banked); `stockpilePressure` only ~0.18 — spend thresholds too weak.
+- **Net iron ~10–14/turn**; upkeep negligible — army size not the bottleneck.
+- **Zero research entire game:** 0 RP, 0 labs, 0 techs, 0 components — designer fired for P1 (3 customs) but **no industrial spine**.
+- **P1:** 2 oil pumps, oil inc 4/turn, 2 tanks, 3 trucks — balanced war economy tilt.  
+- **P2:** **4 mines**, **1 oil pump**, oil inc 2/turn — **iron-rich, oil-poor**; wrong macro for tanks/logistics.
+- **Wood capped** (~14–15) → roads absorbed wood; **food comfortable** (~25).
+- **Logistics vs treasury:** rich stocks + **unsupplied units** — trucks/depots/roads band-aid, not enough supply capacity for front length.
+
+---
+
+#### Master phases (updated order)
+
+**Phase 1 — Budgets & FFA focus** ✅ *shipped v1.14.0 (tune ongoing)*  
+- Caps, VP-first, primary enemy, anti-blob.
+
+**Phase 2 — Theater graph** 🟡 *partial v1.15.0*  
+- `buildTheaterIntel` + cached landmass; missions can use theater objective.  
+- **Still needed:** lane fallback only when appropriate; don’t enter `closing` on turn 3 with 3 combat units; **both** AIs get symmetric endgame when enemy HQ is weak/near.
+
+**Phase 2b — War economy (NEW — highest ROI from Scenario B)**  
+- **Stockpile:** if `iron ≥ 40` or `oil ≥ 15` → force recruit/spend (`stockpilePressure` curve steeper).  
+- **Oil heuristic:** if enemy oil income ≥ 1.5× yours and you have 3+ mines → prioritize **OIL_PUMP** over mine #4.  
+- **Research floor:** by turn 8, if `iron > 35` and no LAB → build lab + queue tech.  
+- **Components:** tie designer recruits to component spend; don’t register designs with 0 industrial loop.  
+- **Logistics tax:** if `unsupplied > 0` and `iron > 30` → recruit trucks / depots; **block road spam** until supply clear.
+
+**Phase 3 — Closing / final push** 🟡 *partial v1.15.0*  
+- `closing` missions exist but **logistics_override must not zero attacks** when `endgamePressure > 0.6`.  
+- Mirror `getEndgamePressure` for **trailing AI** when ahead locally (not only leader).  
+- Require min army before `closing`: e.g. turn ≥ 8, `myCombat ≥ 6`, or local 1.3× enemy near HQ.
+
+**Phase 4 — Expedition playbook** ⬜  
+- Naval yard → transports → assault on water / multi-landmass / VP maps; supply ports as expansion enablers.
+
+**Phase 5 — Same-island combat quality** ⬜  
+- Flanks, chokes, hold/fire support; stop feeding unsupported hexes (tie to logistics tax).
+
+**Phase 6 — Strategy personalities** ⬜  
+- Raider / expander / naval doctrines that diverge in economy + mission mix.
+
+**Phase 7 — Telemetry & export hygiene** 🟡 *partial*  
+- Dedupe `turns[]` to **one row per game turn** (not per player end-turn).  
+- Fix `_summarizeAIAction` for moves (`toQ`, `toR`).  
+- Optional: AI Lab sparkline (iron stock vs unsupplied per turn).
+
+---
+
+#### Reference scenarios for tuning
+
+| Scenario | Use for |
+|----------|---------|
+| **5p island, VP mode** | FFA, navy, VP contest, blob perf |
+| **4p 1-continent elimination** | mid-game fights, hoarding, final push |
+| **1v1 ~35 custom elimination** | economy conversion, oil vs mines, closing vs expand |
+
+---
+
+#### ▶ NEXT IMPLEMENTATION STEP (after current playtest data)
+
+**Ship v1.16.0 — Phase 2b + Phase 3 tightening** (single focused patch):
+
+1. **Economy spend doctrine** (`AIDoctrine.js` + recruit/build in `AIPlayer.js`): steeper `getStockpileSpendPressure`, oil-vs-mine heuristic, research floor, logistics tax (no roads while OOS + rich).
+2. **Closing gates + attack priority:** min turn/army for `closing`; in `closing`, cap engineer/road actions and **guarantee attacks** toward `focusEnemyHQ` over `logistics_override`.
+3. **Symmetric endgame:** if enemy HQ weak/near, **both** players evaluate `getEndgamePressure` → `closing` (fix P2 stuck in `expand`).
+4. **Export fix:** dedupe turn snapshots; fix move coordinates in JSON.
+
+**While user playtests:** collect `attrition-run-*.json` from victory screen or AI Lab; compare iron/oil curves, `strategicPhase`, `missions`, and unsupplied counts turn-over-turn.
+
+**Do not start** Phase 4 naval expedition until 2b+3 show in JSON: falling iron stocks midgame, oil parity, at least one research unlock, and winner’s last 2 turns with `attack > 0` in `closing`.
 
 ### Other gameplay priorities
 
@@ -169,9 +266,10 @@ When re-entering this project:
 1. Read this file.
 2. Read `project-x/AGENTS.md`.
 3. Confirm active code is in `project-x/phaser/`.
-4. Check current `GAME_VERSION` in `GameScene.js`.
-5. Make requested change.
-6. Bump version (gameplay patches).
-7. `cd phaser && npm run build`
-8. `git add` everything changed → commit → `git push origin main`
-9. Reply with summary + **version** + commit link + playtest link
+4. Check current `GAME_VERSION` in `GameScene.js` (as of last handoff update: **v1.15.4**).
+5. Read **AI overhaul — master plan** (above) before changing `AIDoctrine.js` / `AIPlayer.js`.
+6. Make requested change (default: **Phase 2b + 3** per master plan unless user redirects).
+7. Bump version (gameplay patches).
+8. `cd phaser && npm run build`
+9. `git add` everything changed → commit → `git push origin main`
+10. Reply with summary + **version** + commit link + playtest link

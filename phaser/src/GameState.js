@@ -1402,11 +1402,24 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
   dist.set(`${unit.q},${unit.r}`, 0);
   const result = [];
 
+  // O(1) occupancy lookup — avoid state.units.find on every neighbor (critical at high unit counts).
+  const occupantAt = new Map();
+  for (const u of state.units) {
+    if (u.dead) continue;
+    const oq = (u._origQ !== undefined) ? u._origQ : u.q;
+    const or = (u._origR !== undefined) ? u._origR : u.r;
+    occupantAt.set(`${oq},${or}`, u);
+  }
+
   while (queue.length > 0) {
-    queue.sort((a, b) => a.cost - b.cost);
-    const { q, r, cost } = queue.shift();
+    // Dijkstra: pick lowest-cost node without sorting the whole queue each step.
+    let bestIdx = 0;
+    for (let i = 1; i < queue.length; i++) {
+      if (queue[i].cost < queue[bestIdx].cost) bestIdx = i;
+    }
+    const { q, r, cost } = queue.splice(bestIdx, 1)[0];
     const nodeKey = `${q},${r}`;
-    if (visited.has(nodeKey)) continue; // already settled at minimum cost
+    if (visited.has(nodeKey)) continue;
     visited.add(nodeKey);
 
     for (const [dq, dr] of HEX_NEIGHBORS) {
@@ -1419,19 +1432,10 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
       if (!canEnterTerrain(unit.type, ttype)) continue;
       const moveCost = getMoveCost(ttype, hasRoad, unit.type);
       const newCost = cost + moveCost;
-      // Min-1-hex guarantee: unit can always reach an adjacent passable hex on its first step
-      // BUT forest/mountain-cost hexes reached this way do NOT propagate further (newCost stays huge)
       const isFirstStep = cost === 0;
       const withinBudget = newCost <= maxMove || (isFirstStep && maxMove >= 1);
       if (!withinBudget) continue;
-      // Enemy units: block movement only at their DISPLAY position (origQ/origR if they moved).
-      // Using actual positions would leak P2's planned moves to P1 during planning phase.
-      const occupant = state.units.find(u => {
-        if (u.dead) return false;
-        const dq = (u._origQ !== undefined) ? u._origQ : u.q;
-        const dr = (u._origR !== undefined) ? u._origR : u.r;
-        return dq === nq && dr === nr;
-      });
+      const occupant = occupantAt.get(key);
       if (occupant && occupant.owner !== unit.owner) continue;
       if (!dist.has(key) || newCost < dist.get(key)) {
         dist.set(key, newCost);
@@ -3212,6 +3216,26 @@ export function tickSupplyDepotReserves(state, player, roadConnected) {
 export function isHexInSupply(state, player, mapSize, q, r) {
   if (state.supplyEnabled === false) return true;
   return computeSupply(state, player, mapSize).has(`${q},${r}`);
+}
+
+/** Per-turn supply cache (AI plans multiple times per round — avoid recomputing road floods). */
+export function getCachedSupply(state, player, mapSize) {
+  const turn = state.turn || 0;
+  const sig = `${turn}|${state.buildings.length}|${state.units.length}`;
+  if (state._supplyCacheSig !== sig) {
+    state._supplyCacheSig = sig;
+    state._supplyCacheByPlayer = {};
+  }
+  const p = Number(player);
+  if (!state._supplyCacheByPlayer[p]) {
+    state._supplyCacheByPlayer[p] = computeSupply(state, player, mapSize);
+  }
+  return state._supplyCacheByPlayer[p];
+}
+
+export function invalidateSupplyCache(state) {
+  state._supplyCacheSig = null;
+  state._supplyCacheByPlayer = null;
 }
 
 export function computeSupply(state, player, mapSize) {

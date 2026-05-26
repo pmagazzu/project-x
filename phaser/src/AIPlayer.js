@@ -16,7 +16,7 @@ import {
   UNIT_TYPES, BUILDING_TYPES, AIR_UNITS, NAVAL_UNITS,
   MODULES, CHASSIS_BUILDINGS, getMaxDesignSlots,
   designRegistrationCost, computeDesignStats,
-  getReachableHexes, getAttackableHexes, hexDistance, buildingAt, roadAt, computeSupply, getRecruitFoodCost,
+  getReachableHexes, getAttackableHexes, hexDistance, buildingAt, roadAt, getCachedSupply, getRecruitFoodCost,
   ROAD_TYPES, unitAt,
 } from './GameState.js';
 import { ensureAIDesigns, pickAIRecruit, getClosingPressure } from './AIDesigner.js';
@@ -372,6 +372,26 @@ function getDynamicRoadTarget(gs, player, situation = null, armyBudget = null) {
   if (situation?.vpMode) cap = Math.min(cap, armyBudget?.maxRoads || 22);
 
   return Math.max(base, Math.min(cap, base + unitPressure + supplyPressure + spanPressure + mapPressure + islandPressure));
+}
+
+/** Cap move scoring work — full reachable set can be 40+ hexes per unit per turn. */
+function pickReachableForScoring(reachable, unit, objective, maxCandidates = 26) {
+  if (!reachable?.length || reachable.length <= maxCandidates) return reachable || [];
+  const oq = objective?.q ?? unit.q;
+  const or = objective?.r ?? unit.r;
+  return [...reachable]
+    .sort((a, b) => hexDistance(a.q, a.r, oq, or) - hexDistance(b.q, b.r, oq, or))
+    .slice(0, maxCandidates);
+}
+
+function unitPlanPriority(unit) {
+  const role = getUnitRole(unit.type);
+  if (role === 'assault') return 5;
+  if (role === 'line') return 4;
+  if (role === 'indirect') return 3;
+  if (role === 'recon') return 2;
+  if (unit.type === 'ENGINEER') return 1;
+  return 0;
 }
 
 function getLaneForR(r, mapSize) {
@@ -2285,7 +2305,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   const getEnemies = () => gs.units.filter(u => u.owner !== player && !u.embarked);
   const getMyHQs   = () => gs.buildings.filter(b => b.owner === player && b.type === 'HQ');
-  const mySupply   = computeSupply(gs, player, mapSize);
+  const mySupply   = getCachedSupply(gs, player, mapSize);
   const situation = assessMapSituation(terrain, mapSize, gs, player);
   const armyBudget = getAIArmyBudget(gs, player, mapSize, situation);
   const phaseWeights = getPhaseWeights(gs.turn || 1, situation);
@@ -2441,12 +2461,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   const unitIds = gs.units
     .filter(u => u.owner === player && !u.embarked)
-    .sort((a, b) => {
-      // Attack-capable units first
-      const aA = getAttackableHexes(gs, a, a.q, a.r, null).length;
-      const bA = getAttackableHexes(gs, b, b.q, b.r, null).length;
-      return bA - aA;
-    })
+    .sort((a, b) => unitPlanPriority(b) - unitPlanPriority(a))
     .map(u => u.id);
 
   for (const uid of unitIds) {
@@ -2541,9 +2556,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       if (reachable.length > 0) {
         const enemies = getEnemies();
         const myHQs   = getMyHQs();
+        const moveObj = unitObjective[unit.id] || strategic?.focusEnemyHQ;
+        const candidates = pickReachableForScoring(reachable, unit, moveObj);
 
         let bestDest = null, bestScore = -Infinity;
-        for (const hex of reachable) {
+        for (const hex of candidates) {
           let s = scoreMove(gs, terrain, unit, hex.q, hex.r, strategy, enemies, myHQs, mySupply, aiCtx);
           if (unit.type === 'ENGINEER') {
             const mem = engineerMemory[unit.id];
@@ -2634,6 +2651,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const unlockedEng = new Set(gs.players[player]?.research?.unlocked || []);
 
         const maybeBuild = (buildingType) => {
+          if (buildingType === 'ROAD') {
+            const roadsCap = armyBudget?.maxRoads ?? 36;
+            if (countPlayerRoadLike(gs, player) >= roadsCap) return false;
+          }
           const cost = BUILDING_TYPES[buildingType]?.buildCost || {};
           // Keep a tiny wood reserve for roads when behind logistics targets.
           if (buildingType !== 'ROAD' && roadDeficitGlobal > 0) {
@@ -3412,7 +3433,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   // Road quota: when behind network targets (or when supply is already strained),
   // ensure at least one road build is planned this turn when possible.
-  if ((roadDeficitGlobal > 0 || logisticsPressure) && plannedRoadBuilds === 0) {
+  const roadsAtCap = countPlayerRoadLike(gs, player) >= (armyBudget?.maxRoads ?? 36);
+  if (!roadsAtCap && (roadDeficitGlobal > 0 || logisticsPressure) && plannedRoadBuilds === 0) {
     const roadableHere = (q, r) => {
       const t = terrain?.[`${q},${r}`] ?? 0;
       if (t === 2) return false; // no roads on mountains
