@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.15.1';
+export const GAME_VERSION = 'v1.15.2';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -7465,12 +7465,14 @@ export class GameScene extends Phaser.Scene {
       playersNow[p] = this._snapshotPlayerEconomy(gs, p);
     }
     const history = (this._runHistory?.length ? this._runHistory : this._aiLabTurns) || [];
+    const winner = checkWinner(gs);
     return {
       meta: {
         reason,
         exportedAt: new Date().toISOString(),
         version: GAME_VERSION,
         turn: outTurn,
+        winner: winner || null,
         mapSize: this.mapSize,
         scenario: this.scenario,
         playerCount: this.playerCount,
@@ -7586,8 +7588,9 @@ export class GameScene extends Phaser.Scene {
 
     const winner = checkWinner(gs);
     if (winner) {
+      // Final snapshot for export (even if last end-turn already logged)
+      if (this.aiPlayers?.size > 0) this._recordTurnSnapshot(endingPlayer);
       this._showResolution([], winner);
-      if (this._aiLabExport) this._showAILabExport('game-end');
       return;
     }
 
@@ -8279,6 +8282,59 @@ export class GameScene extends Phaser.Scene {
     btn.on('pointerout',  () => btn.setAlpha(1.0));
   }
 
+  /** Victory / game-over: JSON export + return to menu (no accidental dismiss on download). */
+  _showGameOverSplash(resolutionObjects, onMenu) {
+    if (this._splashDismiss) {
+      try { this._splashDismiss(); } catch (e) {}
+      this._splashDismiss = null;
+    }
+    this.btnSubmit?.setVisible(false);
+
+    const w = this.scale.width, h = this.scale.height;
+    const footerY = h - 54;
+    const uiObjs = [];
+
+    const hint = this.add.text(w / 2, footerY - 44, 'Export turn history, AI decisions, economy, and combat log', {
+      font: '13px monospace', fill: '#778899',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(202);
+    uiObjs.push(hint);
+
+    const dlBtn = this.add.text(w / 2 - 155, footerY, '📥 DOWNLOAD JSON', {
+      font: 'bold 16px monospace', fill: '#ffffff', backgroundColor: '#2a5a8a', padding: { x: 16, y: 10 },
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(202).setInteractive({ useHandCursor: true });
+    dlBtn.on('pointerdown', () => {
+      this._contextMenuClicked = true;
+      this._downloadRunJson('game-end');
+    });
+    dlBtn.on('pointerover', () => dlBtn.setAlpha(0.85));
+    dlBtn.on('pointerout', () => dlBtn.setAlpha(1));
+    uiObjs.push(dlBtn);
+
+    const menuBtn = this.add.text(w / 2 + 155, footerY, 'MAIN MENU →', {
+      font: 'bold 16px monospace', fill: '#ffffff', backgroundColor: '#334433', padding: { x: 16, y: 10 },
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(202).setInteractive({ useHandCursor: true });
+    menuBtn.on('pointerover', () => menuBtn.setAlpha(0.85));
+    menuBtn.on('pointerout', () => menuBtn.setAlpha(1));
+    uiObjs.push(menuBtn);
+
+    const dismiss = () => {
+      this._spaceGuardUntil = performance.now() + 380;
+      this._splashDismiss = null;
+      if (this._gameOverSpaceKey) {
+        this.input.keyboard.off('keydown-SPACE', this._gameOverSpaceKey);
+        this._gameOverSpaceKey = null;
+      }
+      [...resolutionObjects, ...uiObjs].forEach(o => { try { o.destroy(); } catch (e) {} });
+      onMenu();
+    };
+    this._splashDismiss = dismiss;
+    menuBtn.on('pointerdown', dismiss);
+    this._gameOverSpaceKey = () => dismiss();
+    this.input.keyboard.once('keydown-SPACE', this._gameOverSpaceKey);
+
+    this._addToUI(uiObjs);
+  }
+
   _focusPlayerHQ(player, smooth = true) {
     const hq = this.gameState.buildings.find(b => b.type === 'HQ' && Number(b.owner) === Number(player));
     if (!hq) return;
@@ -8427,7 +8483,7 @@ export class GameScene extends Phaser.Scene {
       yPos += 6;
       addLine(`Game over — thanks for playing Attrition`, '#888888');
       this._addToUI(objects);
-      this._showSplash(objects, () => { this.scene.start('MenuScene'); });
+      this._showGameOverSplash(objects, () => { this.scene.start('MenuScene'); });
     } else {
       yPos += 6;
       addLine(`Turn ${this.gameState.turn} begins`, '#666666');
