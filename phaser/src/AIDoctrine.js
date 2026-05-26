@@ -240,6 +240,20 @@ export function buildLandmassIndex(terrain, mapSize) {
   return { bodies, getBodyId, majorCount: bodies.filter(b => b.size >= 8).length };
 }
 
+/** Cached per game state — landmass flood-fill is expensive on large maps. */
+export function getLandmassIndex(gs, terrain, mapSize) {
+  const ms = mapSize || gs?._mapSize || 40;
+  if (gs?._cachedLandmassIndex && gs._cachedLandmassMapSize === ms) {
+    return gs._cachedLandmassIndex;
+  }
+  const index = buildLandmassIndex(terrain, ms);
+  if (gs) {
+    gs._cachedLandmassIndex = index;
+    gs._cachedLandmassMapSize = ms;
+  }
+  return index;
+}
+
 export function getPlayerHomeLandmassId(gs, player, landmassIndex) {
   const myHQ = gs.buildings.find(b => b.type === 'HQ' && Number(b.owner) === Number(player));
   if (myHQ) return landmassIndex.getBodyId(myHQ.q, myHQ.r);
@@ -253,23 +267,29 @@ export function getPlayerHomeLandmassId(gs, player, landmassIndex) {
 
 /** Phase 2: landmass theaters (replaces N/S/C lanes when multi-theater or FFA). */
 export function buildTheaterIntel(terrain, mapSize, gs, player, situation = null) {
-  const landmassIndex = buildLandmassIndex(terrain, mapSize);
+  const landmassIndex = getLandmassIndex(gs, terrain, mapSize);
   const homeId = getPlayerHomeLandmassId(gs, player, landmassIndex);
   const theaters = [];
+
+  // Bucket resource hexes by landmass once (avoid O(bodies × allResources) scans).
+  const resourcesByMass = new Map();
+  for (const [k, v] of Object.entries(gs.resourceHexes || {})) {
+    const [rq, rr] = k.split(',').map(Number);
+    const bid = landmassIndex.getBodyId(rq, rr);
+    if (bid < 0) continue;
+    let list = resourcesByMass.get(bid);
+    if (!list) { list = []; resourcesByMass.set(bid, list); }
+    if (list.length >= 24) continue;
+    const owned = gs.buildings.some(b => b.q === rq && b.r === rr
+      && ['MINE', 'OIL_PUMP'].includes(b.type) && Number(b.owner) === Number(player));
+    if (!owned) list.push({ q: rq, r: rr, type: v?.type || 'IRON' });
+  }
 
   for (const body of landmassIndex.bodies) {
     if (body.size < 6) continue;
     let myUnits = 0, enemyUnits = 0, myBuildings = 0;
-    const resources = [];
+    const resources = resourcesByMass.get(body.id) || [];
     const vpZones = [];
-
-    for (const [k, v] of Object.entries(gs.resourceHexes || {})) {
-      const [rq, rr] = k.split(',').map(Number);
-      if (landmassIndex.getBodyId(rq, rr) !== body.id) continue;
-      const owned = gs.buildings.some(b => b.q === rq && b.r === rr
-        && ['MINE', 'OIL_PUMP'].includes(b.type) && Number(b.owner) === Number(player));
-      if (!owned) resources.push({ q: rq, r: rr, type: v?.type || 'IRON' });
-    }
     for (const z of (gs.victoryZones || [])) {
       if (landmassIndex.getBodyId(z.q, z.r) === body.id) vpZones.push(z);
     }

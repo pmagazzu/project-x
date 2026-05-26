@@ -23,7 +23,7 @@ import { ensureAIDesigns, pickAIRecruit, getClosingPressure } from './AIDesigner
 import {
   getActivePlayerCount, getAIArmyBudget, countPlayerCombatUnits,
   pickContestedVictoryZone, pickPrimaryEnemyHQ, getLocalClosingPressure,
-  countFriendliesNear, buildLandmassIndex, getPlayerHomeLandmassId,
+  countFriendliesNear, getLandmassIndex, getPlayerHomeLandmassId,
   buildTheaterIntel, getStockpileSpendPressure, getEndgamePressure,
 } from './AIDoctrine.js';
 
@@ -1381,7 +1381,7 @@ function buildTerritorialIntel(terrain, mapSize, gs, player, strategic, resource
   }
   expansions.sort((a, b) => b.score - a.score);
 
-  const landmassIndex = buildLandmassIndex(terrain, mapSize);
+  const landmassIndex = getLandmassIndex(gs, terrain, mapSize);
   const remoteIntel = buildRemoteExpansionIntel(terrain, mapSize, gs, player, landmassIndex, resourceTargets, situation);
   for (const rt of remoteIntel.remoteTargets) {
     expansions.push({ q: rt.q, r: rt.r, score: rt.score + 1.5, type: rt.type });

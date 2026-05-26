@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.15.2';
+export const GAME_VERSION = 'v1.15.3';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -203,7 +203,7 @@ export class GameScene extends Phaser.Scene {
     this._aiLabTurns = [];
     this._runHistory = [];
     this._aiLastPlans = {};
-    this._maxRunHistoryTurns = 300;
+    this._maxRunHistoryTurns = 100;
     if (this._mapBuilderMode) this.debugNoFog = true;
     this._customMapData = data.customMap || null;
     // Map sizes per scenario
@@ -7400,6 +7400,34 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
+  _compactAiDebug(dbg) {
+    if (!dbg) return null;
+    const bud = dbg.armyBudget;
+    return {
+      strategicPhase: dbg.strategicPhase,
+      primaryLane: dbg.primaryLane,
+      secondaryLane: dbg.secondaryLane,
+      endgamePressure: dbg.endgamePressure,
+      stockpilePressure: dbg.stockpilePressure,
+      focusEnemy: dbg.focusEnemy,
+      theaterMode: dbg.theaterMode,
+      primaryTheaterId: dbg.primaryTheaterId,
+      theaterObjective: dbg.theaterObjective,
+      missions: dbg.missions,
+      economy: dbg.economy,
+      recruitMix: dbg.recruitMix,
+      designs: dbg.designs,
+      researchQueue: dbg.researchQueue,
+      deceptionActive: dbg.deceptionActive,
+      logisticsEmergency: dbg.logisticsEmergency,
+      transportOps: dbg.transportOps,
+      armyBudget: bud ? {
+        myUnits: bud.myUnits, myCombat: bud.myCombat,
+        maxUnits: bud.maxUnits, maxCombat: bud.maxCombat,
+      } : undefined,
+    };
+  }
+
   _recordTurnSnapshot(endingPlayer) {
     const gs = this.gameState;
     if (!gs) return;
@@ -7411,11 +7439,25 @@ export class GameScene extends Phaser.Scene {
     }
     const ai = {};
     for (const p of this.aiPlayers) {
+      const lp = this._aiLastPlans?.[p];
+      const telem = this._aiTelemetry?.[p];
       ai[p] = {
         strategy: this.aiStrategies[p] || this.aiStrategy,
-        debug: gs._aiDebug?.[p] ? JSON.parse(JSON.stringify(gs._aiDebug[p])) : null,
-        telemetry: this._aiTelemetry?.[p] ? { ...this._aiTelemetry[p] } : null,
-        lastPlan: this._aiLastPlans?.[p] ? { ...this._aiLastPlans[p] } : null,
+        debug: this._compactAiDebug(gs._aiDebug?.[p]),
+        telemetry: telem ? {
+          strategicPhase: telem.strategicPhase,
+          primaryLane: telem.primaryLane,
+          roadDeficit: telem.roadDeficit,
+          unsuppliedNow: telem.unsuppliedNow,
+          plannerReason: telem.plannerReason,
+          recruitMix: telem.recruitMix,
+        } : null,
+        lastPlan: lp ? {
+          turn: lp.turn,
+          strategy: lp.strategy,
+          actionCounts: lp.actionCounts,
+          phase: lp.debug?.strategicPhase,
+        } : null,
       };
     }
     const entry = {
@@ -7425,18 +7467,16 @@ export class GameScene extends Phaser.Scene {
       phase: gs.phase,
       players,
       ai,
-      aiOverview: buildAIOverviewForGame(gs, this.terrain, this.mapSize, this.aiPlayers, this.aiStrategies),
       victoryPoints: gs.victoryMode === VICTORY_MODES.POINTS ? { ...gs.victoryPoints } : undefined,
     };
     this._runHistory = this._runHistory || [];
     this._runHistory.push(entry);
-    const cap = this._maxRunHistoryTurns || 300;
+    const cap = this._maxRunHistoryTurns || 100;
     if (this._runHistory.length > cap) {
       this._runHistory.splice(0, this._runHistory.length - cap);
     }
-    // Legacy AI-lab harness field (same data, richer format in _runHistory)
     if (this._aiLabExport) {
-      this._aiLabTurns.push(entry);
+      this._aiLabTurns = this._runHistory;
     }
   }
 
@@ -7492,8 +7532,20 @@ export class GameScene extends Phaser.Scene {
       current: {
         players: playersNow,
         aiOverview: buildAIOverviewForGame(gs, this.terrain, this.mapSize, this.aiPlayers, this.aiStrategies),
-        aiDebug: gs._aiDebug ? JSON.parse(JSON.stringify(gs._aiDebug)) : {},
-        lastAiPlans: { ...(this._aiLastPlans || {}) },
+        aiDebug: Object.fromEntries(
+          [...this.aiPlayers].map(p => [p, this._compactAiDebug(gs._aiDebug?.[p])]).filter(([, v]) => v),
+        ),
+        lastAiPlans: Object.fromEntries(
+          [...this.aiPlayers].map(p => {
+            const lp = this._aiLastPlans?.[p];
+            if (!lp) return null;
+            return [p, {
+              turn: lp.turn, strategy: lp.strategy,
+              actionCounts: lp.actionCounts,
+              actions: (lp.actions || []).slice(0, 60),
+            }];
+          }).filter(Boolean),
+        ),
         victoryPoints: gs.victoryPoints ? { ...gs.victoryPoints } : undefined,
         victoryZones: (gs.victoryZones || []).map(z => ({ q: z.q, r: z.r, pointsPerTurn: z.pointsPerTurn })),
       },
@@ -7581,15 +7633,15 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Per-turn run history (all games with AI; richer economy + doctrine timeline)
+    // Per-turn run history — defer 1 frame so end-turn UI stays responsive
     if (this.aiPlayers?.size > 0) {
-      this._recordTurnSnapshot(endingPlayer);
+      this.time.delayedCall(0, () => {
+        if (this.gameState) this._recordTurnSnapshot(endingPlayer);
+      });
     }
 
     const winner = checkWinner(gs);
     if (winner) {
-      // Final snapshot for export (even if last end-turn already logged)
-      if (this.aiPlayers?.size > 0) this._recordTurnSnapshot(endingPlayer);
       this._showResolution([], winner);
       return;
     }
@@ -7687,7 +7739,6 @@ export class GameScene extends Phaser.Scene {
     let actions = [];
     try {
       actions = planAITurn(gs, this.terrain, this.mapSize, this.aiStrategies?.[gs.currentPlayer] || this.aiStrategy);
-      if (this._aiOverviewOpen) this._openAIOverview();
     } catch (e) {
       this._pushLog(`AI planner crash: ${e?.message || e}`);
       this._aiTelemetry = this._aiTelemetry || {};
@@ -7724,8 +7775,8 @@ export class GameScene extends Phaser.Scene {
       turn: gs.turn,
       strategy: this.aiStrategies?.[gs.currentPlayer] || this.aiStrategy,
       actionCounts: { ...aiCounts },
-      debug: aiDebug ? JSON.parse(JSON.stringify(aiDebug)) : null,
-      actions: actions.slice(0, 150).map(a => this._summarizeAIAction(a)).filter(Boolean),
+      debug: this._compactAiDebug(aiDebug),
+      actions: actions.slice(0, 80).map(a => this._summarizeAIAction(a)).filter(Boolean),
     };
     this._aiTelemetry = this._aiTelemetry || {};
     const roadsNow = gs.buildings.filter(b => Number(b.owner) === Number(gs.currentPlayer) && b.type === 'ROAD').length;
