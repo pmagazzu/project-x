@@ -18,15 +18,17 @@ The normal workflow is:
 1. Discuss proposed changes with Hot Ziti in the `#attrition` channel.
 2. Make the requested code fixes/updates in the workspace.
 3. Keep changes clean, consistent with the existing project structure, and avoid random rewrites.
-4. **After every code patch:**
-   - update the game version
-   - commit the changes
-   - push to GitHub
-5. Give back:
-   - a short summary
-   - the new version number
-   - the GitHub commit link
-   - the playtest link
+4. **After every code patch (full update — no partial handoffs):**
+   - bump the in-game version (`GAME_VERSION` in `phaser/src/GameScene.js`, and any other version strings)
+   - run the production build: `cd phaser && npm run build` (updates `docs/assets/game.js` for GitHub Pages)
+   - `git add` **every** changed file (source, built bundle, lockfiles if they changed, etc.)
+   - `git commit` with a clear message
+   - `git push` to `main` (working tree should be clean afterward)
+5. **Always tell the user in the reply:**
+   - short summary of what changed
+   - **game version** (exact string, e.g. `v1.14.0`)
+   - GitHub commit link
+   - playtest link: <https://pmagazzu.github.io/project-x/>
 
 ## Operating rules
 
@@ -48,14 +50,18 @@ When making a change:
 
 If multiple files carry version info, keep them in sync.
 
-### 3) Git / GitHub rule
+### 3) Git / GitHub rule (full update every time)
 
-After a successful code change, always:
-- `git add` changed files
+After a successful code change, always ship the **complete** update:
+- `cd phaser && npm run build` before committing (so Pages serves the new bundle)
+- `git add` all relevant changes — not just source files; include `docs/assets/game.js`, `phaser/package-lock.json` when deps changed, etc.
 - `git commit -m "<clear short message>"`
-- `git push` to the main branch
+- `git push origin main`
+- verify `git status` is clean (nothing left unstaged/unpushed)
 
-If deployment/build steps are part of the repo workflow, run them too.
+Do **not** stop after committing only `phaser/src/*` while leaving the built `docs/` bundle or lockfile behind.
+
+If push fails due to auth, tell the user — but after they authorize the machine, retry and push everything.
 
 ### 4) Playtest handoff rule
 
@@ -87,14 +93,12 @@ Do not make the user re-explain the whole project every reset.
 
 ## Response format after doing game work
 
-Keep the response short and practical.
+Keep the response short and practical. **Always include all four items:**
 
-Preferred format:
-
-- what changed
-- version: `vX.Y.Z` (or current project style)
-- commit: `<GitHub commit URL>`
-- playtest: <https://pmagazzu.github.io/project-x/>
+- what changed (1–3 bullets)
+- **version:** `vX.Y.Z` — the in-game `GAME_VERSION` string
+- **commit:** `<GitHub commit URL>`
+- **playtest:** <https://pmagazzu.github.io/project-x/>
 
 ## Project-specific context to remember
 
@@ -115,11 +119,30 @@ Preferred format:
 
 ## Current known priorities
 
-If no new priority is stated, likely high-value areas are:
-- combat logic verification / cleanup
-- `resolveImmediateAttack()` review in `phaser/src/GameState.js`
+### AI overhaul (active — playtest reference: **v1.14.0**)
+
+The AI was underperforming on most maps (island FFA VP turtling, same-island unit blobs, no navy, browser lag from uncapped recruits). **v1.14.0** started the doctrine pass (`phaser/src/AIDoctrine.js` + `AIPlayer.js`):
+
+- army/recruit caps (anti-spam / perf)
+- FFA primary-enemy pick + local closing pressure
+- VP-first objectives; `safeAtHome` toned down for VP/FFA
+- stronger anti-blob when stacking with no good fight
+
+**Next AI phases** (unless user redirects):
+
+1. **Phase 2 — Theater graph** — landmass ↔ VP ↔ owner; missions target real theaters, not north/center/south lanes.
+2. **Phase 3 — Expedition playbook** — forced naval yard → transports → assault on water/VP maps; supply ports/ships/trucks as expansion enablers.
+3. **Phase 4 — Same-island combat quality** — flanks, chokes, hold/fire support; stop feeding unsupported hexes.
+4. **Phase 5 — Strategy personalities** — raider / expander / naval doctrines that actually diverge.
+
+**Reference scenario for tuning:** 5-player island map, victory points mode.
+
+### Other gameplay priorities
+
+If no new priority is stated, also valuable:
+- combat logic verification / cleanup (`resolveImmediateAttack()` in `GameState.js`)
 - destroyer vs submarine combat behavior
-- combat log / breakdown visibility for the player
+- combat log / breakdown visibility
 - engineer auto-road continuation verification
 - patrol boat sprint / double-move validation
 - Tier 1 regression checklist items
@@ -134,11 +157,11 @@ If no new priority is stated, likely high-value areas are:
 
 A normal request is not done until all of this is true:
 - code is changed
-- version is bumped
-- changes are committed
-- changes are pushed
-- user gets commit link
-- user gets playtest link
+- in-game version is bumped (when gameplay/code changed)
+- `npm run build` in `phaser/` was run and `docs/assets/game.js` is included if source changed
+- **all** changed files are committed (full update)
+- changes are pushed to `main`; working tree clean
+- user gets: summary, **game version**, commit link, playtest link
 
 ## Fast startup checklist for future resets
 
@@ -146,8 +169,9 @@ When re-entering this project:
 1. Read this file.
 2. Read `project-x/AGENTS.md`.
 3. Confirm active code is in `project-x/phaser/`.
-4. Check current version string.
+4. Check current `GAME_VERSION` in `GameScene.js`.
 5. Make requested change.
-6. Bump version.
-7. Commit + push.
-8. Reply with summary + commit link + playtest link.
+6. Bump version (gameplay patches).
+7. `cd phaser && npm run build`
+8. `git add` everything changed → commit → `git push origin main`
+9. Reply with summary + **version** + commit link + playtest link
