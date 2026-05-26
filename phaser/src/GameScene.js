@@ -4,7 +4,7 @@ import {
   MAP_SIZE, HEX_SIZE, ISO_SQUISH, getMapBounds
 } from './HexGrid.js';
 import { MenuScene } from './MenuScene.js';
-import { planAITurn, AI_STRATEGIES, randomStrategy, getAIKPIReport, pickAIStrategyForMap } from './AIPlayer.js';
+import { planAITurn, AI_STRATEGIES, randomStrategy, getAIKPIReport, pickAIStrategyForMap, buildAIOverviewForGame } from './AIPlayer.js';
 import {
   createGameState, createUnit, createBuilding, unitAt, buildingAt, primaryBuildingAt, roadAt,
   canEngineerBuildAt,
@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.14.0';
+export const GAME_VERSION = 'v1.15.0';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -2729,7 +2729,7 @@ export class GameScene extends Phaser.Scene {
   _syncTopBarBlocked() {
     const blocked = (this._inputBlockers?.size || 0) > 0
       || !!this._researchOpen || !!this._settingsOpen || !!this._designerOpen
-      || !!this._economyOpen || !!this._tradeOpen || !!this._endTurnPending
+      || !!this._economyOpen || !!this._aiOverviewOpen || !!this._tradeOpen || !!this._endTurnPending
       || !!this._researchCompletePopup;
     for (const b of [this.btnSubmit, this.btnSettings, this.btnResearch, this.btnMore, this.btnSupply]) {
       if (!b) continue;
@@ -2781,6 +2781,9 @@ export class GameScene extends Phaser.Scene {
       { label: '📊 ECON+', color: 0x2a2a14, cb: () => this._toggleEconomy() },
       { label: '⚔ COMBAT LOG', color: 0x3a1828, cb: () => this._toggleCombatLog() },
     ];
+    if (this.aiPlayers?.size >= 1) {
+      defs.push({ label: '🤖 AI LAB', color: 0x2a1844, cb: () => this._toggleAIOverview() });
+    }
     defs.forEach((d, i) => {
       const btn = this._makeBtn(w - 248, 74 + i * 28, d.label, d.color, () => {
         this._moreToolsOpen = false;
@@ -5087,6 +5090,108 @@ export class GameScene extends Phaser.Scene {
     this._setCommandDockHighlight(false);
   }
 
+  // ── AI dev overview (per-AI economy, doctrine, research, designs) ─────────
+  _toggleAIOverview() {
+    if (this._aiOverviewOpen) this._closeAIOverview();
+    else this._openAIOverview();
+  }
+
+  _closeAIOverview() {
+    if (this._aiOverviewObjs) {
+      for (const o of this._aiOverviewObjs) { try { o.destroy(); } catch (e) {} }
+      this._aiOverviewObjs = null;
+    }
+    this._aiOverviewOpen = false;
+    this._setCommandDockHighlight(false);
+  }
+
+  _openAIOverview() {
+    this._closeAIOverview();
+    this._closeEconomy?.();
+    this._closeTrade?.();
+    this._closeResearch?.();
+    this._closeDesigner?.();
+    this._closeSettings?.();
+    this._closeCombatLog?.();
+    this._aiOverviewOpen = true;
+    this._setCommandDockHighlight(true);
+
+    const gs = this.gameState;
+    const rows = buildAIOverviewForGame(gs, this.terrain, this.mapSize, this.aiPlayers, this.aiStrategies);
+    const w = this.scale.width, h = this.scale.height;
+    const D = 222;
+    const panW = Math.min(420, Math.floor(w * 0.42));
+    const panH = Math.min(h - 70, 560);
+    const px = w - panW / 2 - 12;
+    const py = 74 + panH / 2;
+    const objs = [];
+
+    const bg = this.add.rectangle(px, py, panW, panH, 0x100818, 0.98)
+      .setStrokeStyle(2, 0x6644aa).setScrollFactor(0).setDepth(D).setInteractive();
+    bg.on('pointerdown', () => { this._contextMenuClicked = true; });
+    objs.push(bg);
+
+    objs.push(this.add.text(px, py - panH / 2 + 16, '🤖 AI LAB (DEV)', {
+      font: 'bold 14px monospace', fill: '#e8d4ff',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 1));
+
+    const closeBtn = this.add.text(px + panW / 2 - 12, py - panH / 2 + 16, '✕', {
+      font: 'bold 16px monospace', fill: '#aaaaaa',
+    }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(D + 2).setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerdown', () => { this._contextMenuClicked = true; this._closeAIOverview(); });
+    objs.push(closeBtn);
+
+    const turnLine = this.add.text(px, py - panH / 2 + 36, `Turn ${gs.turn} · ${rows.length} AI`, {
+      font: '10px monospace', fill: '#9988bb',
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(D + 1);
+    objs.push(turnLine);
+
+    let y = py - panH / 2 + 54;
+    const left = px - panW / 2 + 14;
+    const wrap = panW - 28;
+
+    const missionStr = (m) => {
+      const parts = Object.entries(m || {}).filter(([, n]) => n > 0).map(([k, n]) => `${k}:${n}`);
+      return parts.length ? parts.join(' ') : '—';
+    };
+
+    for (const row of rows) {
+      if (y > py + panH / 2 - 24) break;
+      const econ = row.economy || {};
+      const bud = row.armyBudget || {};
+      const block = [
+        `P${row.player} · ${row.strategyLabel} (${row.strategy})`,
+        `Phase ${row.phase} · endgame ${((row.endgamePressure || 0) * 100).toFixed(0)}% · hoard ${((row.stockpilePressure || 0) * 100).toFixed(0)}%`,
+        row.focusEnemy ? `Focus P${row.focusEnemy}` : 'Focus —',
+        row.theaterMode
+          ? `Theater ${row.primaryTheaterId} · obj ${row.theaterObjective || '?'} · lane ${row.primaryLane || '?'}`
+          : `Lane ${row.primaryLane || '?'}`,
+        `Eco Fe${econ.iron?.toFixed?.(0) ?? econ.iron} Oil${econ.oil?.toFixed?.(0) ?? econ.oil} W${econ.wood?.toFixed?.(0) ?? econ.wood} C${econ.components?.toFixed?.(0) ?? econ.components} RP${econ.rp?.toFixed?.(0) ?? econ.rp}`,
+        `Army ${bud.myCombat || 0}/${bud.maxCombat || '?'} units ${bud.myUnits || 0}/${bud.maxUnits || '?'}`,
+        `Missions: ${missionStr(row.missions)}`,
+        `Research: ${row.researchQueue?.length ? row.researchQueue.map(t => `${t.name} ${t.pct}%`).join(', ') : 'idle'} (${row.unlockedCount} done)`,
+        `Designs: ${row.designs?.length ? row.designs.map(d => d.name).join(', ') : 'none'}`,
+      ].join('\n');
+      const t = this.add.text(left, y, block, {
+        font: '9px monospace', fill: '#d8cce8', wordWrap: { width: wrap }, lineSpacing: 2,
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(D + 1);
+      objs.push(t);
+      y += t.height + 10;
+      objs.push(this.add.rectangle(px, y - 5, panW - 24, 1, 0x443366, 0.6)
+        .setScrollFactor(0).setDepth(D + 1));
+      y += 4;
+    }
+
+    if (!rows.length) {
+      objs.push(this.add.text(px, py, 'No AI players in this match.', {
+        font: '11px monospace', fill: '#887799',
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(D + 1));
+    }
+
+    this._aiOverviewObjs = objs;
+    this._addToUI(objs);
+  }
+
   // ── Combat log (full fight history for AI vs AI review) ─────────────────────
   _toggleCombatLog() {
     if (this._combatLogOpen) this._closeCombatLog();
@@ -5152,6 +5257,7 @@ export class GameScene extends Phaser.Scene {
     this._closeCombatLog();
     this._closeTrade?.();
     this._closeEconomy?.();
+    this._closeAIOverview?.();
     this._closeResearch?.();
     this._closeDesigner?.();
     this._closeSettings?.();
@@ -5293,6 +5399,7 @@ export class GameScene extends Phaser.Scene {
 
   _openEconomy() {
     this._closeEconomy();
+    this._closeAIOverview?.();
     this._closeTrade?.();
     this._closeResearch?.();
     this._closeDesigner?.();
@@ -7445,6 +7552,7 @@ export class GameScene extends Phaser.Scene {
     let actions = [];
     try {
       actions = planAITurn(gs, this.terrain, this.mapSize, this.aiStrategies?.[gs.currentPlayer] || this.aiStrategy);
+      if (this._aiOverviewOpen) this._openAIOverview();
     } catch (e) {
       this._pushLog(`AI planner crash: ${e?.message || e}`);
       this._aiTelemetry = this._aiTelemetry || {};

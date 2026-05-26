@@ -23,7 +23,8 @@ import { ensureAIDesigns, pickAIRecruit, getClosingPressure } from './AIDesigner
 import {
   getActivePlayerCount, getAIArmyBudget, countPlayerCombatUnits,
   pickContestedVictoryZone, pickPrimaryEnemyHQ, getLocalClosingPressure,
-  countFriendliesNear,
+  countFriendliesNear, buildLandmassIndex, getPlayerHomeLandmassId,
+  buildTheaterIntel, getStockpileSpendPressure, getEndgamePressure,
 } from './AIDoctrine.js';
 
 const AI_TRANSPORT_TYPES = new Set(['LANDING_CRAFT', 'TRANSPORT_SM', 'TRANSPORT_MD', 'TRANSPORT_LG']);
@@ -740,12 +741,16 @@ function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits
     south: Math.min(mapSize - 3, Math.floor(mapSize * 0.82)),
   };
 
+  const endgamePressure = getEndgamePressure(gs, player, mapSize, focusEnemyHQ);
+  const effectivePressure = Math.max(closingPressure, endgamePressure);
+
   // --- Phase decision with hysteresis ---
   const turn = gs.turn || 1;
   let desiredPhase = 'expand';
-  if (turn >= 14 || closingPressure >= 0.38) desiredPhase = 'pressure';
-  if (situation?.vpMode && turn >= 8 && (situation?.contestedVpNearby || closingPressure >= 0.28)) {
-    desiredPhase = 'pressure';
+  if (endgamePressure >= 0.5) desiredPhase = 'closing';
+  else if (turn >= 14 || effectivePressure >= 0.38) desiredPhase = 'pressure';
+  if (situation?.vpMode && turn >= 8 && (situation?.contestedVpNearby || effectivePressure >= 0.28)) {
+    desiredPhase = endgamePressure >= 0.45 ? 'closing' : 'pressure';
   }
   if (situation?.safeAtHome && turn < 20 && !situation?.vpMode) desiredPhase = 'expand';
   const stabilizeRoad = turn < 12 ? 7 : 6;
@@ -828,6 +833,8 @@ function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits
     laneScore,
     focusEnemyHQ,
     focusEnemyOwner,
+    endgamePressure,
+    closingPressure: effectivePressure,
     metrics: { roadDeficit, unsupplied, roadsNow, dynamicRoadTarget },
     objectives: {
       main: targetEnemyHQ ? { q: targetEnemyHQ.q, r: targetEnemyHQ.r } : null,
@@ -1030,58 +1037,6 @@ function isCoastalLand(terrain, mapSize, q, r) {
     if (nt === 4 || nt === 5) return true;
   }
   return false;
-}
-
-const _isPassableLand = (t) => t !== 4 && t !== 5 && t !== 2;
-
-/** Flood-fill land tiles into separate landmasses (continents / islands). */
-function buildLandmassIndex(terrain, mapSize) {
-  const visited = new Set();
-  const bodies = [];
-  const tileToBody = new Map();
-
-  for (let q = 0; q < mapSize; q++) {
-    for (let r = 0; r < mapSize; r++) {
-      const key = `${q},${r}`;
-      if (!_isPassableLand(terrain?.[key] ?? 0) || visited.has(key)) continue;
-
-      let size = 0;
-      const coastal = [];
-      const queue = [key];
-      visited.add(key);
-
-      while (queue.length) {
-        const k = queue.shift();
-        tileToBody.set(k, bodies.length);
-        size += 1;
-        const [tq, tr] = k.split(',').map(Number);
-        if (isCoastalLand(terrain, mapSize, tq, tr)) coastal.push({ q: tq, r: tr });
-        for (const [dq, dr] of _CHOKE_DIRS) {
-          const nq = tq + dq, nr = tr + dr;
-          if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) continue;
-          const nk = `${nq},${nr}`;
-          if (visited.has(nk) || !_isPassableLand(terrain?.[nk] ?? 0)) continue;
-          visited.add(nk);
-          queue.push(nk);
-        }
-      }
-      bodies.push({ id: bodies.length, size, coastal });
-    }
-  }
-
-  const getBodyId = (q, r) => tileToBody.get(`${q},${r}`) ?? -1;
-  return { bodies, getBodyId, majorCount: bodies.filter(b => b.size >= 8).length };
-}
-
-function getPlayerHomeLandmassId(gs, player, landmassIndex) {
-  const myHQ = gs.buildings.find(b => b.type === 'HQ' && Number(b.owner) === Number(player));
-  if (myHQ) return landmassIndex.getBodyId(myHQ.q, myHQ.r);
-  for (const b of gs.buildings) {
-    if (Number(b.owner) !== Number(player)) continue;
-    const id = landmassIndex.getBodyId(b.q, b.r);
-    if (id >= 0) return id;
-  }
-  return -1;
 }
 
 /** Remote continents/islands + coastal supply-port bridge sites for amphibious expansion. */
@@ -1450,6 +1405,8 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
   const missionCounts = {};
   const turn = gs.turn || 1;
   const phase = strategic?.phase || 'expand';
+  const closing = phase === 'closing' || (strategic?.endgamePressure || 0) >= 0.5;
+  const theater = strategic?.theater;
   const myHQ = gs.buildings.find(b => b.type === 'HQ' && b.owner === player);
   const enemyHQ = strategic?.focusEnemyHQ || pickPrimaryEnemyHQ(gs, player, enemyHQs) || enemyHQs[0];
   if (!myHQ || !enemyHQ || myCombatUnits.length < 2) {
@@ -1535,7 +1492,13 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
   const localEnemies = gs.units.filter(u => Number(u.owner) !== Number(player) && !u.embarked
     && hexDistance(u.q, u.r, myHQ.q, myHQ.r) <= 22).length;
   const vpContest = !!vpTarget;
-  const quotas = {
+  let mainTarget = { q: laneEnemy.q, r: laneEnemy.r };
+  if (closing) mainTarget = { q: enemyHQ.q, r: enemyHQ.r };
+  else if (theater?.useTheaterMode && theater?.primaryObjective) {
+    mainTarget = { q: theater.primaryObjective.q, r: theater.primaryObjective.r };
+  }
+
+  let quotas = {
     diversion: deceptionActive ? Math.max(2, Math.floor(n * 0.16)) : Math.max(1, Math.floor(n * 0.08)),
     probe: Math.max(1, Math.floor(n * (phase === 'expand' ? 0.12 : 0.07))),
     expand: (phase === 'expand' || phase === 'stabilize')
@@ -1545,6 +1508,15 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
       ? Math.max(3, Math.floor(n * (localEnemies >= 6 ? 0.38 : 0.32)))
       : Math.max((turn >= 6 && phase !== 'stabilize') ? 2 : 1, Math.floor(n * 0.16)),
   };
+  if (closing) {
+    deceptionActive = false;
+    quotas = {
+      diversion: 0,
+      probe: Math.max(0, Math.floor(n * 0.06)),
+      expand: Math.max(0, Math.floor(n * 0.08)),
+      main: Math.max(4, Math.floor(n * 0.72)),
+    };
+  }
 
   const assign = (u, mission, target) => {
     unitObjective[u.id] = { q: target.q, r: target.r, mission, kind: mission };
@@ -1568,10 +1540,10 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
   batch(quotas.diversion, 'diversion', diversionTarget);
   batch(quotas.probe, 'probe', probeTarget);
   batch(quotas.expand, 'expand', missionExpandTarget);
-  batch(quotas.main, 'main', { q: laneEnemy.q, r: laneEnemy.r });
+  batch(quotas.main, closing ? 'closing' : 'main', mainTarget);
 
   for (const u of pools.indirect) {
-    assign(u, phase === 'pressure' ? 'main' : 'expand', forwardAnchor || expandTarget);
+    assign(u, (closing || phase === 'pressure') ? 'closing' : 'expand', closing ? mainTarget : (forwardAnchor || expandTarget));
   }
   const chokes = territorial?.chokes || [];
   pools.anti.forEach((u, i) => {
@@ -1579,7 +1551,7 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
     assign(u, 'garrison', choke || expandTarget);
   });
   while (idx < remaining.length) {
-    assign(remaining[idx++], phase === 'pressure' ? 'probe' : 'expand', missionExpandTarget);
+    assign(remaining[idx++], closing ? 'closing' : (phase === 'pressure' ? 'probe' : 'expand'), closing ? mainTarget : missionExpandTarget);
   }
 
   return { unitObjective, deceptionActive, missionCounts };
@@ -1804,7 +1776,7 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   const nearestEnemy = enemies.length > 0 ? Math.min(...enemies.map(e => hexDistance(q, r, e.q, e.r))) : 99;
   const obj = ctx.unitObjective?.[unit.id];
   const mission = obj?.mission || obj?.kind || 'expand';
-  const rushMissions = new Set(['main']);
+  const rushMissions = new Set(['main', 'closing']);
   const probeMissions = new Set(['probe', 'diversion']);
   const passiveMissions = new Set(['scout', 'expand', 'garrison']);
   const expandMissions = new Set(['expand', 'scout', 'probe']);
@@ -1849,15 +1821,20 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
     }
   }
 
-  // HQ rush: main assault only (stops the straight-line deathball).
-  const enemyHQs = gs.buildings.filter(b => b.type === 'HQ' && b.owner !== unit.owner);
+  // HQ rush: main/closing assault — prefer focus enemy in FFA endgame.
+  const allEnemyHQs = gs.buildings.filter(b => b.type === 'HQ' && b.owner !== unit.owner);
+  const focusHQ = ctx.strategic?.focusEnemyHQ;
+  const enemyHQs = (focusHQ && rushMissions.has(mission))
+    ? [focusHQ, ...allEnemyHQs.filter(h => h !== focusHQ)]
+    : allEnemyHQs;
   if (enemyHQs.length > 0 && !cfg.retreatToHQ && rushMissions.has(mission)) {
     const nd = Math.min(...enemyHQs.map(b => hexDistance(q, r, b.q, b.r)));
     const cd = Math.min(...enemyHQs.map(b => hexDistance(unit.q, unit.r, b.q, b.r)));
-    const close = ctx.closingPressure || 0;
-    const rushBoost = 7 + Math.floor(close * 22);
+    const close = Math.max(ctx.closingPressure || 0, ctx.strategic?.endgamePressure || 0);
+    const rushBoost = 7 + Math.floor(close * 22) + (mission === 'closing' ? 12 : 0);
     if (nd < cd) score += (unit.type === 'ENGINEER' ? 2 : rushBoost);
     if (close >= 0.45 && nd <= 10) score += 6 + close * 14;
+    if (mission === 'closing' && nd <= 6) score += 10 + close * 18;
   }
   if (ctx.deceptionTurn && probeMissions.has(mission)) {
     const nearest = enemyHQs[0];
@@ -2334,6 +2311,17 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const localPressure = getLocalClosingPressure(gs, player, mapSize, focusEnemyHQ?.owner);
   const closingPressure = Math.min(0.92, Math.max(globalPressure, localPressure * 1.08));
   const strategic = buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits, enemyHQs, closingPressure, situation, armyBudget);
+  const theaterIntel = buildTheaterIntel(terrain, mapSize, gs, player, situation);
+  strategic.theater = theaterIntel;
+  if (theaterIntel.useTheaterMode && theaterIntel.primaryObjective) {
+    strategic.objectives = strategic.objectives || {};
+    strategic.objectives.theater = {
+      q: theaterIntel.primaryObjective.q,
+      r: theaterIntel.primaryObjective.r,
+      type: theaterIntel.primaryObjective.type,
+    };
+  }
+  const stockpilePressure = getStockpileSpendPressure(gs, player);
   const territorial = buildTerritorialIntel(terrain, mapSize, gs, player, strategic, resourceTargets, situation);
   strategic.territorial = territorial;
   const waterBodies = buildWaterBodyIndex(terrain, mapSize);
@@ -2370,7 +2358,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     roadDeficit: roadDeficitGlobal, roadCaptainId,
     logisticsPressure, logisticsEmergency, dynamicRoadTarget,
     strategic, territorial, transportMission,
-    mapSize, closingPressure, situation, armyBudget,
+    mapSize, closingPressure, situation, armyBudget, stockpilePressure,
   };
 
   const engineerMemory = initEngineerMemory(gs, player);
@@ -2378,6 +2366,12 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   const aiDebug = {
     strategicPhase: strategic?.phase || null,
+    endgamePressure: strategic?.endgamePressure ?? null,
+    stockpilePressure,
+    focusEnemy: strategic?.focusEnemyOwner ?? null,
+    theaterMode: !!theaterIntel?.useTheaterMode,
+    primaryTheaterId: theaterIntel?.primaryTheaterId ?? null,
+    theaterObjective: theaterIntel?.primaryObjective?.type ?? null,
     primaryLane: strategic?.primaryLane || null,
     secondaryLane: strategic?.secondaryLane || null,
     laneCenters: strategic?.laneCenters || null,
@@ -3048,8 +3042,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const d = UNIT_TYPES[unitType] || {};
     return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
   };
+  const maxRecruitsThisTurn = armyBudget.maxRecruitsPerTurn
+    + (stockpilePressure >= 0.45 ? 1 : 0)
+    + (strategic?.phase === 'closing' ? 1 : 0);
   const recruitAllowed = (unitType) => {
-    if (plannedRecruits >= armyBudget.maxRecruitsPerTurn) return false;
+    if (plannedRecruits >= maxRecruitsThisTurn) return false;
     if (projectedUnits >= armyBudget.maxUnits) return false;
     if (isCombatUnitType(unitType) && projectedCombat >= armyBudget.maxCombat) return false;
     if (unitType === 'ENGINEER') {
@@ -3194,7 +3191,12 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const r = getUnitRole(unitType);
         if (r === 'line' || r === 'assault') return 9 * phaseWeights.combat * 0.55;
       }
-      if (role === 'indirect' || role === 'assault' || role === 'line') return 9 * phaseWeights.combat;
+      if (role === 'indirect' || role === 'assault' || role === 'line') {
+        let s = 9 * phaseWeights.combat;
+        if (stockpilePressure >= 0.4) s += 4 * stockpilePressure;
+        if (strategic?.phase === 'closing') s += 6;
+        return s;
+      }
       return 0;
     };
     const hasWater = Object.values(terrain).some(t => t === 3 || t === 4 || t === 5);
@@ -3217,7 +3219,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       }
     }
     // If components are available, prefer units that actually consume components.
-    if ((resSim.components || 0) >= 4) {
+    if ((resSim.components || 0) >= 4 || stockpilePressure >= 0.35) {
       sorted.sort((a, b2) => ((UNIT_TYPES[b2]?.cost?.components || 0) - (UNIT_TYPES[a]?.cost?.components || 0)));
     }
 
@@ -3254,7 +3256,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
     const buildingCanRecruitAny = (set) => sorted.some(t => set.has(t));
 
-    if ((gs.turn || 1) >= 10 && (resSim.components || 0) >= 2 && !logisticsEmergency) {
+    const designMinTurn = stockpilePressure >= 0.5 ? 8 : 10;
+    const designMinComponents = stockpilePressure >= 0.5 ? 1 : 2;
+    if ((gs.turn || 1) >= designMinTurn && (resSim.components || 0) >= designMinComponents && !logisticsEmergency) {
       const dPick = pickAIRecruit(gs, player, b, sorted, resSim, gs.turn || 1, true);
       if (dPick && typeof dPick.unitType === 'number' && dPick.design) {
         const ch = dPick.design.chassis;
@@ -3735,8 +3739,79 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   actions.push(...transportActions);
   aiDebug.transportOps = transportActions.length;
 
+  const plDbg = gs.players[player] || {};
+  const techTree = gs._techTree || TECH_TREE || {};
+  aiDebug.economy = {
+    iron: plDbg.iron, oil: plDbg.oil, wood: plDbg.wood || 0,
+    food: plDbg.food, components: plDbg.components || 0, rp: plDbg.rp || 0,
+  };
+  aiDebug.armyBudget = armyBudget;
+  aiDebug.designs = (gs.designs[player] || []).map(d => ({
+    name: d.name, chassis: d.chassis, role: d.aiRole || 'custom', tier: d.effectiveTier,
+  }));
+  aiDebug.researchQueue = (plDbg.research?.queue || []).map(item => {
+    const tech = techTree[item.techId];
+    const pct = tech ? Math.min(100, Math.round(((item.rpSpent || 0) / tech.cost) * 100)) : 0;
+    return { id: item.techId, name: tech?.name || item.techId, pct };
+  });
+
   gs._aiDebug = gs._aiDebug || {};
   gs._aiDebug[player] = aiDebug;
 
   return actions;
+}
+
+/** Dev panel: snapshot all AI players (economy, doctrine, research, designs). */
+export function buildAIOverviewForGame(gs, terrain, mapSize, aiPlayers, aiStrategies = {}) {
+  if (!gs || !aiPlayers?.size) return [];
+  const techTree = gs._techTree || TECH_TREE || {};
+  const rows = [];
+  for (const p of [...aiPlayers].sort((a, b) => a - b)) {
+    const pl = gs.players[p] || {};
+    const dbg = gs._aiDebug?.[p] || {};
+    const stratKey = aiStrategies[p] || 'balanced';
+    const strat = AI_STRATEGIES[stratKey] || AI_STRATEGIES.balanced;
+    const situation = terrain ? assessMapSituation(terrain, mapSize, gs, p) : {};
+    const armyBudget = getAIArmyBudget(gs, p, mapSize, situation);
+    const stockpilePressure = getStockpileSpendPressure(gs, p);
+    const enemyHQs = gs.buildings.filter(b => b.type === 'HQ' && Number(b.owner) !== Number(p));
+    const focusHQ = pickPrimaryEnemyHQ(gs, p, enemyHQs);
+    const endgamePressure = getEndgamePressure(gs, p, mapSize, focusHQ);
+    let theater = null;
+    if (terrain) {
+      theater = buildTheaterIntel(terrain, mapSize, gs, p, situation);
+    }
+    rows.push({
+      player: p,
+      strategy: stratKey,
+      strategyLabel: strat.label || stratKey,
+      phase: dbg.strategicPhase || gs._aiStrategicMemory?.[p]?.phase || '?',
+      endgamePressure: dbg.endgamePressure ?? endgamePressure,
+      stockpilePressure: dbg.stockpilePressure ?? stockpilePressure,
+      focusEnemy: dbg.focusEnemy ?? (focusHQ ? Number(focusHQ.owner) : null),
+      theaterMode: dbg.theaterMode ?? !!theater?.useTheaterMode,
+      primaryTheaterId: dbg.primaryTheaterId ?? theater?.primaryTheaterId,
+      theaterObjective: dbg.theaterObjective ?? theater?.primaryObjective?.type,
+      primaryLane: dbg.primaryLane,
+      missions: dbg.missions || {},
+      economy: dbg.economy || {
+        iron: pl.iron, oil: pl.oil, wood: pl.wood || 0,
+        food: pl.food, components: pl.components || 0, rp: pl.rp || 0,
+      },
+      armyBudget,
+      designs: dbg.designs || (gs.designs[p] || []).map(d => ({
+        name: d.name, chassis: d.chassis, role: d.aiRole || 'custom', tier: d.effectiveTier,
+      })),
+      researchQueue: dbg.researchQueue || (pl.research?.queue || []).map(item => {
+        const tech = techTree[item.techId];
+        const pct = tech ? Math.min(100, Math.round(((item.rpSpent || 0) / tech.cost) * 100)) : 0;
+        return { id: item.techId, name: tech?.name || item.techId, pct };
+      }),
+      unlockedCount: (pl.research?.unlocked || []).length,
+      deception: !!dbg.deceptionActive,
+      transportOps: dbg.transportOps || 0,
+      recruitMix: dbg.recruitMix,
+    });
+  }
+  return rows;
 }

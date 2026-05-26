@@ -43,8 +43,8 @@ export function getAIArmyBudget(gs, player, mapSize = 40, situation = null) {
   const mapScale = ms / 40;
   const playerScale = Math.sqrt(playerCount);
 
-  const maxUnits = Math.min(56, Math.floor((16 + ms * 0.42) / playerScale));
-  const maxCombat = Math.min(42, Math.floor(maxUnits * 0.72));
+  const maxUnits = Math.min(44, Math.floor((10 + ms * 0.34) / playerScale));
+  const maxCombat = Math.min(34, Math.floor(maxUnits * 0.72));
   const maxSupport = Math.min(10, Math.floor(maxUnits * 0.2));
   const maxEngineers = Math.min(4, 2 + Math.floor(turn / 18));
   const maxRecruitsPerTurn = playerCount >= 5 ? 1 : (playerCount >= 3 ? 2 : 3);
@@ -194,4 +194,214 @@ export function countFriendliesNear(gs, player, q, r, radius = 2) {
   return gs.units.filter(u =>
     Number(u.owner) === Number(player) && !u.embarked && u.q !== q && u.r !== r
     && hexDistance(q, r, u.q, u.r) <= radius).length;
+}
+
+const _CHOKE_DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+const _isPassableLand = (t) => t !== 4 && t !== 5 && t !== 2;
+
+export function buildLandmassIndex(terrain, mapSize) {
+  const visited = new Set();
+  const bodies = [];
+  const tileToBody = new Map();
+
+  for (let q = 0; q < mapSize; q++) {
+    for (let r = 0; r < mapSize; r++) {
+      const key = `${q},${r}`;
+      if (!_isPassableLand(terrain?.[key] ?? 0) || visited.has(key)) continue;
+
+      let size = 0;
+      const coastal = [];
+      const queue = [key];
+      visited.add(key);
+
+      while (queue.length) {
+        const k = queue.shift();
+        tileToBody.set(k, bodies.length);
+        size += 1;
+        const [tq, tr] = k.split(',').map(Number);
+        let nearWater = false;
+        for (const [dq, dr] of _CHOKE_DIRS) {
+          const nq = tq + dq, nr = tr + dr;
+          if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) { nearWater = true; continue; }
+          const nt = terrain?.[`${nq},${nr}`] ?? 0;
+          if (nt === 4 || nt === 5) nearWater = true;
+          else if (_isPassableLand(nt)) {
+            const nk = `${nq},${nr}`;
+            if (!visited.has(nk)) { visited.add(nk); queue.push(nk); }
+          }
+        }
+        if (nearWater) coastal.push({ q: tq, r: tr });
+      }
+      bodies.push({ id: bodies.length, size, coastal });
+    }
+  }
+
+  const getBodyId = (q, r) => tileToBody.get(`${q},${r}`) ?? -1;
+  return { bodies, getBodyId, majorCount: bodies.filter(b => b.size >= 8).length };
+}
+
+export function getPlayerHomeLandmassId(gs, player, landmassIndex) {
+  const myHQ = gs.buildings.find(b => b.type === 'HQ' && Number(b.owner) === Number(player));
+  if (myHQ) return landmassIndex.getBodyId(myHQ.q, myHQ.r);
+  for (const b of gs.buildings) {
+    if (Number(b.owner) !== Number(player)) continue;
+    const id = landmassIndex.getBodyId(b.q, b.r);
+    if (id >= 0) return id;
+  }
+  return -1;
+}
+
+/** Phase 2: landmass theaters (replaces N/S/C lanes when multi-theater or FFA). */
+export function buildTheaterIntel(terrain, mapSize, gs, player, situation = null) {
+  const landmassIndex = buildLandmassIndex(terrain, mapSize);
+  const homeId = getPlayerHomeLandmassId(gs, player, landmassIndex);
+  const theaters = [];
+
+  for (const body of landmassIndex.bodies) {
+    if (body.size < 6) continue;
+    let myUnits = 0, enemyUnits = 0, myBuildings = 0;
+    const resources = [];
+    const vpZones = [];
+
+    for (const [k, v] of Object.entries(gs.resourceHexes || {})) {
+      const [rq, rr] = k.split(',').map(Number);
+      if (landmassIndex.getBodyId(rq, rr) !== body.id) continue;
+      const owned = gs.buildings.some(b => b.q === rq && b.r === rr
+        && ['MINE', 'OIL_PUMP'].includes(b.type) && Number(b.owner) === Number(player));
+      if (!owned) resources.push({ q: rq, r: rr, type: v?.type || 'IRON' });
+    }
+    for (const z of (gs.victoryZones || [])) {
+      if (landmassIndex.getBodyId(z.q, z.r) === body.id) vpZones.push(z);
+    }
+    for (const u of gs.units) {
+      if (u.embarked) continue;
+      if (landmassIndex.getBodyId(u.q, u.r) !== body.id) continue;
+      if (Number(u.owner) === Number(player)) myUnits += 1;
+      else enemyUnits += 1;
+    }
+    for (const b of gs.buildings) {
+      if (landmassIndex.getBodyId(b.q, b.r) !== body.id) continue;
+      if (Number(b.owner) === Number(player)) myBuildings += 1;
+    }
+
+    theaters.push({
+      id: body.id,
+      size: body.size,
+      isHome: body.id === homeId,
+      myUnits, enemyUnits, myBuildings,
+      resources, vpZones,
+      coastal: body.coastal.slice(0, 12),
+    });
+  }
+
+  const useTheaterMode = situation?.ffaMode || situation?.islandMap
+    || landmassIndex.majorCount >= 2
+    || theaters.filter(t => !t.isHome && (t.vpZones.length || t.resources.length)).length >= 1;
+
+  let primaryTheater = theaters.find(t => t.isHome) || theaters[0];
+  let primaryObjective = null;
+  let bestObjScore = -Infinity;
+
+  const myHQ = gs.buildings.find(b => b.type === 'HQ' && Number(b.owner) === Number(player));
+  const focusEnemy = pickPrimaryEnemyHQ(gs, player,
+    gs.buildings.filter(b => b.type === 'HQ' && Number(b.owner) !== Number(player)));
+
+  for (const t of theaters) {
+    if (t.isHome) continue;
+    let tScore = t.vpZones.length * 14 + t.resources.length * 5 + t.enemyUnits * 2;
+    if (situation?.vpMode && t.vpZones.length) tScore += 20;
+    if (focusEnemy && myHQ) {
+      const onEnemyMass = landmassIndex.getBodyId(focusEnemy.q, focusEnemy.r) === t.id;
+      if (onEnemyMass) tScore += 24;
+    }
+    if (tScore > bestObjScore) {
+      bestObjScore = tScore;
+      primaryTheater = t;
+    }
+  }
+
+  if (situation?.vpMode && primaryTheater?.vpZones?.length) {
+    const vp = pickContestedVictoryZone(gs, player);
+    if (vp && landmassIndex.getBodyId(vp.q, vp.r) === primaryTheater.id) {
+      primaryObjective = { ...vp, theaterId: primaryTheater.id };
+    }
+  }
+  if (!primaryObjective && focusEnemy && landmassIndex.getBodyId(focusEnemy.q, focusEnemy.r) === primaryTheater?.id) {
+    primaryObjective = { q: focusEnemy.q, r: focusEnemy.r, type: 'enemy_hq', theaterId: primaryTheater.id };
+  }
+  if (!primaryObjective && primaryTheater?.resources?.length) {
+    const res = primaryTheater.resources[0];
+    primaryObjective = { q: res.q, r: res.r, type: 'resource', theaterId: primaryTheater.id };
+  }
+  if (!primaryObjective && primaryTheater?.coastal?.length) {
+    const c = primaryTheater.coastal[0];
+    primaryObjective = { q: c.q, r: c.r, type: 'beachhead', theaterId: primaryTheater.id };
+  }
+
+  return {
+    landmassIndex,
+    homeLandmassId: homeId,
+    theaters,
+    useTheaterMode,
+    primaryTheaterId: primaryTheater?.id ?? homeId,
+    primaryObjective,
+  };
+}
+
+/** 0–1: urge spending stockpiled resources on army/industry instead of hoarding. */
+export function getStockpileSpendPressure(gs, player) {
+  const pl = gs.players[player] || {};
+  let p = 0;
+  if ((pl.iron || 0) >= 35) p += 0.18;
+  if ((pl.iron || 0) >= 70) p += 0.22;
+  if ((pl.oil || 0) >= 20) p += 0.12;
+  if ((pl.oil || 0) >= 45) p += 0.18;
+  if ((pl.wood || 0) >= 30) p += 0.1;
+  if ((pl.components || 0) >= 6) p += 0.2;
+  if ((pl.components || 0) >= 12) p += 0.15;
+  const turn = gs.turn || 1;
+  if (turn >= 20) p += 0.08;
+  return Math.min(1, p);
+}
+
+/** 0–1: should commit to eliminating focus enemy HQ (final push). */
+export function getEndgamePressure(gs, player, mapSize = 40, focusEnemyHQ = null) {
+  if (!focusEnemyHQ) return 0;
+  const myHQ = gs.buildings.find(b => b.type === 'HQ' && Number(b.owner) === Number(player));
+  if (!myHQ) return 0;
+
+  const ms = mapSize || gs._mapSize || 40;
+  const distHQ = hexDistance(myHQ.q, myHQ.r, focusEnemyHQ.q, focusEnemyHQ.r);
+  if (distHQ > ms * 0.65) return 0;
+
+  const isCombat = (u) => {
+    const d = UNIT_TYPES[u.type] || {};
+    return (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0 || (d.attack || 0) > 0;
+  };
+  const eo = Number(focusEnemyHQ.owner);
+  const myNear = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked && isCombat(u)
+    && hexDistance(u.q, u.r, focusEnemyHQ.q, focusEnemyHQ.r) <= 14).length;
+  const enNear = gs.units.filter(u => Number(u.owner) === eo && !u.embarked && isCombat(u)
+    && hexDistance(u.q, u.r, focusEnemyHQ.q, focusEnemyHQ.r) <= 10).length;
+  const enAtHQ = gs.units.filter(u => Number(u.owner) === eo && !u.embarked
+    && hexDistance(u.q, u.r, focusEnemyHQ.q, focusEnemyHQ.r) <= 3).length;
+
+  let p = 0;
+  if (myNear >= 2) p += 0.2;
+  if (myNear >= enNear + 1) p += 0.25;
+  if (myNear >= enNear + 3) p += 0.2;
+  if (distHQ <= Math.floor(ms * 0.35)) p += 0.15;
+  if (enAtHQ <= 4 && myNear >= 3) p += 0.35;
+  if (enNear <= 2 && myNear >= 5) p += 0.3;
+
+  const myPower = countPlayerCombatUnits(gs, player);
+  const enPower = gs.units.filter(u => Number(u.owner) === eo && !u.embarked && isCombat(u)).length;
+  if (myPower >= enPower * 1.25 && myNear >= 2) p += 0.15;
+
+  if (gs.victoryMode === 'points') {
+    const vp = pickContestedVictoryZone(gs, player);
+    if (vp && hexDistance(focusEnemyHQ.q, focusEnemyHQ.r, vp.q, vp.r) <= 8) p += 0.1;
+  }
+
+  return Math.min(0.96, p);
 }
