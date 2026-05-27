@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.15.12';
+export const GAME_VERSION = 'v1.15.13';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -7801,6 +7801,22 @@ export class GameScene extends Phaser.Scene {
     return { actions: kept, budget, truncated: (actions?.length || 0) - kept.length };
   }
 
+  _dropNoProgressMoves(actions, gs, player, aiDebug) {
+    if (!Array.isArray(actions) || actions.length === 0) return actions || [];
+    const noContact = !aiDebug?.mapSummary?.enemyCombatCentroid;
+    if (!noContact) return actions;
+    const enemyHQs = gs.buildings.filter(b => b.type === 'HQ' && Number(b.owner) !== Number(player));
+    if (!enemyHQs.length) return actions;
+    return actions.filter((a) => {
+      if (a.type !== 'move' || a.unitId == null) return true;
+      const u = gs.units.find(x => x.id === a.unitId);
+      if (!u) return true;
+      const curD = Math.min(...enemyHQs.map(h => hexDistance(u.q, u.r, h.q, h.r)));
+      const newD = Math.min(...enemyHQs.map(h => hexDistance(a.toQ, a.toR, h.q, h.r)));
+      return newD < curD;
+    });
+  }
+
   _runAITurn() {
     if (this._aiTurnInProgress) return;
     this._cancelAIPendingSteps();
@@ -7855,6 +7871,7 @@ export class GameScene extends Phaser.Scene {
       this._onSubmit();
       return;
     }
+    actions = this._dropNoProgressMoves(actions, gs, gs.currentPlayer, gs._aiDebug?.[gs.currentPlayer]);
     const capped = this._applyAIStabilityCaps(actions, gs, gs.currentPlayer);
     actions = capped.actions;
     if (capped.truncated > 0) {
