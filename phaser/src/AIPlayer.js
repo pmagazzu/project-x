@@ -24,7 +24,7 @@ import {
   getActivePlayerCount, getAIArmyBudget, countPlayerCombatUnits,
   pickContestedVictoryZone, pickPrimaryEnemyHQ, getLocalClosingPressure,
   countFriendliesNear, getLandmassIndex, getPlayerHomeLandmassId,
-  buildTheaterIntel, getStockpileSpendPressure, getEndgamePressure,
+  buildTheaterIntel, getStockpileSpendPressure, getEndgamePressure, estimateExtractorIncome,
 } from './AIDoctrine.js';
 
 const AI_TRANSPORT_TYPES = new Set(['LANDING_CRAFT', 'TRANSPORT_SM', 'TRANSPORT_MD', 'TRANSPORT_LG']);
@@ -800,19 +800,28 @@ function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits
 
   // --- Phase decision with hysteresis ---
   const turn = gs.turn || 1;
+  const myCombatCount = myCombatUnits?.length || 0;
+  const canEnterClosing = turn >= 8 && myCombatCount >= 6;
   let desiredPhase = 'expand';
-  if (endgamePressure >= 0.5) desiredPhase = 'closing';
+  if (canEnterClosing && endgamePressure >= 0.5) desiredPhase = 'closing';
   else if (turn >= 14 || effectivePressure >= 0.38) desiredPhase = 'pressure';
-  if (situation?.vpMode && turn >= 8 && (situation?.contestedVpNearby || effectivePressure >= 0.28)) {
-    desiredPhase = endgamePressure >= 0.45 ? 'closing' : 'pressure';
+  if (situation?.vpMode && turn >= 8 && myCombatCount >= 5 && (situation?.contestedVpNearby || effectivePressure >= 0.28)) {
+    desiredPhase = (canEnterClosing && endgamePressure >= 0.45) ? 'closing' : 'pressure';
   }
   if (situation?.safeAtHome && turn < 20 && !situation?.vpMode) desiredPhase = 'expand';
   const stabilizeRoad = turn < 12 ? 7 : 6;
   const stabilizeUnsup = turn < 12 ? Math.max(5, Math.floor(myUnits.length * 0.35)) : Math.max(4, Math.floor(myUnits.length * 0.28));
-  if (!situation?.vpMode && (roadDeficit >= stabilizeRoad || unsupplied >= stabilizeUnsup)) {
+  const severe = roadDeficit >= 4 || unsupplied >= Math.max(4, Math.floor(myUnits.length * 0.33));
+  const inClosingPush = desiredPhase === 'closing' && endgamePressure >= 0.55;
+  const stabilizeNeeded = roadDeficit >= stabilizeRoad || unsupplied >= stabilizeUnsup;
+  if (!inClosingPush && !situation?.vpMode && stabilizeNeeded) {
     desiredPhase = 'stabilize';
   }
-  if (situation?.vpMode && roadDeficit >= stabilizeRoad + 3 && unsupplied >= stabilizeUnsup + 2) {
+  if (!inClosingPush && situation?.vpMode && roadDeficit >= stabilizeRoad + 3 && unsupplied >= stabilizeUnsup + 2) {
+    desiredPhase = 'stabilize';
+  }
+  // Closing push: only fall back to stabilize on severe logistics breakdown.
+  if (inClosingPush && stabilizeNeeded && severe) {
     desiredPhase = 'stabilize';
   }
 
@@ -820,7 +829,6 @@ function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits
   const prevPhaseTurns = prev.phaseTurns || 0;
   let phase = desiredPhase;
   // Require minimum dwell time unless conditions are severe.
-  const severe = roadDeficit >= 4 || unsupplied >= Math.max(4, Math.floor(myUnits.length * 0.33));
   if (!severe && prevPhase !== desiredPhase && prevPhaseTurns < 2) phase = prevPhase;
   const phaseTurns = phase === prevPhase ? (prevPhaseTurns + 1) : 1;
 
@@ -1698,6 +1706,130 @@ function assignEnemyExtractorRaidMissions(gs, player, unitObjective, combatUnits
     unitObjective[best.id] = { q: t.q, r: t.r, mission: 'main', kind: 'raid_resource' };
     assigned += 1;
   }
+}
+
+function shouldPrioritizeOilOverMine(gs, player) {
+  const myMines = gs.buildings.filter(b => Number(b.owner) === Number(player) && b.type === 'MINE' && !b.underConstruction).length;
+  const myPumps = gs.buildings.filter(b => Number(b.owner) === Number(player) && b.type === 'OIL_PUMP' && !b.underConstruction).length;
+  if (myMines < 3) return false;
+  const myOil = estimateExtractorIncome(gs, player, 'oil');
+  const focus = pickPrimaryEnemyHQ(gs, player, gs.buildings.filter(b => b.type === 'HQ' && Number(b.owner) !== Number(player)));
+  const eo = focus ? Number(focus.owner) : null;
+  let enemyOil = 0;
+  if (eo != null) enemyOil = estimateExtractorIncome(gs, eo, 'oil');
+  else {
+    for (const p of Object.keys(gs.players || {})) {
+      if (Number(p) === Number(player)) continue;
+      enemyOil = Math.max(enemyOil, estimateExtractorIncome(gs, p, 'oil'));
+    }
+  }
+  return enemyOil >= myOil * 1.5 && myPumps < myMines;
+}
+
+function enforceClosingAttackFloor(gs, player, actions, strategic) {
+  const endgame = strategic?.endgamePressure ?? 0;
+  if (strategic?.phase !== 'closing' && endgame < 0.5) return 0;
+  const minAttacks = endgame >= 0.72 ? 3 : (endgame >= 0.58 ? 2 : 1);
+  const existing = actions.filter(a => a.type === 'attack').length;
+  if (existing >= minAttacks) return 0;
+
+  let added = 0;
+  const attacked = new Set(actions.filter(a => a.type === 'attack').map(a => a.attackerId));
+  const combatUnits = gs.units.filter((u) => {
+    if (Number(u.owner) !== Number(player) || u.embarked) return false;
+    const role = getUnitRole(u.type);
+    if (role === 'engineer' || role === 'support') return false;
+    const d = UNIT_TYPES[u.type] || {};
+    return (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0 || (d.attack || 0) > 0;
+  }).sort((a, b) => {
+    const score = (u) => {
+      const d = UNIT_TYPES[u.type] || {};
+      return (d.hard_attack || 0) + (d.soft_attack || 0) + (UNIT_TYPES[u.type]?.tier || 0) * 2;
+    };
+    return score(b) - score(a);
+  });
+
+  for (const unit of combatUnits) {
+    if (existing + added >= minAttacks) break;
+    if (attacked.has(unit.id)) continue;
+    const targets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
+    const target = chooseBestTarget(gs, unit, targets);
+    if (!target) continue;
+    const trade = estimateAttackCommitScore(gs, unit, target);
+    const floor = endgame >= 0.65 ? -6 : -3;
+    if (trade < floor && (target.health || 99) > 2) continue;
+    actions.unshift({
+      type: 'attack',
+      attackerId: unit.id,
+      targetId: target.id,
+      attackerQ: unit.q,
+      attackerR: unit.r,
+      targetQ: target.q,
+      targetR: target.r,
+    });
+    attacked.add(unit.id);
+    added += 1;
+  }
+  return added;
+}
+
+function planResearchFloorActions(gs, player, terrain, actions, resSim, canAfford, spend) {
+  const turn = gs.turn || 1;
+  if (turn < 8) return { labQueued: false, researchQueued: false };
+  let labQueued = false;
+  let researchQueued = false;
+
+  const labsAny = gs.buildings.some(b => Number(b.owner) === Number(player) && b.type === 'SCIENCE_LAB');
+  const labsOnline = gs.buildings.filter(b => Number(b.owner) === Number(player) && b.type === 'SCIENCE_LAB' && !b.underConstruction).length;
+  const hasLabBuild = actions.some(a => a.type === 'build' && a.buildingType === 'SCIENCE_LAB');
+
+  if (!labsAny && !hasLabBuild && resSim.iron >= 26) {
+    const eng = gs.units.find(u => Number(u.owner) === Number(player) && u.type === 'ENGINEER'
+      && !u.embarked && !u.constructing
+      && !actions.some(a => a.unitId === u.id && (a.type === 'build' || a.type === 'move')));
+    if (eng) {
+      const cost = BUILDING_TYPES.SCIENCE_LAB?.buildCost || {};
+      const ttype = terrain?.[`${eng.q},${eng.r}`] ?? 0;
+      const onPlains = ttype === 0 || ttype === 7;
+      const occupied = buildingAt(gs, eng.q, eng.r);
+      if (onPlains && !occupied && canAfford(cost)) {
+        actions.unshift({ type: 'build', unitId: eng.id, buildingType: 'SCIENCE_LAB' });
+        spend(cost);
+        labQueued = true;
+      }
+    }
+  }
+
+  const pState = gs.players[player] || {};
+  pState.research = pState.research || { queue: [], unlocked: [], slots: 1 };
+  const resState = pState.research;
+  const queueLen = resState.queue?.length || 0;
+  const techTree = gs._techTree || TECH_TREE || {};
+  const unlocked = new Set(resState.unlocked || []);
+  const queued = new Set((resState.queue || []).map(q => q.techId));
+  const prereqsMet = (tech) => (tech.prereqs || []).every(p => unlocked.has(p));
+
+  if ((labsOnline > 0 || labQueued) && queueLen === 0 && resSim.iron >= 30
+      && !actions.some(a => a.type === 'research_queue')) {
+    const choices = Object.values(techTree)
+      .filter(t => t && t.id && !unlocked.has(t.id) && !queued.has(t.id) && prereqsMet(t));
+    if (choices.length > 0) {
+      const rank = (t) => {
+        let s = 0;
+        if (t.branch === 'industrial') s += 14;
+        if (t.branch === 'science') s += 8;
+        if (t.id === 'gravel_roads' || t.id === 'concrete_roads') s += 10;
+        if (t.branch === 'vehicles') s += 7;
+        s -= (t.tier || 0) * 1.2;
+        s -= (t.cost || 0) * 0.06;
+        return s;
+      };
+      choices.sort((a, b) => rank(b) - rank(a));
+      actions.unshift({ type: 'research_queue', techId: choices[0].id });
+      researchQueued = true;
+    }
+  }
+  return { labQueued, researchQueued };
 }
 
 function assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjective, combatUnits, flankCount) {
@@ -2870,7 +3002,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           const barracksDone = gs.buildings.filter(bb => bb.owner === player && bb.type === 'BARRACKS' && !bb.underConstruction).length;
           const barracksUrgent = (gs.turn >= 6 && barracksDone < 1) || (gs.turn >= 10 && barracksDone < 2 && myCombatUnits.length < 5);
           const deferWebRoad = barracksUrgent && roadDeficitForEng < 14;
-          if (!deferWebRoad && (roadDeficitForEng >= 2 || roadScoreNow >= 18) && maybeBuild('ROAD')) continue;
+          const closingPush = strategic?.phase === 'closing' && (strategic?.endgamePressure || 0) >= 0.55;
+          const blockRoadForHoard = closingPush && logisticsPressure && resSim.iron >= 30 && roadDeficitForEng < 6;
+          if (!deferWebRoad && !blockRoadForHoard && (roadDeficitForEng >= 2 || roadScoreNow >= 18) && maybeBuild('ROAD')) continue;
         }
 
         if (!hasNonRoadBuilding) {
@@ -2895,7 +3029,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           // Macro floor nudges: if we're stockpiling, force missing core econ/tech pieces online.
           const onPlainsMacro = (ttype === 0 || ttype === 6 || ttype === 7);
           if (gs.turn >= 10 && myFarms < 2 && onPlainsMacro && maybeBuild('FARM')) continue;
-          if (gs.turn >= 12 && myLabs < 1 && maybeBuild('SCIENCE_LAB')) continue;
+          if (gs.turn >= 8 && myLabs < 1 && resSim.iron >= 24 && maybeBuild('SCIENCE_LAB')) continue;
           if (gs.turn >= 16 && myFactories < 1 && maybeBuild('FACTORY')) continue;
 
           // Priority 1: exploit local resources (always do this first)
@@ -2907,11 +3041,13 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           const onPlains = (ttype === 0 || ttype === 6 || ttype === 7);
           const onForest = (ttype === 1 || ttype === 7);
 
+          const favorOilMacro = shouldPrioritizeOilOverMine(gs, player);
+
           // Opening hierarchy (turn <= 8): ensure baseline infra/econ comes online.
           if (gs.turn <= 8) {
             if (!hasRoad && maybeBuild('ROAD')) continue;
-            if (resHex?.type === 'IRON' && myMines < opening.desired.mines && maybeBuild('MINE')) continue;
-            if (resHex?.type === 'OIL' && myPumps < opening.desired.pumps && maybeBuild('OIL_PUMP')) continue;
+            if (resHex?.type === 'OIL' && (myPumps < opening.desired.pumps || favorOilMacro) && maybeBuild('OIL_PUMP')) continue;
+            if (resHex?.type === 'IRON' && myMines < opening.desired.mines && (!favorOilMacro || myPumps >= 1) && maybeBuild('MINE')) continue;
             if (onPlains && myFarms < 1 && maybeBuild('FARM')) continue;
             if (onForest && myLumber < 1 && maybeBuild('LUMBER_CAMP')) continue;
           }
@@ -2935,7 +3071,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           if (resHex?.type === 'OIL') {
             maybeBuild('OIL_PUMP');
           } else if (resHex?.type === 'IRON') {
-            maybeBuild('MINE');
+            if (!favorOilMacro || myMines < 2) maybeBuild('MINE');
           } else if ((ttype === 1 || ttype === 7) && !resHex && myLumber < maxLumber && woodPressure) {
             // only add lumber when wood is actually tight
             maybeBuild('LUMBER_CAMP');
@@ -3136,7 +3272,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const existingDesigns = gs.designs?.[player] || [];
   const myLabsCount = gs.buildings.filter(b => b.owner === player && b.type === 'SCIENCE_LAB' && !b.underConstruction).length;
   const designChance = Math.min(0.72, (0.22 + myLabsCount * 0.10 + Math.max(0, gs.turn - 6) * 0.01) * phaseWeights.research);
-  if (existingDesigns.length < getMaxDesignSlots(gs, player) && gs.turn >= 3 && Math.random() < designChance) {
+  const canRegisterDesign = myLabsCount >= 1 || (resSim.components || 0) >= 2 || stockpilePressure >= 0.5;
+  if (canRegisterDesign && existingDesigns.length < getMaxDesignSlots(gs, player) && gs.turn >= 3 && Math.random() < designChance) {
     // Pick a simple design: chassis + one affordable module
     const AI_DESIGN_RECIPES = [
       { chassis: 'INFANTRY',  modules: ['FIELD_RADIO'],  name: 'Radioman' },
@@ -3186,7 +3323,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const rank = (t) => {
         let s = 0;
         const turn = gs.turn || 1;
-        if (t.branch === 'industrial') s += 12 + (turn >= 14 ? 2 : 0);
+        if (t.branch === 'industrial') s += 12 + (turn >= 14 ? 2 : 0) + (turn >= 8 && labsOnline === 0 ? 6 : 0);
         if (t.branch === 'science') s += 5;
         if (t.branch === 'engineering') s += 2 + Math.min(5, unsupNow);
         if (t.id === 'gravel_roads' || t.id === 'concrete_roads' || t.id === 'railways') s += 6;
@@ -3224,8 +3361,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
   };
   const maxRecruitsThisTurn = armyBudget.maxRecruitsPerTurn
-    + (stockpilePressure >= 0.45 ? 1 : 0)
-    + (strategic?.phase === 'closing' ? 1 : 0);
+    + (stockpilePressure >= 0.55 ? 2 : (stockpilePressure >= 0.35 ? 1 : 0))
+    + (strategic?.phase === 'closing' ? 2 : (strategic?.phase === 'pressure' ? 1 : 0));
   const recruitAllowed = (unitType) => {
     if (plannedRecruits >= maxRecruitsThisTurn) return false;
     if (projectedUnits >= armyBudget.maxUnits) return false;
@@ -3510,7 +3647,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       if (logisticsEmergency && !logisticsCriticalRecruits.has(unitType) && !navalBootstrapUnit) {
         if (!(armyCriticallyLow && barracksCombatRescue.includes(unitType))) continue;
       }
-      if (logisticsPressure && (UNIT_TYPES[unitType]?.cost?.oil || 0) >= 2 && !logisticsCriticalRecruits.has(unitType)) continue;
+      if (logisticsPressure && (UNIT_TYPES[unitType]?.cost?.oil || 0) >= 2 && !logisticsCriticalRecruits.has(unitType)) {
+        const closingSpend = strategic?.phase === 'closing' && stockpilePressure >= 0.35 && unsuppliedCombatNow <= 2;
+        if (!closingSpend) continue;
+      }
 
       // Strategic doctrine gate: during expand/stabilize, suppress cheap recon spam — but keep infantry
       // online when the army is thin so an AI cannot stall with roads/engineers and zero combat output.
@@ -4014,9 +4154,22 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     staleIntel: perceivedEnemies.filter(u => Number((gs.turn || 1) - (u.seenTurn || gs.turn || 1)) >= 2).length,
   };
 
+  const researchFloor = planResearchFloorActions(gs, player, terrain, actions, resSim, canAfford, spend);
+  const closingAttackFloor = enforceClosingAttackFloor(gs, player, actions, strategic);
+
   const transportActions = planTransportOperations(gs, terrain, mapSize, player, strategic, territorial, actions);
   actions.push(...transportActions);
   aiDebug.transportOps = transportActions.length;
+
+  aiDebug.actionPlan = {
+    attacks: actions.filter(a => a.type === 'attack').length,
+    moves: actions.filter(a => a.type === 'move').length,
+    builds: actions.filter(a => a.type === 'build').length,
+    recruits: actions.filter(a => a.type === 'recruit').length,
+    extractorRaids: Object.values(unitObjective).filter(o => o?.kind === 'raid_resource').length,
+    closingAttackFloor,
+    researchFloor,
+  };
 
   const plDbg = gs.players[player] || {};
   const techTree = gs._techTree || TECH_TREE || {};
@@ -4081,6 +4234,7 @@ export function buildAIOverviewForGame(gs, terrain, mapSize, aiPlayers, aiStrate
       designs: dbg.designs || (gs.designs[p] || []).map(d => ({
         name: d.name, chassis: d.chassis, role: d.aiRole || 'custom', tier: d.effectiveTier,
       })),
+      actionPlan: dbg.actionPlan || null,
       researchQueue: dbg.researchQueue || (pl.research?.queue || []).map(item => {
         const tech = techTree[item.techId];
         const pct = tech ? Math.min(100, Math.round(((item.rpSpent || 0) / tech.cost) * 100)) : 0;

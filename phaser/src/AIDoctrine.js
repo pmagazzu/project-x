@@ -372,16 +372,34 @@ export function buildTheaterIntel(terrain, mapSize, gs, player, situation = null
 export function getStockpileSpendPressure(gs, player) {
   const pl = gs.players[player] || {};
   let p = 0;
-  if ((pl.iron || 0) >= 35) p += 0.18;
-  if ((pl.iron || 0) >= 70) p += 0.22;
-  if ((pl.oil || 0) >= 20) p += 0.12;
-  if ((pl.oil || 0) >= 45) p += 0.18;
-  if ((pl.wood || 0) >= 30) p += 0.1;
-  if ((pl.components || 0) >= 6) p += 0.2;
-  if ((pl.components || 0) >= 12) p += 0.15;
+  if ((pl.iron || 0) >= 24) p += 0.2;
+  if ((pl.iron || 0) >= 40) p += 0.24;
+  if ((pl.iron || 0) >= 65) p += 0.22;
+  if ((pl.iron || 0) >= 90) p += 0.18;
+  if ((pl.oil || 0) >= 12) p += 0.14;
+  if ((pl.oil || 0) >= 22) p += 0.2;
+  if ((pl.oil || 0) >= 40) p += 0.16;
+  if ((pl.wood || 0) >= 22) p += 0.1;
+  if ((pl.wood || 0) >= 35) p += 0.12;
+  if ((pl.components || 0) >= 4) p += 0.18;
+  if ((pl.components || 0) >= 8) p += 0.2;
   const turn = gs.turn || 1;
-  if (turn >= 20) p += 0.08;
+  if (turn >= 12) p += 0.06;
+  if (turn >= 20) p += 0.1;
   return Math.min(1, p);
+}
+
+/** Per-turn income from mines or oil pumps (rough, for macro heuristics). */
+export function estimateExtractorIncome(gs, owner, kind = 'iron') {
+  const types = kind === 'oil' ? ['OIL_PUMP'] : ['MINE'];
+  let sum = 0;
+  for (const b of gs.buildings) {
+    if (Number(b.owner) !== Number(owner) || b.underConstruction) continue;
+    if (!types.includes(b.type)) continue;
+    const def = BUILDING_TYPES[b.type] || {};
+    sum += kind === 'oil' ? (def.oilPerTurn || 0) : (def.ironPerTurn || 0);
+  }
+  return sum;
 }
 
 /** 0–1: should commit to eliminating focus enemy HQ (final push). */

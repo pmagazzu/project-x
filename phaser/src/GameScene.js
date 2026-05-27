@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.16.0';
+export const GAME_VERSION = 'v1.17.0';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -5228,6 +5228,9 @@ export class GameScene extends Phaser.Scene {
           : `Lane ${row.primaryLane || '?'}`,
         `Eco Fe${econ.iron?.toFixed?.(0) ?? econ.iron} Oil${econ.oil?.toFixed?.(0) ?? econ.oil} W${econ.wood?.toFixed?.(0) ?? econ.wood} C${econ.components?.toFixed?.(0) ?? econ.components} RP${econ.rp?.toFixed?.(0) ?? econ.rp}`,
         `Army ${bud.myCombat || 0}/${bud.maxCombat || '?'} units ${bud.myUnits || 0}/${bud.maxUnits || '?'}`,
+        row.actionPlan
+          ? `Plan atk:${row.actionPlan.attacks} move:${row.actionPlan.moves} bld:${row.actionPlan.builds} rec:${row.actionPlan.recruits} raids:${row.actionPlan.extractorRaids} close+${row.actionPlan.closingAttackFloor}`
+          : 'Plan —',
         `Missions: ${missionStr(row.missions)}`,
         `Research: ${row.researchQueue?.length ? row.researchQueue.map(t => `${t.name} ${t.pct}%`).join(', ') : 'idle'} (${row.unlockedCount} done)`,
         `Designs: ${row.designs?.length ? row.designs.map(d => d.name).join(', ') : 'none'}`,
@@ -7463,6 +7466,7 @@ export class GameScene extends Phaser.Scene {
       missions: dbg.missions,
       economy: dbg.economy,
       recruitMix: dbg.recruitMix,
+      actionPlan: dbg.actionPlan,
       designs: dbg.designs,
       researchQueue: dbg.researchQueue,
       deceptionActive: dbg.deceptionActive,
@@ -7919,6 +7923,7 @@ export class GameScene extends Phaser.Scene {
       turn: gs.turn,
       strategy: this.aiStrategies?.[gs.currentPlayer] || this.aiStrategy,
       actionCounts: { ...aiCounts },
+      actionPlan: gs._aiDebug?.[gs.currentPlayer]?.actionPlan || null,
       debug: this._compactAiDebug(aiDebug),
       actions: actions.slice(0, 80).map(a => this._summarizeAIAction(a)).filter(Boolean),
     };
