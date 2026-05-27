@@ -54,6 +54,13 @@ function getPerceivedEnemyUnits(gs, player, terrain, mapSize) {
   return Object.values(nextIntel);
 }
 
+function isImmediateBacktrack(unit, dest, lastMove, turnNow) {
+  if (!unit || !dest || !lastMove) return false;
+  if (Number(turnNow - (lastMove.turn || 0)) > 6) return false;
+  return unit.q === lastMove.toQ && unit.r === lastMove.toR
+    && dest.q === lastMove.fromQ && dest.r === lastMove.fromR;
+}
+
 // ── Strategy definitions ───────────────────────────────────────────────────
 
 export const AI_STRATEGIES = {
@@ -2634,6 +2641,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             : reachable[0];
         }
 
+        const lastMove = moveMemory?.[unit.id];
+        const backtracking = isImmediateBacktrack(unit, bestDest, lastMove, gs.turn || 1);
+        if (backtracking && enemies.length === 0 && (unitMission === 'expand' || unitMission === 'garrison' || unitMission === 'stabilize')) {
+          bestDest = null;
+        }
         if (bestDest && (bestDest.q !== unit.q || bestDest.r !== unit.r)) {
           const fromQ = unit.q;
           const fromR = unit.r;
@@ -3554,7 +3566,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const reachable = getReachableHexes(gs, eng, terrain, mapSize) || [];
       const cand = reachable
         .filter(h => roadableHere(h.q, h.r))
-        .sort((a, b) => scoreRoadUtility(gs, player, b.q, b.r) - scoreRoadUtility(gs, player, a.q, a.r))[0];
+        .filter(h => !isImmediateBacktrack(eng, h, moveMemory?.[eng.id], gs.turn || 1))
+        .sort((a, b) => scoreRoadUtility(gs, player, b.q, b.r) - scoreRoadUtility(gs, player, a.q, a.r))[0]
+        || reachable
+          .filter(h => roadableHere(h.q, h.r))
+          .sort((a, b) => scoreRoadUtility(gs, player, b.q, b.r) - scoreRoadUtility(gs, player, a.q, a.r))[0];
       if (cand) {
         actions.push({ type: 'move', unitId: eng.id, fromQ: eng.q, fromR: eng.r, toQ: cand.q, toR: cand.r });
         moveMemory[eng.id] = { fromQ: eng.q, fromR: eng.r, toQ: cand.q, toR: cand.r, turn: gs.turn || 1 };
@@ -3726,6 +3742,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const reachable = getReachableHexes(gs, eng, terrain, mapSize) || [];
         const best = reachable
           .filter(h => hexDistance(h.q, h.r, nearest.q, nearest.r) < hexDistance(eng.q, eng.r, nearest.q, nearest.r))
+          .filter(h => !isImmediateBacktrack(eng, h, moveMemory?.[eng.id], gs.turn || 1))
           .sort((a, b) => hexDistance(a.q, a.r, nearest.q, nearest.r) - hexDistance(b.q, b.r, nearest.q, nearest.r))[0];
         if (best) {
           actions.push({ type: 'move', unitId: eng.id, fromQ: eng.q, fromR: eng.r, toQ: best.q, toR: best.r });
@@ -3764,7 +3781,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const reachable = getReachableHexes(gs, eng, terrain, mapSize) || [];
     const cand = reachable
       .filter(h => roadableHereFinal(h.q, h.r))
-      .sort((a, b) => scoreRoadUtility(gs, player, b.q, b.r) - scoreRoadUtility(gs, player, a.q, a.r))[0];
+      .filter(h => !isImmediateBacktrack(eng, h, moveMemory?.[eng.id], gs.turn || 1))
+      .sort((a, b) => scoreRoadUtility(gs, player, b.q, b.r) - scoreRoadUtility(gs, player, a.q, a.r))[0]
+      || reachable
+        .filter(h => roadableHereFinal(h.q, h.r))
+        .sort((a, b) => scoreRoadUtility(gs, player, b.q, b.r) - scoreRoadUtility(gs, player, a.q, a.r))[0];
     if (cand) {
       actions.push({ type: 'move', unitId: eng.id, fromQ: eng.q, fromR: eng.r, toQ: cand.q, toR: cand.r });
       moveMemory[eng.id] = { fromQ: eng.q, fromR: eng.r, toQ: cand.q, toR: cand.r, turn: gs.turn || 1 };
