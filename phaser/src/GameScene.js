@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.15.4';
+export const GAME_VERSION = 'v1.15.5';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -2178,6 +2178,17 @@ export class GameScene extends Phaser.Scene {
           this.unitGfx.fillStyle(0x44ccff, alpha);
           this.unitGfx.fillCircle(x + sprH * 0.42, y - sprH * 0.42, 5);
         }
+        if (isEnemy) {
+          const tierTxt = this.add.text(x, y - sprH * 0.62, tierIntel.label || `T${shownTier}`, {
+            fontFamily: 'monospace',
+            fontSize: 10,
+            fontStyle: 'bold',
+            color: '#f2f6ff',
+            backgroundColor: '#111a2a',
+            padding: { left: 3, right: 3, top: 1, bottom: 1 },
+          }).setOrigin(0.5).setDepth(86).setAlpha(alpha * 0.95);
+          this._unitTierLabels.push(tierTxt);
+        }
         continue;
       }
 
@@ -2265,6 +2276,15 @@ export class GameScene extends Phaser.Scene {
           this.unitGfx.fillStyle(tierCol, alpha * 0.98);
           for (let i = 0; i < shownTier; i++) this.unitGfx.fillRect(tx - 7 + i * 5, ty - 3, 4, 6);
         }
+        const tierTxt = this.add.text(x, cy2 - 6, tierIntel.label || `T${shownTier}`, {
+          fontFamily: 'monospace',
+          fontSize: 10,
+          fontStyle: 'bold',
+          color: '#f2f6ff',
+          backgroundColor: '#111a2a',
+          padding: { left: 3, right: 3, top: 1, bottom: 1 },
+        }).setOrigin(0.5, 1).setDepth(86).setAlpha(alpha * 0.95);
+        this._unitTierLabels.push(tierTxt);
       }
 
       // Subtle tier counter for ALL units (integrated pips on counter, no floating text)

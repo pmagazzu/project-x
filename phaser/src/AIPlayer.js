@@ -17,7 +17,7 @@ import {
   MODULES, CHASSIS_BUILDINGS, getMaxDesignSlots,
   designRegistrationCost, computeDesignStats,
   getReachableHexes, getAttackableHexes, hexDistance, buildingAt, roadAt, getCachedSupply, getRecruitFoodCost,
-  ROAD_TYPES, unitAt,
+  ROAD_TYPES, unitAt, computeFog,
 } from './GameState.js';
 import { ensureAIDesigns, pickAIRecruit, getClosingPressure } from './AIDesigner.js';
 import {
@@ -29,6 +29,30 @@ import {
 
 const AI_TRANSPORT_TYPES = new Set(['LANDING_CRAFT', 'TRANSPORT_SM', 'TRANSPORT_MD', 'TRANSPORT_LG']);
 import { TECH_TREE } from './ResearchData.js';
+
+function getPerceivedEnemyUnits(gs, player, terrain, mapSize) {
+  const now = Number(gs.turn || 1);
+  const fogNow = computeFog(gs, player, mapSize, terrain);
+  gs._aiEnemyIntel = gs._aiEnemyIntel || {};
+  const intel = gs._aiEnemyIntel[player] || {};
+  const nextIntel = {};
+
+  const visibleEnemies = gs.units.filter(u => Number(u.owner) !== Number(player) && !u.embarked)
+    .filter(u => fogNow.has(`${u.q},${u.r}`));
+  for (const u of visibleEnemies) {
+    nextIntel[u.id] = { id: u.id, owner: u.owner, type: u.type, q: u.q, r: u.r, seenTurn: now };
+  }
+
+  const maxIntelAge = 10;
+  for (const [id, rec] of Object.entries(intel)) {
+    const stillAlive = gs.units.some(u => Number(u.id) === Number(id) && Number(u.owner) !== Number(player));
+    if (!stillAlive) continue;
+    if ((now - (rec?.seenTurn || now)) > maxIntelAge) continue;
+    if (!nextIntel[id]) nextIntel[id] = rec;
+  }
+  gs._aiEnemyIntel[player] = nextIntel;
+  return Object.values(nextIntel);
+}
 
 // ── Strategy definitions ───────────────────────────────────────────────────
 
@@ -341,7 +365,10 @@ function countPlayerRoadLike(gs, player) {
 
 function getFrontlineDistanceEstimate(gs, player) {
   const myHQs = gs.buildings.filter(b => b.type === 'HQ' && Number(b.owner) === Number(player));
-  const enemyUnits = gs.units.filter(u => Number(u.owner) !== Number(player) && !u.embarked);
+  const scopedEnemy = gs?._aiEnemyView?.[player];
+  const enemyUnits = Array.isArray(scopedEnemy)
+    ? scopedEnemy
+    : gs.units.filter(u => Number(u.owner) !== Number(player) && !u.embarked);
   const myCombat = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked)
     .filter(u => {
       const d = UNIT_TYPES[u.type] || {};
@@ -2302,8 +2329,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const player  = gs.currentPlayer;
   const cfg     = AI_STRATEGIES[strategy] ?? AI_STRATEGIES.balanced;
   const actions = [];
+  const perceivedEnemies = getPerceivedEnemyUnits(gs, player, terrain, mapSize);
+  gs._aiEnemyView = gs._aiEnemyView || {};
+  gs._aiEnemyView[player] = perceivedEnemies;
 
-  const getEnemies = () => gs.units.filter(u => u.owner !== player && !u.embarked);
+  const getEnemies = () => perceivedEnemies;
   const getMyHQs   = () => gs.buildings.filter(b => b.owner === player && b.type === 'HQ');
   const mySupply   = getCachedSupply(gs, player, mapSize);
   const situation = assessMapSituation(terrain, mapSize, gs, player);
@@ -3179,6 +3209,42 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     }
   }
 
+  // Island bootstrap: force first naval package online, even with fog and no enemy contact yet.
+  if ((situation?.islandMap || (situation?.waterRatio || 0) >= 0.18) && (gs.turn || 1) >= 5) {
+    const myNavalCombatNow = gs.units.filter(u => u.owner === player && !u.embarked && NAVAL_UNITS.has(u.type) && u.type !== 'SUPPLY_SHIP').length;
+    const myTransportsNow = gs.units.filter(u => u.owner === player && !u.embarked && ['LANDING_CRAFT', 'TRANSPORT_SM', 'TRANSPORT_MD', 'TRANSPORT_LG'].includes(u.type)).length;
+    const mySupplyShipsNow = gs.units.filter(u => u.owner === player && !u.embarked && u.type === 'SUPPLY_SHIP').length;
+    const desiredNavalCombat = (gs.turn || 1) >= 16 ? 3 : 2;
+    const navalBootLow = myNavalCombatNow < desiredNavalCombat || myTransportsNow < 1 || mySupplyShipsNow < 1;
+    if (navalBootLow) {
+      const navalBuildings = myBuildings.filter(bb => ['HARBOR','NAVAL_YARD','SHIPYARD','DRYDOCK','DRY_DOCK','NAVAL_BASE','NAVAL_DOCKYARD'].includes(bb.type));
+      for (const nb of navalBuildings) {
+        if (plannedRecruits >= (armyBudget.maxRecruitsPerTurn + 1)) break;
+        if (actions.some(a => a.type === 'recruit' && a.buildingId === nb.id)) continue;
+        const can = BUILDING_TYPES[nb.type]?.canRecruit || [];
+        const bootOrder = mySupplyShipsNow < 1
+          ? ['SUPPLY_SHIP', 'TRANSPORT_MD', 'LANDING_CRAFT', 'PATROL_BOAT', 'DESTROYER', 'TRANSPORT_SM']
+          : myTransportsNow < 1
+            ? ['TRANSPORT_MD', 'LANDING_CRAFT', 'TRANSPORT_SM', 'SUPPLY_SHIP', 'PATROL_BOAT', 'DESTROYER']
+            : ['DESTROYER', 'PATROL_BOAT', 'TRANSPORT_MD', 'LANDING_CRAFT', 'SUPPLY_SHIP', 'TRANSPORT_SM'];
+        const pick = bootOrder.find(t => can.includes(t));
+        if (!pick || !recruitAllowed(pick)) continue;
+        const cost = UNIT_TYPES[pick]?.cost || {};
+        const foodCost = getRecruitFoodCost(pick);
+        if (resSim.iron >= (cost.iron || 0) && resSim.oil >= (cost.oil || 0) && resSim.wood >= (cost.wood || 0)
+          && resSim.food >= foodCost && resSim.components >= (cost.components || 0)) {
+          actions.push({ type: 'recruit', buildingId: nb.id, unitType: pick });
+          noteRecruit(pick);
+          resSim.iron -= (cost.iron || 0);
+          resSim.oil -= (cost.oil || 0);
+          resSim.wood -= (cost.wood || 0);
+          resSim.food -= foodCost;
+          resSim.components -= (cost.components || 0);
+        }
+      }
+    }
+  }
+
   for (const b of myBuildings) {
     if (plannedRecruits >= armyBudget.maxRecruitsPerTurn) break;
     const bType = BUILDING_TYPES[b.type];
@@ -3305,7 +3371,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const totals = plannedTotals();
       const barracksCombatRescue = ['INFANTRY', 'ANTI_TANK', 'MORTAR', 'MEDIC'];
       const armyCriticallyLow = myCombatUnits.length < 4 || (gs.turn >= 12 && myCombatUnits.length < 7);
-      if (logisticsEmergency && !logisticsCriticalRecruits.has(unitType)) {
+      const navalBootstrapUnit = (situation?.islandMap || (situation?.waterRatio || 0) >= 0.18)
+        && ['SUPPLY_SHIP', 'TRANSPORT_MD', 'TRANSPORT_SM', 'LANDING_CRAFT', 'PATROL_BOAT', 'DESTROYER'].includes(unitType);
+      if (logisticsEmergency && !logisticsCriticalRecruits.has(unitType) && !navalBootstrapUnit) {
         if (!(armyCriticallyLow && barracksCombatRescue.includes(unitType))) continue;
       }
       if (logisticsPressure && (UNIT_TYPES[unitType]?.cost?.oil || 0) >= 2 && !logisticsCriticalRecruits.has(unitType)) continue;
@@ -3739,7 +3807,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const d = UNIT_TYPES[u.type] || {};
     return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
   });
-  const enemyCombatNow = gs.units.filter(u => u.owner !== player && !u.embarked).filter(u => {
+  const enemyCombatNow = getEnemies().filter(u => {
     const d = UNIT_TYPES[u.type] || {};
     return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
   });
@@ -3755,6 +3823,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       center: (aiDebug.forceSplit.current.center || 0) - enemyCombatNow.filter(u => getLaneForR(u.r, mapSize) === 'center').length,
       south: (aiDebug.forceSplit.current.south || 0) - enemyCombatNow.filter(u => getLaneForR(u.r, mapSize) === 'south').length,
     },
+  };
+  aiDebug.enemyIntel = {
+    seenUnits: perceivedEnemies.length,
+    staleIntel: perceivedEnemies.filter(u => Number((gs.turn || 1) - (u.seenTurn || gs.turn || 1)) >= 2).length,
   };
 
   const transportActions = planTransportOperations(gs, terrain, mapSize, player, strategic, territorial, actions);

@@ -796,15 +796,22 @@ export const UNIT_UPKEEP = {
 // Compute total upkeep for all of a player's units
 export function calcUpkeep(state, player) {
   const UPKEEP_SCALE = 0.6; // global balance knob (60% upkeep; +20% from prior)
-  let food = 0, iron = 0, oil = 0;
+  const POP_UPKEEP_SCALE = 0.18; // manpower pressure; stronger mid/late constraint
+  let food = 0, iron = 0, oil = 0, population = 0;
   for (const unit of state.units) {
     if (unit.owner !== player || unit.embarked) continue;
     const base = UNIT_UPKEEP[unit.type] || { food: 0, iron: 0, oil: 0 };
     food += base.food * UPKEEP_SCALE;
     iron += base.iron * UPKEEP_SCALE;
     oil  += base.oil  * UPKEEP_SCALE;
+    population += getUnitPopCost(unit.type) * POP_UPKEEP_SCALE;
   }
-  return { food: +food.toFixed(2), iron: +iron.toFixed(2), oil: +oil.toFixed(2) };
+  return {
+    food: +food.toFixed(2),
+    iron: +iron.toFixed(2),
+    oil: +oil.toFixed(2),
+    population: +population.toFixed(2),
+  };
 }
 
 let _nextId = 1;
@@ -852,7 +859,7 @@ export function createGameState(scenario = 'default', options = {}) {
       slots:    1,         // active research slots (default 1, Science branch unlocks more)
     },
     // Upkeep debt tracker (2 turns = desert)
-    upkeepDebt: { food: 0, iron: 0, oil: 0 },
+    upkeepDebt: { food: 0, iron: 0, oil: 0, population: 0 },
     submitted: false,
   });
 
@@ -2647,10 +2654,10 @@ export function resolveEndOfTurn(state, terrain) {
   // ── Unit upkeep deduction ─────────────────────────────────────────────────
   const upkeep = calcUpkeep(state, player);
   const pl = state.players[player];
-  if (!pl.upkeepDebt) pl.upkeepDebt = { food: 0, iron: 0, oil: 0 };
+  if (!pl.upkeepDebt) pl.upkeepDebt = { food: 0, iron: 0, oil: 0, population: 0 };
   let unsuppliedCount = 0;
   // For each resource: deduct. If can't afford, accumulate debt.
-  for (const res of ['food', 'iron', 'oil']) {
+  for (const res of ['food', 'iron', 'oil', 'population']) {
     const cost = upkeep[res];
     if (cost <= 0) continue;
     if (pl[res] >= cost) {
@@ -2681,7 +2688,7 @@ export function resolveEndOfTurn(state, terrain) {
     for (const unit of state.units.filter(u => u.owner === player)) {
       unit.unsupplied = 0;
     }
-    pl.upkeepDebt = { food: 0, iron: 0, oil: 0 };
+    pl.upkeepDebt = { food: 0, iron: 0, oil: 0, population: 0 };
   }
 
   // ── Research tick (TECH_TREE injected from GameScene via state._techTree) ──
