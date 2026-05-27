@@ -1827,6 +1827,18 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   const probeMissions = new Set(['probe', 'diversion']);
   const passiveMissions = new Set(['scout', 'expand', 'garrison']);
   const expandMissions = new Set(['expand', 'scout', 'probe']);
+  const lastMove = ctx.moveMemory?.[unit.id];
+
+  // Anti-oscillation guard: discourage ping-pong between adjacent hexes on quiet turns.
+  if (lastMove && Number((gs.turn || 1) - (lastMove.turn || 0)) <= 3) {
+    const goingBack = q === lastMove.fromQ && r === lastMove.fromR
+      && unit.q === lastMove.toQ && unit.r === lastMove.toR;
+    if (goingBack) {
+      score -= 26;
+      if (enemies.length === 0) score -= 18;
+      if (mission === 'stabilize' || mission === 'garrison' || mission === 'expand') score -= 8;
+    }
+  }
 
   // Attack/pressure scoring (de-emphasized for engineers/support)
   if (unit.type !== 'ENGINEER' && role !== 'support') {
@@ -2332,6 +2344,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const perceivedEnemies = getPerceivedEnemyUnits(gs, player, terrain, mapSize);
   gs._aiEnemyView = gs._aiEnemyView || {};
   gs._aiEnemyView[player] = perceivedEnemies;
+  gs._aiMoveMemory = gs._aiMoveMemory || {};
+  gs._aiMoveMemory[player] = gs._aiMoveMemory[player] || {};
+  const moveMemory = gs._aiMoveMemory[player];
 
   const getEnemies = () => perceivedEnemies;
   const getMyHQs   = () => gs.buildings.filter(b => b.owner === player && b.type === 'HQ');
@@ -2408,6 +2423,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     roadDeficit: roadDeficitGlobal, roadCaptainId,
     logisticsPressure, logisticsEmergency, dynamicRoadTarget,
     strategic, territorial, transportMission,
+    moveMemory,
     mapSize, closingPressure, situation, armyBudget, stockpilePressure,
   };
 
@@ -2619,12 +2635,15 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         }
 
         if (bestDest && (bestDest.q !== unit.q || bestDest.r !== unit.r)) {
+          const fromQ = unit.q;
+          const fromR = unit.r;
           actions.push({
             type:    'move',
             unitId:  unit.id,
-            fromQ:   unit.q, fromR: unit.r,
+            fromQ, fromR,
             toQ:     bestDest.q, toR: bestDest.r,
           });
+          moveMemory[unit.id] = { fromQ, fromR, toQ: bestDest.q, toR: bestDest.r, turn: gs.turn || 1 };
           // Update planning position so attack-after-move uses new coords
           unit.q = bestDest.q; unit.r = bestDest.r;
           unit.moved     = true;
@@ -3538,6 +3557,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         .sort((a, b) => scoreRoadUtility(gs, player, b.q, b.r) - scoreRoadUtility(gs, player, a.q, a.r))[0];
       if (cand) {
         actions.push({ type: 'move', unitId: eng.id, fromQ: eng.q, fromR: eng.r, toQ: cand.q, toR: cand.r });
+        moveMemory[eng.id] = { fromQ: eng.q, fromR: eng.r, toQ: cand.q, toR: cand.r, turn: gs.turn || 1 };
         actions.push({ type: 'build', unitId: eng.id, buildingType: 'ROAD' });
         spend(rcost);
         plannedRoadBuilds += 1;
@@ -3709,6 +3729,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           .sort((a, b) => hexDistance(a.q, a.r, nearest.q, nearest.r) - hexDistance(b.q, b.r, nearest.q, nearest.r))[0];
         if (best) {
           actions.push({ type: 'move', unitId: eng.id, fromQ: eng.q, fromR: eng.r, toQ: best.q, toR: best.r });
+          moveMemory[eng.id] = { fromQ: eng.q, fromR: eng.r, toQ: best.q, toR: best.r, turn: gs.turn || 1 };
           actedPreFOB.add(eng.id);
         }
       }
@@ -3744,7 +3765,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const cand = reachable
       .filter(h => roadableHereFinal(h.q, h.r))
       .sort((a, b) => scoreRoadUtility(gs, player, b.q, b.r) - scoreRoadUtility(gs, player, a.q, a.r))[0];
-    if (cand) actions.push({ type: 'move', unitId: eng.id, fromQ: eng.q, fromR: eng.r, toQ: cand.q, toR: cand.r });
+    if (cand) {
+      actions.push({ type: 'move', unitId: eng.id, fromQ: eng.q, fromR: eng.r, toQ: cand.q, toR: cand.r });
+      moveMemory[eng.id] = { fromQ: eng.q, fromR: eng.r, toQ: cand.q, toR: cand.r, turn: gs.turn || 1 };
+    }
   }
 
   // Engineer task-lock maintenance + anti-stall reroute.
