@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.15.16';
+export const GAME_VERSION = 'v1.16.0';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -1797,8 +1797,8 @@ export class GameScene extends Phaser.Scene {
     const g = this.buildingGfx;
     const glyph = getBuildingCounterGlyph(b.type);
     const typeDef = BUILDING_TYPES[b.type];
-    const cW = s * 2.2;
-    const cH = s * 1.65;
+    const cW = s * 2.35;
+    const cH = s * 1.75;
     const cx2 = x - cW / 2;
     const cy2 = y - cH / 2;
     const alpha = 1;
@@ -1816,11 +1816,20 @@ export class GameScene extends Phaser.Scene {
     const accent = _mix(color, 0xffffff, 0.22);
     const typeAccent = typeDef?.color ? _mix(typeDef.color, color, 0.42) : accent;
 
+    // Diamond pad — buildings read as structures, not unit counters.
+    const padR = Math.max(cW, cH) * 0.58;
+    g.fillStyle(0x000000, 0.42);
+    g.fillCircle(x + 2, y + 2, padR);
+    g.fillStyle(_mix(typeAccent, bodyColor, 0.35), alpha);
+    g.fillCircle(x, y, padR);
+    g.lineStyle(2, accent, alpha * 0.95);
+    g.strokeCircle(x, y, padR);
+
     g.fillStyle(0x000000, 0.38);
     g.fillRect(cx2 + 2, cy2 + 2, cW, cH);
     g.fillStyle(bodyColor, alpha);
     g.fillRect(cx2, cy2, cW, cH);
-  // Slightly squarer than units — double stripe marks "structure"
+    // Squarer than units — double stripe marks "structure"
     g.fillStyle(accent, alpha * 0.92);
     g.fillRect(cx2 + 1, cy2 + 1, cW - 2, 3);
     g.fillStyle(typeAccent, alpha * 0.95);
@@ -1840,10 +1849,10 @@ export class GameScene extends Phaser.Scene {
     g.fillRect(cx2 + 3, cy2 + 5, 5, 5);
 
     const lbl = this.add.text(x, y + 1, glyph, {
-      font: 'bold 12px monospace',
-      fill: '#eef2ea',
+      font: 'bold 13px monospace',
+      fill: '#fff8e8',
       stroke: '#0a0a0a',
-      strokeThickness: 3,
+      strokeThickness: 4,
     }).setOrigin(0.5).setDepth(17);
     this.buildingSpriteLayer?.add(lbl);
 
@@ -1893,7 +1902,7 @@ export class GameScene extends Phaser.Scene {
         const { x, y } = hexToWorld(b.q, b.r);
         if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
         const color = PLAYER_COLORS[b.owner] || 0x888888;
-        const s = HEX_SIZE * 0.3;
+        const s = HEX_SIZE * 0.44;
 
         // FARM is rendered as a terrain tile swap/overlay (not a building icon).
         if (b.type === 'FARM') {
@@ -7768,22 +7777,37 @@ export class GameScene extends Phaser.Scene {
     const myUnits = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked).length;
     const techScale = Math.floor(turn / 6);
     const mapScale = Math.floor(mapN / 7);
-    const armyScale = Math.floor(myUnits * 1.35);
+    const armyScale = Math.floor(myUnits * 1.1);
     // Scales up through mid/late game but hard-bounded for stability.
-    return Math.max(18, Math.min(130, 10 + techScale + mapScale + armyScale));
+    const lateTighten = turn > 90 ? Math.floor((turn - 90) / 4) : 0;
+    return Math.max(18, Math.min(118, 10 + techScale + mapScale + armyScale - lateTighten));
+  }
+
+  _prioritizeAIActions(actions) {
+    const rank = {
+      attack: 0, recruit: 1, transport_unload: 2, transport_load: 3,
+      move: 4, digin: 5, build: 6,
+    };
+    return [...(actions || [])].sort((a, b) => (rank[a.type] ?? 8) - (rank[b.type] ?? 8));
   }
 
   _applyAIStabilityCaps(actions, gs, player) {
     const budget = this._aiActionBudget(gs, player);
-    const perUnitCap = Math.max(2, Math.min(6, 2 + Math.floor((gs.turn || 1) / 25)));
-    const moveCap = Math.max(8, Math.min(Math.floor(budget * 0.6), 70));
-    const buildCap = Math.max(4, Math.min(Math.floor(budget * 0.35), 28));
-    const recruitCap = Math.max(2, Math.min(Math.floor(budget * 0.2), 10));
+    const turn = gs.turn || 1;
+    const perUnitCap = Math.max(2, Math.min(6, 2 + Math.floor(turn / 25)));
+    const attackCap = Math.max(6, Math.min(22, Math.floor(budget * 0.22)));
+    const moveCap = Math.max(8, Math.min(Math.floor(budget * 0.55), turn > 80 ? 48 : 64));
+    const buildCap = Math.max(4, Math.min(Math.floor(budget * 0.28), turn > 80 ? 14 : 24));
+    const recruitCap = Math.max(2, Math.min(Math.floor(budget * 0.18), 10));
     const kept = [];
     const byUnit = {};
-    let moves = 0, builds = 0, recruits = 0;
+    let moves = 0, builds = 0, recruits = 0, attacks = 0;
     for (const a of actions || []) {
       if (kept.length >= budget) break;
+      if (a.type === 'attack') {
+        if (attacks >= attackCap) continue;
+        attacks += 1;
+      }
       if (a.type === 'move' && moves >= moveCap) continue;
       if (a.type === 'build' && builds >= buildCap) continue;
       if (a.type === 'recruit' && recruits >= recruitCap) continue;
@@ -7872,6 +7896,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     actions = this._dropNoProgressMoves(actions, gs, gs.currentPlayer, gs._aiDebug?.[gs.currentPlayer]);
+    actions = this._prioritizeAIActions(actions);
     const capped = this._applyAIStabilityCaps(actions, gs, gs.currentPlayer);
     actions = capped.actions;
     if (capped.truncated > 0) {
@@ -8016,15 +8041,17 @@ export class GameScene extends Phaser.Scene {
       unit.dugIn = false;
       unit.moved = true; unit.movesLeft = 0;
 
+      const mapN = Number(this.mapSize || 75);
+      const slideMs = mapN >= 60 ? 140 : 220;
       this._slideState = {
         unit, fromX: fromW.x, fromY: fromW.y,
         toX: hexToWorld(action.toQ, action.toR).x,
         toY: hexToWorld(action.toQ, action.toR).y,
-        startTime: performance.now(), duration: 220,
+        startTime: performance.now(), duration: slideMs,
       };
       this._aiRefreshUnitsOnly();
       // Wait for slide to finish + small gap
-      this._scheduleAIStep(350, next, turnId);
+      this._scheduleAIStep(slideMs + 90, next, turnId);
 
     } else if (action.type === 'attack') {
       const attacker = gs.units.find(u => u.id === action.attackerId);
@@ -8061,10 +8088,11 @@ export class GameScene extends Phaser.Scene {
           this.input.on('pointerup', dismiss);
           this.input.keyboard?.once('keydown-SPACE', dismiss);
         }, turnId);
+        const combatCardMs = (this.mapSize || 40) >= 60 ? 1200 : 2500;
         if (this._aiViewerMode && this._isSpectatorDuel()) {
-          this._scheduleAIStep(900, () => { if (!done) dismiss(); }, turnId);
+          this._scheduleAIStep(Math.min(700, combatCardMs), () => { if (!done) dismiss(); }, turnId);
         }
-        this._scheduleAIStep(2500, () => { if (!done) dismiss(); }, turnId);
+        this._scheduleAIStep(combatCardMs, () => { if (!done) dismiss(); }, turnId);
       } else {
         this._pushLog('AI attack resolved with no combat log entry');
         this._scheduleAIStep(200, next, turnId);

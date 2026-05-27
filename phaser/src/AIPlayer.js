@@ -1645,6 +1645,61 @@ function assignResourceGarrisonMissions(gs, player, unitObjective, combatUnits) 
   }
 }
 
+/** Push combat units onto enemy mines/pumps (capture by occupation, not unit attack). */
+function assignEnemyExtractorRaidMissions(gs, player, unitObjective, combatUnits, perceivedEnemies = []) {
+  const turn = gs.turn || 1;
+  if (turn < 8) return;
+  const targets = gs.buildings.filter((b) =>
+    Number(b.owner) !== Number(player) && !b.underConstruction
+    && (b.type === 'MINE' || b.type === 'OIL_PUMP'));
+  if (!targets.length) return;
+
+  const pool = combatUnits.filter((u) => {
+    const role = getUnitRole(u.type);
+    if (role === 'engineer' || role === 'support') return false;
+    const m = unitObjective[u.id]?.mission;
+    return !m || m === 'expand' || m === 'probe' || m === 'main' || m === 'closing' || m === 'garrison';
+  });
+  if (!pool.length) return;
+
+  const frontBias = (t) => {
+    let score = 0;
+    for (const e of perceivedEnemies) {
+      const d = hexDistance(t.q, t.r, e.q, e.r);
+      if (d <= 10) score += Math.max(0, 12 - d);
+    }
+    for (const u of pool) {
+      const d = hexDistance(t.q, t.r, u.q, u.r);
+      if (d <= 8) score += Math.max(0, 8 - d);
+    }
+    return score;
+  };
+
+  const ranked = targets
+    .map((t) => ({ t, score: frontBias(t) + (t.type === 'OIL_PUMP' ? 2 : 0) }))
+    .sort((a, b) => b.score - a.score);
+
+  const maxRaids = turn >= 40 ? 10 : 6;
+  let assigned = 0;
+  for (const { t } of ranked) {
+    if (assigned >= maxRaids) break;
+    const guards = gs.units.filter((u) => u.owner !== player && !u.embarked
+      && hexDistance(u.q, u.r, t.q, t.r) <= 2);
+    if (guards.length >= 3) continue;
+
+    let best = null;
+    let bestD = Infinity;
+    for (const u of pool) {
+      if (unitObjective[u.id]?.kind === 'raid_resource') continue;
+      const d = hexDistance(u.q, u.r, t.q, t.r);
+      if (d < bestD) { bestD = d; best = u; }
+    }
+    if (!best || bestD > 22) continue;
+    unitObjective[best.id] = { q: t.q, r: t.r, mission: 'main', kind: 'raid_resource' };
+    assigned += 1;
+  }
+}
+
 function assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjective, combatUnits, flankCount) {
   const turn = gs.turn || 1;
   if (!territorial || turn < 8 || !combatUnits?.length) return;
@@ -1884,6 +1939,19 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
       if (nearestEnemy >= 3 && nearestEnemy <= 8) score += 10 * phase.recon;
       if (nearestEnemy < 3) score -= 14;
       if (nearestEnemy > 10) score -= 4;
+    }
+
+    // Enemy extractors are captured by moving onto the hex — prioritize raids on frontline economy.
+    const destBld = buildingAt(gs, q, r);
+    if (destBld && Number(destBld.owner) !== Number(unit.owner) && !destBld.underConstruction
+        && (destBld.type === 'MINE' || destBld.type === 'OIL_PUMP')) {
+      const closing = ctx.closingPressure || 0;
+      const raidPull = ((gs.turn || 1) >= 24 ? 52 : 36) * phase.combat;
+      score += raidPull * (rushMissions.has(mission) || mission === 'probe' ? 1.15 : 0.75);
+      score += closing * 18;
+      if (obj?.kind === 'raid_resource') score += 28;
+      const guard = gs.units.find(u => u.q === q && u.r === r && u.owner !== unit.owner && !u.embarked);
+      if (guard && (guard.health || 99) <= 2) score += 14;
     }
   }
 
@@ -2424,6 +2492,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   );
   const flankCountForGarrison = missionCounts.garrison || missionCounts.diversion || 2;
   assignResourceGarrisonMissions(gs, player, unitObjective, sortedCombat);
+  assignEnemyExtractorRaidMissions(gs, player, unitObjective, sortedCombat, perceivedEnemies);
   assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjective, sortedCombat, flankCountForGarrison);
 
   const opening = getOpeningMilestones(gs, player, situation);
@@ -2558,7 +2627,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const probeOk = (unitMission === 'probe' || unitMission === 'diversion') && (killShot || preTrade >= 5);
     const expandOk = unitMission === 'expand' && (killShot || (preTrade >= 3 && nearbyFriendliesForCommit >= 1));
     const close = aiCtx?.closingPressure || 0;
-    const midGameAggro = (gs.turn || 1) >= 14 ? -3 : ((gs.turn || 1) >= 10 ? -1 : 0);
+    const midGameAggro = (gs.turn || 1) >= 14 ? -4 : ((gs.turn || 1) >= 10 ? -2 : 0);
+    const pressureAggro = (strategic?.phase === 'pressure' || strategic?.phase === 'closing') ? -2 : 0;
     const mainOk = unitMission === 'main' && (
       (close >= 0.5 && (killShot || preTrade >= -2 || (!!unitInSupply && nearbyFriendliesForCommit >= 1)))
       || ((!!unitInSupply && hasCommitMass) || frontlineCommit)
@@ -2566,8 +2636,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const canRiskAttack = scoutOk || probeOk || expandOk || mainOk
       || (close >= 0.55 && unitMission === 'main' && killShot)
       || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && killShot && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
-    const preThreshold = (unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 2 : (unitMission === 'expand' ? 3
-      : (unitMission === 'main' ? (close >= 0.5 ? -4 : -1) : 6)))) + midGameAggro;
+    const preThreshold = (unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 2 : (unitMission === 'expand' ? 2
+      : (unitMission === 'main' ? (close >= 0.5 ? -6 : -2) : 6)))) + midGameAggro + pressureAggro;
     if (preMoveTarget && canRiskAttack && preTrade >= preThreshold) {
       actions.push({
         type:       'attack',
@@ -2708,7 +2778,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           || expandPostOk
           || (unitMission === 'main' && ((!!postInSupply && hasCommitMassPost) || frontlineCommitPost))
           || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && postKill && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
-        const postThreshold = (unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 2 : (unitMission === 'expand' ? 3 : (unitMission === 'main' ? -1 : 6)))) + midGameAggro;
+        const postThreshold = (unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 2 : (unitMission === 'expand' ? 2 : (unitMission === 'main' ? (close >= 0.5 ? -5 : -2) : 6)))) + midGameAggro + pressureAggro;
         if (postMoveTarget && canRiskPostAttack && postTrade >= postThreshold) {
           actions.push({
             type:       'attack',
@@ -3793,6 +3863,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   // Engineer utilization sweep: avoid idle engineers when valid logistics work exists.
   const actedEngineerIds = new Set(actions.filter(a => a.unitId != null).map(a => a.unitId));
   const idleEngineers = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked && !u.constructing && !actedEngineerIds.has(u.id));
+  const maxEngSweep = Math.max(4, Math.min(14, 2 + Math.floor(roadDeficitGlobal / 2) + (logisticsPressure ? 4 : 0)));
+  let engSweepCount = 0;
   const roadCostFinal = BUILDING_TYPES['ROAD']?.buildCost || { wood: 1 };
   const roadableHereFinal = (q, r) => {
     const t = terrain?.[`${q},${r}`] ?? 0;
@@ -3810,9 +3882,12 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     });
   };
   for (const eng of idleEngineers) {
+    if (engSweepCount >= maxEngSweep) break;
+    if (roadDeficitGlobal <= 0 && !logisticsPressure && (gs.turn || 1) > 50) break;
     if (canAfford(roadCostFinal) && roadableHereFinal(eng.q, eng.r)) {
       actions.push({ type: 'build', unitId: eng.id, buildingType: 'ROAD' });
       spend(roadCostFinal);
+      engSweepCount += 1;
       continue;
     }
     const reachable = getReachableHexes(gs, eng, terrain, mapSize) || [];
@@ -3826,7 +3901,24 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     if (cand) {
       actions.push({ type: 'move', unitId: eng.id, fromQ: eng.q, fromR: eng.r, toQ: cand.q, toR: cand.r });
       moveMemory[eng.id] = { fromQ: eng.q, fromR: eng.r, toQ: cand.q, toR: cand.r, turn: gs.turn || 1 };
+      engSweepCount += 1;
     }
+  }
+
+  // Hard cap build spam so stability trimmer does not discard combat (late-game perf).
+  {
+    const maxBuildActions = Math.max(6, Math.min(20, 4 + Math.floor(roadDeficitGlobal) + (logisticsPressure ? 5 : 0)));
+    let buildN = 0;
+    const trimmed = [];
+    for (const a of actions) {
+      if (a.type === 'build') {
+        if (buildN >= maxBuildActions) continue;
+        buildN += 1;
+      }
+      trimmed.push(a);
+    }
+    actions.length = 0;
+    actions.push(...trimmed);
   }
 
   // Engineer task-lock maintenance + anti-stall reroute.
