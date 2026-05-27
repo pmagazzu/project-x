@@ -2668,7 +2668,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           bestDest = null;
         }
         if (noContactJitter) bestDest = null;
-        if (bestDest && enemies.length === 0 && role !== 'engineer' && role !== 'support' && enemyHQs.length > 0) {
+        if (bestDest && enemies.length === 0 && getUnitRole(unit.type) !== 'engineer' && getUnitRole(unit.type) !== 'support' && enemyHQs.length > 0) {
           const curHQ = Math.min(...enemyHQs.map(h => hexDistance(unit.q, unit.r, h.q, h.r)));
           const newHQ = Math.min(...enemyHQs.map(h => hexDistance(bestDest.q, bestDest.r, h.q, h.r)));
           if (newHQ >= curHQ) bestDest = null;
