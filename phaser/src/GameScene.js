@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.15.9';
+export const GAME_VERSION = 'v1.15.10';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -7761,6 +7761,45 @@ export class GameScene extends Phaser.Scene {
     return handle;
   }
 
+  _aiActionBudget(gs, player) {
+    const turn = Number(gs?.turn || 1);
+    const mapN = Number(this.mapSize || gs?._mapSize || 40);
+    const myUnits = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked).length;
+    const techScale = Math.floor(turn / 6);
+    const mapScale = Math.floor(mapN / 7);
+    const armyScale = Math.floor(myUnits * 1.35);
+    // Scales up through mid/late game but hard-bounded for stability.
+    return Math.max(18, Math.min(130, 10 + techScale + mapScale + armyScale));
+  }
+
+  _applyAIStabilityCaps(actions, gs, player) {
+    const budget = this._aiActionBudget(gs, player);
+    const perUnitCap = Math.max(2, Math.min(6, 2 + Math.floor((gs.turn || 1) / 25)));
+    const moveCap = Math.max(8, Math.min(Math.floor(budget * 0.6), 70));
+    const buildCap = Math.max(4, Math.min(Math.floor(budget * 0.35), 28));
+    const recruitCap = Math.max(2, Math.min(Math.floor(budget * 0.2), 10));
+    const kept = [];
+    const byUnit = {};
+    let moves = 0, builds = 0, recruits = 0;
+    for (const a of actions || []) {
+      if (kept.length >= budget) break;
+      if (a.type === 'move' && moves >= moveCap) continue;
+      if (a.type === 'build' && builds >= buildCap) continue;
+      if (a.type === 'recruit' && recruits >= recruitCap) continue;
+      if (a.unitId != null) {
+        const lim = (a.type === 'build' || a.type === 'move') ? perUnitCap : 2;
+        byUnit[a.unitId] = byUnit[a.unitId] || 0;
+        if (byUnit[a.unitId] >= lim) continue;
+        byUnit[a.unitId] += 1;
+      }
+      kept.push(a);
+      if (a.type === 'move') moves += 1;
+      if (a.type === 'build') builds += 1;
+      if (a.type === 'recruit') recruits += 1;
+    }
+    return { actions: kept, budget, truncated: (actions?.length || 0) - kept.length };
+  }
+
   _runAITurn() {
     if (this._aiTurnInProgress) return;
     this._cancelAIPendingSteps();
@@ -7814,6 +7853,11 @@ export class GameScene extends Phaser.Scene {
       this._aiLastProgressAt = Date.now();
       this._onSubmit();
       return;
+    }
+    const capped = this._applyAIStabilityCaps(actions, gs, gs.currentPlayer);
+    actions = capped.actions;
+    if (capped.truncated > 0) {
+      this._pushLog(`AI P${gs.currentPlayer}: stability cap trimmed ${capped.truncated} actions (budget ${capped.budget})`);
     }
     const aiCounts = actions.reduce((acc, a) => { acc[a.type] = (acc[a.type] || 0) + 1; return acc; }, {});
     const roadsBuiltThisTurn = actions.filter(a => a.type === 'build' && a.buildingType === 'ROAD').length;
@@ -7944,6 +7988,9 @@ export class GameScene extends Phaser.Scene {
     if (action.type === 'move') {
       const unit = gs.units.find(u => u.id === action.unitId);
       if (!unit) { next(); return; }
+      // Explicit AI move overrides any standing order to prevent end-turn move/unmove loops.
+      delete unit.moveOrder;
+      delete unit.roadOrder;
 
       // Snap position and play slide animation
       const fromW = hexToWorld(action.fromQ, action.fromR);
