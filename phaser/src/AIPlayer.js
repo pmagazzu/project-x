@@ -2474,7 +2474,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     engineerAssignments: { road: 0, fob: 0, resource: 0, reroute: 0, other: 0 },
     engineerTaskLocks: 0,
     engineersStalled: 0,
-    recruitMix: { tier0: 0, tier1plus: 0, support: 0, naval: 0, air: 0 },
+    recruitMix: { tier0: 0, tier1plus: 0, support: 0, naval: 0, air: 0, base: 0, designed: 0 },
     transportOps: 0,
     territorial: { chokes: territorial?.chokes?.length || 0, coastal: territorial?.coastal?.length || 0, expansions: territorial?.expansions?.length || 0, remote: territorial?.remoteTargets?.length || 0, bridgeSites: territorial?.bridgeSites?.length || 0 },
     forceSplit: { assigned: { north: 0, center: 0, south: 0 }, current: { north: 0, center: 0, south: 0 } },
@@ -3142,6 +3142,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   // Reuse simulated resource spend from movement/infra planning so recruit decisions are coherent.
   const plannedCount = {};
   let plannedRecruits = 0;
+  let plannedDesignedRecruits = 0;
+  let plannedBaseRecruits = 0;
   let projectedUnits = armyBudget.myUnits + armyBudget.pending;
   let projectedCombat = armyBudget.myCombat;
   for (const u of gs.units.filter(u => u.owner === player && !u.embarked)) {
@@ -3165,16 +3167,19 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     }
     return true;
   };
-  const noteRecruit = (unitType) => {
+  const noteRecruit = (unitType, opts = {}) => {
     plannedRecruits += 1;
     projectedUnits += 1;
     if (isCombatUnitType(unitType)) projectedCombat += 1;
     plannedCount[unitType] = (plannedCount[unitType] || 0) + 1;
+    if (opts.designed) plannedDesignedRecruits += 1;
+    else plannedBaseRecruits += 1;
   };
 
   const VEHICLE_TYPES = new Set(['TANK','MEDIUM_TANK','ARMORED_CAR','HALFTRACK','SPG','ARTILLERY','ANTI_TANK']);
   const INDIRECT_TYPES = new Set(['ARTILLERY','MORTAR','SPG']);
   const SUPPORT_TYPES = new Set(['ENGINEER','SUPPLY_TRUCK','SUPPLY_SHIP','MEDIC']);
+  const TRANSPORT_NAVAL_TYPES = new Set(['LANDING_CRAFT','TRANSPORT_SM','TRANSPORT_MD','TRANSPORT_LG','SUPPLY_SHIP']);
   const plannedTotals = () => {
     const total = Object.values(plannedCount).reduce((s, n) => s + n, 0);
     const combat = Object.entries(plannedCount)
@@ -3187,7 +3192,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const air = Object.entries(plannedCount).filter(([t]) => AIR_UNITS.has(t)).reduce((s, [, n]) => s + n, 0);
     const indirect = Object.entries(plannedCount).filter(([t]) => INDIRECT_TYPES.has(t)).reduce((s, [, n]) => s + n, 0);
     const support = Object.entries(plannedCount).filter(([t]) => SUPPORT_TYPES.has(t)).reduce((s, [, n]) => s + n, 0);
-    return { total, combat, vehicles, air, indirect, support };
+    const navalCombat = Object.entries(plannedCount).filter(([t]) => NAVAL_UNITS.has(t) && !TRANSPORT_NAVAL_TYPES.has(t)).reduce((s, [, n]) => s + n, 0);
+    const designedShare = plannedRecruits > 0 ? (plannedDesignedRecruits / plannedRecruits) : 0;
+    return { total, combat, vehicles, air, indirect, support, navalCombat, designedShare };
   };
 
   const myEngNow = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked).length;
@@ -3401,9 +3408,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
     const buildingCanRecruitAny = (set) => sorted.some(t => set.has(t));
 
-    const designMinTurn = stockpilePressure >= 0.5 ? 8 : 10;
-    const designMinComponents = stockpilePressure >= 0.5 ? 1 : 2;
-    if ((gs.turn || 1) >= designMinTurn && (resSim.components || 0) >= designMinComponents && !logisticsEmergency) {
+    const designMinTurn = stockpilePressure >= 0.45 ? 7 : 9;
+    if ((gs.turn || 1) >= designMinTurn && !logisticsEmergency) {
       const dPick = pickAIRecruit(gs, player, b, sorted, resSim, gs.turn || 1, true);
       if (dPick && typeof dPick.unitType === 'number' && dPick.design) {
         const ch = dPick.design.chassis;
@@ -3412,7 +3418,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         if (resSim.iron >= (tc.iron || 0) && resSim.oil >= (tc.oil || 0) && resSim.wood >= (tc.wood || 0)
           && resSim.food >= foodCost && resSim.components >= (tc.components || 0)) {
           actions.push({ type: 'recruit', buildingId: b.id, unitType: dPick.unitType });
-          plannedCount[ch] = (plannedCount[ch] || 0) + 1;
+          noteRecruit(ch, { designed: true });
           resSim.iron -= (tc.iron || 0);
           resSim.oil -= (tc.oil || 0);
           resSim.wood -= (tc.wood || 0);
@@ -3453,14 +3459,18 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
       const compStock = resSim.components || 0;
       const desiredVehicleMin = (gs.turn >= 16) ? Math.max(3, Math.floor(totals.combat * (compStock >= 4 ? 0.30 : 0.24))) : 0;
-      const desiredAirMin = (gs.turn >= 20) ? Math.max(2, Math.floor(totals.combat * (compStock >= 4 ? 0.18 : 0.14))) : 0;
+      const desiredAirMin = (gs.turn >= 18) ? Math.max(2, Math.floor(totals.combat * (compStock >= 4 ? 0.22 : 0.16))) : 0;
       const desiredIndirectMin = (gs.turn >= 14) ? Math.max(2, Math.floor(totals.combat * 0.18)) : 0;
+      const desiredNavalMin = (gs.turn >= 16 && (situation?.islandMap || (situation?.waterRatio || 0) >= 0.18))
+        ? Math.max(2, Math.floor(totals.combat * 0.16))
+        : 0;
       const supportCap = (gs.turn >= 16) ? 0.24 : 0.30;
 
       // Doctrine quotas: force missing categories online by phase.
       if (desiredVehicleMin > 0 && totals.vehicles < desiredVehicleMin && buildingCanRecruitAny(VEHICLE_TYPES) && !VEHICLE_TYPES.has(unitType)) continue;
       if (desiredAirMin > 0 && totals.air < desiredAirMin && buildingCanRecruitAny(AIR_UNITS) && !AIR_UNITS.has(unitType)) continue;
       if (desiredIndirectMin > 0 && totals.indirect < desiredIndirectMin && buildingCanRecruitAny(INDIRECT_TYPES) && !INDIRECT_TYPES.has(unitType)) continue;
+      if (desiredNavalMin > 0 && totals.navalCombat < desiredNavalMin && isNaval && !TRANSPORT_NAVAL_TYPES.has(unitType) && !NAVAL_UNITS.has(unitType)) continue;
       if ((totals.support / Math.max(1, totals.total)) > supportCap && SUPPORT_TYPES.has(unitType) && unitType !== 'SUPPLY_TRUCK' && unitType !== 'SUPPLY_SHIP') continue;
 
       // Anti-spam guardrails for support units
@@ -3860,11 +3870,22 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     }
     if (a.type === 'recruit') {
       const t = a.unitType;
-      if (NAVAL_UNITS.has(t)) aiDebug.recruitMix.naval += 1;
-      if (AIR_UNITS.has(t)) aiDebug.recruitMix.air += 1;
-      const role = getUnitRole(t);
-      if (role === 'support' || t === 'ENGINEER') aiDebug.recruitMix.support += 1;
-      const tier = UNIT_TYPES[t]?.tier || 0;
+      let recruitType = t;
+      let designed = false;
+      if (typeof t === 'number') {
+        const dsg = (gs.designs?.[player] || []).find(d => d.id === t);
+        if (dsg?.chassis) {
+          recruitType = dsg.chassis;
+          designed = true;
+        }
+      }
+      if (NAVAL_UNITS.has(recruitType)) aiDebug.recruitMix.naval += 1;
+      if (AIR_UNITS.has(recruitType)) aiDebug.recruitMix.air += 1;
+      const role = getUnitRole(recruitType);
+      if (role === 'support' || recruitType === 'ENGINEER') aiDebug.recruitMix.support += 1;
+      if (designed) aiDebug.recruitMix.designed += 1;
+      else aiDebug.recruitMix.base += 1;
+      const tier = UNIT_TYPES[recruitType]?.tier || 0;
       if (tier <= 0) aiDebug.recruitMix.tier0 += 1;
       else aiDebug.recruitMix.tier1plus += 1;
     }
