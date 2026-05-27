@@ -796,7 +796,7 @@ export const UNIT_UPKEEP = {
 // Compute total upkeep for all of a player's units
 export function calcUpkeep(state, player) {
   const UPKEEP_SCALE = 0.6; // global balance knob (60% upkeep; +20% from prior)
-  const POP_UPKEEP_SCALE = 0.18; // manpower pressure; stronger mid/late constraint
+  const POP_UPKEEP_SCALE = 0.08; // manpower pressure; meaningful but non-catastrophic
   let food = 0, iron = 0, oil = 0, population = 0;
   for (const unit of state.units) {
     if (unit.owner !== player || unit.embarked) continue;
@@ -2660,8 +2660,8 @@ export function resolveEndOfTurn(state, terrain) {
   const pl = state.players[player];
   if (!pl.upkeepDebt) pl.upkeepDebt = { food: 0, iron: 0, oil: 0, population: 0 };
   let unsuppliedCount = 0;
-  // For each resource: deduct. If can't afford, accumulate debt.
-  for (const res of ['food', 'iron', 'oil', 'population']) {
+  // Hard supply resources only: if short, accumulate debt and apply unsupplied penalties.
+  for (const res of ['food', 'iron', 'oil']) {
     const cost = upkeep[res];
     if (cost <= 0) continue;
     if (pl[res] >= cost) {
@@ -2673,6 +2673,15 @@ export function resolveEndOfTurn(state, terrain) {
       pl.upkeepDebt[res] = (pl.upkeepDebt[res] || 0) + 1;
       unsuppliedCount++;
     }
+  }
+  // Population upkeep is a soft pressure: drains available population but does NOT cause unit desertion loops.
+  const popCost = upkeep.population || 0;
+  if (popCost > 0) {
+    const paid = Math.min(pl.population || 0, popCost);
+    pl.population = +Math.max(0, (pl.population || 0) - paid).toFixed(2);
+    pl.upkeepDebt.population = +(Math.max(0, popCost - paid)).toFixed(2);
+  } else {
+    pl.upkeepDebt.population = 0;
   }
   // Apply unsupplied penalty to ALL current player's units
   if (unsuppliedCount > 0) {
@@ -2692,7 +2701,7 @@ export function resolveEndOfTurn(state, terrain) {
     for (const unit of state.units.filter(u => u.owner === player)) {
       unit.unsupplied = 0;
     }
-    pl.upkeepDebt = { food: 0, iron: 0, oil: 0, population: 0 };
+    pl.upkeepDebt = { food: 0, iron: 0, oil: 0, population: pl.upkeepDebt.population || 0 };
   }
 
   // ── Research tick (TECH_TREE injected from GameScene via state._techTree) ──
