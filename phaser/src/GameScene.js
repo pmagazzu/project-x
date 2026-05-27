@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.15.11';
+export const GAME_VERSION = 'v1.15.12';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -7679,6 +7679,7 @@ export class GameScene extends Phaser.Scene {
     this._hideRecruitPanel();
     this._clearSelection();
     if (this.aiPlayers.has(gs.currentPlayer)) this._forceAIRoadIfNeeded(gs.currentPlayer);
+    gs._aiPlayers = [...this.aiPlayers];
     gs._mapSize = this.mapSize;
     const events = resolveEndOfTurn(gs, this.terrain);
 

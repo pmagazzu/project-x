@@ -2436,6 +2436,8 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
 export function resolveEndOfTurn(state, terrain) {
   const events = [];
   const player = Number(state.currentPlayer) || 1;
+  const aiPlayerSet = new Set(state._aiPlayers || []);
+  const isAiTurn = aiPlayerSet.has(player);
   state.currentPlayer = player;
   state._terrain = terrain;
 
@@ -2510,8 +2512,9 @@ export function resolveEndOfTurn(state, terrain) {
     }
   }
 
-  // Auto-move standing orders (all unit types)
+  // Auto-move standing orders are human QoL; disable on AI turns to avoid loop artifacts.
   for (const unit of state.units.filter(u => u.owner === player && u.moveOrder)) {
+    if (isAiTurn) { delete unit.moveOrder; continue; }
     const order = unit.moveOrder;
     // Already at destination?
     if (unit.q === order.destQ && unit.r === order.destR) {
@@ -2547,12 +2550,13 @@ export function resolveEndOfTurn(state, terrain) {
     if (unit.moveOrder) order.path = path.slice(Math.min(steps, path.length));
   }
 
-  // Auto-road standing orders (current player's engineers)
+  // Auto-road standing orders are human QoL; disable on AI turns to avoid loop artifacts.
   const _autoRoadNextId = () => {
     const maxId = Math.max(0, ...state.units.map(u => u.id || 0), ...state.buildings.map(b => isNaN(b.id) ? 0 : (b.id || 0)));
     return maxId + 1;
   };
   for (const unit of state.units.filter(u => u.type === 'ENGINEER' && u.owner === player && u.roadOrder)) {
+    if (isAiTurn) { delete unit.roadOrder; continue; }
     const order = unit.roadOrder;
     // Cancel if enemy within 2 tiles
     const threatened = state.units.some(e => e.owner !== player && hexDistance(unit.q, unit.r, e.q, e.r) <= 2);
