@@ -1976,6 +1976,20 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
     if ((ctx.strategic.phase === 'expand' || ctx.strategic.phase === 'stabilize') && laneNow === 'center') score -= 2.5;
   }
 
+  // No-contact stability: avoid meaningless jitter when no enemies are currently known.
+  if (enemies.length === 0 && role !== 'engineer' && role !== 'support') {
+    const objDistNew = obj ? hexDistance(q, r, obj.q, obj.r) : null;
+    const objDistCur = obj ? hexDistance(unit.q, unit.r, obj.q, obj.r) : null;
+    const stepped = hexDistance(unit.q, unit.r, q, r);
+    if (obj && objDistNew >= objDistCur) {
+      score -= 16;
+      if (stepped <= 1) score -= 10;
+    }
+    if (q === unit.q && r === unit.r) {
+      score += obj ? 10 : 18;
+    }
+  }
+
   // Phase 5: Lane band pull — reward moving into the r-band of the assigned objective.
   // This is what makes force-split assignments actually execute (assigned → current match).
   const obj5 = ctx.unitObjective?.[unit.id];
@@ -2337,8 +2351,8 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
     if (nearbyFriendlies >= 6 && nearestEnemy > 3) score -= (nearbyFriendlies - 5) * 4;
   }
 
-  // Small random tiebreaker
-  score += Math.random() * 2;
+  // Small random tiebreaker only when we have contact; keep no-contact behavior deterministic.
+  if (enemies.length > 0) score += Math.random() * 2;
   return score;
 }
 
@@ -2643,9 +2657,17 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
         const lastMove = moveMemory?.[unit.id];
         const backtracking = isImmediateBacktrack(unit, bestDest, lastMove, gs.turn || 1);
+        const objNow = unitObjective[unit.id] || strategic?.focusEnemyHQ;
+        const noContactJitter = !!bestDest && enemies.length === 0 && unitMission !== 'main' && unitMission !== 'closing' && (() => {
+          if (!objNow) return hexDistance(unit.q, unit.r, bestDest.q, bestDest.r) <= 1;
+          const curD = hexDistance(unit.q, unit.r, objNow.q, objNow.r);
+          const newD = hexDistance(bestDest.q, bestDest.r, objNow.q, objNow.r);
+          return newD >= curD && hexDistance(unit.q, unit.r, bestDest.q, bestDest.r) <= 1;
+        })();
         if (backtracking && enemies.length === 0 && (unitMission === 'expand' || unitMission === 'garrison' || unitMission === 'stabilize')) {
           bestDest = null;
         }
+        if (noContactJitter) bestDest = null;
         if (bestDest && (bestDest.q !== unit.q || bestDest.r !== unit.r)) {
           const fromQ = unit.q;
           const fromR = unit.r;
