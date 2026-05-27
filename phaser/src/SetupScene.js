@@ -74,7 +74,7 @@ const MODE_META = {
 
 function defaultConfig(mode, aiP2Default = true) {
   const base = {
-    mapSize: 40,
+    mapSize: 50,
     procLandProfile: 'continent',
     procQuickStart: true,
     debugNoFog: false,
@@ -92,11 +92,11 @@ function defaultConfig(mode, aiP2Default = true) {
     victoryPointTarget: 100,
   };
   if (mode === 'skirmish') {
-    return { ...base, mapSize: 40, procLandProfile: 'continent', debugNoFog: false, supplyEnabled: true, aiP2: aiP2Default };
+    return { ...base, mapSize: 50, procLandProfile: 'continent', debugNoFog: false, supplyEnabled: true, aiP2: aiP2Default };
   }
   if (mode === 'endless') {
     return {
-      ...base, mapSize: 25, procLandProfile: 'islands', debugNoFog: true, supplyEnabled: true,
+      ...base, mapSize: 50, procLandProfile: 'islands', debugNoFog: true, supplyEnabled: true,
       procQuickStart: true, aiP1: true, aiP2: true, aiViewerMode: true, startSupplyTruck: true,
     };
   }
@@ -106,7 +106,7 @@ function defaultConfig(mode, aiP2Default = true) {
     };
   }
   if (mode === 'map_builder') {
-    return { ...base, mapSize: 40, debugNoFog: true, supplyEnabled: true, mapBuilder: true, procQuickStart: false };
+    return { ...base, mapSize: 50, debugNoFog: true, supplyEnabled: true, mapBuilder: true, procQuickStart: false };
   }
   return base;
 }
@@ -117,14 +117,17 @@ export class SetupScene extends Phaser.Scene {
   init(data) {
     this.mode = data?.mode || 'skirmish';
     this.cfg = defaultConfig(this.mode, data?.aiP2Default !== false);
-    this._sizeIdx = 1;
+    const sizeOptions = this.mode === 'endless' ? MAP_SIZE_ENDLESS
+      : (this.mode === 'map_builder' ? MAP_SIZE_BUILDER : (this.mode === 'combat_test' ? [] : MAP_SIZE_SKIRMISH));
+    const idxBySize = sizeOptions.findIndex(s => s.size === this.cfg.mapSize);
+    this._sizeIdx = idxBySize >= 0 ? idxBySize : Math.min(1, Math.max(0, sizeOptions.length - 1));
     this._landIdx = LAND_PROFILES.findIndex(p => p.key === this.cfg.procLandProfile) || 0;
     this._gapIdx = GAP_OPTIONS.findIndex(g => g.gap === this.cfg.combatLineGap) || 2;
     this._playerCountIdx = PLAYER_COUNT_OPTIONS.findIndex(o => o.count === this.cfg.playerCount) || 0;
     this._victoryModeIdx = VICTORY_MODE_OPTIONS.findIndex(o => o.key === this.cfg.victoryMode) || 0;
     this._vpTargetIdx = VP_TARGET_OPTIONS.findIndex(o => o.target === this.cfg.victoryPointTarget) || 2;
     this._humanIdx = 0;
-    if (this.mode === 'endless') this._sizeIdx = 1;
+    if (this.mode === 'endless' && idxBySize < 0) this._sizeIdx = 1;
   }
 
   create() {
