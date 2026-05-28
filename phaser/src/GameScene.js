@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.18.0';
+export const GAME_VERSION = 'v1.18.1';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -2037,6 +2037,7 @@ export class GameScene extends Phaser.Scene {
       // Hide enemy units in fog (use display position, not queued position)
       const key = `${dispQ},${dispR}`;
       if (isEnemy && fog && fog.size > 0 && !fog.has(key)) continue;
+      if (isEnemy && unit.hidden && !isStealthDetected(gs, unit, gs.currentPlayer)) continue;
       // Stealth: hide stealthy enemy units unless detected.
       // But if they have attacked, reveal them (no invisible firing).
       if (isEnemy && (UNIT_TYPES[unit.type]?.stealthy || 0) > 0) {
@@ -4450,6 +4451,12 @@ export class GameScene extends Phaser.Scene {
     if (def.canDigIn && !unit.dugIn && !unit.moved) {
       actions.push({ label: 'DIG IN', key: 'digin',  enabled: true,  color: 0x8B5A2B, cb: () => this._onDigIn() });
     }
+    if (unit.type === 'ANTI_TANK' && !unit.moved && !unit.attacked && !unit.hidden) {
+      const unlocked = new Set(gs.players[gs.currentPlayer]?.research?.unlocked || []);
+      if (unlocked.has('anti_tank_ambush')) {
+        actions.push({ label: 'SET AMBUSH', key: 'ambush', enabled: true, color: 0x5c2e7a, cb: () => this._onAmbush() });
+      }
+    }
     if (unit.roadOrder) {
       actions.push({ label: '✕ CANCEL ROAD ORDER', key: 'cancel_road', enabled: true, color: 0x662222,
         cb: () => { delete unit.roadOrder; this._hideContextMenu(true); this._refresh(); }
@@ -6525,6 +6532,7 @@ export class GameScene extends Phaser.Scene {
         this.selectedUnit.q = q; this.selectedUnit.r = r;
         delete this.selectedUnit.moveOrder; // manual movement overrides standing order
         this.selectedUnit.dugIn = false;
+        this.selectedUnit.hidden = false;
         this.selectedUnit.sprinted = true;
         this.selectedUnit.attacked = true; // sprint negates attack
         this.selectedUnit.movesLeft = 0;
@@ -6586,6 +6594,7 @@ export class GameScene extends Phaser.Scene {
         this.selectedUnit.q = q; this.selectedUnit.r = r;
         delete this.selectedUnit.moveOrder; // manual movement overrides standing order
         this.selectedUnit.dugIn = false;
+        this.selectedUnit.hidden = false;
         this.selectedUnit.moved = (this.selectedUnit.movesLeft <= 0);
         // Check if move revealed new fog hexes — if so, undo is blocked
         if (_preFog) {
@@ -6902,6 +6911,17 @@ export class GameScene extends Phaser.Scene {
     const u = this.selectedUnit;
     if (!u || !UNIT_TYPES[u.type].canDigIn || u.dugIn || u.moved) return;
     u.dugIn = true; u.moved = true;
+    this._clearSelection();
+  }
+
+  _onAmbush() {
+    const gs = this.gameState;
+    const u = this.selectedUnit;
+    if (!u || u.type !== 'ANTI_TANK' || u.moved || u.attacked || u.hidden) return;
+    const unlocked = new Set(gs.players[gs.currentPlayer]?.research?.unlocked || []);
+    if (!unlocked.has('anti_tank_ambush')) return;
+    u.hidden = true;
+    u.moved = true;
     this._clearSelection();
   }
 
@@ -8047,6 +8067,7 @@ export class GameScene extends Phaser.Scene {
       const fromW = hexToWorld(action.fromQ, action.fromR);
       unit.q = action.toQ; unit.r = action.toR;
       unit.dugIn = false;
+      unit.hidden = false;
       unit.moved = true; unit.movesLeft = 0;
 
       const mapN = Number(this.mapSize || 75);
@@ -8116,6 +8137,16 @@ export class GameScene extends Phaser.Scene {
       const unit = gs.units.find(u => u.id === action.unitId);
       if (unit && UNIT_TYPES[unit.type]?.canDigIn) {
         unit.dugIn = true; unit.moved = true;
+        this._redrawUnits();
+      }
+      next();
+
+    } else if (action.type === 'ambush') {
+      const unit = gs.units.find(u => u.id === action.unitId);
+      const unlocked = new Set(gs.players[gs.currentPlayer]?.research?.unlocked || []);
+      if (unit && unit.type === 'ANTI_TANK' && !unit.moved && !unit.attacked && unlocked.has('anti_tank_ambush')) {
+        unit.hidden = true;
+        unit.moved = true;
         this._redrawUnits();
       }
       next();
@@ -9776,11 +9807,29 @@ export class GameScene extends Phaser.Scene {
     const minDist = ms >= 90 ? 12 : 8;
     const pick = (count, type) => {
       let done = 0;
+      const pickBonus = (st) => {
+        if (st === 'CITY') {
+          const roll = rng();
+          if (roll < 0.33) return { components: 1 };
+          if (roll < 0.66) return { iron: 1, oil: 1 };
+          return { rp: 1 };
+        }
+        if (st === 'TOWN') {
+          const roll = rng();
+          if (roll < 0.33) return { iron: 1 };
+          if (roll < 0.66) return { oil: 1 };
+          return { wood: 1 };
+        }
+        return null;
+      };
       for (const c of candidates) {
         if (done >= count) break;
         if (!free(c.q, c.r)) continue;
         if (placed.some(p => hexDistance(p.q, p.r, c.q, c.r) < minDist)) continue;
-        gs.buildings.push(createBuilding(type, 0, c.q, c.r));
+        const b = createBuilding(type, 0, c.q, c.r);
+        const bonus = pickBonus(type);
+        if (bonus) b.settlementBonus = bonus;
+        gs.buildings.push(b);
         placed.push({ q: c.q, r: c.r, type });
         done++;
       }

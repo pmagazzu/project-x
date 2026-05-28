@@ -1233,6 +1233,7 @@ export function canUnitAttackTarget(state, attacker, target, terrain, blindFire 
   if (Number(attacker.owner) === Number(target.owner)) return { ok: false, reason: 'Friendly target' };
   if (attacker.attacked) return { ok: false, reason: 'Already attacked this turn' };
   if (attacker.suppressed) return { ok: false, reason: 'Suppressed — cannot fire' };
+  if (target.hidden && !isStealthDetected(state, target, attacker.owner)) return { ok: false, reason: 'Target concealed' };
   if (!unitCanAttack(attacker)) return { ok: false, reason: 'Unit cannot attack' };
   const range = ustat(attacker, 'range', UNIT_TYPES[attacker.type]?.range || 1);
   const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
@@ -1486,6 +1487,7 @@ export function getAttackableHexes(state, unit, fromQ, fromR, fog) {
       const tr = u.r;
       if (hexDistance(fromQ, fromR, tq, tr) > range) return false;
       if (fog && !fog.has(`${tq},${tr}`)) return false; // hidden in fog
+      if (u.hidden && !isStealthDetected(state, u, unit.owner)) return false;
       // antiNavalOnly (torpedo) units can only target water hexes
       if (_unitDef.antiNavalOnly) {
         const tgt = state._terrain?.[`${tq},${tr}`] ?? 0;
@@ -1647,7 +1649,7 @@ export function calcIncome(state, player, techBonuses = null) {
   let components = 0, hardenedSteel = 0, aviationAlloy = 0;
   const labs = state.buildings.filter(b => b.type === 'SCIENCE_LAB' && b.owner === player && !b.underConstruction).length;
   const baseRpBonus = techBonuses?.rpBonusPerLab || 0;
-  const rp = calcRPFromLabs(labs) + labs * baseRpBonus;
+  let rp = calcRPFromLabs(labs) + labs * baseRpBonus;
   for (const b of state.buildings) {
     if (b.owner !== player) continue;
     if (b.underConstruction) continue;
@@ -1658,6 +1660,17 @@ export function calcIncome(state, player, techBonuses = null) {
     wood += (def.woodPerTurn || 0) + (bonus.woodPerTurn || 0);
     food += (def.foodPerTurn || 0) + (bonus.foodPerTurn || 0);
     gold += (def.goldPerTurn || 0) + (bonus.goldPerTurn || 0);
+    if (b.settlementBonus) {
+      iron += b.settlementBonus.iron || 0;
+      oil += b.settlementBonus.oil || 0;
+      wood += b.settlementBonus.wood || 0;
+      food += b.settlementBonus.food || 0;
+      gold += b.settlementBonus.gold || 0;
+      components += b.settlementBonus.components || 0;
+      hardenedSteel += b.settlementBonus.hardenedSteel || 0;
+      aviationAlloy += b.settlementBonus.aviationAlloy || 0;
+      rp += b.settlementBonus.rp || 0;
+    }
     components += (def.componentsPerTurn || 0) + (bonus.componentsPerTurn || 0);
     hardenedSteel += (def.hardenedSteelPerTurn || 0) + (bonus.hardenedSteelPerTurn || 0);
     aviationAlloy += (def.aviationAlloyPerTurn || 0) + (bonus.aviationAlloyPerTurn || 0);
@@ -2238,6 +2251,7 @@ export function resolveTurn(state, terrain) {
 
   // Reset
   for (const unit of state.units) {
+    if (unit.moved || unit.attacked) unit.hidden = false;
     unit.moved = false; unit.attacked = false; unit.building = false; unit.suppressed = false; unit.sprinted = false;
     unit.movesLeft = UNIT_TYPES[unit.type]?.move ?? (unit.movesLeft || 1);
     delete unit._origQ; delete unit._origR; // clear undo anchors
@@ -2258,6 +2272,9 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   const attacker = state.units.find(u => u.id == attackerId && isUnitAlive(u));
   const target   = state.units.find(u => u.id == targetId && isUnitAlive(u));
   if (!attacker || !target) return [{ type: 'miss', reason: 'invalid_target', attackerId, targetId }];
+  if (target.hidden && !isStealthDetected(state, target, attacker.owner)) {
+    return [{ type: 'miss', reason: 'target_concealed', attackerId, targetId }];
+  }
   const events = [];
 
   // antiNavalOnly units (torpedoes) cannot attack land targets
@@ -2412,6 +2429,7 @@ export function resolveImmediateAttack(state, attackerId, targetId, blindFire = 
   if (suppressed) target.suppressed = true;
   state.units = state.units.filter(u => !u.dead);
   attacker.attacked = true;
+  attacker.hidden = false;
 
   const entry = {
     type: 'combat',
@@ -2792,6 +2810,7 @@ export function resolveEndOfTurn(state, terrain) {
 
   // Reset current player's units for next turn
   for (const unit of state.units.filter(u => u.owner === player)) {
+    if (unit.moved || unit.attacked) unit.hidden = false;
     unit.moved = false; unit.attacked = false; unit.building = false; unit.suppressed = false; unit.sprinted = false;
     unit.movesLeft = UNIT_TYPES[unit.type]?.move ?? (unit.movesLeft || 1);
     // Keep constructing engineers locked in place

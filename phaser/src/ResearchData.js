@@ -802,6 +802,13 @@ export const TECH_TREE = {
     cost:15, prereqs:[],
     effect:{ unlockBuilding:'FORT_T0' },
   },
+  anti_tank_ambush: {
+    id:'anti_tank_ambush', branch:'engineering', tier:0, kind:'doctrine',
+    name:'Anti-Tank Ambush Doctrine',
+    desc:'ANTI-TANK units gain Set Ambush: spend full turn to become hidden until they move or attack.',
+    cost:14, prereqs:[],
+    effect:{ unlockAbility:'anti_tank_ambush' },
+  },
   signal_flare: {
     id:'signal_flare', branch:'engineering', tier:1, kind:'doctrine',
     name:'Signal Flare System',

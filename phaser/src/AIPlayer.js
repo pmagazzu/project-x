@@ -1902,7 +1902,7 @@ function assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjec
   const chokes = territorial.chokes || [];
   const coasts = territorial.coastal || [];
   const flankPool = combatUnits.slice(0, Math.max(2, flankCount || Math.floor(combatUnits.length * 0.35)));
-  const garrisonCap = Math.min(chokes.length, Math.max(2, Math.floor(flankPool.length * 0.4)));
+  const garrisonCap = Math.min(chokes.length, Math.max(3, Math.floor(flankPool.length * 0.55)));
 
   let chokeIdx = 0;
   for (const u of flankPool) {
@@ -3028,6 +3028,16 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           actions.push({ type: 'digin', unitId: unit.id });
         }
       }
+      // Anti-tank ambush: conceal on defense lanes once researched.
+      if (!unit._aiPlannedAttack && unit.type === 'ANTI_TANK' && !unit.hidden && !unit.moved) {
+        const unlocked = new Set(gs.players[player]?.research?.unlocked || []);
+        if (unlocked.has('anti_tank_ambush')) {
+          const nearEnemy = getEnemies().some(e => hexDistance(unit.q, unit.r, e.q, e.r) <= 4);
+          if (nearEnemy && (unitMission === 'garrison' || unitMission === 'stabilize' || unitMission === 'main')) {
+            actions.push({ type: 'ambush', unitId: unit.id });
+          }
+        }
+      }
 
       // E) Engineer infra/economy behavior (balanced resource development)
       if (unit.type === 'ENGINEER' && !unit.constructing) {
@@ -3174,6 +3184,18 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             fortNeeds.sort((a, b) => b.score - a.score);
             for (const fn of fortNeeds) {
               if (maybeBuild(fn.type)) continue;
+            }
+          }
+          const settlementHere = gs.buildings.find((b) => b.q === unit.q && b.r === unit.r
+            && ['VILLAGE', 'TOWN', 'CITY'].includes(b.type) && Number(b.owner) === Number(player));
+          if (settlementHere) {
+            const fortsNear = countFortsNearHex(gs, player, unit.q, unit.r, 2);
+            if (fortsNear < 1) {
+              if (maybeBuild('FORT_T1')) continue;
+              if (maybeBuild('FORT_T0')) continue;
+            }
+            if (!depotCoversHex(gs, player, unit.q, unit.r) && unlockedEng.has('supply_depot') && gs.turn >= 8) {
+              if (maybeBuild('SUPPLY_DEPOT')) continue;
             }
           }
 
