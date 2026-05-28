@@ -48,7 +48,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.19.16';
+export const GAME_VERSION = 'v1.19.17';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -434,7 +434,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Skirmish/custom maps spawn HQs on map edges — snap to the human HQ so turn 1 isn't an empty viewport.
-    if (!this._mapBuilderMode && (this.scenario === 'random' || this.scenario === 'custom')) {
+    // AI-vs-AI spectator: keep the map-centered camera; player pans freely.
+    if (!this._mapBuilderMode && !this._aiViewerMode
+        && (this.scenario === 'random' || this.scenario === 'custom')) {
       const focusP = this.humanPlayer || this.gameState.currentPlayer || 1;
       this._focusPlayerHQ(focusP, false);
     }
@@ -8287,7 +8289,7 @@ export class GameScene extends Phaser.Scene {
     this._freezeFog();
     this._refresh();
 
-    if (Number(gs.currentPlayer) === Number(this.humanPlayer)) {
+    if (!this._aiViewerMode && Number(gs.currentPlayer) === Number(this.humanPlayer)) {
       this._focusPlayerHQ(gs.currentPlayer, true);
     }
 
@@ -9133,6 +9135,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   _focusPlayerHQ(player, smooth = true) {
+    if (this._aiViewerMode) return;
     const hq = this.gameState.buildings.find(b => b.type === 'HQ' && Number(b.owner) === Number(player));
     if (!hq) return;
     const cam = this.cameras.main;
