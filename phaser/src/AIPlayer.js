@@ -1432,6 +1432,13 @@ function buildTerritorialIntel(terrain, mapSize, gs, player, strategic, resource
     const base = t.type === 'OIL' ? 6.5 : 5;
     expansions.push({ q: t.q, r: t.r, score: owned ? base * 0.6 : base + 2, type: 'resource' });
   }
+  for (const b of gs.buildings) {
+    if (b.underConstruction) continue;
+    if (!['VILLAGE', 'TOWN', 'CITY'].includes(b.type)) continue;
+    const owned = Number(b.owner) === Number(player);
+    const base = b.type === 'CITY' ? 10 : b.type === 'TOWN' ? 8 : 6;
+    expansions.push({ q: b.q, r: b.r, score: owned ? base * 0.65 : base + 2.5, type: 'settlement' });
+  }
   for (const o of (strategic?.objectives?.corridor || [])) {
     if (o.type === 'forward' || o.type === 'resource') {
       expansions.push({ q: o.q, r: o.r, score: o.type === 'forward' ? 6 : 4, type: o.type });
@@ -1666,7 +1673,7 @@ function assignEnemyExtractorRaidMissions(gs, player, unitObjective, combatUnits
   if (turn < 8) return;
   const targets = gs.buildings.filter((b) =>
     Number(b.owner) !== Number(player) && !b.underConstruction
-    && (b.type === 'MINE' || b.type === 'OIL_PUMP'));
+    && (b.type === 'MINE' || b.type === 'OIL_PUMP' || b.type === 'VILLAGE' || b.type === 'TOWN' || b.type === 'CITY'));
   if (!targets.length) return;
 
   const pool = combatUnits.filter((u) => {
@@ -1723,7 +1730,7 @@ function assignLocalRecaptureMissions(gs, player, unitObjective, combatUnits, pe
   const nearOwnAxis = (b) => myHQs.some(h => hexDistance(h.q, h.r, b.q, b.r) <= 18);
   const targets = gs.buildings.filter((b) =>
     Number(b.owner) !== Number(player) && !b.underConstruction && !ROAD_TYPES.has(b.type)
-    && (b.type === 'MINE' || b.type === 'OIL_PUMP' || b.type === 'FACTORY' || b.type === 'SCIENCE_LAB' || b.type === 'BARRACKS')
+    && (b.type === 'MINE' || b.type === 'OIL_PUMP' || b.type === 'FACTORY' || b.type === 'SCIENCE_LAB' || b.type === 'BARRACKS' || b.type === 'VILLAGE' || b.type === 'TOWN' || b.type === 'CITY')
     && nearOwnAxis(b)
   );
   if (!targets.length) return;
@@ -2152,9 +2159,10 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
     // Enemy extractors are captured by moving onto the hex — prioritize raids on frontline economy.
     const destBld = buildingAt(gs, q, r);
     if (destBld && Number(destBld.owner) !== Number(unit.owner) && !destBld.underConstruction
-        && (destBld.type === 'MINE' || destBld.type === 'OIL_PUMP')) {
+        && (destBld.type === 'MINE' || destBld.type === 'OIL_PUMP' || destBld.type === 'VILLAGE' || destBld.type === 'TOWN' || destBld.type === 'CITY')) {
       const closing = ctx.closingPressure || 0;
-      const raidPull = ((gs.turn || 1) >= 24 ? 52 : 36) * phase.combat;
+      const settlementBonus = destBld.type === 'CITY' ? 20 : destBld.type === 'TOWN' ? 14 : destBld.type === 'VILLAGE' ? 8 : 0;
+      const raidPull = (((gs.turn || 1) >= 24 ? 52 : 36) + settlementBonus) * phase.combat;
       score += raidPull * (rushMissions.has(mission) || mission === 'probe' ? 1.15 : 0.75);
       score += closing * 18;
       if (obj?.kind === 'raid_resource') score += 28;
@@ -3111,6 +3119,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           const myAdvAirfield = gs.buildings.filter(b => b.owner === player && b.type === 'ADV_AIRFIELD' && !b.underConstruction).length;
           const myNavalDockyard = gs.buildings.filter(b => b.owner === player && b.type === 'NAVAL_DOCKYARD' && !b.underConstruction).length;
           const roadDeficit = Math.max(0, dynamicRoadTarget - myRoads);
+          const pop = gs.players[player]?.population || 0;
+          const popCap = gs.players[player]?.popCap || 1;
+          const popRatio = pop / Math.max(1, popCap);
+          const popTight = popRatio <= 0.22;
+          const canHousing = (ttype === 0 || ttype === 7 || (ttype === 3 && gs.turn >= 12));
 
           // Utility-first logistics: only hard-force roads when deficit is severe.
           const roadUtilityHere = scoreRoadUtility(gs, player, unit.q, unit.r);
@@ -3118,6 +3131,12 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
           // Macro floor nudges: if we're stockpiling, force missing core econ/tech pieces online.
           const onPlainsMacro = (ttype === 0 || ttype === 6 || ttype === 7);
+          if (canHousing && gs.turn >= 6 && popTight) {
+            if (gs.turn >= 28 && maybeBuild('HOUSING_DISTRICT')) continue;
+            if (gs.turn >= 16 && maybeBuild('HOUSING_SUBURB')) continue;
+            if (maybeBuild('HOUSING_RURAL')) continue;
+            if (maybeBuild('HOUSING_SLUMS')) continue;
+          }
           if (gs.turn >= 10 && myFarms < 2 && onPlainsMacro && maybeBuild('FARM')) continue;
           if (gs.turn >= 8 && myLabs < 1 && resSim.iron >= 24 && maybeBuild('SCIENCE_LAB')) continue;
           if (gs.turn >= 16 && myFactories < 1 && maybeBuild('FACTORY')) continue;

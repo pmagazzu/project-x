@@ -44,6 +44,9 @@ export const BUILDING_COUNTER_GLYPH = {
   HOUSING_DISTRICT: 'H3',
   HOUSING_BOROUGH: 'H4',
   HOUSING_METRO: 'H5',
+  VILLAGE: 'Vg',
+  TOWN: 'Tw',
+  CITY: 'Cy',
 };
 
 export function getBuildingCounterGlyph(type) {

@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.17.2';
+export const GAME_VERSION = 'v1.18.0';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -9732,6 +9732,92 @@ export class GameScene extends Phaser.Scene {
 
     // Scatter extra iron/oil resources across the map
     this._placeResources(seed);
+    // Neutral settlements + connective roads create map-scale territorial objectives.
+    this._placeNeutralSettlements(seed);
+  }
+
+  _placeNeutralSettlements(seed) {
+    const gs = this.gameState;
+    const ms = this.mapSize;
+    const map = this.terrain;
+    const rng = this._seededRng(seed + 44117);
+    const isLand = (q, r) => {
+      const t = map[`${q},${r}`];
+      return t !== 4 && t !== 5;
+    };
+    const free = (q, r) =>
+      isLand(q, r) &&
+      !gs.buildings.find(b => b.q === q && b.r === r) &&
+      !gs.units.find(u => u.q === q && u.r === r);
+
+    const candidates = [];
+    for (let q = 2; q < ms - 2; q++) {
+      for (let r = 2; r < ms - 2; r++) {
+        if (!free(q, r)) continue;
+        const t = map[`${q},${r}`];
+        if (!(t === 0 || t === 7 || t === 3)) continue;
+        // Avoid immediate HQ overlap; prefer interior territory.
+        const nearHQ = gs.buildings.some(b => b.type === 'HQ' && hexDistance(q, r, b.q, b.r) <= 7);
+        if (nearHQ) continue;
+        candidates.push({ q, r });
+      }
+    }
+    // Shuffle deterministically
+    for (let i = candidates.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+    }
+
+    const scale = Math.max(0.6, ms / 50);
+    const villageN = Math.max(4, Math.floor(6 * scale));
+    const townN = Math.max(2, Math.floor(3 * scale));
+    const cityN = Math.max(1, Math.floor(ms / 90));
+    const placed = [];
+    const minDist = ms >= 90 ? 12 : 8;
+    const pick = (count, type) => {
+      let done = 0;
+      for (const c of candidates) {
+        if (done >= count) break;
+        if (!free(c.q, c.r)) continue;
+        if (placed.some(p => hexDistance(p.q, p.r, c.q, c.r) < minDist)) continue;
+        gs.buildings.push(createBuilding(type, 0, c.q, c.r));
+        placed.push({ q: c.q, r: c.r, type });
+        done++;
+      }
+    };
+    pick(cityN, 'CITY');
+    pick(townN, 'TOWN');
+    pick(villageN, 'VILLAGE');
+
+    // Seed neutral road spines between nearby settlements to form conflict corridors.
+    const roadType = (q, r) => (map[`${q},${r}`] === 2 ? null : 'ROAD');
+    const addRoad = (q, r) => {
+      if (!free(q, r)) return;
+      const rt = roadType(q, r);
+      if (!rt) return;
+      gs.buildings.push(createBuilding(rt, 0, q, r));
+    };
+    for (const a of placed) {
+      const near = placed
+        .filter(b => b !== a)
+        .sort((x, y) => hexDistance(a.q, a.r, x.q, x.r) - hexDistance(a.q, a.r, y.q, y.r))
+        .slice(0, 2);
+      for (const b of near) {
+        if (hexDistance(a.q, a.r, b.q, b.r) > (ms >= 90 ? 18 : 12)) continue;
+        let cq = a.q, cr = a.r;
+        let steps = 0;
+        while ((cq !== b.q || cr !== b.r) && steps < 28) {
+          steps++;
+          const opts = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]
+            .map(([dq, dr]) => ({ q: cq + dq, r: cr + dr }))
+            .filter(h => h.q >= 0 && h.r >= 0 && h.q < ms && h.r < ms && isLand(h.q, h.r))
+            .sort((u, v) => hexDistance(u.q, u.r, b.q, b.r) - hexDistance(v.q, v.r, b.q, b.r));
+          if (!opts.length) break;
+          cq = opts[0].q; cr = opts[0].r;
+          if (!gs.buildings.find(bb => bb.q === cq && bb.r === cr)) addRoad(cq, cr);
+        }
+      }
+    }
   }
 
   _placeResources(seed) {

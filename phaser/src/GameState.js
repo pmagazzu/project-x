@@ -319,10 +319,10 @@ export const BUILDING_TYPES = {
   HOUSING_DISTRICT:{ name: 'Urban District',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: [], buildCost: { iron: 6, wood: 6, components: 1 }, color: 0x8a7560, sight: 1, tier: 2, popCapBonus: 3, popPerTurn: 1, requiresTech: 'suburban_planning', placementTerrain: new Set([0, 7]) },
   HOUSING_BOROUGH: { name: 'Borough',          ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: [], buildCost: { iron: 8, wood: 8, components: 2 }, color: 0x9a8570, sight: 2, tier: 3, popCapBonus: 5, popPerTurn: 2, requiresTech: 'metropolitan_growth', placementTerrain: new Set([0, 7]) },
   HOUSING_METRO:   { name: 'Metropolis Core',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: [], buildCost: { iron: 12, wood: 10, components: 3 }, color: 0xaa9580, sight: 2, tier: 4, popCapBonus: 8, popPerTurn: 3, requiresTech: 'metropolitan_growth', placementTerrain: new Set([0, 7]) },
-  MINE:          { name: 'Iron Mine',      ironPerTurn: 2, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, oil: 0 },         color: 0xaaaaaa, sight: 2, tier: 0 },
-  OIL_PUMP:      { name: 'Oil Pump',       ironPerTurn: 0, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, oil: 0 },         color: 0x222244, sight: 2, tier: 0 },
-  BARRACKS:      { name: 'Barracks',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: ['INFANTRY','ANTI_TANK','MORTAR','MEDIC'], buildCost: { iron: 4, oil: 0, wood: 4 }, color: 0xaa6644, sight: 2, tier: 0 },
-  VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['TANK','ARTILLERY','SUPPLY_TRUCK','MEDIUM_TANK','SPG','ARMORED_CAR','HALFTRACK'],        buildCost: { iron: 8, oil: 2 }, color: 0x557799, sight: 2, tier: 0 },
+  MINE:          { name: 'Iron Mine',      ironPerTurn: 2, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 6, oil: 1 },         color: 0xaaaaaa, sight: 2, tier: 0 },
+  OIL_PUMP:      { name: 'Oil Pump',       ironPerTurn: 0, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 6, oil: 1 },         color: 0x222244, sight: 2, tier: 0 },
+  BARRACKS:      { name: 'Barracks',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: ['INFANTRY','ANTI_TANK','MORTAR','MEDIC'], buildCost: { iron: 6, oil: 1, wood: 5 }, color: 0xaa6644, sight: 2, tier: 0 },
+  VEHICLE_DEPOT: { name: 'Vehicle Depot',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: ['TANK','ARTILLERY','SUPPLY_TRUCK','MEDIUM_TANK','SPG','ARMORED_CAR','HALFTRACK'],        buildCost: { iron: 10, oil: 3 }, color: 0x557799, sight: 2, tier: 0 },
   OBS_POST:      { name: 'Obs. Post',      ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 0 }, color: 0x88aacc, sight: 4 },
   ROAD:          { name: 'Dirt Road',      ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 0, oil: 0, wood: 1 }, color: 0xccbbaa, sight: 0, roadTier: 0, moveCost: 0.5, supplyOffRoad: 1 },
   GRAVEL_ROAD:   { name: 'Gravel Road',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 1, oil: 0, wood: 1 }, color: 0x998877, sight: 0, roadTier: 1, moveCost: 0.35, supplyOffRoad: 2, requiresTech: 'gravel_roads' },
@@ -342,12 +342,16 @@ export const BUILDING_TYPES = {
   AIRFIELD:      { name: 'Airfield',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: ['BIPLANE_FIGHTER','LIGHT_BOMBER','OBS_PLANE'], buildCost: { iron: 6, oil: 2, wood: 2 }, color: 0x888844, sight: 3 },
 
   // ── Tier 1 New Buildings ─────────────────────────────────────────────────
-  FARM:          { name: 'Farm',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 3, goldPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 2, oil: 0, wood: 3 }, color: 0x66aa44, sight: 2, placementTerrain: new Set([0, 6, 7]) }, // plains/sand/light woods only
+  FARM:          { name: 'Farm',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 3, goldPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 4 }, color: 0x66aa44, sight: 2, placementTerrain: new Set([0, 6, 7]) }, // plains/sand/light woods only
   MARKET:        { name: 'Market',         ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 2, buildTurns: 2, canRecruit: [], buildCost: { iron: 3, oil: 0, wood: 4 }, color: 0xddaa22, sight: 2 },
   PORT:          { name: 'Port',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 1, buildTurns: 3, canRecruit: [], buildCost: { iron: 5, oil: 1, wood: 4 }, color: 0x3d7fb0, sight: 2, coastalOnly: true, tier: 1 },
   SUPPLY_PORT:   { name: 'Supply Port',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: [], buildCost: { iron: 6, oil: 2, wood: 3, components: 1 }, color: 0x5599cc, sight: 2, coastalOnly: true, supplyPort: true, supplyRadius: 3, fragile: true, tier: 1, requiresTech: 'supply_depot' },
-  SCIENCE_LAB:   { name: 'Science Lab',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, rpPerTurn: 3,  buildTurns: 4, canRecruit: [], buildCost: { iron: 6, oil: 0, wood: 4 }, color: 0x8844cc, sight: 2 },
-  FACTORY:       { name: 'Factory',        ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, componentsPerTurn: 1, buildTurns: 4, canRecruit: [], buildCost: { iron: 10, oil: 3, wood: 8 }, color: 0x666666, sight: 2, fragile: true },
+  SCIENCE_LAB:   { name: 'Science Lab',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, rpPerTurn: 3,  buildTurns: 4, canRecruit: [], buildCost: { iron: 8, oil: 1, wood: 5 }, color: 0x8844cc, sight: 2 },
+  FACTORY:       { name: 'Factory',        ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, componentsPerTurn: 1, buildTurns: 4, canRecruit: [], buildCost: { iron: 12, oil: 4, wood: 9 }, color: 0x666666, sight: 2, fragile: true },
+  // Neutral settlement chain (spawned by map generator; capturable by occupation)
+  VILLAGE:       { name: 'Village',        ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 1, goldPerTurn: 1, popPerTurn: 2, buildTurns: 0, canRecruit: [], buildCost: null, color: 0x8f7b62, sight: 2, popCapBonus: 3, tier: 0 },
+  TOWN:          { name: 'Town',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 2, goldPerTurn: 2, popPerTurn: 3, buildTurns: 0, canRecruit: [], buildCost: null, color: 0x9f886e, sight: 2, popCapBonus: 6, tier: 1 },
+  CITY:          { name: 'City',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 3, goldPerTurn: 3, popPerTurn: 5, buildTurns: 0, canRecruit: [], buildCost: null, color: 0xb59678, sight: 3, popCapBonus: 10, tier: 2 },
   // Fortification tiers T0–T5 (~100 m hex): foxhole → superfortress
   FORT_T0: { name: 'Foxhole', fortTier: 0, fortScoreMod: 12, defenseBonus: 1, indirectAirBonus: 24,
     ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { wood: 1 }, color: 0x5a5044, sight: 0 },
@@ -795,8 +799,8 @@ export const UNIT_UPKEEP = {
 
 // Compute total upkeep for all of a player's units
 export function calcUpkeep(state, player) {
-  const UPKEEP_SCALE = 0.6; // global balance knob (60% upkeep; +20% from prior)
-  const POP_UPKEEP_SCALE = 0.08; // manpower pressure; meaningful but non-catastrophic
+  const UPKEEP_SCALE = 0.78; // tighter economy pressure
+  const POP_UPKEEP_SCALE = 0.11; // stronger manpower pressure
   let food = 0, iron = 0, oil = 0, population = 0;
   for (const unit of state.units) {
     if (unit.owner !== player || unit.embarked) continue;
@@ -1665,7 +1669,7 @@ export function calcIncome(state, player, techBonuses = null) {
 export function getRecruitFoodCost(unitType) {
   const up = UNIT_UPKEEP[unitType]?.food || 0;
   // Convert upkeep pressure into upfront manpower/food requirement.
-  return Math.max(0, Math.ceil(up * 5));
+  return Math.max(0, Math.ceil(up * 7));
 }
 
 // ── Recruitment ────────────────────────────────────────────────────────────
