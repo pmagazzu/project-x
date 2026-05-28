@@ -92,7 +92,10 @@ function defaultConfig(mode, aiP2Default = true) {
     victoryPointTarget: 100,
   };
   if (mode === 'skirmish') {
-    return { ...base, mapSize: 50, procLandProfile: 'continent', debugNoFog: false, supplyEnabled: true, aiP2: aiP2Default };
+    return {
+      ...base, mapSize: 50, procLandProfile: 'continent', debugNoFog: false, supplyEnabled: true,
+      aiP1: false, aiP2: aiP2Default,
+    };
   }
   if (mode === 'endless') {
     return {
@@ -230,8 +233,15 @@ export class SetupScene extends Phaser.Scene {
       })), () => this._humanIdx, (i) => {
         this._humanIdx = i;
         this.cfg.humanPlayer = i + 1;
+        this._refreshOpponentAiToggleLabel?.();
+        this._refreshOpponentAiToggle?.();
         this._refreshSummary();
       });
+      y += rowGap;
+
+      this._opponentAiLabel = this.add.text(rowLeft, y - 12, '', { font: '11px monospace', fill: '#99aa88' });
+      this._objs.push(this._opponentAiLabel);
+      this._addOpponentAiToggle(rowLeft, y, rowW);
       y += rowGap;
 
       this._addCycleRow(rowLeft, y, rowW, 'Win condition', VICTORY_MODE_OPTIONS, () => this._victoryModeIdx, (i) => {
@@ -401,11 +411,68 @@ export class SetupScene extends Phaser.Scene {
       }
     }
     if (this.mode === 'skirmish') {
-      const aiCount = Math.max(0, this.cfg.playerCount - 1);
-      parts.push(`You: P${this.cfg.humanPlayer}`, `${aiCount} AI`);
+      const opponents = [];
+      for (let p = 1; p <= this.cfg.playerCount; p++) {
+        if (p === this.cfg.humanPlayer) continue;
+        opponents.push(p);
+      }
+      const aiList = opponents.filter(p => this._isOpponentAiEnabled(p));
+      const humanList = opponents.filter(p => !this._isOpponentAiEnabled(p));
+      parts.push(`You: P${this.cfg.humanPlayer}`);
+      if (aiList.length) parts.push(`AI: P${aiList.join(', P')}`);
+      if (humanList.length) parts.push(`Human: P${humanList.join(', P')}`);
     }
     if (this.mode === 'endless') parts.push(`${this.cfg.playerCount}-AI spectator`);
     this._summaryTxt.setText(parts.join('  ·  '));
+  }
+
+  _isOpponentAiEnabled(player) {
+    if (player === 1) return !!this.cfg.aiP1;
+    if (player === 2) return !!this.cfg.aiP2;
+    return false;
+  }
+
+  _primaryOpponentPlayer() {
+    const c = this.cfg;
+    for (let p = 1; p <= c.playerCount; p++) {
+      if (p !== c.humanPlayer) return p;
+    }
+    return c.humanPlayer === 1 ? 2 : 1;
+  }
+
+  _refreshOpponentAiToggleLabel() {
+    const opp = this._primaryOpponentPlayer();
+    this._opponentAiLabel?.setText(`Player ${opp}: AI opponent`);
+  }
+
+  _addOpponentAiToggle(x, y, w) {
+    const pillW = 108, pillH = 34;
+    const pillX = x + w - pillW / 2;
+    const pill = this.add.rectangle(pillX, y + 8, pillW, pillH, 0x1a2218, 1)
+      .setStrokeStyle(2, 0x334433).setInteractive({ useHandCursor: true });
+    const txt = this.add.text(pillX, y + 8, '', { font: 'bold 13px monospace', fill: '#ffffff' }).setOrigin(0.5);
+
+    const paint = () => {
+      const on = this._isOpponentAiEnabled(this._primaryOpponentPlayer());
+      pill.setFillStyle(on ? 0x2a5533 : 0x3a2020, 1);
+      pill.setStrokeStyle(2, on ? 0x88ee66 : 0xaa5544);
+      txt.setText(on ? 'ON' : 'OFF');
+      txt.setColor(on ? '#ccffaa' : '#ffaa99');
+    };
+    this._refreshOpponentAiToggle = paint;
+    paint();
+
+    pill.on('pointerdown', () => {
+      const opp = this._primaryOpponentPlayer();
+      if (opp === 1) this.cfg.aiP1 = !this.cfg.aiP1;
+      else if (opp === 2) this.cfg.aiP2 = !this.cfg.aiP2;
+      paint();
+      this.tweens.add({ targets: pill, scaleX: 1.12, scaleY: 1.12, duration: 80, yoyo: true });
+      this._refreshSummary();
+    });
+
+    this._objs.push(pill, txt);
+    this._refreshOpponentAiToggleLabel();
   }
 
   _buildAiPlayers() {
@@ -417,7 +484,8 @@ export class SetupScene extends Phaser.Scene {
     }
     if (this.mode === 'skirmish') {
       for (let p = 1; p <= c.playerCount; p++) {
-        if (p !== c.humanPlayer) aiPlayers.push(p);
+        if (p === c.humanPlayer) continue;
+        if (this._isOpponentAiEnabled(p)) aiPlayers.push(p);
       }
       return aiPlayers;
     }
@@ -434,6 +502,8 @@ export class SetupScene extends Phaser.Scene {
       victoryMode: c.victoryMode,
       victoryPointTarget: c.victoryPointTarget,
       aiPlayers: this._buildAiPlayers(),
+      aiP1: !!c.aiP1,
+      aiP2: !!c.aiP2,
     };
   }
 

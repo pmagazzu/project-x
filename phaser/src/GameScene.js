@@ -48,7 +48,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.19.9';
+export const GAME_VERSION = 'v1.19.11';
 
 const DEPLOY_HIGHLIGHT = 0xaa55ee;
 
@@ -220,7 +220,7 @@ export class GameScene extends Phaser.Scene {
     if (this.humanPlayer > this.playerCount) this.humanPlayer = 1;
     // AI players: set of player numbers controlled by AI
     this.aiPlayers  = new Set();
-    if (Array.isArray(data.aiPlayers) && data.aiPlayers.length) {
+    if (Array.isArray(data.aiPlayers)) {
       for (const p of data.aiPlayers) this.aiPlayers.add(Number(p));
     } else {
       if (data.aiP1) this.aiPlayers.add(1);
@@ -229,11 +229,6 @@ export class GameScene extends Phaser.Scene {
         for (let p = 1; p <= this.playerCount; p++) {
           if (p !== this.humanPlayer) this.aiPlayers.add(p);
         }
-      }
-    }
-    if (!this._aiViewerMode && this.aiPlayers.size === 0) {
-      for (let p = 1; p <= this.playerCount; p++) {
-        if (p !== this.humanPlayer) this.aiPlayers.add(p);
       }
     }
     // Never treat the human slot as AI (bad launch payloads used to strand P1 with no build UI).
@@ -3023,7 +3018,7 @@ export class GameScene extends Phaser.Scene {
 
   // ── Bottom inspector + action rail ────────────────────────────────────────
   _createBottomPanel() {
-    this._inspectorPanH = 168;
+    this._inspectorPanH = 192;
     this._inspectorTabManual = null;
     this._inspectorTab = 'unit';
     this._inspectorLines = [];
@@ -3094,7 +3089,7 @@ export class GameScene extends Phaser.Scene {
 
   _getBottomChromeLayout() {
     const w = this.scale.width, h = this.scale.height;
-    const panH = this._inspectorPanH || 168;
+    const panH = this._inspectorPanH || 192;
     const topY = h - panH;
     const actionCx = w - 198;
     const contentLeft = actionCx - 190;
@@ -3351,7 +3346,7 @@ export class GameScene extends Phaser.Scene {
       fill: active ? '#ffcc44' : '#8899aa',
       backgroundColor: active ? '#4a2080' : '#1a2838',
       padding: { x: 6, y: 3 },
-    }).setOrigin(0, 0).setScrollFactor(0).setDepth(101).setInteractive({ useHandCursor: true });
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(112).setInteractive({ useHandCursor: true });
     btn.on('pointerdown', () => {
       this._contextMenuClicked = true;
       this._buildMenuTab = tabKey;
@@ -3379,7 +3374,7 @@ export class GameScene extends Phaser.Scene {
       ? `${BUILDING_TYPES[focus.type]?.name || focus.type}  ·  [B] hide`
       : `⚔ BUILD MENU  ·  [B] hide`, {
       font: 'bold 12px monospace', fill: '#ffcc44',
-    }).setScrollFactor(0).setDepth(101);
+    }).setScrollFactor(0).setDepth(112);
     this._uiLayer.add(hdr);
     this._dynBtns.push(hdr);
     ay += 18;
@@ -3388,13 +3383,13 @@ export class GameScene extends Phaser.Scene {
       const def = BUILDING_TYPES[focus.type] || {};
       const chips = this.add.text(ax, ay, `P${focus.owner}  ·  (${focus.q},${focus.r})${def.tier != null ? `  ·  tier ${def.tier}` : ''}`, {
         font: '10px monospace', fill: '#99bbdd',
-      }).setScrollFactor(0).setDepth(101);
+      }).setScrollFactor(0).setDepth(112);
       this._uiLayer.add(chips);
       this._dynBtns.push(chips);
       ay += 16;
       const clr = this.add.text(ax + 200, topY + 8, '✕', {
         font: 'bold 12px monospace', fill: '#ff8888', backgroundColor: '#331111', padding: { x: 6, y: 2 },
-      }).setOrigin(0, 0).setScrollFactor(0).setDepth(101).setInteractive({ useHandCursor: true });
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(112).setInteractive({ useHandCursor: true });
       clr.on('pointerdown', () => { this._clearBuildMenuBuildingFocus(); this._updateBottomPanel(); });
       this._uiLayer.add(clr);
       this._dynBtns.push(clr);
@@ -3420,26 +3415,26 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    let tx = ax;
-    tx += this._renderBuildMenuTabBtn(tx, ay, 'PRODUCE', 'produce', this._buildMenuTab === 'produce');
-    tx += this._renderBuildMenuTabBtn(tx, ay, 'DEPLOY', 'deploy', this._buildMenuTab === 'deploy');
-    this._renderBuildMenuTabBtn(tx, ay, 'STRUCT', 'struct', this._buildMenuTab === 'struct');
+    const tabY = ay;
+    this._renderBuildMenuTabBtn(ax, tabY, 'PRODUCE', 'produce', this._buildMenuTab === 'produce');
+    this._renderBuildMenuTabBtn(ax + 92, tabY, 'DEPLOY', 'deploy', this._buildMenuTab === 'deploy');
+    this._renderBuildMenuTabBtn(ax + 184, tabY, 'STRUCT', 'struct', this._buildMenuTab === 'struct');
     ay += 22;
 
     const pending = (gs.pendingGlobalRecruits || []).filter(r => Number(r.owner) === Number(p));
     const ready = (gs.readyGlobalRecruits || []).filter(r => Number(r.owner) === Number(p));
+    const qRow = this.add.text(ax, ay, `READY ${ready.length}  ·  QUEUE ${pending.length}${pending[0] ? ` · ${UNIT_TYPES[pending[0].type]?.name}` : ''}`, {
+      font: '10px monospace', fill: '#99aabb', backgroundColor: '#141828', padding: { x: 5, y: 2 },
+    }).setScrollFactor(0).setDepth(112);
+    this._uiLayer.add(qRow);
+    this._dynBtns.push(qRow);
+    ay += 18;
 
     if (this._buildMenuTab === 'deploy') {
-      const st = this.add.text(ax, ay, `READY ${ready.length}  ·  QUEUE ${pending.length}${pending[0] ? ` · ${UNIT_TYPES[pending[0].type]?.name}` : ''}`, {
-        font: '10px monospace', fill: '#c8d8ff', backgroundColor: '#1a1830', padding: { x: 5, y: 3 },
-      }).setScrollFactor(0).setDepth(101);
-      this._uiLayer.add(st);
-      this._dynBtns.push(st);
-      ay += 22;
       if (this._deployMode) {
         const hint = this.add.text(ax, ay, 'Click purple hex to deploy  ·  cancel', {
           font: 'bold 10px monospace', fill: '#ddaaff', backgroundColor: '#2a1040', padding: { x: 5, y: 3 },
-        }).setScrollFactor(0).setDepth(101).setInteractive({ useHandCursor: true });
+        }).setScrollFactor(0).setDepth(112).setInteractive({ useHandCursor: true });
         hint.on('pointerdown', () => { this._cancelDeployMode(); this._updateBottomPanel(); });
         this._uiLayer.add(hint);
         this._dynBtns.push(hint);
@@ -3447,7 +3442,7 @@ export class GameScene extends Phaser.Scene {
       }
       if (!ready.length) {
         const empty = this.add.text(ax, ay, 'No units ready — queue in PRODUCE', { font: '10px monospace', fill: '#888888' })
-          .setScrollFactor(0).setDepth(101);
+          .setScrollFactor(0).setDepth(112);
         this._uiLayer.add(empty);
         this._dynBtns.push(empty);
         return;
@@ -3472,7 +3467,7 @@ export class GameScene extends Phaser.Scene {
         ? this.selectedUnit : null;
       if (!eng) {
         const hint = this.add.text(ax, ay, 'Select your engineer for structures', { font: '10px monospace', fill: '#aa8888' })
-          .setScrollFactor(0).setDepth(101);
+          .setScrollFactor(0).setDepth(112);
         this._uiLayer.add(hint);
         this._dynBtns.push(hint);
         return;
@@ -3485,7 +3480,7 @@ export class GameScene extends Phaser.Scene {
     // PRODUCE tab
     if (!anchor) {
       const noVtc = this.add.text(ax, ay, 'Capture HQ or settlement to produce', { font: '10px monospace', fill: '#aa8888' })
-        .setScrollFactor(0).setDepth(101);
+        .setScrollFactor(0).setDepth(112);
       this._uiLayer.add(noVtc);
       this._dynBtns.push(noVtc);
       return;
@@ -3518,7 +3513,7 @@ export class GameScene extends Phaser.Scene {
       ay += 4;
       const depHint = this.add.text(ax, ay, `→ ${ready.length} ready: switch DEPLOY tab`, {
         font: '10px monospace', fill: '#88ffaa',
-      }).setScrollFactor(0).setDepth(101).setInteractive({ useHandCursor: true });
+      }).setScrollFactor(0).setDepth(112).setInteractive({ useHandCursor: true });
       depHint.on('pointerdown', () => { this._buildMenuTab = 'deploy'; this._updateBottomPanel(); });
       this._uiLayer.add(depHint);
       this._dynBtns.push(depHint);
