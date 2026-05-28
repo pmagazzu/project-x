@@ -17,7 +17,7 @@ import {
   MODULES, CHASSIS_BUILDINGS, getMaxDesignSlots,
   designRegistrationCost, computeDesignStats,
   getReachableHexes, getAttackableHexes, hexDistance, buildingAt, roadAt, getCachedSupply, getRecruitFoodCost,
-  ROAD_TYPES, unitAt, computeFog,
+  ROAD_TYPES, unitAt, computeFog, buildHQRoadNetwork, isHQNetworkPluggedToNeutralRoads,
 } from './GameState.js';
 import { ensureAIDesigns, pickAIRecruit, getClosingPressure } from './AIDesigner.js';
 import {
@@ -820,6 +820,9 @@ function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits
     desiredPhase = (canEnterClosing && endgamePressure >= 0.45) ? 'closing' : 'pressure';
   }
   if (situation?.safeAtHome && turn < 20 && !situation?.vpMode) desiredPhase = 'expand';
+  const mapN = Number(gs._mapSize || mapSize || 40);
+  const neutralPlugged = isHQNetworkPluggedToNeutralRoads(gs, player, mapN);
+  if (!neutralPlugged && turn <= 55 && myCombatCount >= 2) desiredPhase = 'expand';
   const stabilizeRoad = turn < 12 ? 7 : (myUnits.length <= 6 ? 3 : 6);
   const stabilizeUnsup = turn < 12 ? Math.max(5, Math.floor(myUnits.length * 0.35)) : Math.max(4, Math.floor(myUnits.length * 0.28));
   const severe = roadDeficit >= 4 || unsupplied >= Math.max(4, Math.floor(myUnits.length * 0.33));
@@ -930,7 +933,22 @@ function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits
   return state;
 }
 
-function scoreRoadUtility(gs, player, q, r) {
+function isNeutralRoadHex(gs, q, r) {
+  const b = roadAt(gs, q, r);
+  return !!b && Number(b.owner) === 0;
+}
+
+function isRoadBuildConnectivity(gs, player, q, r) {
+  const myHQs = gs.buildings.filter(bb => bb.type === 'HQ' && Number(bb.owner) === Number(player));
+  const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+  return dirs.some(([dq, dr]) => {
+    const nq = q + dq, nr = r + dr;
+    if (roadAt(gs, nq, nr)) return true;
+    return myHQs.some(h => h.q === nq && h.r === nr);
+  });
+}
+
+function scoreRoadUtility(gs, player, q, r, mapSize = gs._mapSize || 40) {
   const key = `${q},${r}`;
   const hasRoad = !!roadAt(gs, q, r);
   if (hasRoad) return -999;
@@ -971,6 +989,26 @@ function scoreRoadUtility(gs, player, q, r) {
   if (myHQs.length > 0) {
     const dHQ = Math.min(...myHQs.map(h => hexDistance(q, r, h.q, h.r)));
     networkScore += Math.max(0, 5 - dHQ * 0.5); // was: 9 - dHQ * 0.7
+  }
+
+  // Early priority: bridge owned HQ network to neutral settlement road grid for supply + movement.
+  const turnNow = gs.turn || 1;
+  const pluggedNeutral = isHQNetworkPluggedToNeutralRoads(gs, player, mapSize);
+  if (!pluggedNeutral && myHQs.length > 0 && turnNow <= 90) {
+    const myHQ = myHQs[0];
+    const neutralRoads = gs.buildings.filter(b => ROAD_TYPES.has(b.type) && Number(b.owner) === 0);
+    if (neutralRoads.length > 0) {
+      const dHere = Math.min(...neutralRoads.map(nr => hexDistance(q, r, nr.q, nr.r)));
+      const dHQToNet = Math.min(...neutralRoads.map(nr => hexDistance(myHQ.q, myHQ.r, nr.q, nr.r)));
+      const progress = dHQToNet - dHere;
+      if (progress > 0) networkScore += Math.min(32, progress * 2.4);
+      if (progress > 2) networkScore += 10;
+      let neutralAdj = 0;
+      for (const [dq, dr] of [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]) {
+        if (isNeutralRoadHex(gs, q + dq, r + dr)) neutralAdj += 1;
+      }
+      if (neutralAdj > 0) networkScore += 24 + neutralAdj * 6;
+    }
   }
 
   // ── Directional corridor bias ─────────────────────────────────────────────
@@ -2769,6 +2807,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   };
 
   const engineerMemory = initEngineerMemory(gs, player);
+  const liveEngIds = new Set(gs.units.filter(u => Number(u.owner) === Number(player) && u.type === 'ENGINEER').map(u => u.id));
+  for (const id of Object.keys(engineerMemory)) {
+    if (!liveEngIds.has(Number(id))) delete engineerMemory[id];
+  }
   const claimedCorridorTasks = new Set(); // deconflict: each engineer targets a different waypoint
 
   const aiDebug = {
@@ -3515,10 +3557,14 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const maxRecruitsThisTurn = armyBudget.maxRecruitsPerTurn
     + (stockpilePressure >= 0.55 ? 2 : (stockpilePressure >= 0.35 ? 1 : 0))
     + (strategic?.phase === 'closing' ? 2 : (strategic?.phase === 'pressure' ? 1 : 0));
+  const combatUnitsLive = myCombatUnits.length;
+  const armyRebuildMode = combatUnitsLive < 4 && (gs.turn || 1) > 15;
   const recruitAllowed = (unitType) => {
     if (plannedRecruits >= maxRecruitsThisTurn) return false;
     if (projectedUnits >= armyBudget.maxUnits) return false;
     if (isCombatUnitType(unitType) && projectedCombat >= armyBudget.maxCombat) return false;
+    if (armyRebuildMode && (NAVAL_UNITS.has(unitType) || AIR_UNITS.has(unitType))) return false;
+    if (armyRebuildMode && (unitType === 'SUPPLY_SHIP' || unitType === 'SUPPLY_TRUCK')) return false;
     if (unitType === 'ENGINEER') {
       const engN = (plannedCount.ENGINEER || 0)
         + gs.units.filter(u => u.owner === player && u.type === 'ENGINEER').length;
@@ -3574,6 +3620,33 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     return true;
   };
 
+  const recruitCombatFromBarracks = (prefer = ['INFANTRY', 'ANTI_TANK', 'MORTAR', 'RECON']) => {
+    const barracks = myBuildings.find(bb => bb.type === 'BARRACKS' && !bb.underConstruction
+      && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player)
+      && !actions.some(a => a.type === 'recruit' && a.buildingId === bb.id));
+    if (!barracks) return false;
+    for (const unitType of prefer) {
+      if (!(BUILDING_TYPES.BARRACKS?.canRecruit || []).includes(unitType)) continue;
+      if (!recruitAllowed(unitType)) continue;
+      const c = UNIT_TYPES[unitType]?.cost || {};
+      const f = getRecruitFoodCost(unitType);
+      if (resSim.iron < (c.iron || 0) || resSim.oil < (c.oil || 0) || resSim.food < f) continue;
+      actions.push({ type: 'recruit', buildingId: barracks.id, unitType });
+      noteRecruit(unitType);
+      spend(c);
+      resSim.food -= f;
+      return true;
+    }
+    return false;
+  };
+
+  if (armyRebuildMode) {
+    for (let i = 0; i < 2 && plannedRecruits < maxRecruitsThisTurn; i++) {
+      if (!recruitCombatFromBarracks()) break;
+    }
+    if ((myEngNow + queuedEngNow) < 1) recruitEngineerFromHQ();
+  }
+
   // Resource rush: extra engineers while many unclaimed mines/oil remain.
   if ((gs.turn || 1) <= 16 && unworkedResSites >= 2
     && (myEngNow + queuedEngNow) < Math.min(4, 1 + Math.floor(unworkedResSites / 2))) {
@@ -3615,7 +3688,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       }
     }
   }
-  if (unsuppliedNavalNow >= 1) {
+  if (unsuppliedNavalNow >= 1 && !armyRebuildMode) {
     const myShipsNow = gs.units.filter(u => u.owner === player && u.type === 'SUPPLY_SHIP').length;
     const navalCombatNow = gs.units.filter(u => u.owner === player && NAVAL_UNITS.has(u.type) && u.type !== 'SUPPLY_SHIP').length;
     const shipCapNow = Math.max(1, Math.min(4, Math.ceil(navalCombatNow / 4)
@@ -3635,7 +3708,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   }
 
   // Island bootstrap: force first naval package online, even with fog and no enemy contact yet.
-  if ((situation?.islandMap || (situation?.waterRatio || 0) >= 0.18) && (gs.turn || 1) >= 5) {
+  if (!armyRebuildMode && (situation?.islandMap || (situation?.waterRatio || 0) >= 0.18) && (gs.turn || 1) >= 5) {
     const myNavalCombatNow = gs.units.filter(u => u.owner === player && !u.embarked && NAVAL_UNITS.has(u.type) && u.type !== 'SUPPLY_SHIP').length;
     const myTransportsNow = gs.units.filter(u => u.owner === player && !u.embarked && ['LANDING_CRAFT', 'TRANSPORT_SM', 'TRANSPORT_MD', 'TRANSPORT_LG'].includes(u.type)).length;
     const mySupplyShipsNow = gs.units.filter(u => u.owner === player && !u.embarked && u.type === 'SUPPLY_SHIP').length;
@@ -3940,13 +4013,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       if (roadAt(gs, q, r)) return false;
       const b = buildingAt(gs, q, r);
       if (b && !ROAD_TYPES.has(b.type)) return false;
-      // Connectivity: only build roads adjacent to existing road network or HQ
-      const myHQsR = gs.buildings.filter(bb => bb.type === 'HQ' && bb.owner === player);
-      return [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]].some(([dq, dr]) => {
-        const nq = q + dq, nr = r + dr;
-        if (roadAt(gs, nq, nr)) return true;
-        return myHQsR.some(h => h.q === nq && h.r === nr);
-      });
+      return isRoadBuildConnectivity(gs, player, q, r);
     };
 
     const rcost = BUILDING_TYPES['ROAD']?.buildCost || {};
@@ -3954,8 +4021,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     for (const eng of engineers) {
       if (!canAfford(rcost)) break;
 
-      // Case A: already on a valid roadable tile
-      if (roadableHere(eng.q, eng.r)) {
+      // Case A: already on a valid roadable tile (never stack road on road)
+      if (roadableHere(eng.q, eng.r) && !roadAt(gs, eng.q, eng.r)) {
         actions.push({ type: 'build', unitId: eng.id, buildingType: 'ROAD' });
         spend(rcost);
         plannedRoadBuilds += 1;
@@ -4159,6 +4226,31 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     }
   }
 
+  // Until HQ owned roads touch the neutral spine, steer engineers toward the nearest neutral road cluster.
+  if (!isHQNetworkPluggedToNeutralRoads(gs, player, mapSize) && (gs.turn || 1) <= 70) {
+    const neutralRoads = gs.buildings.filter(b => ROAD_TYPES.has(b.type) && Number(b.owner) === 0);
+    const myHQPlug = getMyHQs()[0];
+    if (neutralRoads.length > 0 && myHQPlug) {
+      const plugTarget = neutralRoads.reduce((a, b) =>
+        hexDistance(myHQPlug.q, myHQPlug.r, a.q, a.r) <= hexDistance(myHQPlug.q, myHQPlug.r, b.q, b.r) ? a : b);
+      const actedPlugIds = new Set(actions.filter(a => a.unitId != null).map(a => a.unitId));
+      for (const eng of gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked && !u.constructing)) {
+        if (actedPlugIds.has(eng.id)) continue;
+        if (hexDistance(eng.q, eng.r, plugTarget.q, plugTarget.r) <= 2) continue;
+        const reachable = getReachableHexes(gs, eng, terrain, mapSize) || [];
+        const best = reachable
+          .filter(h => hexDistance(h.q, h.r, plugTarget.q, plugTarget.r) < hexDistance(eng.q, eng.r, plugTarget.q, plugTarget.r))
+          .filter(h => !isImmediateBacktrack(eng, h, moveMemory?.[eng.id], gs.turn || 1))
+          .sort((a, b) => scoreRoadUtility(gs, player, b.q, b.r, mapSize) - scoreRoadUtility(gs, player, a.q, a.r, mapSize))[0];
+        if (best) {
+          actions.push({ type: 'move', unitId: eng.id, fromQ: eng.q, fromR: eng.r, toQ: best.q, toR: best.r });
+          moveMemory[eng.id] = { fromQ: eng.q, fromR: eng.r, toQ: best.q, toR: best.r, turn: gs.turn || 1 };
+          actedPlugIds.add(eng.id);
+        }
+      }
+    }
+  }
+
   // Engineer utilization sweep: avoid idle engineers when valid logistics work exists.
   const actedEngineerIds = new Set(actions.filter(a => a.unitId != null).map(a => a.unitId));
   const idleEngineers = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked && !u.constructing && !actedEngineerIds.has(u.id));
@@ -4171,19 +4263,12 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     if (roadAt(gs, q, r)) return false;
     const b = buildingAt(gs, q, r);
     if (b && !ROAD_TYPES.has(b.type)) return false;
-    // Connectivity: must be adjacent to existing road or HQ
-    const myHQsFinal = gs.buildings.filter(bb => bb.type === 'HQ' && bb.owner === player);
-    const hexNeighborsFinal = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
-    return hexNeighborsFinal.some(([dq, dr]) => {
-      const nq = q + dq, nr = r + dr;
-      if (roadAt(gs, nq, nr)) return true;
-      return myHQsFinal.some(h => h.q === nq && h.r === nr);
-    });
+    return isRoadBuildConnectivity(gs, player, q, r);
   };
   for (const eng of idleEngineers) {
     if (engSweepCount >= maxEngSweep) break;
     if (roadDeficitGlobal <= 0 && !logisticsPressure && (gs.turn || 1) > 50) break;
-    if (canAfford(roadCostFinal) && roadableHereFinal(eng.q, eng.r)) {
+    if (canAfford(roadCostFinal) && roadableHereFinal(eng.q, eng.r) && !roadAt(gs, eng.q, eng.r)) {
       actions.push({ type: 'build', unitId: eng.id, buildingType: 'ROAD' });
       spend(roadCostFinal);
       engSweepCount += 1;

@@ -3248,6 +3248,53 @@ export function buildHQRoadNetwork(state, player, mapSize) {
   return roadConnected;
 }
 
+/** Neutral roads (owner 0) extend supply once an owned HQ road network touches them. */
+export function extendRoadNetworkWithNeutralRoads(state, roadConnected, mapSize) {
+  const ms = mapSize || state._mapSize || 25;
+  const _isValid = (q, r) => q >= 0 && r >= 0 && q < ms && r < ms;
+  const isNeutralRoad = (q, r) => {
+    const b = roadAt(state, q, r);
+    return !!b && Number(b.owner) === 0;
+  };
+  const queue = [];
+  for (const key of [...roadConnected]) {
+    const [q, r] = key.split(',').map(Number);
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const nq = q + dq, nr = r + dr;
+      if (!_isValid(nq, nr)) continue;
+      const nk = `${nq},${nr}`;
+      if (!isNeutralRoad(nq, nr) || roadConnected.has(nk)) continue;
+      roadConnected.add(nk);
+      queue.push({ q: nq, r: nr });
+    }
+  }
+  while (queue.length > 0) {
+    const cur = queue.shift();
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const nq = cur.q + dq, nr = cur.r + dr;
+      if (!_isValid(nq, nr)) continue;
+      const nk = `${nq},${nr}`;
+      if (!isNeutralRoad(nq, nr) || roadConnected.has(nk)) continue;
+      roadConnected.add(nk);
+      queue.push({ q: nq, r: nr });
+    }
+  }
+  return roadConnected;
+}
+
+/** True when player-owned HQ roads touch the neutral road grid (supply plug-in). */
+export function isHQNetworkPluggedToNeutralRoads(state, player, mapSize) {
+  const net = buildHQRoadNetwork(state, player, mapSize || state._mapSize || 25);
+  for (const key of net) {
+    const [q, r] = key.split(',').map(Number);
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const b = roadAt(state, q + dq, r + dr);
+      if (b && Number(b.owner) === 0) return true;
+    }
+  }
+  return false;
+}
+
 /** Flood same-player road tiles reachable from a seed hex (land roads only). */
 function floodPlayerRoadsFrom(state, player, startQ, startR, roadConnected, isValid, isOwnedRoadHex) {
   const queue = [];
@@ -3407,9 +3454,10 @@ export function computeSupply(state, player, mapSize) {
   const ms = mapSize || state._mapSize || 25;
   const _isValid = (q, r) => q >= 0 && r >= 0 && q < ms && r < ms;
 
-  const roadConnected = extendRoadNetworkWithSupplyPorts(
+  let roadConnected = extendRoadNetworkWithSupplyPorts(
     state, player, ms, buildHQRoadNetwork(state, player, ms),
   );
+  roadConnected = extendRoadNetworkWithNeutralRoads(state, roadConnected, ms);
   const isRoadHex = (q, r) => roadConnected.has(`${q},${r}`);
 
   const hqs = state.buildings.filter(b =>
