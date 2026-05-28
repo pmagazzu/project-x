@@ -1791,6 +1791,36 @@ function isNavalDeployAllowed(state, b, maxR = 6) {
   return false;
 }
 
+export const PRODUCTION_VTC_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY', 'HQ']);
+
+export function pickProductionAnchorBuilding(state, player) {
+  const owned = state.buildings.filter(b =>
+    PRODUCTION_VTC_TYPES.has(b.type) && Number(b.owner) === Number(player) && !b.underConstruction);
+  for (const type of ['CITY', 'TOWN', 'VILLAGE', 'HQ']) {
+    const b = owned.find(x => x.type === type);
+    if (b) return b;
+  }
+  return owned[0] || null;
+}
+
+export function getOwnedDeployVTBuildings(state, player) {
+  return state.buildings.filter(b =>
+    ['VILLAGE', 'TOWN', 'CITY'].includes(b.type) && Number(b.owner) === Number(player) && !b.underConstruction);
+}
+
+export function getGlobalRecruitOptionsForPlayer(state, player) {
+  const opts = new Set();
+  for (const b of state.buildings.filter(x =>
+    PRODUCTION_VTC_TYPES.has(x.type) && Number(x.owner) === Number(player) && !x.underConstruction)) {
+    for (const t of getGlobalRecruitOptionsForVTC(state, player, x.id)) opts.add(t);
+  }
+  const order = [...PHASE_A_GLOBAL_UNITS];
+  return [...opts].sort((a, b) => {
+    const ai = order.indexOf(a), bi = order.indexOf(b);
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+  });
+}
+
 export function getGlobalRecruitOptionsForVTC(state, player, buildingId) {
   const b = state.buildings.find(x => x.id === buildingId && Number(x.owner) === Number(player) && !x.underConstruction);
   if (!b) return [];

@@ -822,7 +822,7 @@ function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits
   if (situation?.safeAtHome && turn < 20 && !situation?.vpMode) desiredPhase = 'expand';
   const mapN = Number(gs._mapSize || mapSize || 40);
   const neutralPlugged = isHQNetworkPluggedToNeutralRoads(gs, player, mapN);
-  if (!neutralPlugged && turn <= 55 && myCombatCount >= 2) desiredPhase = 'expand';
+  if (!neutralPlugged && turn <= 70 && myCombatCount >= 1) desiredPhase = 'expand';
   const stabilizeRoad = turn < 12 ? 7 : (myUnits.length <= 6 ? 3 : 6);
   const stabilizeUnsup = turn < 12 ? Math.max(5, Math.floor(myUnits.length * 0.35)) : Math.max(4, Math.floor(myUnits.length * 0.28));
   const severe = roadDeficit >= 4 || unsupplied >= Math.max(4, Math.floor(myUnits.length * 0.33));
@@ -995,15 +995,16 @@ function scoreRoadUtility(gs, player, q, r, mapSize = gs._mapSize || 40) {
   const turnNow = gs.turn || 1;
   const pluggedNeutral = isHQNetworkPluggedToNeutralRoads(gs, player, mapSize);
   const teamUnsup = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked && (u.outOfSupply || 0) > 0).length;
-  if (!pluggedNeutral && myHQs.length > 0 && (turnNow <= 120 || teamUnsup >= 2)) {
+  if (!pluggedNeutral && myHQs.length > 0 && (turnNow <= 50 || teamUnsup >= 1)) {
     const myHQ = myHQs[0];
     const neutralRoads = gs.buildings.filter(b => ROAD_TYPES.has(b.type) && Number(b.owner) === 0);
     if (neutralRoads.length > 0) {
       const dHere = Math.min(...neutralRoads.map(nr => hexDistance(q, r, nr.q, nr.r)));
       const dHQToNet = Math.min(...neutralRoads.map(nr => hexDistance(myHQ.q, myHQ.r, nr.q, nr.r)));
       const progress = dHQToNet - dHere;
-      if (progress > 0) networkScore += Math.min(32, progress * 2.4);
-      if (progress > 2) networkScore += 10;
+      const earlyPlug = turnNow <= 35 ? 1.35 : 1;
+      if (progress > 0) networkScore += Math.min(40, progress * 2.8 * earlyPlug);
+      if (progress > 2) networkScore += 12 * earlyPlug;
       let neutralAdj = 0;
       for (const [dq, dr] of [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]) {
         if (isNeutralRoadHex(gs, q + dq, r + dr)) neutralAdj += 1;
@@ -4237,7 +4238,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   // Until HQ owned roads touch the neutral spine, steer engineers toward the nearest neutral road cluster.
   const plugUnsup = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0).length;
-  if (!isHQNetworkPluggedToNeutralRoads(gs, player, mapSize) && ((gs.turn || 1) <= 120 || plugUnsup >= 2)) {
+  if (!isHQNetworkPluggedToNeutralRoads(gs, player, mapSize) && ((gs.turn || 1) <= 80 || plugUnsup >= 1)) {
     const neutralRoads = gs.buildings.filter(b => ROAD_TYPES.has(b.type) && Number(b.owner) === 0);
     const myHQPlug = getMyHQs()[0];
     if (neutralRoads.length > 0 && myHQPlug) {

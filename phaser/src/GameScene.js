@@ -10,7 +10,9 @@ import {
   canEngineerBuildAt,
   enemyAtHex, resolveAttackTargetUnit, canUnitAttackTarget, unitCanAttack, isUnitAlive,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
-  findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, queueGlobalRecruit, deployReadyGlobalRecruit, getGlobalRecruitOptionsForVTC, registerDesign,
+  findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, queueGlobalRecruit, deployReadyGlobalRecruit,
+  getGlobalRecruitOptionsForVTC, getGlobalRecruitOptionsForPlayer, pickProductionAnchorBuilding, getOwnedDeployVTBuildings,
+  isHQNetworkPluggedToNeutralRoads, registerDesign,
   getUnitPopCost, recalcPlayerPopulation,
   calcUpkeep, calcRPFromLabs, computeSupply, invalidateSupplyCache, isHexInSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS, VTC_SUPPLY_RADIUS, getRecruitFoodCost, getUnitSupplyRadius,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
@@ -45,7 +47,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.19.4';
+export const GAME_VERSION = 'v1.19.5';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -281,6 +283,7 @@ export class GameScene extends Phaser.Scene {
 
     // Recruitment panel state
     this.recruitBuilding = null;
+    this._deployMode = null; // { readyId } — click owned VTC to deploy
 
     // Build terrain RenderTexture
     const bounds  = getMapBounds(this.mapSize);
@@ -3224,6 +3227,110 @@ export class GameScene extends Phaser.Scene {
     return btn;
   }
 
+  _inspectorProductionSummary(gs, p) {
+    const pending = (gs.pendingGlobalRecruits || []).filter(r => Number(r.owner) === Number(p));
+    const ready = (gs.readyGlobalRecruits || []).filter(r => Number(r.owner) === Number(p));
+    const head = pending[0];
+    const plugged = isHQNetworkPluggedToNeutralRoads(gs, p, this.mapSize);
+    return {
+      title: 'War production',
+      chips: `READY ${ready.length}  ·  QUEUE ${pending.length}${plugged ? '' : '  ·  ⚠ plug HQ to road grid'}`,
+      lines: [
+        head ? `Building: ${UNIT_TYPES[head.type]?.name || head.type} (${head.turnsLeft ?? 0}t)` : 'Queue idle — order units in panel →',
+        ready.length ? `Deploy: ${ready.map(r => UNIT_TYPES[r.type]?.name || r.type).join(', ')}` : 'No units ready to deploy',
+        'Use the production panel (bottom-right) when no unit is selected.',
+      ],
+    };
+  }
+
+  _isHumanTurn() {
+    const gs = this.gameState;
+    if (!gs) return false;
+    if (this._aiViewerMode) return false;
+    return Number(gs.currentPlayer) === Number(this.humanPlayer);
+  }
+
+  _renderProductionDock() {
+    const gs = this.gameState;
+    const p = gs.currentPlayer;
+    const w = this.scale.width, h = this.scale.height;
+    const panH = this._inspectorPanH || 140;
+    const ax = w - 388;
+    let ay = h - panH + 10;
+    const bw = 118, bh = 34, gap = 3;
+    const anchor = pickProductionAnchorBuilding(gs, p);
+
+    const header = this.add.text(ax, ay, '⚔ PRODUCTION', {
+      font: 'bold 13px monospace', fill: '#ffcc44',
+    }).setScrollFactor(0).setDepth(101);
+    this._uiLayer.add(header);
+    this._dynBtns.push(header);
+    ay += 20;
+
+    const pending = (gs.pendingGlobalRecruits || []).filter(r => Number(r.owner) === Number(p));
+    const ready = (gs.readyGlobalRecruits || []).filter(r => Number(r.owner) === Number(p));
+    const status = this.add.text(ax, ay, `READY: ${ready.length}   QUEUE: ${pending.length}${pending[0] ? ` (${UNIT_TYPES[pending[0].type]?.name || '?'})` : ''}`, {
+      font: 'bold 11px monospace', fill: ready.length > 0 ? '#88ffaa' : '#99aabb',
+      backgroundColor: '#1a2838', padding: { x: 6, y: 4 },
+    }).setScrollFactor(0).setDepth(101);
+    this._uiLayer.add(status);
+    this._dynBtns.push(status);
+    ay += 28;
+
+    if (this._deployMode) {
+      const hint = this.add.text(ax, ay, 'DEPLOY → click your V/T/C', {
+        font: 'bold 11px monospace', fill: '#a8e6ff', backgroundColor: '#0f2333', padding: { x: 6, y: 4 },
+      }).setScrollFactor(0).setDepth(101).setInteractive({ useHandCursor: true });
+      hint.on('pointerdown', () => { this._deployMode = null; this._updateBottomPanel(); });
+      this._uiLayer.add(hint);
+      this._dynBtns.push(hint);
+      ay += 26;
+    }
+
+    for (const r of ready.slice(0, 4)) {
+      const label = `▶ ${UNIT_TYPES[r.type]?.name || r.type}`;
+      const btn = this._makeActionBtn(ax, ay, label, 0x2a6a44, () => {
+        this._deployMode = { readyId: r.id };
+        this._pushLog(`Select Village/Town/City to deploy ${UNIT_TYPES[r.type]?.name || r.type}`);
+        this._updateBottomPanel();
+      });
+      this._uiLayer.add(btn);
+      this._dynBtns.push(btn);
+      ay += bh + gap;
+    }
+
+    if (!anchor) {
+      const noVtc = this.add.text(ax, ay, 'Capture a settlement to produce', {
+        font: '10px monospace', fill: '#aa8888',
+      }).setScrollFactor(0).setDepth(101);
+      this._uiLayer.add(noVtc);
+      this._dynBtns.push(noVtc);
+      return;
+    }
+
+    const opts = getGlobalRecruitOptionsForPlayer(gs, p).slice(0, 6);
+    const pl = gs.players[p];
+    for (const unitType of opts) {
+      const def = UNIT_TYPES[unitType];
+      if (!def) continue;
+      const foodCost = getRecruitFoodCost(unitType);
+      const canAfford = (pl.iron || 0) >= (def.cost.iron || 0) && (pl.oil || 0) >= (def.cost.oil || 0)
+        && (pl.food || 0) >= foodCost && (pl.components || 0) >= (def.cost.components || 0);
+      const label = `+ ${def.name}`;
+      const btn = this._makeActionBtn(ax, ay, label, canAfford ? 0x334466 : 0x222222, () => {
+        const out = queueGlobalRecruit(gs, p, unitType, anchor.id);
+        if (!out.ok) this._pushLog(`Queue failed: ${out.reason}`);
+        else this._pushLog(`Queued ${def.name}`);
+        this._refresh();
+      });
+      if (!canAfford) btn.setAlpha(0.45);
+      this._uiLayer.add(btn);
+      this._dynBtns.push(btn);
+      ay += bh + gap;
+      if (ay > h - 24) break;
+    }
+  }
+
   _updateBottomPanel() {
     const gs = this.gameState;
     const u = this.selectedUnit;
@@ -3235,6 +3342,8 @@ export class GameScene extends Phaser.Scene {
     let content = { title: 'Inspector', chips: 'Select a unit or use tabs', lines: ['UNIT = selected unit · HEX = terrain · BUILD = structure'] };
     if (this._inspectorTab === 'unit' && u) {
       content = this._inspectorUnitContent(gs, u);
+    } else if (this._inspectorTab === 'unit' && !u && this._isHumanTurn()) {
+      content = this._inspectorProductionSummary(gs, gs.currentPlayer);
     } else if (this._inspectorTab === 'unit' && !u) {
       content = { title: 'No unit selected', chips: 'Click your unit on the map', lines: ['Hover a hex for terrain info (HEX tab)'] };
     } else if (this._inspectorTab === 'build' && this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
@@ -3278,6 +3387,8 @@ export class GameScene extends Phaser.Scene {
         this._uiLayer.add(btn);
         this._dynBtns.push(btn);
       });
+    } else if (this._isHumanTurn()) {
+      this._renderProductionDock();
     }
   }
 
@@ -4561,7 +4672,8 @@ export class GameScene extends Phaser.Scene {
     if (def.canBuild) {
       const bldg = buildingAt(gs, unit.q, unit.r);
       if (bldg && bldg.owner === gs.currentPlayer && !ROAD_TYPES.has(bldg.type) &&
-          BUILDING_TYPES[bldg.type].canRecruit.length > 0) {
+          BUILDING_TYPES[bldg.type].canRecruit.length > 0
+          && !['VILLAGE', 'TOWN', 'CITY', 'HQ'].includes(bldg.type)) {
         actions.push({ label: `USE ${BUILDING_TYPES[bldg.type].name.toUpperCase()} ▸`, key: 'use_building', enabled: true, color: 0x225577,
           cb: () => { this._clearSelection(); this._showRecruitPanel(bldg); }
         });
@@ -6712,9 +6824,21 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Recruitment: click own building (no unit present)
+    // Deploy ready unit at owned settlement
+    if (this._deployMode && clickedBuilding && Number(clickedBuilding.owner) === Number(gs.currentPlayer)
+        && ['VILLAGE', 'TOWN', 'CITY'].includes(clickedBuilding.type)) {
+      const out = deployReadyGlobalRecruit(gs, gs.currentPlayer, this._deployMode.readyId, clickedBuilding.id);
+      if (!out.ok) this._pushLog(`Deploy failed: ${out.reason}`);
+      else this._pushLog(`Deployed at ${BUILDING_TYPES[clickedBuilding.type].name}`);
+      this._deployMode = null;
+      this._refresh();
+      return;
+    }
+
+    // Legacy building recruit (barracks/yard) — global queue uses bottom-right production panel
     if (clickedBuilding && Number(clickedBuilding.owner) === Number(gs.currentPlayer) &&
-        clickedBuilding.type !== 'ROAD' && BUILDING_TYPES[clickedBuilding.type].canRecruit.length > 0) {
+        clickedBuilding.type !== 'ROAD' && BUILDING_TYPES[clickedBuilding.type].canRecruit.length > 0
+        && !['VILLAGE', 'TOWN', 'CITY', 'HQ'].includes(clickedBuilding.type)) {
       this._showRecruitPanel(clickedBuilding);
       return;
     }
@@ -6885,6 +7009,7 @@ export class GameScene extends Phaser.Scene {
   _clearSelection() {
     this._hideContextMenu(true);
     this._inspectorTabManual = null;
+    this._deployMode = null;
     this.selectedUnit = null; this.reachable = []; this.attackable = []; this.mode = 'select';
     this._refresh();
   }
@@ -9855,12 +9980,13 @@ export class GameScene extends Phaser.Scene {
       [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
     }
 
-    const scale = Math.max(0.6, ms / 50);
-    const villageN = Math.max(4, Math.floor(6 * scale));
-    const townN = Math.max(2, Math.floor(3 * scale));
-    const cityN = Math.max(1, Math.floor(ms / 90));
+    const scale = Math.max(0.55, ms / 50);
+    const density = ms >= 100 ? 0.38 : ms >= 70 ? 0.52 : ms >= 50 ? 0.68 : 0.85;
+    const villageN = Math.max(2, Math.floor((3 + 3 * scale) * density));
+    const townN = Math.max(1, Math.floor((1 + 2 * scale) * density));
+    const cityN = Math.max(1, Math.floor((ms / 140) * density));
     const placed = [];
-    const minDist = ms >= 90 ? 12 : 8;
+    const minDist = ms >= 100 ? 20 : ms >= 70 ? 16 : ms >= 50 ? 12 : 9;
     const pick = (count, type) => {
       let done = 0;
       const pickBonus = (st) => {
@@ -9908,7 +10034,7 @@ export class GameScene extends Phaser.Scene {
         .sort((x, y) => hexDistance(a.q, a.r, x.q, x.r) - hexDistance(a.q, a.r, y.q, y.r))
         .slice(0, 2);
       for (const b of near) {
-        if (hexDistance(a.q, a.r, b.q, b.r) > (ms >= 90 ? 18 : 12)) continue;
+        if (hexDistance(a.q, a.r, b.q, b.r) > (ms >= 100 ? 24 : ms >= 70 ? 18 : 14)) continue;
         let cq = a.q, cr = a.r;
         let steps = 0;
         while ((cq !== b.q || cr !== b.r) && steps < 28) {
