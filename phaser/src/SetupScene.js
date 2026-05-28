@@ -512,6 +512,7 @@ export class SetupScene extends Phaser.Scene {
       victoryPointTarget: c.victoryPointTarget,
       aiPlayers: this._buildAiPlayers(),
       ...(this.mode === 'skirmish' ? { opponentAiEnabled: !!c.opponentAiEnabled } : {}),
+      ...(this.mode === 'endless' ? { aiViewerMode: true, spectatorMode: true } : {}),
       aiP1: !!c.aiP1,
       aiP2: !!c.aiP2,
     };
@@ -559,6 +560,7 @@ export class SetupScene extends Phaser.Scene {
     }
     if (this.mode === 'endless') {
       this.scene.start('GameScene', {
+        ...this._sharedLaunchData(),
         scenario: 'custom',
         customSize: c.mapSize,
         procLandProfile: c.procLandProfile,
@@ -566,9 +568,11 @@ export class SetupScene extends Phaser.Scene {
         supplyEnabled: c.supplyEnabled,
         debugNoFog: c.debugNoFog,
         aiStrategy: c.aiStrategy,
-        aiViewerMode: true,
         startSupplyTruck: c.startSupplyTruck,
-        ...this._sharedLaunchData(),
+        aiP1: true,
+        aiP2: true,
+        aiViewerMode: true,
+        spectatorMode: true,
       });
       return;
     }

@@ -48,7 +48,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.19.15';
+export const GAME_VERSION = 'v1.19.16';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -209,7 +209,7 @@ export class GameScene extends Phaser.Scene {
     this.supplyEnabled   = data.supplyEnabled !== undefined ? !!data.supplyEnabled : true;
     this.combatLineGap   = data.combatLineGap ?? 10;
     this._mapBuilderMode = !!data.mapBuilder;
-    this._aiViewerMode = !!data.aiViewerMode;
+    this._aiViewerMode = !!(data.aiViewerMode || data.spectatorMode);
     this._aiSimSpeed = Math.max(1, Number(data.aiSimSpeed) || 1); // 1=normal,2=fast,4=turbo
     this._aiAutoplayPaused = false;
     this._aiTurnInProgress = false;
@@ -255,8 +255,13 @@ export class GameScene extends Phaser.Scene {
         if (Number(p) !== Number(this.humanPlayer)) this.aiPlayers.add(p);
       }
     }
-    // Spectator / AI-vs-AI: every slot stays AI. Skirmish: never treat the human seat as AI.
-    if (!this._aiViewerMode) this.aiPlayers.delete(this.humanPlayer);
+    // Spectator / AI-vs-AI: every seat is AI regardless of humanPlayer launch default.
+    if (this._aiViewerMode) {
+      this.aiPlayers.clear();
+      for (let p = 1; p <= this.playerCount; p++) this.aiPlayers.add(p);
+    } else {
+      this.aiPlayers.delete(this.humanPlayer);
+    }
     // AI strategy — map-aware default per AI slot
     this.aiStrategy = data.aiStrategy || pickAIStrategyForMap(null, this.mapSize);
     this.aiStrategies = data.aiStrategies ? { ...data.aiStrategies } : {};
@@ -449,9 +454,9 @@ export class GameScene extends Phaser.Scene {
 
 
     // Auto-start if current player is AI (supports AI vs AI autoplay starts)
-    if (this.aiPlayers.has(this.gameState.currentPlayer)) {
+    if (this._isAiControlled(this.gameState.currentPlayer)) {
       this.time.delayedCall(120, () => {
-        if (!this._aiAutoplayPaused && this.aiPlayers.has(this.gameState.currentPlayer)) this._runAITurn();
+        if (!this._aiAutoplayPaused && this._isAiControlled(this.gameState.currentPlayer)) this._runAITurn();
       });
     }
   }
@@ -1797,8 +1802,21 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ── Buildings ─────────────────────────────────────────────────────────────
+  _playerId(p) {
+    const id = Number(p);
+    return Number.isFinite(id) && id >= 1 ? id : 1;
+  }
+
+  _isAiControlled(p) {
+    return this.aiPlayers.has(this._playerId(p));
+  }
+
   _isSpectatorDuel() {
-    return this._aiViewerMode && this.aiPlayers.size >= 2;
+    if (!this._aiViewerMode || this.playerCount < 2) return false;
+    for (let p = 1; p <= this.playerCount; p++) {
+      if (!this._isAiControlled(p)) return false;
+    }
+    return true;
   }
 
   _drawVictoryZones() {
@@ -2714,7 +2732,7 @@ export class GameScene extends Phaser.Scene {
       this.btnPauseAI = this._makeBtn(w - 610, 8, '⏸ AI', 0x3a2a11, () => {
         this._aiAutoplayPaused = !this._aiAutoplayPaused;
         this._pushLog(this._aiAutoplayPaused ? 'AI autoplay paused.' : 'AI autoplay resumed.');
-        if (!this._aiAutoplayPaused && this.aiPlayers.has(this.gameState.currentPlayer)) this._runAITurn();
+        if (!this._aiAutoplayPaused && this._isAiControlled(this.gameState.currentPlayer)) this._runAITurn();
         this._updateTopBar();
       }, D, 'right');
       this.btnStatsAI = this._makeBtn(w - 700, 8, '📈 STATS', 0x1f2f44, () => this._toggleSpectatorStats(), D, 'right');
@@ -3134,8 +3152,7 @@ export class GameScene extends Phaser.Scene {
     if (this._aiViewerMode || this._mapBuilderMode) return false;
     const gs = this.gameState;
     if (!gs) return false;
-    const p = Number(gs.currentPlayer) || 1;
-    return !this.aiPlayers.has(p);
+    return !this._isAiControlled(gs.currentPlayer);
   }
 
   _canControlBuildMenu() {
@@ -4751,7 +4768,7 @@ export class GameScene extends Phaser.Scene {
       if (this._aiViewerMode && this._isSpectatorDuel()) {
         this._aiAutoplayPaused = !this._aiAutoplayPaused;
         this._pushLog(this._aiAutoplayPaused ? 'AI autoplay paused.' : 'AI autoplay resumed.');
-        if (!this._aiAutoplayPaused && this.aiPlayers.has(this.gameState.currentPlayer)) {
+        if (!this._aiAutoplayPaused && this._isAiControlled(this.gameState.currentPlayer)) {
           this._runAITurn();
         }
         return;
@@ -5556,17 +5573,23 @@ export class GameScene extends Phaser.Scene {
     objs.push(minus, valLbl, plus);
     y += 44;
 
-    // AI toggle row
-    objs.push(this.add.text(leftX, y, 'Player 2 AI', { font: '12px monospace', fill: '#cccccc' })
-      .setOrigin(0,0.5).setScrollFactor(0).setDepth(D+1));
-    const isAI = this.aiPlayers.has(2);
-    const aiTog = this.add.text(rightX, y, isAI ? '[ ON 🤖 ]' : '[ OFF ]', {
-      font:'bold 12px monospace', fill:isAI ? '#ffcc44' : '#888888',
-      backgroundColor:isAI ? '#332200' : '#222222', padding:{x:10,y:5}
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor:true });
-    aiTog.on('pointerdown', () => { if (this.aiPlayers.has(2)) this.aiPlayers.delete(2); else this.aiPlayers.add(2); this._openSettings(); });
-    objs.push(aiTog);
-    y += 40;
+    // AI toggle row (skirmish / debug only — spectator endless keeps all seats on AI)
+    if (!this._aiViewerMode) {
+      objs.push(this.add.text(leftX, y, 'Player 2 AI', { font: '12px monospace', fill: '#cccccc' })
+        .setOrigin(0,0.5).setScrollFactor(0).setDepth(D+1));
+      const isAI = this._isAiControlled(2);
+      const aiTog = this.add.text(rightX, y, isAI ? '[ ON 🤖 ]' : '[ OFF ]', {
+        font:'bold 12px monospace', fill:isAI ? '#ffcc44' : '#888888',
+        backgroundColor:isAI ? '#332200' : '#222222', padding:{x:10,y:5}
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(D+1).setInteractive({ useHandCursor:true });
+      aiTog.on('pointerdown', () => {
+        if (this._isAiControlled(2)) this.aiPlayers.delete(2);
+        else this.aiPlayers.add(2);
+        this._openSettings();
+      });
+      objs.push(aiTog);
+      y += 40;
+    }
 
     // AI strategy row (wider spacing)
     objs.push(this.add.text(leftX, y, 'AI Strategy', { font: '12px monospace', fill: '#cccccc' })
@@ -6830,7 +6853,7 @@ export class GameScene extends Phaser.Scene {
         this._aiTurnInProgress = false;
         fin?.();
       } else if (idleMs > 6000 && !this._aiTurnInProgress && !this._nameModalOpen && !this._settingsOpen
-          && !this._endTurnPending && this.aiPlayers.has(this.gameState.currentPlayer)) {
+          && !this._endTurnPending && this._isAiControlled(this.gameState.currentPlayer)) {
         this._pushLog(`AI autoplay self-heal: restarting P${this.gameState.currentPlayer} turn`);
         this._aiLastProgressAt = now;
         this._runAITurn();
@@ -7829,6 +7852,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   _confirmEndTurn() {
+    if (this._aiViewerMode) return;
     if (this._splashDismiss) return; // pass screen still active
     if (this._endTurnPending) { this._onSubmit(); this._hideEndTurnConfirm(); return; }
     this._endTurnPending = true;
@@ -8225,7 +8249,7 @@ export class GameScene extends Phaser.Scene {
     const endingPlayer = gs.currentPlayer;
     this._hideRecruitPanel();
     this._clearSelection();
-    if (this.aiPlayers.has(gs.currentPlayer)) this._forceAIRoadIfNeeded(gs.currentPlayer);
+    if (this._isAiControlled(gs.currentPlayer)) this._forceAIRoadIfNeeded(gs.currentPlayer);
     gs._aiPlayers = [...this.aiPlayers];
     gs._mapSize = this.mapSize;
     const events = resolveEndOfTurn(gs, this.terrain);
@@ -8233,7 +8257,7 @@ export class GameScene extends Phaser.Scene {
     const researchEvents = events.filter(e => /researched:/i.test(e));
     if (researchEvents.length > 0) {
       for (const e of researchEvents) this._pushLog(`🔬 ${e}`);
-      if (!this.aiPlayers.has(endingPlayer)) {
+      if (!this._isAiControlled(endingPlayer)) {
         this._showResearchCompletePopup(researchEvents);
       }
     }
@@ -8268,12 +8292,12 @@ export class GameScene extends Phaser.Scene {
     }
 
     // If the next player is AI-controlled, skip the pass screen and run AI automatically
-    if (this.aiPlayers.has(gs.currentPlayer)) {
+    if (this._isAiControlled(gs.currentPlayer)) {
       if (this._aiAutoplayPaused) {
         this._pushLog('AI autoplay paused. Press SPACE to resume.');
       } else {
         this.time.delayedCall(50, () => {
-          if (this.aiPlayers.has(this.gameState?.currentPlayer)) this._runAITurn();
+          if (this._isAiControlled(this.gameState?.currentPlayer)) this._runAITurn();
         });
       }
     } else {
@@ -9137,7 +9161,15 @@ export class GameScene extends Phaser.Scene {
 
     const w = this.scale.width, h = this.scale.height;
     const gs = this.gameState;
-    const p = gs.currentPlayer;
+    const p = this._playerId(gs.currentPlayer);
+    if (this._aiViewerMode && this._isAiControlled(p)) {
+      if (!this._aiAutoplayPaused) {
+        this.time.delayedCall(50, () => {
+          if (this._isAiControlled(this.gameState?.currentPlayer)) this._runAITurn();
+        });
+      }
+      return;
+    }
     const PC_HEX = p === 1 ? '#2255aa' : '#aa2222';
     const overlay = this.add.rectangle(w/2, h/2, w, h, 0x000000, 0.88).setScrollFactor(0).setDepth(200);
     // Center card
@@ -9266,7 +9298,7 @@ export class GameScene extends Phaser.Scene {
       // IGOUGO: after resolution, pass to current player (already set by resolveTurn)
       const nextP = this.gameState.currentPlayer;
       this._showSplash(objects, () => {
-        if (this.aiPlayers.has(nextP)) {
+        if (this._isAiControlled(nextP)) {
           if (!this._aiAutoplayPaused) this._runAITurn();
         } else {
           this._showPassScreen(`Player ${nextP}'s turn — take the controls`);
