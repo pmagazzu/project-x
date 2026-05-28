@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.19.0';
+export const GAME_VERSION = 'v1.19.1';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -7698,7 +7698,9 @@ export class GameScene extends Phaser.Scene {
           id: b.id, type: b.type, owner: b.owner, q: b.q, r: b.r,
           underConstruction: !!b.underConstruction,
         })),
-        resourceHexes: gs.resourceHexes,
+        resourceHexes: (gs.turn > 80 && Object.keys(gs.resourceHexes || {}).length > 120)
+          ? { _note: 'trimmed for export size', count: Object.keys(gs.resourceHexes || {}).length }
+          : gs.resourceHexes,
       },
       telemetry: this._aiTelemetry || {},
       combatLog: this._compactCombatLog(150),
@@ -7853,9 +7855,10 @@ export class GameScene extends Phaser.Scene {
     const armyScale = Math.floor(myUnits * 1.1);
     // Scales up through mid/late game but hard-bounded for stability.
     const lateTighten = turn > 60 ? Math.floor((turn - 60) / 5) : 0;
+    const midMapLate = mapN >= 60 && mapN < 90 && turn > 100 ? Math.floor((turn - 100) / 6) : 0;
     const largeMapPenalty = mapN >= 90 ? Math.floor((mapN - 90) / 8) + (turn > 120 ? Math.floor((turn - 120) / 8) : 0) : 0;
-    const budgetCap = mapN >= 90 ? 72 : 96;
-    return Math.max(18, Math.min(budgetCap, 10 + techScale + mapScale + armyScale - lateTighten - largeMapPenalty));
+    const budgetCap = mapN >= 90 ? 72 : (mapN >= 60 && turn > 120 ? 84 : 96);
+    return Math.max(18, Math.min(budgetCap, 10 + techScale + mapScale + armyScale - lateTighten - midMapLate - largeMapPenalty));
   }
 
   _prioritizeAIActions(actions) {

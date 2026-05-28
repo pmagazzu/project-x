@@ -392,6 +392,7 @@ function getFrontlineDistanceEstimate(gs, player) {
 function getDynamicRoadTarget(gs, player, situation = null, armyBudget = null) {
   const base = getRoadFloor(gs.turn || 1);
   const myUnits = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked);
+  const roadsNow = countPlayerRoadLike(gs, player);
   const unsupplied = myUnits.filter(u => (u.outOfSupply || 0) > 0).length;
   const frontlineDist = getFrontlineDistanceEstimate(gs, player);
   const mapN = Number(gs._mapSize || 40);
@@ -405,7 +406,15 @@ function getDynamicRoadTarget(gs, player, situation = null, armyBudget = null) {
   if (armyBudget?.maxRoads) cap = Math.min(cap, armyBudget.maxRoads);
   if (situation?.vpMode) cap = Math.min(cap, armyBudget?.maxRoads || 22);
 
-  return Math.max(base, Math.min(cap, base + unitPressure + supplyPressure + spanPressure + mapPressure + islandPressure));
+  let target = Math.max(base, Math.min(cap, base + unitPressure + supplyPressure + spanPressure + mapPressure + islandPressure));
+  // Small armies should not chase a T200 road quota — prevents infinite stabilize loops.
+  if (myUnits.length <= 8) {
+    target = Math.min(target, roadsNow + Math.max(3, Math.ceil(myUnits.length / 2)));
+  }
+  if (myUnits.length <= 4) {
+    target = Math.min(target, roadsNow + 2);
+  }
+  return target;
 }
 
 /** Cap move scoring work — full reachable set can be 40+ hexes per unit per turn. */
@@ -787,6 +796,8 @@ function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits
   const roadDeficit = Math.max(0, dynamicRoadTarget - roadsNow);
   const myUnits = gs.units.filter(u => u.owner === player && !u.embarked);
   const unsupplied = myUnits.filter(u => (u.outOfSupply || 0) > 0).length;
+  const plRes = gs.players[player] || {};
+  const stockpilePressure = getStockpileSpendPressure(gs, player);
   const myHQ = gs.buildings.find(b => b.type === 'HQ' && b.owner === player);
 
   const laneCenterR = {
@@ -809,11 +820,12 @@ function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits
     desiredPhase = (canEnterClosing && endgamePressure >= 0.45) ? 'closing' : 'pressure';
   }
   if (situation?.safeAtHome && turn < 20 && !situation?.vpMode) desiredPhase = 'expand';
-  const stabilizeRoad = turn < 12 ? 7 : 6;
+  const stabilizeRoad = turn < 12 ? 7 : (myUnits.length <= 6 ? 3 : 6);
   const stabilizeUnsup = turn < 12 ? Math.max(5, Math.floor(myUnits.length * 0.35)) : Math.max(4, Math.floor(myUnits.length * 0.28));
   const severe = roadDeficit >= 4 || unsupplied >= Math.max(4, Math.floor(myUnits.length * 0.33));
   const inClosingPush = desiredPhase === 'closing' && endgamePressure >= 0.55;
-  const stabilizeNeeded = roadDeficit >= stabilizeRoad || unsupplied >= stabilizeUnsup;
+  const stabilizeNeeded = (roadDeficit >= stabilizeRoad || unsupplied >= stabilizeUnsup)
+    && !(myCombatCount < 4 && unsupplied < 2 && turn > 40);
   if (!inClosingPush && !situation?.vpMode && stabilizeNeeded) {
     desiredPhase = 'stabilize';
   }
@@ -824,9 +836,18 @@ function buildStrategicState(gs, player, mapSize, resourceTargets, myCombatUnits
   if (inClosingPush && stabilizeNeeded && severe) {
     desiredPhase = 'stabilize';
   }
-
+  // Break out of endless stabilize: hoarding + tiny army, or logistics loop with no supply pain.
   const prevPhase = prev.phase || 'expand';
   const prevPhaseTurns = prev.phaseTurns || 0;
+  const stabilizeStuck = prevPhase === 'stabilize' && prevPhaseTurns >= 24 && unsupplied < 2;
+  if (stabilizeStuck && turn > 50) desiredPhase = 'pressure';
+  if (myCombatCount < 4 && turn > 35 && (plRes.iron || 0) >= 40 && stockpilePressure >= 0.35) {
+    desiredPhase = 'pressure';
+  }
+  if (roadDeficit >= 4 && roadsNow >= 2 && unsupplied === 0 && prevPhaseTurns > 18 && turn > 60) {
+    desiredPhase = desiredPhase === 'stabilize' ? 'pressure' : desiredPhase;
+  }
+
   let phase = desiredPhase;
   // Require minimum dwell time unless conditions are severe.
   if (!severe && prevPhase !== desiredPhase && prevPhaseTurns < 2) phase = prevPhase;
@@ -3559,8 +3580,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     recruitEngineerFromHQ();
   }
 
-  // Hard network engineer reserve when road network is behind schedule.
-  if (roadDeficitGlobal >= 2) {
+  // Hard network engineer reserve when road network is behind schedule (not when army is gutted).
+  const myUnitsForEng = gs.units.filter(u => u.owner === player && !u.embarked).length;
+  if (roadDeficitGlobal >= 2 && myUnitsForEng >= 8 && (strategic?.phase !== 'pressure' || roadDeficitGlobal >= 6)) {
     if ((myEngNow + queuedEngNow) < 3) {
       recruitEngineerFromHQ();
     }
