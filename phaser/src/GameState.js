@@ -1803,9 +1803,11 @@ export function pickProductionAnchorBuilding(state, player) {
   return owned[0] || null;
 }
 
+export const DEPLOY_RECRUIT_BUILDING_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY', 'HQ']);
+
 export function getOwnedDeployVTBuildings(state, player) {
   return state.buildings.filter(b =>
-    ['VILLAGE', 'TOWN', 'CITY'].includes(b.type) && Number(b.owner) === Number(player) && !b.underConstruction);
+    DEPLOY_RECRUIT_BUILDING_TYPES.has(b.type) && Number(b.owner) === Number(player) && !b.underConstruction);
 }
 
 export function getGlobalRecruitOptionsForPlayer(state, player) {

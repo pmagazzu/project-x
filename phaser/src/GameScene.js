@@ -47,7 +47,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.19.5';
+export const GAME_VERSION = 'v1.19.6';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -228,6 +228,11 @@ export class GameScene extends Phaser.Scene {
         }
       }
     }
+    if (!this._aiViewerMode && this.aiPlayers.size === 0) {
+      for (let p = 1; p <= this.playerCount; p++) {
+        if (p !== this.humanPlayer) this.aiPlayers.add(p);
+      }
+    }
     // AI strategy — map-aware default per AI slot
     this.aiStrategy = data.aiStrategy || pickAIStrategyForMap(null, this.mapSize);
     this.aiStrategies = data.aiStrategies ? { ...data.aiStrategies } : {};
@@ -249,6 +254,7 @@ export class GameScene extends Phaser.Scene {
       victoryPointTarget: data.victoryPointTarget || 100,
     });
     this.gameState._techTree = TECH_TREE; // inject for resolveEndOfTurn research tick
+    this.gameState._aiPlayers = [...this.aiPlayers];
     this.terrain   = this._generateTerrain();
     this.gameState._terrain = this.terrain;
     for (const p of this.aiPlayers) {
@@ -3278,7 +3284,7 @@ export class GameScene extends Phaser.Scene {
     ay += 28;
 
     if (this._deployMode) {
-      const hint = this.add.text(ax, ay, 'DEPLOY → click your V/T/C', {
+      const hint = this.add.text(ax, ay, 'DEPLOY → click HQ or V/T/C', {
         font: 'bold 11px monospace', fill: '#a8e6ff', backgroundColor: '#0f2333', padding: { x: 6, y: 4 },
       }).setScrollFactor(0).setDepth(101).setInteractive({ useHandCursor: true });
       hint.on('pointerdown', () => { this._deployMode = null; this._updateBottomPanel(); });
@@ -3291,7 +3297,7 @@ export class GameScene extends Phaser.Scene {
       const label = `▶ ${UNIT_TYPES[r.type]?.name || r.type}`;
       const btn = this._makeActionBtn(ax, ay, label, 0x2a6a44, () => {
         this._deployMode = { readyId: r.id };
-        this._pushLog(`Select Village/Town/City to deploy ${UNIT_TYPES[r.type]?.name || r.type}`);
+        this._pushLog(`Select HQ or Village/Town/City to deploy ${UNIT_TYPES[r.type]?.name || r.type}`);
         this._updateBottomPanel();
       });
       this._uiLayer.add(btn);
@@ -3308,8 +3314,11 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const opts = getGlobalRecruitOptionsForPlayer(gs, p).slice(0, 6);
+    const opts = getGlobalRecruitOptionsForPlayer(gs, p);
     const pl = gs.players[p];
+    const cols = 2;
+    const colW = bw + gap;
+    let col = 0;
     for (const unitType of opts) {
       const def = UNIT_TYPES[unitType];
       if (!def) continue;
@@ -3317,7 +3326,8 @@ export class GameScene extends Phaser.Scene {
       const canAfford = (pl.iron || 0) >= (def.cost.iron || 0) && (pl.oil || 0) >= (def.cost.oil || 0)
         && (pl.food || 0) >= foodCost && (pl.components || 0) >= (def.cost.components || 0);
       const label = `+ ${def.name}`;
-      const btn = this._makeActionBtn(ax, ay, label, canAfford ? 0x334466 : 0x222222, () => {
+      const bx = ax + col * colW;
+      const btn = this._makeActionBtn(bx, ay, label, canAfford ? 0x334466 : 0x222222, () => {
         const out = queueGlobalRecruit(gs, p, unitType, anchor.id);
         if (!out.ok) this._pushLog(`Queue failed: ${out.reason}`);
         else this._pushLog(`Queued ${def.name}`);
@@ -3326,8 +3336,12 @@ export class GameScene extends Phaser.Scene {
       if (!canAfford) btn.setAlpha(0.45);
       this._uiLayer.add(btn);
       this._dynBtns.push(btn);
-      ay += bh + gap;
-      if (ay > h - 24) break;
+      col += 1;
+      if (col >= cols) {
+        col = 0;
+        ay += bh + gap;
+      }
+      if (ay > h - 28) break;
     }
   }
 
@@ -3369,7 +3383,8 @@ export class GameScene extends Phaser.Scene {
       const bw = 118, bh = 42, gap = 4;
       const ax = w2 - 388, ay = h2 - panH2 + 36;
       const actions = this._getUnitActions(u);
-      actions.slice(0, 6).forEach((a, i) => {
+      const actionSlots = UNIT_TYPES[u.type]?.canBuild ? 8 : 6;
+      actions.slice(0, actionSlots).forEach((a, i) => {
         const col = i % 3, row = Math.floor(i / 3);
         const bx = ax + col * (bw + gap);
         const by = ay + row * (bh + gap);
@@ -6824,9 +6839,9 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Deploy ready unit at owned settlement
+    // Deploy ready unit at owned HQ or settlement
     if (this._deployMode && clickedBuilding && Number(clickedBuilding.owner) === Number(gs.currentPlayer)
-        && ['VILLAGE', 'TOWN', 'CITY'].includes(clickedBuilding.type)) {
+        && ['VILLAGE', 'TOWN', 'CITY', 'HQ'].includes(clickedBuilding.type)) {
       const out = deployReadyGlobalRecruit(gs, gs.currentPlayer, this._deployMode.readyId, clickedBuilding.id);
       if (!out.ok) this._pushLog(`Deploy failed: ${out.reason}`);
       else this._pushLog(`Deployed at ${BUILDING_TYPES[clickedBuilding.type].name}`);
@@ -9894,11 +9909,15 @@ export class GameScene extends Phaser.Scene {
         }
       }
 
-      // 2 engineers near HQ
+      // 2 engineers + starter combat near HQ (global queue deploys elsewhere; opening needs bodies on map)
       const eng1 = findFreeNear(hq.q, hq.r, 3);
       if (eng1) gs.units.push(createUnit('ENGINEER', player, eng1.q, eng1.r));
       const eng2 = findFreeNear(hq.q, hq.r, 3);
       if (eng2) gs.units.push(createUnit('ENGINEER', player, eng2.q, eng2.r));
+      for (const starterType of ['INFANTRY', 'INFANTRY', 'RECON']) {
+        const hex = findFreeNear(hq.q, hq.r, 4);
+        if (hex) gs.units.push(createUnit(starterType, player, hex.q, hex.r));
+      }
 
       // Optional AI-lab helper: start with one supply truck near HQ for early logistics stability.
       if (this._startSupplyTruck) {
