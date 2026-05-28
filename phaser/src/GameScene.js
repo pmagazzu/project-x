@@ -48,7 +48,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.19.11';
+export const GAME_VERSION = 'v1.19.12';
 
 const DEPLOY_HIGHLIGHT = 0xaa55ee;
 
@@ -1289,7 +1289,8 @@ export class GameScene extends Phaser.Scene {
       if (ROAD_TYPES.has(b.type)) {
         const key = `${b.q},${b.r}`;
         const isOwn = Number(b.owner) === curP;
-        if (!showAllRoads && !isOwn && !discovered.has(key)) continue;
+        const isNeutralInfra = Number(b.owner) === 0;
+        if (!showAllRoads && !isOwn && !isNeutralInfra && !discovered.has(key)) continue;
         const tier = BUILDING_TYPES[b.type]?.roadTier ?? 0;
         roadMap.set(key, { tier, b });
       }
@@ -7779,7 +7780,8 @@ export class GameScene extends Phaser.Scene {
       case 'move': return { type: 'move', unitId: a.unitId, to: [a.toQ ?? a.q, a.toR ?? a.r] };
       case 'attack': return { type: 'attack', unitId: a.unitId, target: [a.targetQ ?? a.q, a.targetR ?? a.r] };
       case 'build': return { type: 'build', buildingType: a.buildingType, at: [a.q, a.r], unitId: a.unitId };
-      case 'recruit': return { type: 'recruit', unitType: a.unitType, buildingId: a.buildingId };
+      case 'recruit': return { type: 'recruit', unitType: a.unitType, buildingId: a.buildingId, global: !!a.global };
+      case 'global_deploy': return { type: 'global_deploy', readyId: a.readyId, at: [a.q, a.r] };
       case 'research_queue': return { type: 'research_queue', techId: a.techId };
       case 'design': return { type: 'design', chassis: a.chassis, name: a.name };
       case 'transport_load': return { type: 'transport_load', transportId: a.transportId, cargoUnitId: a.cargoUnitId };
@@ -8186,8 +8188,8 @@ export class GameScene extends Phaser.Scene {
 
   _prioritizeAIActions(actions) {
     const rank = {
-      attack: 0, recruit: 1, transport_unload: 2, transport_load: 3,
-      move: 4, digin: 5, build: 6,
+      attack: 0, global_deploy: 1, recruit: 2, transport_unload: 3, transport_load: 4,
+      move: 5, digin: 6, build: 7,
     };
     return [...(actions || [])].sort((a, b) => (rank[a.type] ?? 8) - (rank[b.type] ?? 8));
   }
@@ -8502,9 +8504,22 @@ export class GameScene extends Phaser.Scene {
         this._scheduleAIStep(200, next, turnId);
       }
 
+    } else if (action.type === 'global_deploy') {
+      const ready = (gs.readyGlobalRecruits || []).find(r => r.id === action.readyId && Number(r.owner) === Number(gs.currentPlayer));
+      const out = deployReadyGlobalRecruitAtHex(gs, gs.currentPlayer, action.readyId, action.q, action.r);
+      if (out.ok) {
+        this._pushLog(`AI deployed ${UNIT_TYPES[ready?.type]?.name || ready?.type || 'unit'} at (${action.q},${action.r})`);
+      }
+      this._refresh();
+      this._updateTopBar();
+      next();
+
     } else if (action.type === 'recruit') {
-      // queueRecruit already performs affordability checks and deducts ALL resources (incl. food/components).
-      queueRecruit(gs, gs.currentPlayer, action.unitType, action.buildingId);
+      if (action.global) {
+        queueGlobalRecruit(gs, gs.currentPlayer, action.unitType, action.buildingId);
+      } else {
+        queueRecruit(gs, gs.currentPlayer, action.unitType, action.buildingId);
+      }
       this._updateTopBar();
       next();
 
@@ -9961,9 +9976,17 @@ export class GameScene extends Phaser.Scene {
         return dOwn <= dEnemy;
       };
 
-      // HQ + starting dirt road under HQ
+      // HQ + starting dirt road under HQ + 1-hex deploy/supply ring
       gs.buildings.push(createBuilding('HQ', player, hq.q, hq.r));
       gs.buildings.push(createBuilding('ROAD', player, hq.q, hq.r));
+      for (const [dq, dr] of NEIGHBORS) {
+        const rq = hq.q + dq, rr = hq.r + dr;
+        if (!isValid(rq, rr, ms) || !isWalkable(rq, rr)) continue;
+        if (gs.buildings.some(b => b.q === rq && b.r === rr && !ROAD_TYPES.has(b.type))) continue;
+        if (!gs.buildings.some(b => b.q === rq && b.r === rr && ROAD_TYPES.has(b.type))) {
+          gs.buildings.push(createBuilding('ROAD', player, rq, rr));
+        }
+      }
 
       // Resource sites near HQ (always placed as resource hexes; buildings depend on quick-start)
       let ironHex = findNearby(hq.q, hq.r, new Set([2,3]), 6) || findNearby(hq.q, hq.r, new Set([0,7]), 7) || findFreeNear(hq.q, hq.r, 5);
@@ -10005,17 +10028,6 @@ export class GameScene extends Phaser.Scene {
           if (quickStart) gs.buildings.push(createBuilding('OIL_PUMP', player, oilHex.q, oilHex.r));
         }
       }
-
-      // Barracks + Vehicle Depot + Naval Yard start prebuilt for baseline playability
-      const barrHex = findFreeNear(hq.q, hq.r, 3);
-      if (barrHex) gs.buildings.push(createBuilding('BARRACKS', player, barrHex.q, barrHex.r));
-
-      // Requested: guaranteed starting vehicle factory (Vehicle Depot) for both teams.
-      const vehHex = findFreeNear(hq.q, hq.r, 3);
-      if (vehHex) gs.buildings.push(createBuilding('VEHICLE_DEPOT', player, vehHex.q, vehHex.r));
-
-      const coastHex = findCoastalNear(hq.q, hq.r, 10);
-      if (coastHex) gs.buildings.push(createBuilding('NAVAL_YARD', player, coastHex.q, coastHex.r));
 
       // Farm site near HQ
       const farmHex = findNearby(hq.q, hq.r, new Set([0, 7]), 4) || findFreeNear(hq.q, hq.r, 3);
@@ -10221,9 +10233,10 @@ export class GameScene extends Phaser.Scene {
     // Seed neutral road spines between nearby settlements to form conflict corridors.
     const roadType = (q, r) => (map[`${q},${r}`] === 2 ? null : 'ROAD');
     const addRoad = (q, r) => {
-      if (!free(q, r)) return;
+      if (!isLand(q, r)) return;
       const rt = roadType(q, r);
       if (!rt) return;
+      if (gs.buildings.some(b => b.q === q && b.r === r && ROAD_TYPES.has(b.type))) return;
       gs.buildings.push(createBuilding(rt, 0, q, r));
     };
     for (const a of placed) {
@@ -10243,7 +10256,7 @@ export class GameScene extends Phaser.Scene {
             .sort((u, v) => hexDistance(u.q, u.r, b.q, b.r) - hexDistance(v.q, v.r, b.q, b.r));
           if (!opts.length) break;
           cq = opts[0].q; cr = opts[0].r;
-          if (!gs.buildings.find(bb => bb.q === cq && bb.r === cr)) addRoad(cq, cr);
+          addRoad(cq, cr);
         }
       }
     }

@@ -18,6 +18,8 @@ import {
   designRegistrationCost, computeDesignStats,
   getReachableHexes, getAttackableHexes, hexDistance, buildingAt, roadAt, getCachedSupply, getRecruitFoodCost,
   ROAD_TYPES, unitAt, computeFog, buildHQRoadNetwork, isHQNetworkPluggedToNeutralRoads,
+  queueGlobalRecruit, deployReadyGlobalRecruitAtHex, enumerateGlobalDeployHexes,
+  getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit, PRODUCTION_VTC_TYPES,
 } from './GameState.js';
 import { ensureAIDesigns, pickAIRecruit, getClosingPressure } from './AIDesigner.js';
 import {
@@ -3615,44 +3617,65 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const myEngNow = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked).length;
   const queuedEngNow = actions.filter(a => a.type === 'recruit' && a.unitType === 'ENGINEER').length;
   const unworkedResSites = getUnclaimedResourceSites(gs, player).length;
-  const recruitEngineerFromHQ = () => {
-    const eb = myBuildings.find(bb => (BUILDING_TYPES[bb.type]?.canRecruit || []).includes('ENGINEER')
-      && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player));
-    if (!eb) return false;
-    const c = UNIT_TYPES.ENGINEER?.cost || {};
-    const f = getRecruitFoodCost('ENGINEER');
-    if (!canAfford(c) || resSim.food < f) return false;
-    if (!recruitAllowed('ENGINEER')) return;
-    actions.push({ type: 'recruit', buildingId: eb.id, unitType: 'ENGINEER' });
-    noteRecruit('ENGINEER');
+  const myHQ = myBuildings.find(bb => bb.type === 'HQ' && !bb.underConstruction);
+  let globalQueueBusy = (gs.pendingGlobalRecruits || []).some(r => Number(r.owner) === Number(player));
+
+  const queueGlobalFromBuilding = (building, unitType) => {
+    if (!building || globalQueueBusy) return false;
+    if (actions.some(a => a.type === 'recruit' && a.global && a.buildingId === building.id)) return false;
+    if (!getGlobalRecruitOptionsForVTC(gs, player, building.id).includes(unitType)) return false;
+    if (!recruitAllowed(unitType)) return false;
+    const check = canQueueGlobalRecruit(gs, player, unitType, building.id);
+    if (!check.ok) return false;
+    const c = UNIT_TYPES[unitType]?.cost || {};
+    const f = getRecruitFoodCost(unitType);
+    if (resSim.iron < (c.iron || 0) || resSim.oil < (c.oil || 0) || resSim.wood < (c.wood || 0)
+      || resSim.food < f || resSim.components < (c.components || 0)) return false;
+    actions.push({ type: 'recruit', buildingId: building.id, unitType, global: true });
+    globalQueueBusy = true;
+    noteRecruit(unitType);
     spend(c);
     resSim.food -= f;
     return true;
   };
 
-  const recruitCombatFromBarracks = (prefer = ['INFANTRY', 'ANTI_TANK', 'MORTAR', 'RECON']) => {
-    const barracks = myBuildings.find(bb => bb.type === 'BARRACKS' && !bb.underConstruction
-      && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player)
-      && !actions.some(a => a.type === 'recruit' && a.buildingId === bb.id));
-    if (!barracks) return false;
-    for (const unitType of prefer) {
-      if (!(BUILDING_TYPES.BARRACKS?.canRecruit || []).includes(unitType)) continue;
-      if (!recruitAllowed(unitType)) continue;
-      const c = UNIT_TYPES[unitType]?.cost || {};
-      const f = getRecruitFoodCost(unitType);
-      if (resSim.iron < (c.iron || 0) || resSim.oil < (c.oil || 0) || resSim.food < f) continue;
-      actions.push({ type: 'recruit', buildingId: barracks.id, unitType });
-      noteRecruit(unitType);
-      spend(c);
-      resSim.food -= f;
-      return true;
+  const recruitEngineerFromHQ = () => {
+    if (!myHQ) return false;
+    return queueGlobalFromBuilding(myHQ, 'ENGINEER');
+  };
+
+  const recruitCombatFromProduction = (prefer = ['INFANTRY', 'ANTI_TANK', 'MORTAR', 'RECON']) => {
+    const anchors = myBuildings.filter(bb => PRODUCTION_VTC_TYPES.has(bb.type) && !bb.underConstruction);
+    for (const anchor of anchors) {
+      for (const unitType of prefer) {
+        if (queueGlobalFromBuilding(anchor, unitType)) return true;
+      }
     }
     return false;
   };
 
+  const enemyHQ = gs.buildings.find(bb => bb.type === 'HQ' && Number(bb.owner) !== Number(player));
+  for (const ready of (gs.readyGlobalRecruits || []).filter(r => Number(r.owner) === Number(player))) {
+    if (actions.some(a => a.type === 'global_deploy' && a.readyId === ready.id)) continue;
+    const sites = enumerateGlobalDeployHexes(gs, player, ready.type);
+    if (!sites.length) continue;
+    const combatDeploy = ['INFANTRY', 'ANTI_TANK', 'MORTAR', 'RECON', 'TANK', 'ARTILLERY', 'ASSAULT_INFANTRY'].includes(ready.type);
+    let best = sites[0], bestScore = -Infinity;
+    for (const site of sites) {
+      let score = 0;
+      if (enemyHQ) score += Math.max(0, 30 - hexDistance(site.q, site.r, enemyHQ.q, enemyHQ.r));
+      if (combatDeploy) score += countFriendliesNear(gs, player, site.q, site.r, 2) * -1.5;
+      const threat = countHexThreats(gs, player, site.q, site.r, 4);
+      score -= threat.ground * 2 + threat.indirect * 3;
+      if (site.buildingType === 'HQ') score += 2;
+      if (score > bestScore) { bestScore = score; best = site; }
+    }
+    actions.push({ type: 'global_deploy', readyId: ready.id, q: best.q, r: best.r });
+  }
+
   if (armyRebuildMode) {
     for (let i = 0; i < 2 && plannedRecruits < maxRecruitsThisTurn; i++) {
-      if (!recruitCombatFromBarracks()) break;
+      if (!recruitCombatFromProduction()) break;
     }
     if ((myEngNow + queuedEngNow) < 1) recruitEngineerFromHQ();
   }
@@ -3714,6 +3737,24 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           noteRecruit('SUPPLY_SHIP');
         }
       }
+    }
+  }
+
+  // Global production queue at HQ (and captured VTC) when pipeline is idle.
+  if (!globalQueueBusy && myHQ && plannedRecruits < armyBudget.maxRecruitsPerTurn) {
+    const hqOpts = getGlobalRecruitOptionsForVTC(gs, player, myHQ.id);
+    const globalPrefer = [...cfg.recruitPrio].filter(t => hqOpts.includes(t));
+    for (const unitType of globalPrefer) {
+      if (queueGlobalFromBuilding(myHQ, unitType)) break;
+    }
+  }
+  if (!globalQueueBusy && plannedRecruits < armyBudget.maxRecruitsPerTurn) {
+    const vtcAnchors = myBuildings.filter(bb => PRODUCTION_VTC_TYPES.has(bb.type) && bb.type !== 'HQ' && !bb.underConstruction);
+    for (const anchor of vtcAnchors) {
+      if (plannedRecruits >= armyBudget.maxRecruitsPerTurn) break;
+      const opts = getGlobalRecruitOptionsForVTC(gs, player, anchor.id);
+      const pick = cfg.recruitPrio.find(t => opts.includes(t));
+      if (pick) queueGlobalFromBuilding(anchor, pick);
     }
   }
 

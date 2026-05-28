@@ -1160,22 +1160,6 @@ export function createGameState(scenario = 'default', options = {}) {
     state.units.push(createUnit('SUPPLY_TRUCK', p, spawnQ, spawnR));
   }
 
-  // Ensure each team starts with one Vehicle Depot near HQ for faster land-force ramp.
-  for (const p of getPlayerIds(state)) {
-    const hasDepot = state.buildings.some(b => Number(b.owner) === p && b.type === 'VEHICLE_DEPOT');
-    if (hasDepot) continue;
-    const hq = state.buildings.find(b => Number(b.owner) === p && b.type === 'HQ');
-    if (!hq) continue;
-
-    let dq = hq.q, dr = hq.r;
-    for (const [oq, or] of START_NBRS) {
-      const nq = hq.q + oq, nr = hq.r + or;
-      const occupiedByBuilding = state.buildings.some(b => b.q === nq && b.r === nr && !ROAD_TYPES.has(b.type));
-      if (!occupiedByBuilding) { dq = nq; dr = nr; break; }
-    }
-    state.buildings.push(createBuilding('VEHICLE_DEPOT', p, dq, dr));
-  }
-
   // Ensure non-economy buildings start with a dirt road on the same hex.
   for (const b of state.buildings) {
     if (ROAD_TYPES.has(b.type)) continue;
@@ -1961,6 +1945,16 @@ function canSpawnUnitAtHex(state, player, unitType, q, r, anchorQ, anchorR) {
   return true;
 }
 
+/** Deploy tiles for a VTC/HQ anchor (HQ = 1-hex ring only, not the HQ tile). */
+function getGlobalDeployCandidateHexes(building) {
+  if (building.type === 'HQ') {
+    return HEX_NEIGHBORS.map(([dq, dr]) => ({ q: building.q + dq, r: building.r + dr }));
+  }
+  const candidates = [{ q: building.q, r: building.r }];
+  for (const [dq, dr] of HEX_NEIGHBORS) candidates.push({ q: building.q + dq, r: building.r + dr });
+  return candidates;
+}
+
 /** All hexes where a ready global recruit of unitType may deploy (near owned HQ/V/T/C). */
 export function enumerateGlobalDeployHexes(state, player, unitType) {
   const out = [];
@@ -1968,8 +1962,7 @@ export function enumerateGlobalDeployHexes(state, player, unitType) {
   for (const b of getOwnedDeployVTBuildings(state, player)) {
     if (b.underConstruction) continue;
     if (!getGlobalRecruitOptionsForVTC(state, player, b.id).includes(unitType)) continue;
-    const candidates = [{ q: b.q, r: b.r }];
-    for (const [dq, dr] of HEX_NEIGHBORS) candidates.push({ q: b.q + dq, r: b.r + dr });
+    const candidates = getGlobalDeployCandidateHexes(b);
     for (const { q, r } of candidates) {
       const k = `${q},${r}`;
       if (seen.has(k)) continue;
