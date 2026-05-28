@@ -1930,6 +1930,89 @@ export function deployReadyGlobalRecruit(state, player, readyId, buildingId) {
   return { ok: true };
 }
 
+export const SETTLEMENT_UPGRADE = {
+  VILLAGE: { next: 'TOWN', cost: { iron: 8, wood: 8, oil: 2 } },
+  TOWN:    { next: 'CITY', cost: { iron: 12, wood: 10, oil: 4, components: 2 } },
+};
+
+function canSpawnUnitAtHex(state, player, unitType, q, r, anchorQ, anchorR) {
+  const mapSize = state._mapSize || 25;
+  const terrain = state._terrain;
+  const isValid = (x, y) => x >= 0 && y >= 0 && x < mapSize && y < mapSize;
+  if (!isValid(q, r)) return false;
+
+  const unitsHere = state.units.filter(u => !u.dead && u.q === q && u.r === r);
+  const isOrigin = (q === anchorQ && r === anchorR);
+
+  if (Number(player) !== null) {
+    if (unitsHere.some(u => Number(u.owner) !== Number(player))) return false;
+  }
+  if (isOrigin) {
+    if (unitsHere.some(u => u.type !== 'ENGINEER' && !AIR_UNITS.has(u.type))) return false;
+  } else if (unitsHere.length > 0) return false;
+
+  const bld = buildingAt(state, q, r);
+  if (bld && !ROAD_TYPES.has(bld.type) && !(q === anchorQ && r === anchorR)) return false;
+
+  if (unitType && terrain) {
+    const ttype = terrain[`${q},${r}`] ?? 0;
+    if (!canEnterTerrain(unitType, ttype)) return false;
+  }
+  return true;
+}
+
+/** All hexes where a ready global recruit of unitType may deploy (near owned HQ/V/T/C). */
+export function enumerateGlobalDeployHexes(state, player, unitType) {
+  const out = [];
+  const seen = new Set();
+  for (const b of getOwnedDeployVTBuildings(state, player)) {
+    if (b.underConstruction) continue;
+    if (!getGlobalRecruitOptionsForVTC(state, player, b.id).includes(unitType)) continue;
+    const candidates = [{ q: b.q, r: b.r }];
+    for (const [dq, dr] of HEX_NEIGHBORS) candidates.push({ q: b.q + dq, r: b.r + dr });
+    for (const { q, r } of candidates) {
+      const k = `${q},${r}`;
+      if (seen.has(k)) continue;
+      if (!canSpawnUnitAtHex(state, player, unitType, q, r, b.q, b.r)) continue;
+      seen.add(k);
+      out.push({ q, r, buildingId: b.id, buildingType: b.type });
+    }
+  }
+  return out;
+}
+
+export function deployReadyGlobalRecruitAtHex(state, player, readyId, q, r) {
+  state.readyGlobalRecruits = state.readyGlobalRecruits || [];
+  const idx = state.readyGlobalRecruits.findIndex(r => r.id === readyId && Number(r.owner) === Number(player));
+  if (idx < 0) return { ok: false, reason: 'No ready unit' };
+  const ready = state.readyGlobalRecruits[idx];
+  const sites = enumerateGlobalDeployHexes(state, player, ready.type);
+  const site = sites.find(s => s.q === q && s.r === r);
+  if (!site) return { ok: false, reason: 'Cannot deploy here' };
+  state.units.push(createUnit(ready.type, player, q, r));
+  state.readyGlobalRecruits.splice(idx, 1);
+  return { ok: true };
+}
+
+export function upgradeSettlement(state, player, buildingId) {
+  const b = state.buildings.find(x => x.id === buildingId && Number(x.owner) === Number(player) && !x.underConstruction);
+  if (!b) return { ok: false, reason: 'Invalid settlement' };
+  const up = SETTLEMENT_UPGRADE[b.type];
+  if (!up) return { ok: false, reason: 'No upgrade for this settlement' };
+  const pl = state.players[player];
+  const c = up.cost;
+  if ((pl.iron || 0) < (c.iron || 0)) return { ok: false, reason: 'Not enough iron' };
+  if ((pl.oil || 0) < (c.oil || 0)) return { ok: false, reason: 'Not enough oil' };
+  if ((pl.wood || 0) < (c.wood || 0)) return { ok: false, reason: 'Not enough wood' };
+  if ((pl.components || 0) < (c.components || 0)) return { ok: false, reason: 'Not enough components' };
+  pl.iron -= (c.iron || 0);
+  pl.oil -= (c.oil || 0);
+  pl.wood -= (c.wood || 0);
+  pl.components = (pl.components || 0) - (c.components || 0);
+  b.type = up.next;
+  return { ok: true, newType: up.next };
+}
+
 // ── Turn resolution ────────────────────────────────────────────────────────
 export function resolveTurn(state, terrain) {
   const events = [];
