@@ -12,7 +12,7 @@ import {
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
   findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, queueGlobalRecruit, deployReadyGlobalRecruit, getGlobalRecruitOptionsForVTC, registerDesign,
   getUnitPopCost, recalcPlayerPopulation,
-  calcUpkeep, calcRPFromLabs, computeSupply, invalidateSupplyCache, isHexInSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS, getRecruitFoodCost, getUnitSupplyRadius,
+  calcUpkeep, calcRPFromLabs, computeSupply, invalidateSupplyCache, isHexInSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS, VTC_SUPPLY_RADIUS, getRecruitFoodCost, getUnitSupplyRadius,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, getMaxDesignSlots, BASE_DESIGN_SLOTS,
   designRegistrationCost, designTrainCost, computeDesignStats, computeEffectiveTier,
@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.19.3';
+export const GAME_VERSION = 'v1.19.4';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -3197,6 +3197,10 @@ export class GameScene extends Phaser.Scene {
       if (gq) lines.push(`Global queue: ${UNIT_TYPES[gq.type]?.name || gq.type} (${gq.turnsLeft} turns left)`);
       const ready = (gs.readyGlobalRecruits || []).filter(r => Number(r.owner) === Number(bu.owner)).length;
       if (ready > 0) lines.push(`Ready deploys: ${ready}`);
+    }
+    if (['VILLAGE', 'TOWN', 'CITY'].includes(bu.type)) {
+      const rad = VTC_SUPPLY_RADIUS[bu.type];
+      if (rad) lines.push(`Supply bubble: ${rad} hexes (owned)`);
     }
     lines.push(`Location: (${bu.q}, ${bu.r})`);
     return { title, chips, lines };

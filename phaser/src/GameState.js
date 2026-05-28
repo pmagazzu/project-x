@@ -1270,6 +1270,9 @@ export const ROAD_TYPES = new Set(['ROAD', 'GRAVEL_ROAD', 'CONCRETE_ROAD', 'RAIL
 export const SUPPLY_ANCHOR_TYPES = new Set(['HQ']);
 
 export const HQ_SUPPLY_RADIUS = 6;
+/** Owned settlements project local supply (capture = territory control). */
+export const VTC_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
+export const VTC_SUPPLY_RADIUS = { VILLAGE: 3, TOWN: 6, CITY: 9 };
 export const DEPOT_SUPPLY_RADIUS = 4;
 export const WAREHOUSE_SUPPLY_RADIUS = 5;
 /** Turns a depot keeps projecting supply after its road link to HQ is cut. */
@@ -3422,7 +3425,7 @@ export function tickSupplyDepotReserves(state, player, roadConnected) {
 }
 
 // Returns a Set of "q,r" keys that are in supply for the given player.
-// HQ: 6-hex bubble + roads chained from HQ; off-road reach by road tier.
+// HQ: 6-hex bubble; owned VTCs: 3/6/9 by tier; roads chained from HQ (+ neutral spine when plugged in).
 // Supply depots/warehouses: 4–5 hex bubble only while linked to HQ roads or draining reserves.
 export function isHexInSupply(state, player, mapSize, q, r) {
   if (state.supplyEnabled === false) return true;
@@ -3465,6 +3468,15 @@ export function computeSupply(state, player, mapSize) {
   for (const hq of hqs) {
     supplied.add(`${hq.q},${hq.r}`);
     hexRadiusFlood(supplied, hq.q, hq.r, HQ_SUPPLY_RADIUS, _isValid);
+  }
+
+  // Owned villages/towns/cities project supply — rewards capturing the neutral grid.
+  for (const b of state.buildings) {
+    if (!VTC_TYPES.has(b.type) || Number(b.owner) !== Number(player) || b.underConstruction) continue;
+    const rad = VTC_SUPPLY_RADIUS[b.type] ?? 0;
+    if (rad <= 0) continue;
+    supplied.add(`${b.q},${b.r}`);
+    hexRadiusFlood(supplied, b.q, b.r, rad, _isValid);
   }
 
   for (const key of roadConnected) supplied.add(key);

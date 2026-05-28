@@ -994,7 +994,8 @@ function scoreRoadUtility(gs, player, q, r, mapSize = gs._mapSize || 40) {
   // Early priority: bridge owned HQ network to neutral settlement road grid for supply + movement.
   const turnNow = gs.turn || 1;
   const pluggedNeutral = isHQNetworkPluggedToNeutralRoads(gs, player, mapSize);
-  if (!pluggedNeutral && myHQs.length > 0 && turnNow <= 90) {
+  const teamUnsup = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked && (u.outOfSupply || 0) > 0).length;
+  if (!pluggedNeutral && myHQs.length > 0 && (turnNow <= 120 || teamUnsup >= 2)) {
     const myHQ = myHQs[0];
     const neutralRoads = gs.buildings.filter(b => ROAD_TYPES.has(b.type) && Number(b.owner) === 0);
     if (neutralRoads.length > 0) {
@@ -1008,7 +1009,15 @@ function scoreRoadUtility(gs, player, q, r, mapSize = gs._mapSize || 40) {
         if (isNeutralRoadHex(gs, q + dq, r + dr)) neutralAdj += 1;
       }
       if (neutralAdj > 0) networkScore += 24 + neutralAdj * 6;
+      if (teamUnsup >= 3) networkScore += Math.min(24, teamUnsup * 4);
     }
+  }
+
+  // Owned VTCs are supply hubs — prefer road hexes that extend toward them.
+  const ownedVTC = gs.buildings.filter(b => ['VILLAGE', 'TOWN', 'CITY'].includes(b.type) && Number(b.owner) === Number(player));
+  if (ownedVTC.length > 0) {
+    const dVtc = Math.min(...ownedVTC.map(v => hexDistance(q, r, v.q, v.r)));
+    networkScore += Math.max(0, 16 - dVtc * 1.6);
   }
 
   // ── Directional corridor bias ─────────────────────────────────────────────
@@ -4227,7 +4236,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   }
 
   // Until HQ owned roads touch the neutral spine, steer engineers toward the nearest neutral road cluster.
-  if (!isHQNetworkPluggedToNeutralRoads(gs, player, mapSize) && (gs.turn || 1) <= 70) {
+  const plugUnsup = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0).length;
+  if (!isHQNetworkPluggedToNeutralRoads(gs, player, mapSize) && ((gs.turn || 1) <= 120 || plugUnsup >= 2)) {
     const neutralRoads = gs.buildings.filter(b => ROAD_TYPES.has(b.type) && Number(b.owner) === 0);
     const myHQPlug = getMyHQs()[0];
     if (neutralRoads.length > 0 && myHQPlug) {
