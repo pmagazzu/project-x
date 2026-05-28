@@ -1551,6 +1551,7 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
   const landCombat = [...pools.scout, ...pools.line, ...pools.assault, ...pools.indirect, ...pools.anti];
   const n = Math.max(1, landCombat.length);
   const remoteExpandActive = !!(territorial?.remoteTargets?.length);
+  const largeMap = mapSize >= 90;
   const localEnemies = gs.units.filter(u => Number(u.owner) !== Number(player) && !u.embarked
     && hexDistance(u.q, u.r, myHQ.q, myHQ.r) <= 22).length;
   const vpContest = !!vpTarget;
@@ -1578,6 +1579,12 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
       expand: Math.max(0, Math.floor(n * 0.08)),
       main: Math.max(4, Math.floor(n * 0.72)),
     };
+  }
+  if (largeMap && !closing) {
+    // Large maps need territorial spread pressure, otherwise AI forms one center blob.
+    quotas.expand += Math.max(2, Math.floor(n * 0.14));
+    quotas.main = Math.max(2, quotas.main - Math.max(2, Math.floor(n * 0.18)));
+    if (phase === 'stabilize') quotas.expand += Math.max(1, Math.floor(n * 0.08));
   }
 
   const assign = (u, mission, target) => {
@@ -1908,6 +1915,26 @@ function assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjec
     const coast = coasts[i % Math.max(1, coasts.length)];
     if (coast) unitObjective[patrols[i].id] = { q: coast.q, r: coast.r, kind: 'coast', role: 'patrol' };
   }
+
+  // Large maps: dedicate a subset of combat units to expansion anchors.
+  if (mapSize >= 90) {
+    const expansions = (territorial.expansions || []).slice(0, 10);
+    if (expansions.length > 0) {
+      const claimPool = combatUnits.filter((u) => {
+        const role = getUnitRole(u.type);
+        if (role === 'engineer' || role === 'support' || role === 'indirect') return false;
+        const existing = unitObjective[u.id]?.mission;
+        return !existing || ['expand', 'probe', 'garrison'].includes(existing);
+      });
+      const claimN = Math.min(claimPool.length, Math.max(2, Math.floor(combatUnits.length * 0.22)));
+      for (let i = 0; i < claimN; i++) {
+        const u = claimPool[i];
+        const t = expansions[i % expansions.length];
+        if (!u || !t) break;
+        unitObjective[u.id] = { q: t.q, r: t.r, kind: 'expansion_claim', mission: 'expand' };
+      }
+    }
+  }
 }
 
 function transportCargoStats(transport, gs) {
@@ -2221,6 +2248,12 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
       if (resHex) score += 8 * (phase.economy || 1);
     }
     if (passiveMissions.has(mission) && enemies.length > 0 && nearestEnemy < 3) score -= 10;
+  }
+  if (obj?.kind === 'expansion_claim') {
+    const dNew = hexDistance(q, r, obj.q, obj.r);
+    const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
+    if (dNew < dCur) score += 22 * (phase.economy || 1);
+    if (dNew <= 5) score += 10;
   }
 
   // Strategic lane pressure from persistent planner memory.

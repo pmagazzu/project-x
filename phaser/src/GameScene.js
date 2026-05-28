@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.17.1';
+export const GAME_VERSION = 'v1.17.2';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -7784,7 +7784,9 @@ export class GameScene extends Phaser.Scene {
     const armyScale = Math.floor(myUnits * 1.1);
     // Scales up through mid/late game but hard-bounded for stability.
     const lateTighten = turn > 60 ? Math.floor((turn - 60) / 5) : 0;
-    return Math.max(18, Math.min(96, 10 + techScale + mapScale + armyScale - lateTighten));
+    const largeMapPenalty = mapN >= 90 ? Math.floor((mapN - 90) / 8) + (turn > 120 ? Math.floor((turn - 120) / 8) : 0) : 0;
+    const budgetCap = mapN >= 90 ? 72 : 96;
+    return Math.max(18, Math.min(budgetCap, 10 + techScale + mapScale + armyScale - lateTighten - largeMapPenalty));
   }
 
   _prioritizeAIActions(actions) {
@@ -7800,9 +7802,10 @@ export class GameScene extends Phaser.Scene {
     const turn = gs.turn || 1;
     const perUnitCap = Math.max(2, Math.min(6, 2 + Math.floor(turn / 25)));
     const attackCap = Math.max(6, Math.min(22, Math.floor(budget * 0.22)));
-    const moveCap = Math.max(8, Math.min(Math.floor(budget * 0.55), turn > 80 ? 48 : 64));
-    const buildCap = Math.max(4, Math.min(Math.floor(budget * 0.28), turn > 80 ? 14 : 24));
-    const recruitCap = Math.max(2, Math.min(Math.floor(budget * 0.14), 7));
+    const hugeMap = Number(this.mapSize || gs?._mapSize || 40) >= 90;
+    const moveCap = Math.max(8, Math.min(Math.floor(budget * 0.55), hugeMap ? 36 : (turn > 80 ? 48 : 64)));
+    const buildCap = Math.max(4, Math.min(Math.floor(budget * 0.28), hugeMap ? 12 : (turn > 80 ? 14 : 24)));
+    const recruitCap = Math.max(2, Math.min(Math.floor(budget * 0.14), hugeMap ? 5 : 7));
     const kept = [];
     const byUnit = {};
     let moves = 0, builds = 0, recruits = 0, attacks = 0;
