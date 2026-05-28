@@ -48,7 +48,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.19.8';
+export const GAME_VERSION = 'v1.19.9';
 
 const DEPLOY_HIGHLIGHT = 0xaa55ee;
 
@@ -236,6 +236,8 @@ export class GameScene extends Phaser.Scene {
         if (p !== this.humanPlayer) this.aiPlayers.add(p);
       }
     }
+    // Never treat the human slot as AI (bad launch payloads used to strand P1 with no build UI).
+    this.aiPlayers.delete(this.humanPlayer);
     // AI strategy — map-aware default per AI slot
     this.aiStrategy = data.aiStrategy || pickAIStrategyForMap(null, this.mapSize);
     this.aiStrategies = data.aiStrategies ? { ...data.aiStrategies } : {};
@@ -686,6 +688,7 @@ export class GameScene extends Phaser.Scene {
     this.turnBadge?.setPosition(w - 8, 8);
 
     this._layoutInspectorChrome();
+    this._updateBottomPanel();
 
     if (this._specStatsObjs?.length) {
       this._specStatsObjs[0]?.setPosition(w - 230, 164);
@@ -3046,6 +3049,9 @@ export class GameScene extends Phaser.Scene {
         this._contextMenuClicked = true;
         this._inspectorTabManual = key;
         this._inspectorTab = key;
+        if (key === 'build') {
+          this._buildMenuOpen = true;
+        }
         this._updateInspectorTabVisuals();
         this._updateBottomPanel();
       });
@@ -3071,22 +3077,43 @@ export class GameScene extends Phaser.Scene {
     this.unitStatusTxt = this._inspectorLines[0];
 
     this.actionBg = this.add.rectangle(0, 0, 380, this._inspectorPanH, 0x0a1218, 0.96)
-      .setStrokeStyle(1, 0x6a3a8a).setScrollFactor(0).setDepth(D);
+      .setStrokeStyle(2, 0xaa55ee).setScrollFactor(0).setDepth(D + 5);
     this.actionAccent = this.add.rectangle(0, 0, 380, 2, 0xaa55ee, 1)
-      .setScrollFactor(0).setDepth(D + 1);
+      .setScrollFactor(0).setDepth(D + 6);
 
     this._dynBtns = [];
     this._contextMenuUnit = null;
     this._layoutInspectorChrome();
     this._updateInspectorTabVisuals();
+    this._addToUI([
+      this.inspectorBg, this.inspectorAccent, this.actionBg, this.actionAccent,
+      ...Object.values(this._inspectorTabBtns || {}),
+      this.inspectorTitle, this.inspectorChips, ...(this._inspectorLines || []),
+    ]);
+  }
+
+  _getBottomChromeLayout() {
+    const w = this.scale.width, h = this.scale.height;
+    const panH = this._inspectorPanH || 168;
+    const topY = h - panH;
+    const actionCx = w - 198;
+    const contentLeft = actionCx - 190;
+    return { w, h, panH, topY, actionCx, contentLeft };
+  }
+
+  _canControlBuildMenu() {
+    if (this._aiViewerMode || this._mapBuilderMode) return false;
+    const gs = this.gameState;
+    if (!gs) return false;
+    const p = Number(gs.currentPlayer) || 1;
+    if (Number(p) === Number(this.humanPlayer)) return true;
+    return !this.aiPlayers.has(p);
   }
 
   _layoutInspectorChrome() {
-    const w = this.scale.width, h = this.scale.height;
-    const panH = this._inspectorPanH || 140;
+    const { w, h, panH, topY, actionCx } = this._getBottomChromeLayout();
     const inspW = 500;
     const ix = inspW / 2 + 8;
-    const topY = h - panH;
 
     this.inspectorBg?.setPosition(ix, topY + panH / 2);
     this.inspectorAccent?.setPosition(ix, topY + 1.5);
@@ -3101,9 +3128,8 @@ export class GameScene extends Phaser.Scene {
       this._inspectorLines[i]?.setPosition(12, topY + 76 + i * 18);
     }
 
-    const ax = w - 198;
-    this.actionBg?.setPosition(ax, topY + panH / 2);
-    this.actionAccent?.setPosition(ax, topY + 1);
+    this.actionBg?.setPosition(actionCx, topY + panH / 2).setSize(380, panH).setVisible(true);
+    this.actionAccent?.setPosition(actionCx, topY + 1).setVisible(true);
   }
 
   _updateInspectorTabVisuals() {
@@ -3243,7 +3269,7 @@ export class GameScene extends Phaser.Scene {
       font: 'bold 14px monospace', fill: '#ffffff',
       backgroundColor: `#${color.toString(16).padStart(6,'0')}`,
       padding: { x: 0, y: 0 }, fixedWidth: w, fixedHeight: h, align: 'center'
-    }).setScrollFactor(0).setDepth(101).setInteractive({ useHandCursor: true });
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(110).setInteractive({ useHandCursor: true });
     const run = () => {
       this._contextMenuClicked = true;
       cb();
@@ -3272,14 +3298,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   _isHumanTurn() {
-    const gs = this.gameState;
-    if (!gs) return false;
-    if (this._aiViewerMode) return false;
-    return Number(gs.currentPlayer) === Number(this.humanPlayer);
+    return this._canControlBuildMenu();
   }
 
   _toggleBuildMenu() {
-    if (!this._isHumanTurn()) return;
+    if (!this._canControlBuildMenu()) return;
     this._buildMenuOpen = !this._buildMenuOpen;
     if (!this._buildMenuOpen) {
       this._deployMode = null;
@@ -3343,10 +3366,9 @@ export class GameScene extends Phaser.Scene {
   _renderBuildMenu() {
     const gs = this.gameState;
     const p = gs.currentPlayer;
-    const w = this.scale.width, h = this.scale.height;
-    const panH = this._inspectorPanH || 168;
-    const ax = w - 388;
-    let ay = h - panH + 8;
+    const { h, topY, contentLeft } = this._getBottomChromeLayout();
+    const ax = contentLeft;
+    let ay = topY + 8;
     const bw = 112, bh = 30, gap = 3;
     const focus = this._buildMenuFocusBuilding;
     const anchor = focus && Number(focus.owner) === Number(p)
@@ -3370,7 +3392,7 @@ export class GameScene extends Phaser.Scene {
       this._uiLayer.add(chips);
       this._dynBtns.push(chips);
       ay += 16;
-      const clr = this.add.text(ax + 200, h - panH + 8, '✕', {
+      const clr = this.add.text(ax + 200, topY + 8, '✕', {
         font: 'bold 12px monospace', fill: '#ff8888', backgroundColor: '#331111', padding: { x: 6, y: 2 },
       }).setOrigin(0, 0).setScrollFactor(0).setDepth(101).setInteractive({ useHandCursor: true });
       clr.on('pointerdown', () => { this._clearBuildMenuBuildingFocus(); this._updateBottomPanel(); });
@@ -3536,15 +3558,18 @@ export class GameScene extends Phaser.Scene {
     this._dynBtns = [];
     if (this._buildMenuTab !== 'struct') this._hideContextMenu(true);
 
-    if (this._isHumanTurn()) {
+    const canBuild = this._canControlBuildMenu();
+    this.actionBg?.setVisible(canBuild);
+    this.actionAccent?.setVisible(canBuild);
+
+    if (canBuild) {
       if (this._buildMenuOpen) {
         this._renderBuildMenu();
       } else {
-        const w2 = this.scale.width, h2 = this.scale.height;
-        const panH2 = this._inspectorPanH || 168;
-        const hint = this.add.text(w2 - 388, h2 - panH2 + 24, '[B]  BUILD MENU', {
-          font: 'bold 12px monospace', fill: '#778899', backgroundColor: '#1a1028', padding: { x: 8, y: 6 },
-        }).setScrollFactor(0).setDepth(101).setInteractive({ useHandCursor: true });
+        const { contentLeft, topY: ty } = this._getBottomChromeLayout();
+        const hint = this.add.text(contentLeft, ty + 24, '[B]  BUILD MENU', {
+          font: 'bold 12px monospace', fill: '#ddaaff', backgroundColor: '#2a1040', padding: { x: 8, y: 6 },
+        }).setOrigin(0, 0).setScrollFactor(0).setDepth(110).setInteractive({ useHandCursor: true });
         hint.on('pointerdown', () => this._toggleBuildMenu());
         this._uiLayer.add(hint);
         this._dynBtns.push(hint);
