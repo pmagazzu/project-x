@@ -3,7 +3,7 @@
  * Shared by AIPlayer.js (planning) and AIDesigner.js (closing pressure).
  */
 
-import { UNIT_TYPES, hexDistance } from './GameState.js';
+import { UNIT_TYPES, BUILDING_TYPES, hexDistance } from './GameState.js';
 
 function isCombatUnitType(type) {
   const d = UNIT_TYPES[type] || {};
