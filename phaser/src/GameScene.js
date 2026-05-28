@@ -48,7 +48,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.19.14';
+export const GAME_VERSION = 'v1.19.15';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -248,17 +248,15 @@ export class GameScene extends Phaser.Scene {
         if (p !== this.humanPlayer) this.aiPlayers.add(p);
       }
     }
-    // Skirmish: opponentAiEnabled is authoritative (avoids aiP2-default bug when playing as P2).
-    if (data.opponentAiEnabled !== undefined && !this._aiViewerMode) {
+    // Skirmish only: opponentAiEnabled is authoritative (avoids aiP2-default bug when playing as P2).
+    if (data.opponentAiEnabled === true && !this._aiViewerMode) {
       this.aiPlayers.clear();
       for (let p = 1; p <= this.playerCount; p++) {
-        if (Number(p) !== Number(this.humanPlayer) && data.opponentAiEnabled) {
-          this.aiPlayers.add(p);
-        }
+        if (Number(p) !== Number(this.humanPlayer)) this.aiPlayers.add(p);
       }
     }
-    // Never treat the human slot as AI (bad launch payloads used to strand P1 with no build UI).
-    this.aiPlayers.delete(this.humanPlayer);
+    // Spectator / AI-vs-AI: every slot stays AI. Skirmish: never treat the human seat as AI.
+    if (!this._aiViewerMode) this.aiPlayers.delete(this.humanPlayer);
     // AI strategy — map-aware default per AI slot
     this.aiStrategy = data.aiStrategy || pickAIStrategyForMap(null, this.mapSize);
     this.aiStrategies = data.aiStrategies ? { ...data.aiStrategies } : {};

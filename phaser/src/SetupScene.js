@@ -511,7 +511,7 @@ export class SetupScene extends Phaser.Scene {
       victoryMode: c.victoryMode,
       victoryPointTarget: c.victoryPointTarget,
       aiPlayers: this._buildAiPlayers(),
-      opponentAiEnabled: !!c.opponentAiEnabled,
+      ...(this.mode === 'skirmish' ? { opponentAiEnabled: !!c.opponentAiEnabled } : {}),
       aiP1: !!c.aiP1,
       aiP2: !!c.aiP2,
     };
