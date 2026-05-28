@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.17.0';
+export const GAME_VERSION = 'v1.17.1';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -7783,8 +7783,8 @@ export class GameScene extends Phaser.Scene {
     const mapScale = Math.floor(mapN / 7);
     const armyScale = Math.floor(myUnits * 1.1);
     // Scales up through mid/late game but hard-bounded for stability.
-    const lateTighten = turn > 90 ? Math.floor((turn - 90) / 4) : 0;
-    return Math.max(18, Math.min(118, 10 + techScale + mapScale + armyScale - lateTighten));
+    const lateTighten = turn > 60 ? Math.floor((turn - 60) / 5) : 0;
+    return Math.max(18, Math.min(96, 10 + techScale + mapScale + armyScale - lateTighten));
   }
 
   _prioritizeAIActions(actions) {
@@ -7802,7 +7802,7 @@ export class GameScene extends Phaser.Scene {
     const attackCap = Math.max(6, Math.min(22, Math.floor(budget * 0.22)));
     const moveCap = Math.max(8, Math.min(Math.floor(budget * 0.55), turn > 80 ? 48 : 64));
     const buildCap = Math.max(4, Math.min(Math.floor(budget * 0.28), turn > 80 ? 14 : 24));
-    const recruitCap = Math.max(2, Math.min(Math.floor(budget * 0.18), 10));
+    const recruitCap = Math.max(2, Math.min(Math.floor(budget * 0.14), 7));
     const kept = [];
     const byUnit = {};
     let moves = 0, builds = 0, recruits = 0, attacks = 0;

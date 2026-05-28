@@ -1708,6 +1708,55 @@ function assignEnemyExtractorRaidMissions(gs, player, unitObjective, combatUnits
   }
 }
 
+/** Recapture nearby lost structures that are lightly defended. */
+function assignLocalRecaptureMissions(gs, player, unitObjective, combatUnits, perceivedEnemies = []) {
+  const turn = gs.turn || 1;
+  if (turn < 10) return;
+  const myHQs = gs.buildings.filter(b => Number(b.owner) === Number(player) && b.type === 'HQ');
+  const nearOwnAxis = (b) => myHQs.some(h => hexDistance(h.q, h.r, b.q, b.r) <= 18);
+  const targets = gs.buildings.filter((b) =>
+    Number(b.owner) !== Number(player) && !b.underConstruction && !ROAD_TYPES.has(b.type)
+    && (b.type === 'MINE' || b.type === 'OIL_PUMP' || b.type === 'FACTORY' || b.type === 'SCIENCE_LAB' || b.type === 'BARRACKS')
+    && nearOwnAxis(b)
+  );
+  if (!targets.length) return;
+  const pool = combatUnits.filter((u) => {
+    const role = getUnitRole(u.type);
+    if (role === 'engineer' || role === 'support') return false;
+    const m = unitObjective[u.id]?.mission;
+    return !m || m === 'expand' || m === 'probe' || m === 'main' || m === 'closing' || m === 'garrison';
+  });
+  if (!pool.length) return;
+
+  const ranked = targets.map((t) => {
+    const threat = perceivedEnemies.reduce((s, e) => {
+      const d = hexDistance(t.q, t.r, e.q, e.r);
+      return s + (d <= 5 ? (6 - d) : 0);
+    }, 0);
+    const value = t.type === 'FACTORY' ? 8 : t.type === 'SCIENCE_LAB' ? 7 : (t.type === 'MINE' || t.type === 'OIL_PUMP') ? 6 : 5;
+    return { t, score: value - threat };
+  }).sort((a, b) => b.score - a.score);
+
+  let assigned = 0;
+  const maxRecaptures = turn >= 40 ? 8 : 4;
+  for (const { t } of ranked) {
+    if (assigned >= maxRecaptures) break;
+    const guards = gs.units.filter((u) => Number(u.owner) !== Number(player) && !u.embarked
+      && hexDistance(u.q, u.r, t.q, t.r) <= 2);
+    if (guards.length >= 3) continue;
+    let best = null;
+    let bestD = Infinity;
+    for (const u of pool) {
+      if (unitObjective[u.id]?.kind === 'raid_resource' || unitObjective[u.id]?.kind === 'recapture') continue;
+      const d = hexDistance(u.q, u.r, t.q, t.r);
+      if (d < bestD) { bestD = d; best = u; }
+    }
+    if (!best || bestD > 20) continue;
+    unitObjective[best.id] = { q: t.q, r: t.r, mission: 'main', kind: 'recapture' };
+    assigned += 1;
+  }
+}
+
 function shouldPrioritizeOilOverMine(gs, player) {
   const myMines = gs.buildings.filter(b => Number(b.owner) === Number(player) && b.type === 'MINE' && !b.underConstruction).length;
   const myPumps = gs.buildings.filter(b => Number(b.owner) === Number(player) && b.type === 'OIL_PUMP' && !b.underConstruction).length;
@@ -2084,6 +2133,13 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
       if (obj?.kind === 'raid_resource') score += 28;
       const guard = gs.units.find(u => u.q === q && u.r === r && u.owner !== unit.owner && !u.embarked);
       if (guard && (guard.health || 99) <= 2) score += 14;
+    }
+    if (destBld && Number(destBld.owner) !== Number(unit.owner) && !destBld.underConstruction
+        && !ROAD_TYPES.has(destBld.type)) {
+      let capPull = 14 * phase.combat;
+      if (destBld.type === 'FACTORY' || destBld.type === 'SCIENCE_LAB') capPull += 8;
+      if (obj?.kind === 'recapture') capPull += 18;
+      score += capPull;
     }
   }
 
@@ -2625,6 +2681,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const flankCountForGarrison = missionCounts.garrison || missionCounts.diversion || 2;
   assignResourceGarrisonMissions(gs, player, unitObjective, sortedCombat);
   assignEnemyExtractorRaidMissions(gs, player, unitObjective, sortedCombat, perceivedEnemies);
+  assignLocalRecaptureMissions(gs, player, unitObjective, sortedCombat, perceivedEnemies);
   assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjective, sortedCombat, flankCountForGarrison);
 
   const opening = getOpeningMilestones(gs, player, situation);
@@ -3445,10 +3502,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const d = UNIT_TYPES[u.type] || {};
       return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
     }).length;
-    const desiredTrucksNow = Math.min(5, Math.max(1, 1 + Math.floor(groundCombat / 6) + Math.floor(frontlineSpanNow / 14) + (unsuppliedGroundNow >= 4 ? 1 : 0)));
+    const desiredTrucksNow = Math.min(4, Math.max(1, 1 + Math.floor(groundCombat / 9) + Math.floor(frontlineSpanNow / 20) + (unsuppliedGroundNow >= 5 ? 1 : 0)));
     const truckGapNow = Math.max(0, desiredTrucksNow - myTrucksNow);
-    const maxPerTurn = unsuppliedGroundNow >= 4 ? 2 : 1;
-    if (unsuppliedGroundNow >= 3 || truckGapNow >= 2) {
+    const maxPerTurn = unsuppliedGroundNow >= 6 ? 2 : 1;
+    if (unsuppliedGroundNow >= 4 || (truckGapNow >= 2 && (gs.turn || 1) < 35)) {
       for (let i = 0; i < Math.min(maxPerTurn, truckGapNow); i++) {
         const b = myBuildings.find(bb => (BUILDING_TYPES[bb.type]?.canRecruit || []).includes('SUPPLY_TRUCK') && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player) && !actions.some(a => a.type === 'recruit' && a.buildingId === bb.id));
         if (!b) break;
@@ -3711,10 +3768,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           const d = UNIT_TYPES[u.type] || {};
           return (d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0;
         }).length;
-        const truckCap = Math.max(1, Math.min(6, 1 + Math.floor(frontlineSpan / 8)
+        const truckCap = Math.max(1, Math.min(4, 1 + Math.floor(frontlineSpan / 16)
           + Math.floor(Math.max(0, unsuppliedGround) / 3)
           + (needsAmphibiousLogistics(situation, territorial) ? 1 : 0)));
-        const ratioCap = Math.max(1, Math.ceil(groundCombat / 4));
+        const ratioCap = Math.max(1, Math.ceil(groundCombat / 6));
         if (myTrucks >= truckCap) continue;
         if (myTrucks >= ratioCap && unsuppliedGround < 2) continue;
         // Barracks gate: don't build 2nd+ truck until a barracks is online
@@ -3893,6 +3950,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
     // 3) Queue truck or supply ship.
     if (countLogisticsPlanned() === 0) {
+      const myTrucksNow = gs.units.filter(u => u.owner === player && u.type === 'SUPPLY_TRUCK' && !u.embarked).length;
+      const truckHardCap = Math.max(2, Math.min(4, 1 + Math.floor(getFrontlineDistanceEstimate(gs, player) / 18)));
+      if (myTrucksNow >= truckHardCap && !logisticsEmergency) {
+        // Do not satisfy logistics quota with more truck spam when already saturated.
+      } else {
       const truckB = myBuildings.find(bb => (BUILDING_TYPES[bb.type]?.canRecruit || []).includes('SUPPLY_TRUCK') && !gs.pendingRecruits.some(r => r.buildingId === bb.id && r.owner === player) && !actions.some(a => a.type === 'recruit' && a.buildingId === bb.id));
       if (truckB) {
         const c = UNIT_TYPES['SUPPLY_TRUCK']?.cost || {};
@@ -3901,6 +3963,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           actions.push({ type: 'recruit', buildingId: truckB.id, unitType: 'SUPPLY_TRUCK' });
           resSim.iron -= (c.iron||0); resSim.oil -= (c.oil||0); resSim.wood -= (c.wood||0); resSim.food -= f; resSim.components -= (c.components||0);
         }
+      }
       }
     }
     if (countLogisticsPlanned() === 0 && amphibLogistics) {
