@@ -873,7 +873,7 @@ export function createGameState(scenario = 'default', options = {}) {
     playerCount,
     players: {},
     units: [], buildings: [], resourceHexes: {},
-    pendingMoves: {}, pendingAttacks: {}, pendingRecruits: [],
+    pendingMoves: {}, pendingAttacks: {}, pendingRecruits: [], pendingGlobalRecruits: [], readyGlobalRecruits: [],
     designs: {},
     tradeOffers: [],  // active trade contract offers
     supplyEnabled: options.supplyEnabled !== undefined ? !!options.supplyEnabled : true,
@@ -1756,6 +1756,108 @@ export function queueRecruit(state, player, unitType, buildingId) {
   return { ok: true };
 }
 
+const VTC_TIER = { VILLAGE: 0, TOWN: 1, CITY: 2 };
+const PHASE_A_GLOBAL_UNITS = new Set([
+  'INFANTRY', 'RECON', 'ENGINEER', 'ANTI_TANK', 'MORTAR', 'MEDIC',
+  'SUPPLY_TRUCK', 'TANK', 'ARTILLERY',
+  'BIPLANE_FIGHTER', 'LIGHT_BOMBER', 'OBS_PLANE',
+  'PATROL_BOAT', 'SUPPLY_SHIP',
+]);
+let _nextGlobalRecruitId = 1;
+
+function getBuildingTierForDeploy(b) {
+  if (!b) return -1;
+  if (VTC_TIER[b.type] != null) return VTC_TIER[b.type];
+  if (b.type === 'HQ') return 0; // transitional Phase A compatibility
+  return -1;
+}
+
+function isNavalDeployAllowed(state, b, maxR = 6) {
+  if (!b) return false;
+  if (b.starterNaval) return true;
+  const ms = state._mapSize || 25;
+  for (let dq = -maxR; dq <= maxR; dq++) {
+    for (let dr = -maxR; dr <= maxR; dr++) {
+      const q = b.q + dq, r = b.r + dr;
+      if (q < 0 || r < 0 || q >= ms || r >= ms) continue;
+      if (hexDistance(b.q, b.r, q, r) > maxR) continue;
+      const t = state._terrain?.[`${q},${r}`] ?? 0;
+      if (t === 4 || t === 5) return true;
+    }
+  }
+  return false;
+}
+
+export function getGlobalRecruitOptionsForVTC(state, player, buildingId) {
+  const b = state.buildings.find(x => x.id === buildingId && Number(x.owner) === Number(player) && !x.underConstruction);
+  if (!b) return [];
+  const tier = getBuildingTierForDeploy(b);
+  if (tier < 0) return [];
+  const all = Object.keys(UNIT_TYPES).filter(t => PHASE_A_GLOBAL_UNITS.has(t));
+  return all.filter((unitType) => {
+    const def = UNIT_TYPES[unitType] || {};
+    if (def.unlockedBy && !(state.players[player]?.research?.unlocked || []).includes(def.unlockedBy)) return false;
+    if (NAVAL_UNITS.has(unitType)) return isNavalDeployAllowed(state, b, 6) && tier >= 1;
+    if (AIR_UNITS.has(unitType)) return tier >= (tier === 0 ? 0 : 0); // villages allow light air in Phase A
+    if (unitType === 'TANK' || unitType === 'ARTILLERY') return tier >= 1;
+    return true;
+  });
+}
+
+export function canQueueGlobalRecruit(state, player, unitType, buildingId) {
+  const opts = getGlobalRecruitOptionsForVTC(state, player, buildingId);
+  if (!opts.includes(unitType)) return { ok: false, reason: 'Unit not available at this VTC tier' };
+  const def = UNIT_TYPES[unitType];
+  if (!def) return { ok: false, reason: 'Unknown unit' };
+  const pl = state.players[player];
+  if ((pl.iron || 0) < (def.cost.iron || 0)) return { ok: false, reason: 'Not enough iron' };
+  if ((pl.oil || 0) < (def.cost.oil || 0)) return { ok: false, reason: 'Not enough oil' };
+  if ((pl.components || 0) < (def.cost.components || 0)) return { ok: false, reason: 'Not enough components' };
+  const foodCost = getRecruitFoodCost(unitType);
+  if ((pl.food || 0) < foodCost) return { ok: false, reason: 'Not enough food' };
+  recalcPlayerPopulation(state, player);
+  const popCost = getUnitPopCost(unitType);
+  if ((pl.population || 0) < popCost) return { ok: false, reason: `Need ${popCost} population (${pl.population || 0}/${pl.popCap || 0})` };
+  return { ok: true };
+}
+
+export function queueGlobalRecruit(state, player, unitType, buildingId) {
+  const check = canQueueGlobalRecruit(state, player, unitType, buildingId);
+  if (!check.ok) return check;
+  const def = UNIT_TYPES[unitType];
+  const pl = state.players[player];
+  pl.iron -= (def.cost.iron || 0);
+  pl.oil -= (def.cost.oil || 0);
+  pl.components = (pl.components || 0) - (def.cost.components || 0);
+  pl.food = (pl.food || 0) - getRecruitFoodCost(unitType);
+  pl.population = Math.max(0, (pl.population || 0) - getUnitPopCost(unitType));
+  state.pendingGlobalRecruits = state.pendingGlobalRecruits || [];
+  state.pendingGlobalRecruits.push({
+    id: _nextGlobalRecruitId++,
+    owner: player,
+    type: unitType,
+    sourceBuildingId: buildingId,
+    turnsLeft: def.buildTime ?? 1,
+  });
+  return { ok: true };
+}
+
+export function deployReadyGlobalRecruit(state, player, readyId, buildingId) {
+  state.readyGlobalRecruits = state.readyGlobalRecruits || [];
+  const idx = state.readyGlobalRecruits.findIndex(r => r.id === readyId && Number(r.owner) === Number(player));
+  if (idx < 0) return { ok: false, reason: 'No ready unit' };
+  const ready = state.readyGlobalRecruits[idx];
+  const b = state.buildings.find(x => x.id === buildingId && Number(x.owner) === Number(player) && !x.underConstruction);
+  if (!b) return { ok: false, reason: 'Invalid deploy VTC' };
+  const opts = getGlobalRecruitOptionsForVTC(state, player, buildingId);
+  if (!opts.includes(ready.type)) return { ok: false, reason: 'Unit cannot deploy from this VTC' };
+  const spawnHex = findFreeAdjacentHex(state, b.q, b.r, ready.type, state._terrain, player);
+  if (!spawnHex) return { ok: false, reason: 'No free deploy hex near VTC' };
+  state.units.push(createUnit(ready.type, player, spawnHex.q, spawnHex.r));
+  state.readyGlobalRecruits.splice(idx, 1);
+  return { ok: true };
+}
+
 // ── Turn resolution ────────────────────────────────────────────────────────
 export function resolveTurn(state, terrain) {
   const events = [];
@@ -2523,6 +2625,25 @@ export function resolveEndOfTurn(state, terrain) {
   }
   // Remove only recruits that actually spawned
   state.pendingRecruits = state.pendingRecruits.filter(r => !r._spawned);
+
+  // Global production queue (Phase A): one head item per player progresses each turn.
+  state.pendingGlobalRecruits = state.pendingGlobalRecruits || [];
+  state.readyGlobalRecruits = state.readyGlobalRecruits || [];
+  const globalHead = state.pendingGlobalRecruits.find(r => Number(r.owner) === Number(player));
+  if (globalHead) {
+    globalHead.turnsLeft = Math.max(0, (globalHead.turnsLeft ?? 1) - 1);
+    if (globalHead.turnsLeft <= 0) {
+      state.readyGlobalRecruits.push({
+        id: globalHead.id,
+        owner: globalHead.owner,
+        type: globalHead.type,
+        readyTurn: state.turn,
+      });
+      events.push(`P${player} production ready: ${UNIT_TYPES[globalHead.type]?.name || globalHead.type} (deploy at V/T/C)`);
+      globalHead._ready = true;
+    }
+  }
+  state.pendingGlobalRecruits = state.pendingGlobalRecruits.filter(r => !r._ready);
 
   // Medic healing for current player
   for (const medic of state.units.filter(u => u.type === 'MEDIC' && u.owner === player)) {

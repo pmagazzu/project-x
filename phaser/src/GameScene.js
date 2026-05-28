@@ -10,7 +10,7 @@ import {
   canEngineerBuildAt,
   enemyAtHex, resolveAttackTargetUnit, canUnitAttackTarget, unitCanAttack, isUnitAlive,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
-  findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, registerDesign,
+  findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, queueGlobalRecruit, deployReadyGlobalRecruit, getGlobalRecruitOptionsForVTC, registerDesign,
   getUnitPopCost, recalcPlayerPopulation,
   calcUpkeep, calcRPFromLabs, computeSupply, invalidateSupplyCache, isHexInSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS, getRecruitFoodCost, getUnitSupplyRadius,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
@@ -45,7 +45,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.18.1';
+export const GAME_VERSION = 'v1.19.0';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -2899,15 +2899,23 @@ export class GameScene extends Phaser.Scene {
     const pl  = gs.players[p];
     const inc = calcIncome(gs, p);
     const myOrders = gs.pendingRecruits.filter(r => r.owner === p);
+    const myGlobalOrders = (gs.pendingGlobalRecruits || []).filter(r => r.owner === p);
+    const myReadyGlobal = (gs.readyGlobalRecruits || []).filter(r => r.owner === p);
     const modeStr = this.mode === 'move' ? 'MOVING' : this.mode === 'sprint' ? 'SPRINTING' : this.mode === 'attack' ? 'ATTACKING' : 'PLANNING';
-    const queueStr = myOrders.length
-      ? '  |  ' + myOrders.map(r => {
+    const legacyQueue = myOrders.length
+      ? myOrders.map(r => {
           const name = r.designId !== undefined
             ? (gs.designs[p].find(d => d.id === r.designId)?.name || 'Unit')
             : UNIT_TYPES[r.type]?.name || '?';
           return `⚙${name}(${r.turnsLeft}t)`;
         }).join(' ')
       : '';
+    const globalQueue = myGlobalOrders.length
+      ? myGlobalOrders.map(r => `🏭${UNIT_TYPES[r.type]?.name || r.type}(${r.turnsLeft}t)`).join(' ')
+      : '';
+    const readyQueue = myReadyGlobal.length ? `📦Ready:${myReadyGlobal.length}` : '';
+    const queueBits = [legacyQueue, globalQueue, readyQueue].filter(Boolean);
+    const queueStr = queueBits.length ? `  |  ${queueBits.join(' ')}` : '';
 
     const upkeep = calcUpkeep(gs, p);
     const unitsOOS = gs.units.filter(u => Number(u.owner) === p && !u.dead && (u.outOfSupply || 0) > 0).length;
@@ -3184,6 +3192,12 @@ export class GameScene extends Phaser.Scene {
     }
     const recruit = gs.pendingRecruits.find(r => r.buildingId === bu.id && Number(r.owner) === Number(bu.owner));
     if (recruit) lines.push(`Training: ${recruit.type || 'unit'} (${recruit.turnsLeft} turns left)`);
+    if (['VILLAGE', 'TOWN', 'CITY', 'HQ'].includes(bu.type) && isOwn) {
+      const gq = (gs.pendingGlobalRecruits || []).find(r => Number(r.owner) === Number(bu.owner));
+      if (gq) lines.push(`Global queue: ${UNIT_TYPES[gq.type]?.name || gq.type} (${gq.turnsLeft} turns left)`);
+      const ready = (gs.readyGlobalRecruits || []).filter(r => Number(r.owner) === Number(bu.owner)).length;
+      if (ready > 0) lines.push(`Ready deploys: ${ready}`);
+    }
     lines.push(`Location: (${bu.q}, ${bu.r})`);
     return { title, chips, lines };
   }
@@ -3277,7 +3291,10 @@ export class GameScene extends Phaser.Scene {
     this._hideRecruitPanel();
     this.recruitBuilding = building;
     const gs = this.gameState;
-    const available = BUILDING_TYPES[building.type].canRecruit;
+    const isVTC = ['VILLAGE', 'TOWN', 'CITY', 'HQ'].includes(building.type);
+    const available = isVTC
+      ? getGlobalRecruitOptionsForVTC(gs, gs.currentPlayer, building.id)
+      : BUILDING_TYPES[building.type].canRecruit;
     const p  = gs.currentPlayer;
     const w  = this.scale.width, h = this.scale.height;
     const panelW = 480, panelH = 80 + available.length * 52 + 60;
@@ -3302,12 +3319,13 @@ export class GameScene extends Phaser.Scene {
     objs.push(title);
 
     // Show queue summary for this building (queue supported)
-    const buildingQueue = gs.pendingRecruits.filter(r => r.buildingId === building.id && r.owner === p);
+    const buildingQueue = isVTC
+      ? (gs.pendingGlobalRecruits || []).filter(r => r.owner === p)
+      : gs.pendingRecruits.filter(r => r.buildingId === building.id && r.owner === p);
+    const readyGlobal = isVTC ? (gs.readyGlobalRecruits || []).filter(r => r.owner === p) : [];
     if (buildingQueue.length > 0) {
       const next = buildingQueue[0];
-      const orderName = next.designId !== undefined
-        ? (gs.designs[p].find(d => d.id === next.designId)?.name || 'Custom Unit')
-        : UNIT_TYPES[next.type]?.name || '?';
+      const orderName = UNIT_TYPES[next.type]?.name || '?';
       const turnsStr = next.turnsLeft > 0 ? `${next.turnsLeft}t left` : 'ready next turn';
       const orderTxt = this.add.text(w/2, py + 52, `⏳ Queue ${buildingQueue.length}  |  Next: ${orderName} (${turnsStr})`, {
         font: 'bold 12px monospace', fill: '#ffdd44', backgroundColor: '#333300', padding: { x: 10, y: 5 }
@@ -3320,11 +3338,19 @@ export class GameScene extends Phaser.Scene {
         this._contextMenuClicked = true;
         const toCancel = buildingQueue[0];
         const refundType = toCancel.type;
-        const refundDesign = toCancel.designId !== undefined ? gs.designs[p].find(d => d.id === toCancel.designId) : null;
-        const cost = refundDesign ? refundDesign.trainCost : (refundType ? UNIT_TYPES[refundType].cost : { iron: 0, oil: 0 });
+        const cost = refundType ? UNIT_TYPES[refundType].cost : { iron: 0, oil: 0 };
         refundResources(gs.players[p], cost);
-        const idx = gs.pendingRecruits.findIndex(r => r === toCancel);
-        if (idx >= 0) gs.pendingRecruits.splice(idx, 1);
+        if (refundType) {
+          gs.players[p].food = (gs.players[p].food || 0) + getRecruitFoodCost(refundType);
+          gs.players[p].population = (gs.players[p].population || 0) + getUnitPopCost(refundType);
+        }
+        if (isVTC) {
+          const idx = (gs.pendingGlobalRecruits || []).findIndex(r => r === toCancel);
+          if (idx >= 0) gs.pendingGlobalRecruits.splice(idx, 1);
+        } else {
+          const idx = gs.pendingRecruits.findIndex(r => r === toCancel);
+          if (idx >= 0) gs.pendingRecruits.splice(idx, 1);
+        }
         this._hideRecruitPanel();
         this._showRecruitPanel(building);
         this._refresh();
@@ -3334,7 +3360,29 @@ export class GameScene extends Phaser.Scene {
       objs.push(cancelBtn);
     }
 
-    const baseRowY = py + 50 + (buildingQueue.length > 0 ? 62 : 0);
+    if (isVTC && readyGlobal.length > 0) {
+      const readyTxt = this.add.text(w/2, py + (buildingQueue.length > 0 ? 100 : 58), `📦 Ready to deploy: ${readyGlobal.map(r => UNIT_TYPES[r.type]?.name || r.type).join(', ')}`, {
+        font: '11px monospace', fill: '#a8e6ff', backgroundColor: '#0f2333', padding: { x: 8, y: 5 },
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
+      objs.push(readyTxt);
+      const deployBtn = this.add.text(w/2, py + (buildingQueue.length > 0 ? 124 : 82), '[ DEPLOY NEXT HERE ]', {
+        font: '11px monospace', fill: '#88ddaa', backgroundColor: '#133322', padding: { x: 8, y: 5 },
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(201).setInteractive({ useHandCursor: true });
+      deployBtn.on('pointerdown', () => {
+        this._contextMenuClicked = true;
+        const nextReady = readyGlobal[0];
+        if (!nextReady) return;
+        const out = deployReadyGlobalRecruit(gs, p, nextReady.id, building.id);
+        if (!out.ok) this._pushLog(`Deploy failed: ${out.reason}`);
+        else this._pushLog(`P${p} deployed ${UNIT_TYPES[nextReady.type]?.name || nextReady.type} at ${BUILDING_TYPES[building.type].name}`);
+        this._hideRecruitPanel();
+        this._refresh();
+      });
+      objs.push(deployBtn);
+    }
+
+    const extraReadyRows = isVTC && readyGlobal.length > 0 ? 48 : 0;
+    const baseRowY = py + 50 + (buildingQueue.length > 0 ? 62 : 0) + extraReadyRows;
     const rowH = 52, rowW = panelW - 24;
 
     available.forEach((unitType, i) => {
@@ -3380,7 +3428,8 @@ export class GameScene extends Phaser.Scene {
       if (canAfford && hasPop) {
         rowBg.on('pointerdown', () => {
           this._contextMenuClicked = true;
-          queueRecruit(gs, p, unitType, building.id);
+          if (isVTC) queueGlobalRecruit(gs, p, unitType, building.id);
+          else queueRecruit(gs, p, unitType, building.id);
           this._pushLog(`P${p} queued ${def.name}`);
           this._hideRecruitPanel();
           this._refresh();
@@ -3392,7 +3441,7 @@ export class GameScene extends Phaser.Scene {
 
     // Custom designs trained from this building (same visual card style as standard units)
     const btype = building.type;
-    const customDesigns = (gs.designs[p] || []).filter(d => CHASSIS_BUILDINGS[d.chassis] === btype);
+    const customDesigns = isVTC ? [] : (gs.designs[p] || []).filter(d => CHASSIS_BUILDINGS[d.chassis] === btype);
     customDesigns.forEach((design, i) => {
       const idx = available.length + i;
       const queueCapReached = buildingQueue.length >= 6;
