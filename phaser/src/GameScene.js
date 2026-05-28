@@ -47,7 +47,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.19.6';
+export const GAME_VERSION = 'v1.19.7';
 
 /** HUD chrome — map zoom anchors to the playfield between these insets. */
 const PLAYFIELD_UI = { top: 74, bottom: 132, left: 136 };
@@ -397,6 +397,12 @@ export class GameScene extends Phaser.Scene {
       if (!hasCoreState && !this._mapBuilderMode) this._placeProcSpawns(this.mapSeed);
     } else if (!this._mapBuilderMode && (this.scenario === 'random' || this.scenario === 'custom')) {
       this._placeProcSpawns(this.mapSeed);
+    }
+
+    // Skirmish/custom maps spawn HQs on map edges — snap to the human HQ so turn 1 isn't an empty viewport.
+    if (!this._mapBuilderMode && (this.scenario === 'random' || this.scenario === 'custom')) {
+      const focusP = this.humanPlayer || this.gameState.currentPlayer || 1;
+      this._focusPlayerHQ(focusP, false);
     }
 
     this._setupInput();
@@ -1909,7 +1915,8 @@ export class GameScene extends Phaser.Scene {
         // Fog-of-war: hide enemy buildings only when fog set is valid/non-empty
         if (fog && fog.size > 0 && Number(b.owner) !== curP && !fog.has(`${b.q},${b.r}`)) continue;
         const { x, y } = hexToWorld(b.q, b.r);
-        if (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB) continue;
+        const isOwnBld = Number(b.owner) === curP;
+        if (!isOwnBld && (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB)) continue;
         const color = PLAYER_COLORS[b.owner] || 0x888888;
         const s = HEX_SIZE * 0.44;
 
@@ -2067,7 +2074,7 @@ export class GameScene extends Phaser.Scene {
         x = basePos.x;
         y = basePos.y;
       }
-      if (x < _uvpL || x > _uvpR || y < _uvpT || y > _uvpB) continue;
+      if (isEnemy && (x < _uvpL || x > _uvpR || y < _uvpT || y > _uvpB)) continue;
 
       const color = PLAYER_COLORS[unit.owner];
       const dim   = (Number(unit.owner) !== Number(gs.currentPlayer));
@@ -7943,6 +7950,10 @@ export class GameScene extends Phaser.Scene {
 
     this._freezeFog();
     this._refresh();
+
+    if (Number(gs.currentPlayer) === Number(this.humanPlayer)) {
+      this._focusPlayerHQ(gs.currentPlayer, true);
+    }
 
     // If the next player is AI-controlled, skip the pass screen and run AI automatically
     if (this.aiPlayers.has(gs.currentPlayer)) {

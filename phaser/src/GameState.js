@@ -1643,6 +1643,43 @@ export function computeFog(state, player, mapSize, terrain) {
       }
     }
   }
+
+  // Fallback: never return empty vision for a player who still has an HQ (avoids full-map fog blackout).
+  if (visible.size === 0) {
+    for (const b of state.buildings) {
+      if (Number(b.owner) !== pNum || b.type !== 'HQ') continue;
+      const sight = BUILDING_TYPES.HQ?.sight || 3;
+      const cost = new Map();
+      const startKey = `${b.q},${b.r}`;
+      cost.set(startKey, 0);
+      const queue = [{ q: b.q, r: b.r, spent: 0 }];
+      while (queue.length > 0) {
+        queue.sort((a, b2) => a.spent - b2.spent);
+        const { q, r, spent } = queue.shift();
+        const key = `${q},${r}`;
+        if (spent > (cost.get(key) ?? Infinity)) continue;
+        visible.add(key);
+        if (spent >= sight) continue;
+        for (const [dq, dr] of HEX_NEIGHBORS) {
+          const nq = q + dq, nr = r + dr;
+          if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) continue;
+          const nkey = `${nq},${nr}`;
+          const t = terrain ? (terrain[nkey] ?? 0) : 0;
+          const stepCost = t === 2 ? sight : t === 1 ? 2 : 1;
+          const newSpent = spent + stepCost;
+          if (newSpent > sight) {
+            if (t !== 0) visible.add(nkey);
+            continue;
+          }
+          if (newSpent < (cost.get(nkey) ?? Infinity)) {
+            cost.set(nkey, newSpent);
+            queue.push({ q: nq, r: nr, spent: newSpent });
+          }
+        }
+      }
+    }
+  }
+
   return visible;
 }
 
