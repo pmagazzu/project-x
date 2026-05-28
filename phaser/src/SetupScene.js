@@ -82,6 +82,7 @@ function defaultConfig(mode, aiP2Default = true) {
     combatLineGap: 10,
     aiP1: false,
     aiP2: false,
+    opponentAiEnabled: false,
     aiStrategy: 'balanced',
     aiViewerMode: false,
     startSupplyTruck: false,
@@ -95,6 +96,7 @@ function defaultConfig(mode, aiP2Default = true) {
     return {
       ...base, mapSize: 50, procLandProfile: 'continent', debugNoFog: false, supplyEnabled: true,
       aiP1: false, aiP2: aiP2Default,
+      opponentAiEnabled: aiP2Default,
     };
   }
   if (mode === 'endless') {
@@ -427,6 +429,8 @@ export class SetupScene extends Phaser.Scene {
   }
 
   _isOpponentAiEnabled(player) {
+    if (player !== this._primaryOpponentPlayer()) return false;
+    if (this.mode === 'skirmish') return !!this.cfg.opponentAiEnabled;
     if (player === 1) return !!this.cfg.aiP1;
     if (player === 2) return !!this.cfg.aiP2;
     return false;
@@ -464,8 +468,13 @@ export class SetupScene extends Phaser.Scene {
 
     pill.on('pointerdown', () => {
       const opp = this._primaryOpponentPlayer();
-      if (opp === 1) this.cfg.aiP1 = !this.cfg.aiP1;
-      else if (opp === 2) this.cfg.aiP2 = !this.cfg.aiP2;
+      if (this.mode === 'skirmish') {
+        this.cfg.opponentAiEnabled = !this.cfg.opponentAiEnabled;
+      } else if (opp === 1) {
+        this.cfg.aiP1 = !this.cfg.aiP1;
+      } else if (opp === 2) {
+        this.cfg.aiP2 = !this.cfg.aiP2;
+      }
       paint();
       this.tweens.add({ targets: pill, scaleX: 1.12, scaleY: 1.12, duration: 80, yoyo: true });
       this._refreshSummary();
@@ -502,6 +511,7 @@ export class SetupScene extends Phaser.Scene {
       victoryMode: c.victoryMode,
       victoryPointTarget: c.victoryPointTarget,
       aiPlayers: this._buildAiPlayers(),
+      opponentAiEnabled: !!c.opponentAiEnabled,
       aiP1: !!c.aiP1,
       aiP2: !!c.aiP2,
     };

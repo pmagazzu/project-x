@@ -48,7 +48,23 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.19.13';
+export const GAME_VERSION = 'v1.19.14';
+
+const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
+const BUILD_MENU = {
+  bg: 0x0c1018,
+  stroke: 0x6a3a9a,
+  accent: 0xaa55ee,
+  accentHi: 0xdd99ff,
+  tabOn: 0x4a2080,
+  tabOff: 0x1a2030,
+  produce: 0x2a4a6a,
+  deploy: 0x553388,
+  ready: 0x3a6a4a,
+  queue: 0x3a4a6a,
+  muted: 0x8899aa,
+  gold: 0xffcc44,
+};
 
 const DEPLOY_HIGHLIGHT = 0xaa55ee;
 
@@ -230,6 +246,15 @@ export class GameScene extends Phaser.Scene {
         && data.aiP1 === undefined && data.aiP2 === undefined && !Array.isArray(data.aiPlayers)) {
       for (let p = 1; p <= this.playerCount; p++) {
         if (p !== this.humanPlayer) this.aiPlayers.add(p);
+      }
+    }
+    // Skirmish: opponentAiEnabled is authoritative (avoids aiP2-default bug when playing as P2).
+    if (data.opponentAiEnabled !== undefined && !this._aiViewerMode) {
+      this.aiPlayers.clear();
+      for (let p = 1; p <= this.playerCount; p++) {
+        if (Number(p) !== Number(this.humanPlayer) && data.opponentAiEnabled) {
+          this.aiPlayers.add(p);
+        }
       }
     }
     // Never treat the human slot as AI (bad launch payloads used to strand P1 with no build UI).
@@ -416,6 +441,9 @@ export class GameScene extends Phaser.Scene {
     this._drawStaticLayers();
     this._freezeFog(); // lock fog for P1's first planning phase
     this._refresh();
+    if (this.aiPlayers.size > 0) {
+      this._pushLog(`AI control: P${[...this.aiPlayers].sort((a, b) => a - b).join(', P')}`);
+    }
     // Rebuild terrain art once more after initial refresh so generated maps and overlays settle
     // before the final visible terrain layer is attached.
     this._drawStaticLayers();
@@ -1820,7 +1848,7 @@ export class GameScene extends Phaser.Scene {
     return { L: cx - hw - buf, R: cx + hw + buf, T: cy - hh - buf, B: cy + hh + buf };
   }
 
-  _drawBuildingCounter(b, x, y, color, s) {
+  _drawBuildingCounter(b, x, y, color, s, alphaOverride = 1) {
     const g = this.buildingGfx;
     const glyph = getBuildingCounterGlyph(b.type);
     const typeDef = BUILDING_TYPES[b.type];
@@ -1828,7 +1856,7 @@ export class GameScene extends Phaser.Scene {
     const cH = s * 1.75;
     const cx2 = x - cW / 2;
     const cy2 = y - cH / 2;
-    const alpha = 1;
+    const alpha = Math.max(0.12, Math.min(1, alphaOverride));
     const _mix = (a, bCol, t) => {
       const ca = Phaser.Display.Color.IntegerToColor(a);
       const cb = Phaser.Display.Color.IntegerToColor(bCol);
@@ -1880,7 +1908,7 @@ export class GameScene extends Phaser.Scene {
       fill: '#fff8e8',
       stroke: '#0a0a0a',
       strokeThickness: 4,
-    }).setOrigin(0.5).setDepth(17);
+    }).setOrigin(0.5).setDepth(17).setAlpha(alpha);
     this.buildingSpriteLayer?.add(lbl);
 
     if (b.type === 'FACTORY' && b.active === false) {
@@ -1924,13 +1952,22 @@ export class GameScene extends Phaser.Scene {
     for (const b of this.gameState.buildings) {
       try {
         if (ROAD_TYPES.has(b.type)) continue;
-        // Fog-of-war: hide enemy buildings only when fog set is valid/non-empty
-        if (fog && fog.size > 0 && Number(b.owner) !== curP && !fog.has(`${b.q},${b.r}`)) continue;
+        const isSettlement = SETTLEMENT_TYPES.has(b.type);
+        const hexKey = `${b.q},${b.r}`;
+        const inFog = !!(fog && fog.size > 0 && !fog.has(hexKey));
+        // Fog: hide unseen enemy buildings — settlements always show (dimmed when unexplored).
+        if (!isSettlement && inFog && Number(b.owner) !== curP) continue;
         const { x, y } = hexToWorld(b.q, b.r);
         const isOwnBld = Number(b.owner) === curP;
-        if (!isOwnBld && (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB)) continue;
+        if (!isOwnBld && !isSettlement && (x < _bvpL || x > _bvpR || y < _bvpT || y > _bvpB)) continue;
         const color = PLAYER_COLORS[b.owner] || 0x888888;
-        const s = HEX_SIZE * 0.44;
+        const s = HEX_SIZE * (isSettlement ? 0.5 : 0.44);
+        let drawAlpha = 1;
+        if (isSettlement) {
+          if (inFog) drawAlpha = 0.36;
+          else if (Number(b.owner) === 0) drawAlpha = 0.78;
+          else if (!isOwnBld) drawAlpha = 0.62;
+        }
 
         // FARM is rendered as a terrain tile swap/overlay (not a building icon).
         if (b.type === 'FARM') {
@@ -1978,7 +2015,7 @@ export class GameScene extends Phaser.Scene {
           continue;
         }
 
-        this._drawBuildingCounter(b, x, y, color, s);
+        this._drawBuildingCounter(b, x, y, color, s, drawAlpha);
       } catch (e) {
         // Prevent a single bad building definition from wiping the whole layer
         continue;
@@ -3017,7 +3054,7 @@ export class GameScene extends Phaser.Scene {
 
   // ── Bottom inspector + action rail ────────────────────────────────────────
   _createBottomPanel() {
-    this._inspectorPanH = 192;
+    this._inspectorPanH = 212;
     this._inspectorTabManual = null;
     this._inspectorTab = 'unit';
     this._inspectorLines = [];
@@ -3070,9 +3107,9 @@ export class GameScene extends Phaser.Scene {
     this.unitStatsTxt = this.inspectorChips;
     this.unitStatusTxt = this._inspectorLines[0];
 
-    this.actionBg = this.add.rectangle(0, 0, 380, this._inspectorPanH, 0x0a1218, 0.96)
-      .setStrokeStyle(2, 0xaa55ee).setScrollFactor(0).setDepth(D + 5);
-    this.actionAccent = this.add.rectangle(0, 0, 380, 2, 0xaa55ee, 1)
+    this.actionBg = this.add.rectangle(0, 0, 380, this._inspectorPanH, BUILD_MENU.bg, 0.97)
+      .setStrokeStyle(2, BUILD_MENU.stroke).setScrollFactor(0).setDepth(D + 5);
+    this.actionAccent = this.add.rectangle(0, 0, 380, 3, BUILD_MENU.accent, 1)
       .setScrollFactor(0).setDepth(D + 6);
 
     this._dynBtns = [];
@@ -3269,22 +3306,85 @@ export class GameScene extends Phaser.Scene {
     return { title, chips, lines };
   }
 
-  _makeActionBtn(x, y, label, color, cb) {
-    const w = 126, h = 46;
+  _makeActionBtn(x, y, label, color, cb, opts = {}) {
+    const w = opts.width ?? 118;
+    const h = opts.height ?? 34;
+    const fontSize = opts.fontSize ?? 11;
     const btn = this.add.text(x, y, label, {
-      font: 'bold 14px monospace', fill: '#ffffff',
-      backgroundColor: `#${color.toString(16).padStart(6,'0')}`,
-      padding: { x: 0, y: 0 }, fixedWidth: w, fixedHeight: h, align: 'center'
-    }).setOrigin(0, 0).setScrollFactor(0).setDepth(110).setInteractive({ useHandCursor: true });
+      font: `bold ${fontSize}px monospace`, fill: opts.fill || '#f4f8ff',
+      backgroundColor: `#${color.toString(16).padStart(6, '0')}`,
+      padding: { x: 4, y: 3 }, fixedWidth: w, fixedHeight: h, align: 'center',
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(opts.depth ?? 112).setInteractive({ useHandCursor: true });
     const run = () => {
       this._contextMenuClicked = true;
       cb();
     };
     btn.on('pointerdown', () => { this._contextMenuClicked = true; });
     btn.on('pointerup', (ptr) => { if (ptr.button === 0) run(); });
-    btn.on('pointerover', () => btn.setAlpha(0.8));
-    btn.on('pointerout',  () => btn.setAlpha(1.0));
+    btn.on('pointerover', () => btn.setAlpha(0.88));
+    btn.on('pointerout', () => btn.setAlpha(opts.dimmed ? 0.45 : 1.0));
+    if (opts.dimmed) btn.setAlpha(0.45);
     return btn;
+  }
+
+  _addBuildMenuText(x, y, text, style = {}) {
+    const t = this.add.text(x, y, text, {
+      font: style.font || '11px monospace',
+      fill: style.fill || '#99aabb',
+      backgroundColor: style.bg,
+      padding: style.padding || { x: 4, y: 2 },
+    }).setOrigin(style.originX ?? 0, style.originY ?? 0).setScrollFactor(0).setDepth(style.depth ?? 112);
+    this._uiLayer.add(t);
+    this._dynBtns.push(t);
+    return t;
+  }
+
+  _renderBuildMenuTabBtn(ax, y, label, tabKey, active, icon = '') {
+    const w = 108, h = 26;
+    const x = tabKey === 'produce' ? ax : ax + 112;
+    const bg = this.add.rectangle(x + w / 2, y + h / 2, w, h, active ? BUILD_MENU.tabOn : BUILD_MENU.tabOff, active ? 0.98 : 0.92)
+      .setStrokeStyle(2, active ? BUILD_MENU.accentHi : 0x334455)
+      .setScrollFactor(0).setDepth(111).setInteractive({ useHandCursor: true });
+    const txt = this.add.text(x + w / 2, y + h / 2, `${icon}${label}`, {
+      font: 'bold 10px monospace',
+      fill: active ? BUILD_MENU.gold : BUILD_MENU.muted,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(112);
+    const click = () => {
+      this._contextMenuClicked = true;
+      this._buildMenuTab = tabKey;
+      this._hideContextMenu(true);
+      this._updateBottomPanel();
+    };
+    bg.on('pointerdown', click);
+    txt.on('pointerdown', click);
+    this._uiLayer.add(bg);
+    this._uiLayer.add(txt);
+    this._dynBtns.push(bg, txt);
+  }
+
+  _renderProductionPipeline(ax, y, pending, ready) {
+    const pipeW = 220;
+    const bg = this.add.rectangle(ax + pipeW / 2, y + 10, pipeW, 22, 0x141828, 0.95)
+      .setStrokeStyle(1, 0x334455).setScrollFactor(0).setDepth(111);
+    this._uiLayer.add(bg);
+    this._dynBtns.push(bg);
+    const qLabel = pending.length ? (UNIT_TYPES[pending[0].type]?.name || pending[0].type) : '—';
+    const rLabel = ready.length ? (UNIT_TYPES[ready[0].type]?.name || ready[0].type) : '—';
+    this._addBuildMenuText(ax + 6, y + 2, `QUEUE ${pending.length}`, { fill: '#88bbdd', font: 'bold 9px monospace' });
+    this._addBuildMenuText(ax + 72, y + 2, '▶', { fill: '#556677', font: '10px monospace' });
+    this._addBuildMenuText(ax + 88, y + 2, `READY ${ready.length}`, { fill: '#88dd99', font: 'bold 9px monospace' });
+    this._addBuildMenuText(ax + 6, y + 13, qLabel, { fill: '#aabbcc', font: '9px monospace' });
+    this._addBuildMenuText(ax + 88, y + 13, rLabel, { fill: '#bbeecc', font: '9px monospace' });
+  }
+
+  _formatRecruitCost(def, foodCost) {
+    const parts = [];
+    if (def.cost.iron) parts.push(`⚙${def.cost.iron}`);
+    if (def.cost.oil) parts.push(`🛢${def.cost.oil}`);
+    if (def.cost.wood) parts.push(`🪵${def.cost.wood}`);
+    if (def.cost.components) parts.push(`🧩${def.cost.components}`);
+    if (foodCost) parts.push(`🌾${foodCost}`);
+    return parts.join(' ');
   }
 
   _inspectorProductionSummary(gs, p) {
@@ -3351,24 +3451,6 @@ export class GameScene extends Phaser.Scene {
     this._redrawHighlights();
   }
 
-  _renderBuildMenuTabBtn(ax, y, label, tabKey, active) {
-    const btn = this.add.text(ax, y, label, {
-      font: 'bold 10px monospace',
-      fill: active ? '#ffcc44' : '#8899aa',
-      backgroundColor: active ? '#4a2080' : '#1a2838',
-      padding: { x: 6, y: 3 },
-    }).setOrigin(0, 0).setScrollFactor(0).setDepth(112).setInteractive({ useHandCursor: true });
-    btn.on('pointerdown', () => {
-      this._contextMenuClicked = true;
-      this._buildMenuTab = tabKey;
-      this._hideContextMenu(true);
-      this._updateBottomPanel();
-    });
-    this._uiLayer.add(btn);
-    this._dynBtns.push(btn);
-    return btn.width + 4;
-  }
-
   _renderBuildMenu() {
     const gs = this.gameState;
     const p = gs.currentPlayer;
@@ -3379,12 +3461,8 @@ export class GameScene extends Phaser.Scene {
 
     if (this._isEngineerBuildPanelActive()) {
       const eng = this.selectedUnit;
-      const hdr = this.add.text(ax, ay, `🔧 ENGINEER  ·  [B] hide`, {
-        font: 'bold 12px monospace', fill: '#88ffaa',
-      }).setScrollFactor(0).setDepth(112);
-      this._uiLayer.add(hdr);
-      this._dynBtns.push(hdr);
-      ay += 18;
+      this._addBuildMenuText(ax, ay, '🔧 ENGINEER CORPS', { font: 'bold 13px monospace', fill: '#88ffcc' });
+      ay += 20;
       const quickBtns = [];
       if (!eng.roadOrder) {
         quickBtns.push({ label: 'AUTO-ROAD →', color: 0x2a4455, cb: () => this._enterRoadDestMode(eng) });
@@ -3417,25 +3495,25 @@ export class GameScene extends Phaser.Scene {
       ? focus
       : pickProductionAnchorBuilding(gs, p);
 
-    const hdr = this.add.text(ax, ay, focus
-      ? `${BUILDING_TYPES[focus.type]?.name || focus.type}  ·  [B] hide`
-      : `⚔ BUILD MENU  ·  [B] hide`, {
-      font: 'bold 12px monospace', fill: '#ffcc44',
-    }).setScrollFactor(0).setDepth(112);
-    this._uiLayer.add(hdr);
-    this._dynBtns.push(hdr);
-    ay += 18;
+    const settleIcon = focus?.type === 'CITY' ? '🏙' : focus?.type === 'TOWN' ? '🏘' : focus?.type === 'VILLAGE' ? '🛖' : focus?.type === 'HQ' ? '⭐' : '⚔';
+    this._addBuildMenuText(ax, ay, focus
+      ? `${settleIcon} ${BUILDING_TYPES[focus.type]?.name || focus.type}`
+      : '⚔ ARMY COMMAND', {
+      font: 'bold 13px monospace', fill: BUILD_MENU.gold,
+    });
+    this._addBuildMenuText(ax + 228, topY + 6, '[B]', {
+      font: '10px monospace', fill: BUILD_MENU.muted,
+    });
+    ay += 20;
 
     if (focus) {
       const def = BUILDING_TYPES[focus.type] || {};
-      const chips = this.add.text(ax, ay, `P${focus.owner}  ·  (${focus.q},${focus.r})${def.tier != null ? `  ·  tier ${def.tier}` : ''}`, {
-        font: '10px monospace', fill: '#99bbdd',
-      }).setScrollFactor(0).setDepth(112);
-      this._uiLayer.add(chips);
-      this._dynBtns.push(chips);
-      ay += 16;
-      const clr = this.add.text(ax + 200, topY + 8, '✕', {
-        font: 'bold 12px monospace', fill: '#ff8888', backgroundColor: '#331111', padding: { x: 6, y: 2 },
+      this._addBuildMenuText(ax, ay, `Owner P${focus.owner}  ·  hex (${focus.q},${focus.r})${def.tier != null ? `  ·  tier ${def.tier}` : ''}`, {
+        fill: '#99bbdd', font: '10px monospace',
+      });
+      ay += 14;
+      const clr = this.add.text(ax + 218, topY + 8, '✕', {
+        font: 'bold 12px monospace', fill: '#ffaaaa', backgroundColor: '#331111', padding: { x: 6, y: 2 },
       }).setOrigin(0, 0).setScrollFactor(0).setDepth(112).setInteractive({ useHandCursor: true });
       clr.on('pointerdown', () => { this._clearBuildMenuBuildingFocus(); this._updateBottomPanel(); });
       this._uiLayer.add(clr);
@@ -3463,58 +3541,59 @@ export class GameScene extends Phaser.Scene {
     }
 
     const tabY = ay;
-    this._renderBuildMenuTabBtn(ax, tabY, 'PRODUCE', 'produce', this._buildMenuTab === 'produce');
-    this._renderBuildMenuTabBtn(ax + 92, tabY, 'DEPLOY', 'deploy', this._buildMenuTab === 'deploy');
-    ay += 22;
+    this._renderBuildMenuTabBtn(ax, tabY, 'PRODUCE', 'produce', this._buildMenuTab === 'produce', '⚙ ');
+    this._renderBuildMenuTabBtn(ax, tabY, 'DEPLOY', 'deploy', this._buildMenuTab === 'deploy', '📍 ');
+    ay += 32;
 
     const pending = (gs.pendingGlobalRecruits || []).filter(r => Number(r.owner) === Number(p));
     const ready = (gs.readyGlobalRecruits || []).filter(r => Number(r.owner) === Number(p));
-    const qRow = this.add.text(ax, ay, `READY ${ready.length}  ·  QUEUE ${pending.length}${pending[0] ? ` · ${UNIT_TYPES[pending[0].type]?.name}` : ''}`, {
-      font: '10px monospace', fill: '#99aabb', backgroundColor: '#141828', padding: { x: 5, y: 2 },
-    }).setScrollFactor(0).setDepth(112);
-    this._uiLayer.add(qRow);
-    this._dynBtns.push(qRow);
-    ay += 18;
+    this._renderProductionPipeline(ax, ay, pending, ready);
+    ay += 28;
 
     if (this._buildMenuTab === 'deploy') {
+      this._addBuildMenuText(ax, ay, 'Select a ready unit, then click a purple hex on the map.', {
+        fill: '#ccaadd', font: '10px monospace',
+      });
+      ay += 16;
       if (this._deployMode) {
-        const hint = this.add.text(ax, ay, 'Click purple hex to deploy  ·  cancel', {
-          font: 'bold 10px monospace', fill: '#ddaaff', backgroundColor: '#2a1040', padding: { x: 5, y: 3 },
-        }).setScrollFactor(0).setDepth(112).setInteractive({ useHandCursor: true });
+        const hint = this._addBuildMenuText(ax, ay, '▶ DEPLOY MODE — click purple hex  ·  tap here to cancel', {
+          fill: '#ffccff', font: 'bold 10px monospace', bg: '#2a1040',
+        });
+        hint.setInteractive({ useHandCursor: true });
         hint.on('pointerdown', () => { this._cancelDeployMode(); this._updateBottomPanel(); });
-        this._uiLayer.add(hint);
-        this._dynBtns.push(hint);
-        ay += 22;
+        ay += 20;
       }
       if (!ready.length) {
-        const empty = this.add.text(ax, ay, 'No units ready — queue in PRODUCE', { font: '10px monospace', fill: '#888888' })
-          .setScrollFactor(0).setDepth(112);
-        this._uiLayer.add(empty);
-        this._dynBtns.push(empty);
+        this._addBuildMenuText(ax, ay, 'Nothing ready yet — queue units on PRODUCE.', { fill: '#888888' });
         return;
       }
       let col = 0;
       for (const r of ready) {
         const active = this._deployMode?.readyId === r.id;
-        const label = `${active ? '▶ ' : ''}${UNIT_TYPES[r.type]?.name || r.type}`;
+        const def = UNIT_TYPES[r.type] || {};
+        const label = `${active ? '▶ ' : ''}${def.name || r.type}`;
         const bx = ax + col * (bw + gap);
-        const btn = this._makeActionBtn(bx, ay, label, active ? 0x553388 : 0x2a4455, () => this._startDeployMode(r.id));
+        const btn = this._makeActionBtn(bx, ay, label, active ? BUILD_MENU.deploy : 0x2a4455, () => this._startDeployMode(r.id), {
+          height: 38, fontSize: 11,
+        });
         this._uiLayer.add(btn);
         this._dynBtns.push(btn);
         col += 1;
-        if (col >= 2) { col = 0; ay += bh + gap; }
+        if (col >= 2) { col = 0; ay += 42; }
       }
       return;
     }
 
     // PRODUCE tab
     if (!anchor) {
-      const noVtc = this.add.text(ax, ay, 'Capture HQ or settlement to produce', { font: '10px monospace', fill: '#aa8888' })
-        .setScrollFactor(0).setDepth(112);
-      this._uiLayer.add(noVtc);
-      this._dynBtns.push(noVtc);
+      this._addBuildMenuText(ax, ay, 'Capture your HQ or a village / town / city to begin production.', {
+        fill: '#aa8888', font: '11px monospace',
+      });
       return;
     }
+    const anchorName = BUILDING_TYPES[anchor.type]?.name || anchor.type;
+    this._addBuildMenuText(ax, ay, `Training at ${anchorName}`, { fill: '#aabbcc', font: '10px monospace' });
+    ay += 16;
     const opts = getGlobalRecruitOptionsForVTC(gs, p, anchor.id);
     const pl = gs.players[p];
     let col = 0;
@@ -3524,29 +3603,27 @@ export class GameScene extends Phaser.Scene {
       const foodCost = getRecruitFoodCost(unitType);
       const canAfford = (pl.iron || 0) >= (def.cost.iron || 0) && (pl.oil || 0) >= (def.cost.oil || 0)
         && (pl.food || 0) >= foodCost && (pl.components || 0) >= (def.cost.components || 0);
-      const label = `+ ${def.name}`;
+      const costStr = this._formatRecruitCost(def, foodCost);
+      const label = `${def.name}\n${costStr}`;
       const bx = ax + col * (bw + gap);
-      const btn = this._makeActionBtn(bx, ay, label, canAfford ? 0x334466 : 0x222222, () => {
+      const btn = this._makeActionBtn(bx, ay, label, canAfford ? BUILD_MENU.produce : 0x252530, () => {
         const out = queueGlobalRecruit(gs, p, unitType, anchor.id);
         if (!out.ok) this._pushLog(`Queue failed: ${out.reason}`);
         else this._pushLog(`Queued ${def.name}`);
         this._refresh();
-      });
-      if (!canAfford) btn.setAlpha(0.45);
+      }, { height: 40, fontSize: 10, dimmed: !canAfford });
       this._uiLayer.add(btn);
       this._dynBtns.push(btn);
       col += 1;
-      if (col >= 2) { col = 0; ay += bh + gap; }
-      if (ay > h - 24) break;
+      if (col >= 2) { col = 0; ay += 44; }
+      if (ay > h - 28) break;
     }
     if (ready.length) {
-      ay += 4;
-      const depHint = this.add.text(ax, ay, `→ ${ready.length} ready: switch DEPLOY tab`, {
-        font: '10px monospace', fill: '#88ffaa',
-      }).setScrollFactor(0).setDepth(112).setInteractive({ useHandCursor: true });
+      const depHint = this._addBuildMenuText(ax, ay + 4, `✓ ${ready.length} unit${ready.length > 1 ? 's' : ''} ready — open DEPLOY tab`, {
+        fill: '#88ffaa', font: 'bold 10px monospace',
+      });
+      depHint.setInteractive({ useHandCursor: true });
       depHint.on('pointerdown', () => { this._buildMenuTab = 'deploy'; this._updateBottomPanel(); });
-      this._uiLayer.add(depHint);
-      this._dynBtns.push(depHint);
     }
   }
 
