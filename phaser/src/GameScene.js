@@ -48,7 +48,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.19.12';
+export const GAME_VERSION = 'v1.19.13';
 
 const DEPLOY_HIGHLIGHT = 0xaa55ee;
 
@@ -222,13 +222,14 @@ export class GameScene extends Phaser.Scene {
     this.aiPlayers  = new Set();
     if (Array.isArray(data.aiPlayers)) {
       for (const p of data.aiPlayers) this.aiPlayers.add(Number(p));
-    } else {
-      if (data.aiP1) this.aiPlayers.add(1);
-      if (data.aiP2) this.aiPlayers.add(2);
-      if (!data.aiP1 && !data.aiP2 && !this._aiViewerMode) {
-        for (let p = 1; p <= this.playerCount; p++) {
-          if (p !== this.humanPlayer) this.aiPlayers.add(p);
-        }
+    }
+    if (data.aiP1) this.aiPlayers.add(1);
+    if (data.aiP2) this.aiPlayers.add(2);
+    // Legacy fallback only when launch sends no AI config at all.
+    if (this.aiPlayers.size === 0 && !this._aiViewerMode
+        && data.aiP1 === undefined && data.aiP2 === undefined && !Array.isArray(data.aiPlayers)) {
+      for (let p = 1; p <= this.playerCount; p++) {
+        if (p !== this.humanPlayer) this.aiPlayers.add(p);
       }
     }
     // Never treat the human slot as AI (bad launch payloads used to strand P1 with no build UI).
@@ -1311,13 +1312,10 @@ export class GameScene extends Phaser.Scene {
       return (((rng >> 3) & 0xFF) / 255 - 0.5) * 6 * (1 - t); // max ±3px, zero at endpoints
     };
 
-    const { L: vpL, R: vpR, T: vpT, B: vpB } = this._vpBounds?.() || { L: -1e9, R: 1e9, T: -1e9, B: 1e9 };
-
     // Draw road segments — each edge drawn from both hexes, deduplicate by only drawing q<=nq
     for (const [key, { tier }] of roadMap) {
       const [q, r] = key.split(',').map(Number);
       const { x, y } = hexToWorld(q, r);
-      if (x < vpL - 80 || x > vpR + 80 || y < vpT - 80 || y > vpB + 80) continue;
       const style = TIER_STYLE[tier] || TIER_STYLE[0];
 
       for (const [dq, dr] of HEX_NEIGHBORS_LOCAL) {
@@ -3097,13 +3095,25 @@ export class GameScene extends Phaser.Scene {
     return { w, h, panH, topY, actionCx, contentLeft };
   }
 
-  _canControlBuildMenu() {
+  _isCurrentPlayerHumanControlled() {
     if (this._aiViewerMode || this._mapBuilderMode) return false;
     const gs = this.gameState;
     if (!gs) return false;
     const p = Number(gs.currentPlayer) || 1;
-    if (Number(p) === Number(this.humanPlayer)) return true;
     return !this.aiPlayers.has(p);
+  }
+
+  _canControlBuildMenu() {
+    return this._isCurrentPlayerHumanControlled();
+  }
+
+  _isEngineerBuildPanelActive() {
+    const gs = this.gameState;
+    const u = this.selectedUnit;
+    if (!gs || !u) return false;
+    return !!(UNIT_TYPES[u.type]?.canBuild
+      && Number(u.owner) === Number(gs.currentPlayer)
+      && !u.constructing);
   }
 
   _layoutInspectorChrome() {
@@ -3366,6 +3376,42 @@ export class GameScene extends Phaser.Scene {
     const ax = contentLeft;
     let ay = topY + 8;
     const bw = 112, bh = 30, gap = 3;
+
+    if (this._isEngineerBuildPanelActive()) {
+      const eng = this.selectedUnit;
+      const hdr = this.add.text(ax, ay, `🔧 ENGINEER  ·  [B] hide`, {
+        font: 'bold 12px monospace', fill: '#88ffaa',
+      }).setScrollFactor(0).setDepth(112);
+      this._uiLayer.add(hdr);
+      this._dynBtns.push(hdr);
+      ay += 18;
+      const quickBtns = [];
+      if (!eng.roadOrder) {
+        quickBtns.push({ label: 'AUTO-ROAD →', color: 0x2a4455, cb: () => this._enterRoadDestMode(eng) });
+      } else {
+        quickBtns.push({ label: '✕ CANCEL ROAD', color: 0x662222, cb: () => { delete eng.roadOrder; this._refresh(); } });
+      }
+      if (eng.moveOrder) {
+        quickBtns.push({ label: '✕ CANCEL MOVE', color: 0x334466, cb: () => { delete eng.moveOrder; this._refresh(); } });
+      } else if (!eng.moved) {
+        quickBtns.push({ label: 'Shift+RMB move', color: 0x223344, cb: () => {} });
+      }
+      let qx = ax;
+      for (const qb of quickBtns) {
+        const btn = this._makeActionBtn(qx, ay, qb.label, qb.color, qb.cb);
+        if (qb.label.startsWith('Shift')) btn.setAlpha(0.55);
+        this._uiLayer.add(btn);
+        this._dynBtns.push(btn);
+        qx += bw + gap;
+      }
+      ay += bh + gap + 4;
+      this._panelEmbedBuildMenu = { ax, ay, btnW: bw, btnH: 26, gap: 3 };
+      this._showContextMenu(eng, 'build', this._buildMenuStructPage, true);
+      this._panelEmbedBuildMenu = null;
+      return;
+    }
+
+    if (this._buildMenuTab === 'struct') this._buildMenuTab = 'produce';
     const focus = this._buildMenuFocusBuilding;
     const anchor = focus && Number(focus.owner) === Number(p)
       ? focus
@@ -3419,7 +3465,6 @@ export class GameScene extends Phaser.Scene {
     const tabY = ay;
     this._renderBuildMenuTabBtn(ax, tabY, 'PRODUCE', 'produce', this._buildMenuTab === 'produce');
     this._renderBuildMenuTabBtn(ax + 92, tabY, 'DEPLOY', 'deploy', this._buildMenuTab === 'deploy');
-    this._renderBuildMenuTabBtn(ax + 184, tabY, 'STRUCT', 'struct', this._buildMenuTab === 'struct');
     ay += 22;
 
     const pending = (gs.pendingGlobalRecruits || []).filter(r => Number(r.owner) === Number(p));
@@ -3459,22 +3504,6 @@ export class GameScene extends Phaser.Scene {
         col += 1;
         if (col >= 2) { col = 0; ay += bh + gap; }
       }
-      return;
-    }
-
-    if (this._buildMenuTab === 'struct') {
-      const eng = this.selectedUnit && UNIT_TYPES[this.selectedUnit.type]?.canBuild
-        && Number(this.selectedUnit.owner) === Number(p) && !this.selectedUnit.constructing
-        ? this.selectedUnit : null;
-      if (!eng) {
-        const hint = this.add.text(ax, ay, 'Select your engineer for structures', { font: '10px monospace', fill: '#aa8888' })
-          .setScrollFactor(0).setDepth(112);
-        this._uiLayer.add(hint);
-        this._dynBtns.push(hint);
-        return;
-      }
-      this._menuAnchor = { x: ax + 60, y: ay + 40 };
-      this._showContextMenu(eng, 'build', this._buildMenuStructPage, true);
       return;
     }
 
@@ -3552,7 +3581,7 @@ export class GameScene extends Phaser.Scene {
 
     this._dynBtns.forEach(b => { try { b.destroy(); } catch (e) {} });
     this._dynBtns = [];
-    if (this._buildMenuTab !== 'struct') this._hideContextMenu(true);
+    this._hideContextMenu(true);
 
     const canBuild = this._canControlBuildMenu();
     this.actionBg?.setVisible(canBuild);
@@ -4936,7 +4965,8 @@ export class GameScene extends Phaser.Scene {
 
   _showContextMenu(unit, submenu = 'root', page = 0, replace = false) {
     if (!unit) return;
-    if (submenu === 'root' && !this.settings.showContextMenu) return;
+    // Floating action menu removed — engineer build uses bottom-right panel; shift+RMB for move orders.
+    if (submenu === 'root') return;
     if (replace) {
       const old = this._contextMenuObjs;
       if (old) {
@@ -5140,7 +5170,38 @@ export class GameScene extends Phaser.Scene {
         }
       }
 
-      items.push({ label: '← BACK', color: 0x443322, enabled: true, openSubmenu: 'root', page: 0 });
+    }
+
+    const embed = this._panelEmbedBuildMenu;
+    if (embed && submenu === 'build') {
+      items = items.filter(i => !String(i.label || '').includes('BACK'));
+      let rowAy = embed.ay;
+      for (const item of items) {
+        if (item.header) {
+          const hdrTxt = this.add.text(embed.ax, rowAy, item.label, {
+            font: '10px monospace', fill: '#6688aa',
+          }).setScrollFactor(0).setDepth(112);
+          this._uiLayer.add(hdrTxt);
+          this._dynBtns.push(hdrTxt);
+          rowAy += embed.btnH;
+          continue;
+        }
+        const label = item.enabled ? item.label : `${item.label}  ✗`;
+        const col = item.enabled ? 0x2a5533 : 0x222222;
+        const btn = this._makeActionBtn(embed.ax, rowAy, label, col, () => {
+          if (item.openSubmenu === 'build') {
+            this._buildMenuStructPage = item.page || 0;
+            this._updateBottomPanel();
+            return;
+          }
+          this._runContextMenuItem(item, unit);
+        });
+        if (!item.enabled) btn.setAlpha(0.45);
+        this._uiLayer.add(btn);
+        this._dynBtns.push(btn);
+        rowAy += embed.btnH + embed.gap;
+      }
+      return;
     }
 
     // ── Position menu at cursor, clamped to screen ───────────────────────────
@@ -5251,11 +5312,17 @@ export class GameScene extends Phaser.Scene {
     const menuUnit = unit || this._contextMenuUnit;
     if (!menuUnit) return;
     if (item.openSubmenu) {
+      if (item.openSubmenu === 'build' && this._isEngineerBuildPanelActive()) {
+        this._buildMenuStructPage = item.page || 0;
+        this._updateBottomPanel();
+        return;
+      }
       this._openContextSubmenu(menuUnit, item.openSubmenu, item.page || 0);
       return;
     }
     this._hideContextMenu(true);
     item.cb?.();
+    if (this._isEngineerBuildPanelActive()) this._updateBottomPanel();
   }
 
   _onContextMenuHotkey(ev) {
@@ -6712,6 +6779,7 @@ export class GameScene extends Phaser.Scene {
       this._builderPaint(q, r);
       return;
     }
+    if (!this._isCurrentPlayerHumanControlled()) return;
     const gs = this.gameState;
     let clickedUnit     = unitAt(gs, q, r);
     let clickedBuilding = buildingAt(gs, q, r);
@@ -6965,11 +7033,9 @@ export class GameScene extends Phaser.Scene {
           startTime: performance.now(),
           duration:  180,
         };
-        // Engineer auto-build: pop open the build submenu after moving
         if (UNIT_TYPES[this.selectedUnit.type].canBuild && this.settings.engineerAutoBuild) {
-          // Anchor to where the player clicked to move the engineer
-          this._menuAnchor = this._lastClickPos || this._menuAnchor || { x: this.scale.width/2, y: this.scale.height/2 };
-          this._showContextMenu(this.selectedUnit, 'build', 0);
+          this._buildMenuOpen = true;
+          this._updateBottomPanel();
         }
         return;
       }
@@ -7157,6 +7223,7 @@ export class GameScene extends Phaser.Scene {
   // Right-click: own unit => unit menu. Else deselect/cancel by default.
   // Shift+RMB on a tile with a selected friendly unit => quick move-order menu.
   _onHexRightClick(q, r, shiftRmb = false) {
+    if (!this._mapBuilderMode && !this._isCurrentPlayerHumanControlled()) return;
     if (this._mapBuilderMode) {
       const seq = ['terrain','resource','building','unit','erase'];
       const idx = seq.indexOf(this._builder.mode);
@@ -7183,7 +7250,6 @@ export class GameScene extends Phaser.Scene {
 
     if (clickedUnit && clickedUnit.owner === gs.currentPlayer) {
       if (this.selectedUnit !== clickedUnit) this._selectUnit(clickedUnit);
-      this._showContextMenu(clickedUnit);
       return;
     }
 
@@ -7201,6 +7267,7 @@ export class GameScene extends Phaser.Scene {
     this._hideContextMenu(true);
     this._inspectorTabManual = null;
     this._cancelDeployMode();
+    this._buildMenuTab = 'produce';
     this.selectedUnit = null; this.reachable = []; this.attackable = []; this.mode = 'select';
     this._refresh();
   }
@@ -8130,7 +8197,9 @@ export class GameScene extends Phaser.Scene {
       if (this._aiAutoplayPaused) {
         this._pushLog('AI autoplay paused. Press SPACE to resume.');
       } else {
-        this._runAITurn();
+        this.time.delayedCall(50, () => {
+          if (this.aiPlayers.has(this.gameState?.currentPlayer)) this._runAITurn();
+        });
       }
     } else {
       this._showPassScreen(`Player ${gs.currentPlayer}'s turn — take the controls`);
@@ -8973,6 +9042,7 @@ export class GameScene extends Phaser.Scene {
     // Use camera-native centering/pan to avoid manual scroll math drift.
     if (!smooth) {
       cam.centerOn(x, y);
+      this._redrawRoads();
       return;
     }
 
@@ -8980,6 +9050,7 @@ export class GameScene extends Phaser.Scene {
       if (progress >= 1) {
         // snap-finalize to exact center (eliminates residual offset)
         cam.centerOn(x, y);
+        this._redrawRoads();
       }
     });
   }
