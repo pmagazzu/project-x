@@ -14,6 +14,7 @@ import {
   findPath, findRoadPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, queueGlobalRecruit, deployReadyGlobalRecruit,
   getGlobalRecruitOptionsForVTC, getGlobalRecruitOptionsForPlayer, pickProductionAnchorBuilding, getOwnedDeployVTBuildings,
   enumerateGlobalDeployHexes, deployReadyGlobalRecruitAtHex, upgradeSettlement, SETTLEMENT_UPGRADE, PRODUCTION_VTC_TYPES,
+  isNavalDeployAllowed, getNavalCoastalCheckRadius, getNavalDeployRadius,
   isHQNetworkPluggedToNeutralRoads, registerDesign,
   getUnitPopCost, recalcPlayerPopulation,
   calcUpkeep, calcRPFromLabs, computeSupply, invalidateSupplyCache, isHexInSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS, VTC_SUPPLY_RADIUS, getRecruitFoodCost, getUnitSupplyRadius,
@@ -50,7 +51,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.20.6';
+export const GAME_VERSION = 'v1.20.7';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -3717,6 +3718,24 @@ export class GameScene extends Phaser.Scene {
     const anchorName = BUILDING_TYPES[anchor.type]?.name || anchor.type;
     this._addBuildMenuText(ax, ay, `Training at ${anchorName}`, { fill: '#aabbcc', font: '10px monospace' });
     ay += 16;
+    const coastalR = getNavalCoastalCheckRadius(anchor);
+    const anchorCoastal = isNavalDeployAllowed(gs, anchor, coastalR);
+    if (anchorCoastal) {
+      this._addBuildMenuText(ax, ay, `Naval: queue here · deploy on water within ${getNavalDeployRadius(anchor)} hex`, {
+        fill: '#88ccff', font: '10px monospace',
+      });
+      ay += 14;
+    } else {
+      const coastalAlt = getOwnedDeployVTBuildings(gs, p).find(b =>
+        isNavalDeployAllowed(gs, b, getNavalCoastalCheckRadius(b)));
+      if (coastalAlt) {
+        const altName = BUILDING_TYPES[coastalAlt.type]?.name || coastalAlt.type;
+        this._addBuildMenuText(ax, ay, `Naval: click coastal ${altName} on map (${coastalAlt.q},${coastalAlt.r})`, {
+          fill: '#7799bb', font: '10px monospace',
+        });
+        ay += 14;
+      }
+    }
     const opts = getGlobalRecruitOptionsForVTC(gs, p, anchor.id);
     const pl = gs.players[p];
     let col = 0;

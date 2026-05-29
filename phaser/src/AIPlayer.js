@@ -21,7 +21,7 @@ import {
   queueGlobalRecruit, deployReadyGlobalRecruitAtHex, enumerateGlobalDeployHexes,
   getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit, PRODUCTION_VTC_TYPES,
   getPlayerCapital, getPlayerCapitalBuildings, getEnemyCapitalBuildings, isPlayerCapitalBuilding,
-  isNavalDeployAllowed, SETTLEMENT_UPGRADE, VTC_SUPPLY_RADIUS, findRoadPath, canPlaceRoadOnTerrain,
+  isNavalDeployAllowed, getNavalCoastalCheckRadius, SETTLEMENT_UPGRADE, VTC_SUPPLY_RADIUS, findRoadPath, canPlaceRoadOnTerrain,
 } from './GameState.js';
 import { ensureAIDesigns, pickAIRecruit, getClosingPressure } from './AIDesigner.js';
 import {
@@ -258,7 +258,7 @@ function pickBestVTCToQueue(gs, player, unitType, capital) {
     .map(bb => ({
       building: bb,
       dist: capital ? hexDistance(bb.q, bb.r, capital.q, capital.r) : 0,
-      coastal: isNavalDeployAllowed(gs, bb, 8),
+      coastal: isNavalDeployAllowed(gs, bb, getNavalCoastalCheckRadius(bb)),
       tier: VTC_DEPLOY_TIER[bb.type] ?? (bb.isCapital ? 0 : -1),
       isCap: isPlayerCapitalBuilding(bb),
     }))
@@ -295,7 +295,7 @@ function scoreGlobalDeploySite(gs, player, site, ready, terrain, ctx) {
   else if (anchor?.type === 'VILLAGE' && !anchor?.isCapital) score += 3;
 
   if (isNaval) {
-    if (anchor && isNavalDeployAllowed(gs, anchor, 8)) score += 16;
+    if (anchor && isNavalDeployAllowed(gs, anchor, getNavalCoastalCheckRadius(anchor))) score += 16;
     const nearCoastLand = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]].some(([dq, dr]) => {
       const t2 = terrain?.[`${site.q + dq},${site.r + dr}`] ?? 0;
       return t2 !== 4 && t2 !== 5;

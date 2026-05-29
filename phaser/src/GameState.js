@@ -1887,8 +1887,16 @@ const PHASE_A_GLOBAL_UNITS = new Set([
   'INFANTRY', 'RECON', 'ENGINEER', 'ANTI_TANK', 'MORTAR', 'MEDIC',
   'SUPPLY_TRUCK', 'TANK', 'ARTILLERY',
   'BIPLANE_FIGHTER', 'LIGHT_BOMBER', 'OBS_PLANE',
-  'PATROL_BOAT', 'SUPPLY_SHIP',
+  'PATROL_BOAT', 'SUPPLY_SHIP', 'MTB', 'TORPEDO_BOAT', 'MOTOR_GUNBOAT',
+  'LANDING_CRAFT', 'TRANSPORT_SM', 'TRANSPORT_MD', 'DESTROYER',
 ]);
+/** Naval types queueable at each VTC tier (coastal check still required). */
+const VTC_GLOBAL_NAVAL_BY_TIER = {
+  0: ['PATROL_BOAT', 'SUPPLY_SHIP', 'MTB', 'TORPEDO_BOAT'],
+  1: ['PATROL_BOAT', 'SUPPLY_SHIP', 'MTB', 'TORPEDO_BOAT', 'MOTOR_GUNBOAT', 'LANDING_CRAFT', 'TRANSPORT_SM'],
+  2: ['PATROL_BOAT', 'SUPPLY_SHIP', 'MTB', 'TORPEDO_BOAT', 'MOTOR_GUNBOAT', 'LANDING_CRAFT',
+    'TRANSPORT_SM', 'TRANSPORT_MD', 'DESTROYER', 'SUBMARINE'],
+};
 let _nextGlobalRecruitId = 1;
 
 function getBuildingTierForDeploy(b) {
@@ -1896,6 +1904,25 @@ function getBuildingTierForDeploy(b) {
   if (VTC_TIER[b.type] != null) return VTC_TIER[b.type];
   if (b.type === 'HQ' || (b.type === 'VILLAGE' && b.isCapital)) return 0;
   return -1;
+}
+
+/** How far from a VTC we search for nearby water when allowing naval queue/deploy. */
+export function getNavalCoastalCheckRadius(building) {
+  if (!building) return 8;
+  if (building.type === 'HQ' || (building.type === 'VILLAGE' && building.isCapital)) return 14;
+  if (building.type === 'CITY') return 12;
+  if (building.type === 'TOWN') return 10;
+  return 8;
+}
+
+/** Water deploy radius for ready naval units spawned from this VTC anchor. */
+export function getNavalDeployRadius(building) {
+  return getNavalCoastalCheckRadius(building);
+}
+
+function isNavalAllowedAtVTCTier(tier, unitType) {
+  const list = VTC_GLOBAL_NAVAL_BY_TIER[tier] || VTC_GLOBAL_NAVAL_BY_TIER[0];
+  return list.includes(unitType);
 }
 
 export function isNavalDeployAllowed(state, b, maxR = 6) {
@@ -1970,10 +1997,9 @@ export function getGlobalRecruitOptionsForVTC(state, player, buildingId) {
     const def = UNIT_TYPES[unitType] || {};
     if (def.unlockedBy && !(state.players[player]?.research?.unlocked || []).includes(def.unlockedBy)) return false;
     if (NAVAL_UNITS.has(unitType)) {
-      const coastal = isNavalDeployAllowed(state, b, tier === 0 ? 8 : 6);
-      const tierOk = tier >= 1 || (tier === 0 && coastal && (b.starterNaval || b.isCapital));
-      const lightNavalOnly = unitType === 'PATROL_BOAT' || unitType === 'SUPPLY_SHIP';
-      return coastal && tierOk && (tier >= 1 || lightNavalOnly);
+      const coastalR = getNavalCoastalCheckRadius(b);
+      if (!isNavalDeployAllowed(state, b, coastalR)) return false;
+      return isNavalAllowedAtVTCTier(tier, unitType);
     }
     if (AIR_UNITS.has(unitType)) return tier >= (tier === 0 ? 0 : 0); // villages allow light air in Phase A
     if (unitType === 'TANK' || unitType === 'ARTILLERY') return tier >= 1;
@@ -2080,9 +2106,33 @@ function getGlobalDeployCandidateHexes(building) {
 export function enumerateGlobalDeployHexes(state, player, unitType) {
   const out = [];
   const seen = new Set();
+  const isNaval = NAVAL_UNITS.has(unitType);
+  const mapSize = state._mapSize || 25;
+  const terrain = state._terrain;
+
   for (const b of getOwnedDeployVTBuildings(state, player)) {
     if (b.underConstruction) continue;
     if (!getGlobalRecruitOptionsForVTC(state, player, b.id).includes(unitType)) continue;
+
+    if (isNaval) {
+      const radius = getNavalDeployRadius(b);
+      for (let dq = -radius; dq <= radius; dq++) {
+        for (let dr = -radius; dr <= radius; dr++) {
+          const q = b.q + dq, r = b.r + dr;
+          if (q < 0 || r < 0 || q >= mapSize || r >= mapSize) continue;
+          if (hexDistance(b.q, b.r, q, r) > radius) continue;
+          const t = terrain?.[`${q},${r}`] ?? 0;
+          if (t !== 4 && t !== 5) continue;
+          const k = `${q},${r}`;
+          if (seen.has(k)) continue;
+          if (!canSpawnUnitAtHex(state, player, unitType, q, r, b.q, b.r)) continue;
+          seen.add(k);
+          out.push({ q, r, buildingId: b.id, buildingType: b.type });
+        }
+      }
+      continue;
+    }
+
     const candidates = getGlobalDeployCandidateHexes(b);
     for (const { q, r } of candidates) {
       const k = `${q},${r}`;
