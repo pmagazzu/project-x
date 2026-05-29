@@ -1393,6 +1393,70 @@ export function findPath(terrain, mapSize, startQ, startR, destQ, destR, unitTyp
   return path.length > 0 ? path : null;
 }
 
+/** Terrain passable for roads (routes around mountains and water). */
+export function canPlaceRoadOnTerrain(terrainType) {
+  return terrainType !== 2 && terrainType !== 4 && terrainType !== 5;
+}
+
+function roadPathStepCost(terrainType) {
+  if (terrainType === 2 || terrainType === 4 || terrainType === 5) return 999;
+  if (terrainType === 1) return 2.2;
+  if (terrainType === 3) return 1.8;
+  if (terrainType === 7) return 1.3;
+  return 1;
+}
+
+/** Dijkstra path for road placement / proc-gen neutral network (no mountains). */
+export function findRoadPath(terrain, mapSize, startQ, startR, destQ, destR) {
+  if (startQ === destQ && startR === destR) return [];
+  const startKey = `${startQ},${startR}`;
+  const destKey = `${destQ},${destR}`;
+  const dist = new Map();
+  const prev = new Map();
+  const visited = new Set();
+  dist.set(startKey, 0);
+  const queue = [{ q: startQ, r: startR, cost: 0 }];
+
+  while (queue.length > 0) {
+    let bestIdx = 0;
+    for (let i = 1; i < queue.length; i++) {
+      if (queue[i].cost < queue[bestIdx].cost) bestIdx = i;
+    }
+    const { q, r, cost } = queue.splice(bestIdx, 1)[0];
+    const nodeKey = `${q},${r}`;
+    if (visited.has(nodeKey)) continue;
+    visited.add(nodeKey);
+    if (q === destQ && r === destR) break;
+
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const nq = q + dq, nr = r + dr;
+      if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) continue;
+      const key = `${nq},${nr}`;
+      if (visited.has(key)) continue;
+      const ttype = terrain[key] ?? 0;
+      if (!canPlaceRoadOnTerrain(ttype)) continue;
+      const newCost = cost + roadPathStepCost(ttype);
+      if (!dist.has(key) || newCost < dist.get(key)) {
+        dist.set(key, newCost);
+        prev.set(key, { q, r });
+        queue.push({ q: nq, r: nr, cost: newCost });
+      }
+    }
+  }
+
+  if (!dist.has(destKey)) return null;
+
+  const path = [];
+  let cur = destKey;
+  while (cur && cur !== startKey) {
+    const [cq, cr] = cur.split(',').map(Number);
+    path.unshift({ q: cq, r: cr });
+    const p = prev.get(cur);
+    cur = p ? `${p.q},${p.r}` : null;
+  }
+  return path;
+}
+
 // ── Terrain movement ───────────────────────────────────────────────────────
 // Wheeled/tracked vehicles that are badly hampered by forest
 const HEAVY_UNITS = new Set(['TANK', 'ARTILLERY', 'ANTI_TANK', 'VEHICLE_DEPOT']);

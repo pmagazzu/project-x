@@ -11,7 +11,7 @@ import {
   canEngineerBuildAt,
   enemyAtHex, resolveAttackTargetUnit, canUnitAttackTarget, unitCanAttack, isUnitAlive,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
-  findPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, queueGlobalRecruit, deployReadyGlobalRecruit,
+  findPath, findRoadPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, queueGlobalRecruit, deployReadyGlobalRecruit,
   getGlobalRecruitOptionsForVTC, getGlobalRecruitOptionsForPlayer, pickProductionAnchorBuilding, getOwnedDeployVTBuildings,
   enumerateGlobalDeployHexes, deployReadyGlobalRecruitAtHex, upgradeSettlement, SETTLEMENT_UPGRADE, PRODUCTION_VTC_TYPES,
   isHQNetworkPluggedToNeutralRoads, registerDesign,
@@ -50,7 +50,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.20.5';
+export const GAME_VERSION = 'v1.20.6';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -10399,25 +10399,32 @@ export class GameScene extends Phaser.Scene {
       if (gs.buildings.some(b => b.q === q && b.r === r && ROAD_TYPES.has(b.type))) return;
       gs.buildings.push(createBuilding(rt, 0, q, r));
     };
-    const terrainStepCost = (q, r) => {
-      const t = map[`${q},${r}`];
-      if (t === 2) return 12;
-      if (t === 3) return 3;
-      return 0;
-    };
-    const routeRoad = (from, to, maxSteps = 56) => {
+    const routeRoad = (from, to, maxSteps = 120) => {
+      const path = findRoadPath(map, ms, from.q, from.r, to.q, to.r);
+      if (path?.length) {
+        for (const h of path.slice(0, maxSteps)) addRoad(h.q, h.r);
+        return;
+      }
+      // Fallback: greedy detour that never steps onto mountains.
       let cq = from.q, cr = from.r;
       let steps = 0;
+      const stepCost = (q, r) => {
+        const t = map[`${q},${r}`];
+        if (t === 2) return 99;
+        if (t === 3) return 2;
+        if (t === 1) return 3;
+        return 0;
+      };
       while ((cq !== to.q || cr !== to.r) && steps < maxSteps) {
         steps++;
         const opts = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]
           .map(([dq, dr]) => ({ q: cq + dq, r: cr + dr }))
-          .filter(h => h.q >= 0 && h.r >= 0 && h.q < ms && h.r < ms && isLand(h.q, h.r))
+          .filter(h => h.q >= 0 && h.r >= 0 && h.q < ms && h.r < ms && isLand(h.q, h.r) && map[`${h.q},${h.r}`] !== 2)
           .sort((u, v) => {
             const du = hexDistance(u.q, u.r, to.q, to.r);
             const dv = hexDistance(v.q, v.r, to.q, to.r);
             if (du !== dv) return du - dv;
-            return terrainStepCost(u.q, u.r) - terrainStepCost(v.q, v.r);
+            return stepCost(u.q, u.r) - stepCost(v.q, v.r);
           });
         if (!opts.length) break;
         cq = opts[0].q;
