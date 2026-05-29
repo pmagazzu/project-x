@@ -50,7 +50,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.20.2';
+export const GAME_VERSION = 'v1.20.3';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -8601,6 +8601,16 @@ export class GameScene extends Phaser.Scene {
       } else {
         queueRecruit(gs, gs.currentPlayer, action.unitType, action.buildingId);
       }
+      this._updateTopBar();
+      next();
+
+    } else if (action.type === 'upgrade_settlement') {
+      const out = upgradeSettlement(gs, gs.currentPlayer, action.buildingId);
+      if (out.ok) {
+        const b = gs.buildings.find(x => x.id === action.buildingId);
+        this._pushLog(`AI upgraded settlement to ${BUILDING_TYPES[b?.type]?.name || b?.type || 'VTC'}`);
+      }
+      this._refresh();
       this._updateTopBar();
       next();
 

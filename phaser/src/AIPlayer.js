@@ -21,7 +21,7 @@ import {
   queueGlobalRecruit, deployReadyGlobalRecruitAtHex, enumerateGlobalDeployHexes,
   getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit, PRODUCTION_VTC_TYPES,
   getPlayerCapital, getPlayerCapitalBuildings, getEnemyCapitalBuildings, isPlayerCapitalBuilding,
-  isNavalDeployAllowed,
+  isNavalDeployAllowed, SETTLEMENT_UPGRADE,
 } from './GameState.js';
 import { ensureAIDesigns, pickAIRecruit, getClosingPressure } from './AIDesigner.js';
 import {
@@ -59,6 +59,97 @@ function getPerceivedEnemyUnits(gs, player, terrain, mapSize) {
 }
 
 const VTC_DEPLOY_TIER = { VILLAGE: 0, TOWN: 1, CITY: 2, HQ: 0 };
+
+function vtcStrategicWeight(b) {
+  if (!b) return 0;
+  if (b.type === 'CITY') return 10;
+  if (b.type === 'TOWN') return 7;
+  if (b.type === 'VILLAGE') return 4;
+  return 0;
+}
+
+function garrisonWantForVTC(vtc, turn, enemyNear) {
+  if (vtc.isCapital) return turn < 12 ? 2 : 1;
+  let want = vtc.type === 'CITY' ? 3 : vtc.type === 'TOWN' ? 2 : 1;
+  if (enemyNear) want += 1;
+  if (turn >= 24 && vtc.type === 'CITY') want += 1;
+  return want;
+}
+
+function listOwnedVTCSorted(gs, player, perceivedEnemies = [], capital = null) {
+  return gs.buildings
+    .filter(b => Number(b.owner) === Number(player) && !b.underConstruction
+      && ['VILLAGE', 'TOWN', 'CITY'].includes(b.type))
+    .map((vtc) => {
+      const threat = perceivedEnemies.filter(e => hexDistance(e.q, e.r, vtc.q, vtc.r) <= 14).length;
+      return {
+        vtc,
+        weight: vtcStrategicWeight(vtc),
+        threat,
+        dist: capital ? hexDistance(vtc.q, vtc.r, capital.q, capital.r) : 0,
+      };
+    })
+    .sort((a, b) => b.weight - a.weight || b.threat - a.threat || b.dist - a.dist);
+}
+
+function isCombatUnitForGarrison(u) {
+  const d = UNIT_TYPES[u.type] || {};
+  const role = getUnitRole(u.type);
+  return role !== 'engineer' && role !== 'support'
+    && ((d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0 || (d.attack || 0) > 0);
+}
+
+function canReassignForVTC(existing, vtc, guardsShort) {
+  if (!existing) return true;
+  if (existing.mission === 'hold_vtc' || existing.kind === 'settlement') return false;
+  if (['scout', 'probe', 'expand', 'diversion', 'garrison'].includes(existing.mission)) return true;
+  if (guardsShort && (vtc.type === 'CITY' || vtc.type === 'TOWN')) {
+    return ['main', 'closing'].includes(existing.mission);
+  }
+  return false;
+}
+
+/** Reserve combat units on owned VTCs before the main-push blob forms. */
+function assignOwnedVTCCoverage(gs, player, unitObjective, combatUnits, perceivedEnemies = []) {
+  const turn = gs.turn || 1;
+  if (turn < 2) return;
+  const capital = getPlayerCapital(gs, player);
+  const owned = listOwnedVTCSorted(gs, player, perceivedEnemies, capital);
+  if (!owned.length) return;
+
+  const pool = combatUnits.filter(isCombatUnitForGarrison);
+  const used = new Set();
+
+  for (const { vtc, threat } of owned) {
+    const enemyNear = threat > 0;
+    const want = garrisonWantForVTC(vtc, turn, enemyNear);
+    let onStation = gs.units.filter(u =>
+      Number(u.owner) === Number(player) && !u.embarked && isCombatUnitForGarrison(u)
+      && hexDistance(u.q, u.r, vtc.q, vtc.r) <= 2).length;
+    let assigned = 0;
+    while (onStation + assigned < want) {
+      let best = null;
+      let bestScore = -Infinity;
+      for (const u of pool) {
+        if (used.has(u.id)) continue;
+        const existing = unitObjective[u.id];
+        if (!canReassignForVTC(existing, vtc, onStation + assigned < want)) continue;
+        const d = hexDistance(u.q, u.r, vtc.q, vtc.r);
+        if (d > 28) continue;
+        let score = vtcStrategicWeight(vtc) * 8 - d;
+        if (capital && !vtc.isCapital) score += Math.min(12, hexDistance(u.q, u.r, capital.q, capital.r) * 0.15);
+        if (existing?.mission === 'main' || existing?.mission === 'closing') score -= 4;
+        if (score > bestScore) { bestScore = score; best = u; }
+      }
+      if (!best) break;
+      unitObjective[best.id] = {
+        q: vtc.q, r: vtc.r, mission: 'hold_vtc', kind: 'settlement', vtcType: vtc.type,
+      };
+      used.add(best.id);
+      assigned += 1;
+    }
+  }
+}
 
 function getOwnedProductionAnchors(gs, player) {
   return gs.buildings.filter(bb =>
@@ -1041,8 +1132,8 @@ function scoreRoadUtility(gs, player, q, r, mapSize = gs._mapSize || 40) {
   const hasRoad = !!roadAt(gs, q, r);
   if (hasRoad) return -999;
 
-  const myHQs = gs.buildings.filter(b => b.type === 'HQ' && Number(b.owner) === Number(player));
-  const enemyHQs = gs.buildings.filter(b => b.type === 'HQ' && Number(b.owner) !== Number(player));
+  const myHQs = getPlayerCapitalBuildings(gs, player);
+  const enemyHQs = gs.buildings.filter(b => isPlayerCapitalBuilding(b) && Number(b.owner) !== Number(player));
   const myUnits = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked);
   const myCombat = myUnits.filter(u => {
     const d = UNIT_TYPES[u.type] || {};
@@ -1104,9 +1195,11 @@ function scoreRoadUtility(gs, player, q, r, mapSize = gs._mapSize || 40) {
 
   // Owned VTCs are supply hubs — prefer road hexes that extend toward them.
   const ownedVTC = gs.buildings.filter(b => ['VILLAGE', 'TOWN', 'CITY'].includes(b.type) && Number(b.owner) === Number(player));
-  if (ownedVTC.length > 0) {
-    const dVtc = Math.min(...ownedVTC.map(v => hexDistance(q, r, v.q, v.r)));
-    networkScore += Math.max(0, 16 - dVtc * 1.6);
+  for (const v of ownedVTC) {
+    const dVtc = hexDistance(q, r, v.q, v.r);
+    const w = vtcStrategicWeight(v);
+    networkScore += Math.max(0, (w * 2.2) - dVtc * 1.4);
+    if (dVtc <= 2) networkScore += w * 0.8;
   }
 
   // ── Directional corridor bias ─────────────────────────────────────────────
@@ -1593,8 +1686,8 @@ function buildTerritorialIntel(terrain, mapSize, gs, player, strategic, resource
     if (b.underConstruction) continue;
     if (!['VILLAGE', 'TOWN', 'CITY'].includes(b.type)) continue;
     const owned = Number(b.owner) === Number(player);
-    const base = b.type === 'CITY' ? 14 : b.type === 'TOWN' ? 11 : 8;
-    expansions.push({ q: b.q, r: b.r, score: owned ? base * 1.2 : base + 4, type: 'settlement' });
+    const base = b.type === 'CITY' ? 18 : b.type === 'TOWN' ? 13 : 9;
+    expansions.push({ q: b.q, r: b.r, score: owned ? base * 1.45 : base + 5, type: 'settlement' });
   }
   for (const o of (strategic?.objectives?.corridor || [])) {
     if (o.type === 'forward' || o.type === 'resource') {
@@ -1626,16 +1719,16 @@ function buildTerritorialIntel(terrain, mapSize, gs, player, strategic, resource
 }
 
 /** Multi-mission doctrine: scouts, probes, diversions, main push, expand — not one blob to HQ. */
-function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemyHQs, myCombatUnits, resourceTargets) {
-  const unitObjective = {};
+function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemyHQs, myCombatUnits, resourceTargets, unitObjective = {}) {
   const missionCounts = {};
+  const freeCombat = myCombatUnits.filter(u => unitObjective[u.id]?.mission !== 'hold_vtc');
   const turn = gs.turn || 1;
   const phase = strategic?.phase || 'expand';
   const closing = phase === 'closing' || (strategic?.endgamePressure || 0) >= 0.5;
   const theater = strategic?.theater;
   const myHQ = getPlayerCapital(gs, player);
   const enemyHQ = strategic?.focusEnemyHQ || pickPrimaryEnemyHQ(gs, player, enemyHQs) || enemyHQs[0];
-  if (!myHQ || !enemyHQ || myCombatUnits.length < 2) {
+  if (!myHQ || !enemyHQ || freeCombat.length < 2) {
     return { unitObjective, deceptionActive: false, missionCounts };
   }
 
@@ -1689,8 +1782,16 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
     };
   }
 
+  const ownedVTC = gs.buildings.filter(b =>
+    Number(b.owner) === Number(player) && !b.underConstruction
+    && ['VILLAGE', 'TOWN', 'CITY'].includes(b.type) && !b.isCapital);
+  const settlementExpandTargets = [
+    ...ownedVTC.map(v => ({ q: v.q, r: v.r, type: 'settlement', score: vtcStrategicWeight(v) })),
+    ...(territorial?.expansions || []).filter(e => e.type === 'settlement'),
+  ];
+
   const pools = { scout: [], line: [], assault: [], indirect: [], anti: [] };
-  for (const u of myCombatUnits) {
+  for (const u of freeCombat) {
     if (AIR_UNITS.has(u.type)) {
       unitObjective[u.id] = { q: laneEnemy.q, r: laneEnemy.r, mission: 'air_patrol', kind: 'air' };
       missionCounts.air_patrol = (missionCounts.air_patrol || 0) + 1;
@@ -1750,6 +1851,16 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
     quotas.main = Math.max(2, quotas.main - Math.max(2, Math.floor(n * 0.18)));
     if (phase === 'stabilize') quotas.expand += Math.max(1, Math.floor(n * 0.08));
   }
+  if (ownedVTC.length >= 1 && !closing) {
+    const spread = Math.min(Math.floor(n * 0.22), Math.max(2, ownedVTC.length * 2));
+    quotas.expand += Math.max(1, Math.floor(spread * 0.5));
+    quotas.main = Math.max(1, quotas.main - Math.floor(spread * 0.45));
+    quotas.probe = Math.max(1, quotas.probe);
+  }
+  if (ownedVTC.length >= 2 && phase !== 'closing') {
+    quotas.main = Math.max(1, Math.floor(quotas.main * 0.55));
+    quotas.expand += Math.max(2, Math.floor(n * 0.1));
+  }
 
   const assign = (u, mission, target) => {
     unitObjective[u.id] = { q: target.q, r: target.r, mission, kind: mission };
@@ -1767,8 +1878,20 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
   }
 
   let idx = 0;
+  let expandTargetIdx = 0;
+  const pickExpandTarget = () => {
+    if (settlementExpandTargets.length) {
+      const t = settlementExpandTargets[expandTargetIdx % settlementExpandTargets.length];
+      expandTargetIdx++;
+      return { q: t.q, r: t.r };
+    }
+    return missionExpandTarget;
+  };
   const batch = (count, mission, target) => {
-    for (let i = 0; i < count && idx < remaining.length; i++, idx++) assign(remaining[idx], mission, target);
+    for (let i = 0; i < count && idx < remaining.length; i++, idx++) {
+      const t = mission === 'expand' ? pickExpandTarget() : target;
+      assign(remaining[idx], mission, t);
+    }
   };
   batch(quotas.diversion, 'diversion', diversionTarget);
   batch(quotas.probe, 'probe', probeTarget);
@@ -1879,66 +2002,46 @@ function assignEnemyExtractorRaidMissions(gs, player, unitObjective, combatUnits
   }
 }
 
-/** Hold owned VTCs and secure threatened neutrals (supply + forward deploy). */
+/** Capture / reinforce neutral VTCs (cities first) after owned coverage is assigned. */
 function assignHoldVTCCMissions(gs, player, unitObjective, combatUnits, perceivedEnemies = []) {
   const turn = gs.turn || 1;
   if (turn < 3) return;
   const capital = getPlayerCapital(gs, player);
-  const isCombatUnit = (u) => {
-    const d = UNIT_TYPES[u.type] || {};
-    const role = getUnitRole(u.type);
-    return role !== 'engineer' && role !== 'support'
-      && ((d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0 || (d.attack || 0) > 0);
-  };
   const pool = combatUnits.filter((u) => {
     const m = unitObjective[u.id]?.mission;
-    return !m || m === 'expand' || m === 'probe' || m === 'garrison' || m === 'hold_vtc';
+    return m !== 'hold_vtc' && (!m || ['expand', 'probe', 'garrison'].includes(m));
   });
 
-  const ownedVTC = gs.buildings.filter(b =>
-    Number(b.owner) === Number(player) && !b.underConstruction
-    && ['VILLAGE', 'TOWN', 'CITY'].includes(b.type));
-  for (const vtc of ownedVTC) {
-    if (vtc.isCapital) continue;
-    const want = vtc.type === 'CITY' ? 2 : vtc.type === 'TOWN' ? 2 : 1;
-    const guards = gs.units.filter(u =>
-      Number(u.owner) === Number(player) && !u.embarked && isCombatUnit(u)
-      && hexDistance(u.q, u.r, vtc.q, vtc.r) <= 2).length;
-    if (guards >= want) continue;
-    const enemyNear = perceivedEnemies.some(e => hexDistance(e.q, e.r, vtc.q, vtc.r) <= 12);
-    let best = null;
-    let bestD = Infinity;
-    for (const u of pool) {
-      if (unitObjective[u.id]?.kind === 'hold_vtc') continue;
-      const d = hexDistance(u.q, u.r, vtc.q, vtc.r);
-      if (d < bestD) { bestD = d; best = u; }
-    }
-    if (best && bestD <= (enemyNear ? 22 : 18)) {
-      unitObjective[best.id] = { q: vtc.q, r: vtc.r, mission: 'hold_vtc', kind: 'settlement' };
-    }
-  }
+  const neutralVTC = gs.buildings
+    .filter(b => Number(b.owner) === 0 && !b.underConstruction
+      && ['VILLAGE', 'TOWN', 'CITY'].includes(b.type))
+    .map(vtc => ({
+      vtc,
+      weight: vtcStrategicWeight(vtc),
+      nearOwned: gs.buildings.some(v =>
+        Number(v.owner) === Number(player) && ['VILLAGE', 'TOWN', 'CITY'].includes(v.type)
+        && hexDistance(v.q, v.r, vtc.q, vtc.r) <= 16),
+      threat: perceivedEnemies.filter(e => hexDistance(e.q, e.r, vtc.q, vtc.r) <= 10).length,
+    }))
+    .sort((a, b) => b.weight - a.weight || Number(b.nearOwned) - Number(a.nearOwned) || b.threat - a.threat);
 
-  const neutralVTC = gs.buildings.filter(b =>
-    Number(b.owner) === 0 && !b.underConstruction
-    && ['VILLAGE', 'TOWN', 'CITY'].includes(b.type));
   let secured = 0;
-  const maxSecure = turn < 20 ? 3 : 5;
-  for (const vtc of neutralVTC) {
+  const maxSecure = turn < 20 ? 4 : 7;
+  for (const { vtc, nearOwned } of neutralVTC) {
     if (secured >= maxSecure) break;
-    const nearCap = capital && hexDistance(vtc.q, vtc.r, capital.q, capital.r) <= 22;
-    const enemyNear = perceivedEnemies.some(e => hexDistance(e.q, e.r, vtc.q, vtc.r) <= 8);
     const enemyOn = gs.units.some(u => Number(u.owner) !== Number(player) && !u.embarked
       && hexDistance(u.q, u.r, vtc.q, vtc.r) <= 2);
-    if (!nearCap && !enemyNear && !enemyOn) continue;
+    const nearCap = capital && hexDistance(vtc.q, vtc.r, capital.q, capital.r) <= 24;
+    if (!nearOwned && !nearCap && !enemyOn) continue;
     let best = null;
     let bestD = Infinity;
     for (const u of pool) {
-      if (unitObjective[u.id]?.kind === 'settlement' || unitObjective[u.id]?.kind === 'hold_vtc') continue;
+      if (unitObjective[u.id]?.kind === 'settlement') continue;
       const d = hexDistance(u.q, u.r, vtc.q, vtc.r);
       if (d < bestD) { bestD = d; best = u; }
     }
-    if (best && bestD <= 24) {
-      unitObjective[best.id] = { q: vtc.q, r: vtc.r, mission: 'expand', kind: 'settlement' };
+    if (best && bestD <= 26) {
+      unitObjective[best.id] = { q: vtc.q, r: vtc.r, mission: 'expand', kind: 'settlement', vtcType: vtc.type };
       secured += 1;
     }
   }
@@ -2124,6 +2227,22 @@ function planResearchFloorActions(gs, player, terrain, actions, resSim, canAffor
 function assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjective, combatUnits, flankCount) {
   const turn = gs.turn || 1;
   if (!territorial || turn < 8 || !combatUnits?.length) return;
+
+  const ownedSettle = gs.buildings
+    .filter(b => Number(b.owner) === Number(player) && !b.underConstruction
+      && ['VILLAGE', 'TOWN', 'CITY'].includes(b.type) && !b.isCapital)
+    .map(b => ({ q: b.q, r: b.r, score: vtcStrategicWeight(b) }))
+    .sort((a, b) => b.score - a.score);
+  let settleIdx = 0;
+  for (const u of combatUnits) {
+    if (settleIdx >= ownedSettle.length) break;
+    const existing = unitObjective[u.id]?.mission;
+    if (existing && !['expand', 'probe', 'garrison'].includes(existing)) continue;
+    const role = getUnitRole(u.type);
+    if (role === 'engineer' || role === 'support' || role === 'indirect') continue;
+    const t = ownedSettle[settleIdx++];
+    unitObjective[u.id] = { q: t.q, r: t.r, kind: 'settlement', mission: 'hold_vtc' };
+  }
 
   const chokes = territorial.chokes || [];
   const coasts = territorial.coastal || [];
@@ -2431,10 +2550,11 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   if ((obj?.kind === 'settlement' || obj?.kind === 'hold_vtc' || mission === 'hold_vtc') && mission !== 'expand') {
     const dNew = hexDistance(q, r, obj.q, obj.r);
     const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
-    if (dNew < dCur) score += 30 * (phase.economy || 1);
-    if (dNew <= 1) score += 26;
-    if (dNew <= 3) score += 12;
-    if (dCur <= 1 && dNew > 3) score -= 24;
+    const vtcW = obj?.vtcType === 'CITY' ? 1.35 : obj?.vtcType === 'TOWN' ? 1.15 : 1;
+    if (dNew < dCur) score += 34 * (phase.economy || 1) * vtcW;
+    if (dNew <= 1) score += 32 * vtcW;
+    if (dNew <= 3) score += 14;
+    if (dCur <= 1 && dNew > 3) score -= 28;
     const nearEnemy = enemies.length > 0 ? Math.min(...enemies.map((e) => hexDistance(q, r, e.q, e.r))) : 99;
     if (nearEnemy <= 4 && dNew <= 2) score += 14;
     if (nearEnemy <= 2 && dNew > 4) score -= 16;
@@ -2543,6 +2663,19 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
     }
   }
 
+  const capital = ctx.capital || myHQs[0];
+  if (capital && role !== 'engineer' && role !== 'support') {
+    const onCap = hexDistance(q, r, capital.q, capital.r) <= 4;
+    const wasOnCap = hexDistance(unit.q, unit.r, capital.q, capital.r) <= 4;
+    const holdingForward = mission === 'hold_vtc' || obj?.kind === 'settlement';
+    if (wasOnCap && onCap && !holdingForward && enemies.length === 0 && (gs.turn || 1) > 10) {
+      score -= 14;
+    }
+    const ownedHere = gs.buildings.find(b => b.q === q && b.r === r
+      && ['VILLAGE', 'TOWN', 'CITY'].includes(b.type) && Number(b.owner) === Number(unit.owner));
+    if (ownedHere && !ownedHere.isCapital) score += vtcStrategicWeight(ownedHere) * 1.2;
+  }
+
   // Defensive: reward moving toward own HQ
   if (cfg.retreatToHQ && myHQs.length > 0) {
     const nearestHQ  = Math.min(...myHQs.map(b => hexDistance(q, r, b.q, b.r)));
@@ -2597,6 +2730,11 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
       score += buildValue * phase.economy;
       if (!hasRoad && gs.turn >= 3) score += 5 * phase.logistics; // infra bias
       const roadUtility = scoreRoadUtility(gs, unit.owner, q, r);
+      for (const v of gs.buildings.filter(b =>
+        Number(b.owner) === Number(unit.owner) && ['VILLAGE', 'TOWN', 'CITY'].includes(b.type))) {
+        const dv = hexDistance(q, r, v.q, v.r);
+        if (dv <= 10) score += vtcStrategicWeight(v) * (phase.logistics || 1) * 0.35;
+      }
       if (!hasRoad) score += Math.max(0, roadUtility * 0.45) * phase.logistics;
       if ((ctx.roadDeficit || 0) > 0 && !hasRoad) score += 10 + (ctx.roadDeficit * 2); // soft guardrail while still utility-driven
       if (ctx.roadCaptainId && unit.id === ctx.roadCaptainId && !hasRoad) score += 18 + Math.max(0, roadUtility * 0.35);
@@ -2955,8 +3093,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     return pr(ra) - pr(rb);
   });
 
-  const { unitObjective, deceptionActive, missionCounts } = assignCombatMissions(
-    gs, player, mapSize, strategic, territorial, enemyHQs, sortedCombat, resourceTargets
+  const unitObjective = {};
+  assignOwnedVTCCoverage(gs, player, unitObjective, sortedCombat, perceivedEnemies);
+  const { deceptionActive, missionCounts } = assignCombatMissions(
+    gs, player, mapSize, strategic, territorial, enemyHQs, sortedCombat, resourceTargets, unitObjective,
   );
   const flankCountForGarrison = missionCounts.garrison || missionCounts.diversion || 2;
   assignResourceGarrisonMissions(gs, player, unitObjective, sortedCombat);
@@ -2980,6 +3120,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const roadCaptainId = myEngineersNow.length > 0 ? myEngineersNow.sort((a,b) => a.id - b.id)[0].id : null;
   const aiCtx = {
     deceptionTurn: deceptionActive, resourceTargets, unitObjective, phaseWeights,
+    capital: getPlayerCapital(gs, player),
     roadDeficit: roadDeficitGlobal, roadCaptainId,
     logisticsPressure, logisticsEmergency, dynamicRoadTarget,
     strategic, territorial, transportMission,
@@ -3921,6 +4062,21 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   }
 
   const waterMap = situation?.islandMap || (situation?.waterRatio || 0) >= 0.18;
+
+  if ((gs.turn || 1) >= 12 && !actions.some(a => a.type === 'upgrade_settlement')) {
+    for (const { vtc } of listOwnedVTCSorted(gs, player, perceivedEnemies, myCapital)) {
+      if (vtc.isCapital) continue;
+      const up = SETTLEMENT_UPGRADE[vtc.type];
+      if (!up) continue;
+      const c = up.cost || {};
+      const pl = gs.players[player] || {};
+      if ((pl.iron || 0) >= (c.iron || 0) && (pl.oil || 0) >= (c.oil || 0)
+        && (pl.wood || 0) >= (c.wood || 0) && (pl.components || 0) >= (c.components || 0)) {
+        actions.push({ type: 'upgrade_settlement', buildingId: vtc.id });
+        break;
+      }
+    }
+  }
 
   // Global production queue: pick best VTC (forward for land, coastal town/city for naval).
   if (!globalQueueBusy && plannedRecruits < armyBudget.maxRecruitsPerTurn) {
