@@ -16,7 +16,7 @@ import {
   UNIT_TYPES, BUILDING_TYPES, AIR_UNITS, NAVAL_UNITS,
   MODULES, CHASSIS_BUILDINGS, getMaxDesignSlots,
   designRegistrationCost, computeDesignStats,
-  getReachableHexes, getAttackableHexes, hexDistance, buildingAt, roadAt, getCachedSupply, getRecruitFoodCost,
+  getReachableHexesForAI, getAttackableHexes, hexDistance, buildingAt, roadAt, getCachedSupply, getRecruitFoodCost,
   ROAD_TYPES, unitAt, computeFog, buildHQRoadNetwork, isHQNetworkPluggedToNeutralRoads,
   queueGlobalRecruit, deployReadyGlobalRecruitAtHex, enumerateGlobalDeployHexes,
   getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit, PRODUCTION_VTC_TYPES,
@@ -3085,6 +3085,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const player  = gs.currentPlayer;
   const cfg     = AI_STRATEGIES[strategy] ?? AI_STRATEGIES.balanced;
   const actions = [];
+  const plannerOverBudget = () => gs._aiPlannerDeadline && performance.now() > gs._aiPlannerDeadline;
   const perceivedEnemies = getPerceivedEnemyUnits(gs, player, terrain, mapSize);
   gs._aiEnemyView = gs._aiEnemyView || {};
   gs._aiEnemyView[player] = perceivedEnemies;
@@ -3268,6 +3269,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     .map(u => u.id);
 
   for (const uid of unitIds) {
+    if (plannerOverBudget()) break;
     const unit = gs.units.find(u => u.id === uid);
     if (!unit || unit.owner !== player || unit.embarked) continue;
     if (unit.fuel !== undefined && unit.fuel <= 0) continue; // no fuel
@@ -3360,7 +3362,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       // Temporarily restore full budget for reachable calc
       const savedMovesLeft = unit.movesLeft;
       unit.movesLeft = unitDef.move ?? unit.movesLeft ?? 1;
-      const reachable = unit.moved ? [] : getReachableHexes(gs, unit, terrain, mapSize);
+      const reachable = unit.moved ? [] : getReachableHexesForAI(gs, unit, terrain, mapSize);
       unit.movesLeft  = savedMovesLeft;
 
       if (reachable.length > 0) {
@@ -4483,7 +4485,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       }
 
       // Case B: move to a nearby roadable tile this turn, then build road there.
-      const reachable = getReachableHexes(gs, eng, terrain, mapSize) || [];
+      const reachable = getReachableHexesForAI(gs, eng, terrain, mapSize) || [];
       const cand = reachable
         .filter(h => roadableHere(h.q, h.r))
         .filter(h => !isImmediateBacktrack(eng, h, moveMemory?.[eng.id], gs.turn || 1))
@@ -4665,7 +4667,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       for (const eng of fobEngs) {
         const nearest = uncoveredFOBs.reduce((a, b) => hexDistance(eng.q, eng.r, a.q, a.r) <= hexDistance(eng.q, eng.r, b.q, b.r) ? a : b);
         if (hexDistance(eng.q, eng.r, nearest.q, nearest.r) <= 2) continue; // already close, let build logic handle
-        const reachable = getReachableHexes(gs, eng, terrain, mapSize) || [];
+        const reachable = getReachableHexesForAI(gs, eng, terrain, mapSize) || [];
         const best = reachable
           .filter(h => hexDistance(h.q, h.r, nearest.q, nearest.r) < hexDistance(eng.q, eng.r, nearest.q, nearest.r))
           .filter(h => !isImmediateBacktrack(eng, h, moveMemory?.[eng.id], gs.turn || 1))
@@ -4691,7 +4693,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       for (const eng of gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked && !u.constructing)) {
         if (actedPlugIds.has(eng.id)) continue;
         if (hexDistance(eng.q, eng.r, plugTarget.q, plugTarget.r) <= 2) continue;
-        const reachable = getReachableHexes(gs, eng, terrain, mapSize) || [];
+        const reachable = getReachableHexesForAI(gs, eng, terrain, mapSize) || [];
         const best = reachable
           .filter(h => hexDistance(h.q, h.r, plugTarget.q, plugTarget.r) < hexDistance(eng.q, eng.r, plugTarget.q, plugTarget.r))
           .filter(h => !isImmediateBacktrack(eng, h, moveMemory?.[eng.id], gs.turn || 1))
@@ -4728,7 +4730,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       engSweepCount += 1;
       continue;
     }
-    const reachable = getReachableHexes(gs, eng, terrain, mapSize) || [];
+    const reachable = getReachableHexesForAI(gs, eng, terrain, mapSize) || [];
     const cand = reachable
       .filter(h => roadableHereFinal(h.q, h.r))
       .filter(h => !isImmediateBacktrack(eng, h, moveMemory?.[eng.id], gs.turn || 1))

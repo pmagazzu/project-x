@@ -50,7 +50,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.20.4';
+export const GAME_VERSION = 'v1.20.5';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -1493,7 +1493,11 @@ export class GameScene extends Phaser.Scene {
       this._currentFog = null;
       if (this.fogRT) this.fogRT.setVisible(false);
     } else {
-      this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
+      const fogSig = this._fogVisionSignature();
+      if (fogSig !== this._fogCacheSig) {
+        this._fogCacheSig = fogSig;
+        this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
+      }
       // Track discovered hex memory per player (used for fogged-road visibility)
       this._discovered = this._discovered || {};
       const cp = Number(this.gameState.currentPlayer) || 1;
@@ -2642,14 +2646,32 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ── Fog of war ────────────────────────────────────────────────────────────
+  _fogVisionSignature() {
+    const gs = this.gameState;
+    const cp = Number(gs?.currentPlayer) || 1;
+    let sig = `${cp}|${gs?.turn || 0}|`;
+    for (const u of gs?.units || []) {
+      if (Number(u.owner) !== cp) continue;
+      sig += `u${u.id}:${u.q},${u.r};`;
+    }
+    for (const b of gs?.buildings || []) {
+      if (Number(b.owner) !== cp) continue;
+      const sight = BUILDING_TYPES[b.type]?.sight || 0;
+      if (sight > 0) sig += `b${b.id}:${b.q},${b.r};`;
+    }
+    return sig;
+  }
+
   // Call at turn start to lock in fog for the planning phase
   _freezeFog() {
     this.gameState.currentPlayer = Number(this.gameState.currentPlayer) || 1;
     if (this.debugNoFog) {
       this._currentFog = null;
+      this._fogCacheSig = null;
       if (this.fogRT) this.fogRT.setVisible(false);
       return;
     }
+    this._fogCacheSig = this._fogVisionSignature();
     this._currentFog = computeFog(this.gameState, this.gameState.currentPlayer, this.mapSize, this.terrain);
     this._discovered = this._discovered || { 1: new Set(), 2: new Set() };
     const cp = Number(this.gameState.currentPlayer) || 1;
@@ -8357,11 +8379,18 @@ export class GameScene extends Phaser.Scene {
       this._addToUI([overlay, lbl, kpiLbl]);
     }
 
-    // Plan all actions (does NOT execute — pure data)
+    const runPlannedAITurn = () => {
+    if (this._aiTurnId !== turnId) return;
+    // Plan all actions (does NOT execute — pure data). Yield first so UI can paint "acting…".
     let actions = [];
+    const mapN = Number(this.mapSize || gs._mapSize || 40);
+    const plannerMs = mapN >= 60 ? 6000 : 8000;
+    gs._aiPlannerDeadline = performance.now() + plannerMs;
+    const tPlan0 = performance.now();
     try {
       actions = planAITurn(gs, this.terrain, this.mapSize, this.aiStrategies?.[gs.currentPlayer] || this.aiStrategy);
     } catch (e) {
+      delete gs._aiPlannerDeadline;
       this._pushLog(`AI planner crash: ${e?.message || e}`);
       this._aiTelemetry = this._aiTelemetry || {};
       this._aiTelemetry[gs.currentPlayer] = {
@@ -8379,6 +8408,12 @@ export class GameScene extends Phaser.Scene {
       this._aiLastProgressAt = Date.now();
       this._onSubmit();
       return;
+    } finally {
+      delete gs._aiPlannerDeadline;
+    }
+    const planMs = performance.now() - tPlan0;
+    if (planMs > 2500) {
+      this._pushLog(`AI P${gs.currentPlayer}: planner took ${Math.round(planMs)}ms (${actions.length} actions)`);
     }
     actions = this._dropNoProgressMoves(actions, gs, gs.currentPlayer, gs._aiDebug?.[gs.currentPlayer]);
     actions = this._prioritizeAIActions(actions);
@@ -8490,6 +8525,10 @@ export class GameScene extends Phaser.Scene {
     }, turnId);
 
     this._executeAIActions(actions, 0, finishAITurn, turnId);
+    };
+
+    if (lbl) lbl.setText(`⚙  AI Player ${gs.currentPlayer} — ${stratLabel} — planning…`);
+    this.time.delayedCall(0, runPlannedAITurn);
   }
 
   _executeAIActions(actions, index, onDone, turnId = this._aiTurnId) {

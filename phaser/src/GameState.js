@@ -1440,11 +1440,12 @@ export const LOS_BLOCKING = new Set([1, 2, 3, 7]); // dense forest, mountain, hi
 export const HILL_SIGHT_BONUS = 2;
 
 // ── Pathfinding (Dijkstra for terrain costs) ───────────────────────────────
-export function getReachableHexes(state, unit, terrain, mapSize) {
+export function getReachableHexes(state, unit, terrain, mapSize, opts = null) {
   // Indirect-fire teams (mortar/artillery) cannot move after firing.
   if (unit.attacked && INDIRECT_FIRE.has(unit.type)) return [];
   // Use remaining movement budget if tracked, otherwise full move allowance
   const maxMove = unit.movesLeft ?? UNIT_TYPES[unit.type].move;
+  const maxVisited = opts?.maxVisited ?? 0;
   const dist  = new Map();
   const visited = new Set();
   const queue = [{ q: unit.q, r: unit.r, cost: 0 }];
@@ -1461,6 +1462,7 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
   }
 
   while (queue.length > 0) {
+    if (maxVisited > 0 && visited.size >= maxVisited) break;
     // Dijkstra: pick lowest-cost node without sorting the whole queue each step.
     let bestIdx = 0;
     for (let i = 1; i < queue.length; i++) {
@@ -1510,6 +1512,13 @@ export function getReachableHexes(state, unit, terrain, mapSize) {
     if (isEngineer && occupant.owner === unit.owner) result.push({ q, r, cost: movCost });
   }
   return result;
+}
+
+/** AI planner path cap — full reachability not needed for move scoring on large maps. */
+export function getReachableHexesForAI(state, unit, terrain, mapSize) {
+  const ms = mapSize || state._mapSize || 40;
+  const maxVisited = ms >= 60 ? 96 : (ms >= 45 ? 128 : 0);
+  return getReachableHexes(state, unit, terrain, mapSize, maxVisited > 0 ? { maxVisited } : null);
 }
 
 // Returns hexes occupied by visible enemies — used for "known target" highlighting
@@ -1628,32 +1637,23 @@ export function isStealthDetected(state, stealthyUnit, byPlayer) {
   return false;
 }
 
-export function computeFog(state, player, mapSize, terrain) {
-  const visible = new Set();
+function _expandFogFromSource(visible, src, mapSize, terrain) {
+  const cost = new Map();
+  const startKey = `${src.q},${src.r}`;
+  cost.set(startKey, 0);
+  const queue = [{ q: src.q, r: src.r, spent: 0 }];
+  while (queue.length > 0) {
+    let bestIdx = 0;
+    for (let i = 1; i < queue.length; i++) {
+      if (queue[i].spent < queue[bestIdx].spent) bestIdx = i;
+    }
+    const { q, r, spent } = queue.splice(bestIdx, 1)[0];
+    const key = `${q},${r}`;
+    if (spent > (cost.get(key) ?? Infinity)) continue; // stale entry
+    visible.add(key);
+    if (spent >= src.sight) continue;
 
-  // Sight sources: friendly units + observation posts
-  const pNum = Number(player);
-  const sources = [
-    ...state.units.filter(u => Number(u.owner) === pNum).map(u => ({ q: u.q, r: u.r, sight: UNIT_TYPES[u.type].sight })),
-    ...state.buildings.filter(b => Number(b.owner) === pNum && BUILDING_TYPES[b.type].sight > 0)
-                      .map(b => ({ q: b.q, r: b.r, sight: BUILDING_TYPES[b.type].sight })),
-  ];
-
-  for (const src of sources) {
-    // Use Dijkstra-style expansion tracking accumulated sight cost
-    const cost = new Map();
-    const startKey = `${src.q},${src.r}`;
-    cost.set(startKey, 0);
-    const queue = [{ q: src.q, r: src.r, spent: 0 }];
-    while (queue.length > 0) {
-      queue.sort((a, b) => a.spent - b.spent);
-      const { q, r, spent } = queue.shift();
-      const key = `${q},${r}`;
-      if (spent > (cost.get(key) ?? Infinity)) continue; // stale entry
-      visible.add(key);
-      if (spent >= src.sight) continue;
-
-      for (const [dq, dr] of HEX_NEIGHBORS) {
+    for (const [dq, dr] of HEX_NEIGHBORS) {
         const nq = q + dq, nr = r + dr;
         if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) continue;
         const nkey = `${nq},${nr}`;
@@ -1676,6 +1676,21 @@ export function computeFog(state, player, mapSize, terrain) {
         }
       }
     }
+}
+
+export function computeFog(state, player, mapSize, terrain) {
+  const visible = new Set();
+
+  // Sight sources: friendly units + observation posts
+  const pNum = Number(player);
+  const sources = [
+    ...state.units.filter(u => Number(u.owner) === pNum).map(u => ({ q: u.q, r: u.r, sight: UNIT_TYPES[u.type].sight })),
+    ...state.buildings.filter(b => Number(b.owner) === pNum && BUILDING_TYPES[b.type].sight > 0)
+                      .map(b => ({ q: b.q, r: b.r, sight: BUILDING_TYPES[b.type].sight })),
+  ];
+
+  for (const src of sources) {
+    _expandFogFromSource(visible, src, mapSize, terrain);
   }
 
   // Fallback: never return empty vision for a player who still has an HQ (avoids full-map fog blackout).
@@ -1683,34 +1698,7 @@ export function computeFog(state, player, mapSize, terrain) {
     for (const b of state.buildings) {
       if (Number(b.owner) !== pNum || b.type !== 'HQ') continue;
       const sight = BUILDING_TYPES.HQ?.sight || 3;
-      const cost = new Map();
-      const startKey = `${b.q},${b.r}`;
-      cost.set(startKey, 0);
-      const queue = [{ q: b.q, r: b.r, spent: 0 }];
-      while (queue.length > 0) {
-        queue.sort((a, b2) => a.spent - b2.spent);
-        const { q, r, spent } = queue.shift();
-        const key = `${q},${r}`;
-        if (spent > (cost.get(key) ?? Infinity)) continue;
-        visible.add(key);
-        if (spent >= sight) continue;
-        for (const [dq, dr] of HEX_NEIGHBORS) {
-          const nq = q + dq, nr = r + dr;
-          if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) continue;
-          const nkey = `${nq},${nr}`;
-          const t = terrain ? (terrain[nkey] ?? 0) : 0;
-          const stepCost = t === 2 ? sight : t === 1 ? 2 : 1;
-          const newSpent = spent + stepCost;
-          if (newSpent > sight) {
-            if (t !== 0) visible.add(nkey);
-            continue;
-          }
-          if (newSpent < (cost.get(nkey) ?? Infinity)) {
-            cost.set(nkey, newSpent);
-            queue.push({ q: nq, r: nr, spent: newSpent });
-          }
-        }
-      }
+      _expandFogFromSource(visible, { q: b.q, r: b.r, sight }, mapSize, terrain);
     }
   }
 
