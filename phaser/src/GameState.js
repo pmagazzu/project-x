@@ -1846,7 +1846,7 @@ function getBuildingTierForDeploy(b) {
   return -1;
 }
 
-function isNavalDeployAllowed(state, b, maxR = 6) {
+export function isNavalDeployAllowed(state, b, maxR = 6) {
   if (!b) return false;
   if (b.starterNaval) return true;
   const ms = state._mapSize || 25;
@@ -1917,7 +1917,12 @@ export function getGlobalRecruitOptionsForVTC(state, player, buildingId) {
   return all.filter((unitType) => {
     const def = UNIT_TYPES[unitType] || {};
     if (def.unlockedBy && !(state.players[player]?.research?.unlocked || []).includes(def.unlockedBy)) return false;
-    if (NAVAL_UNITS.has(unitType)) return isNavalDeployAllowed(state, b, 6) && tier >= 1;
+    if (NAVAL_UNITS.has(unitType)) {
+      const coastal = isNavalDeployAllowed(state, b, tier === 0 ? 8 : 6);
+      const tierOk = tier >= 1 || (tier === 0 && coastal && (b.starterNaval || b.isCapital));
+      const lightNavalOnly = unitType === 'PATROL_BOAT' || unitType === 'SUPPLY_SHIP';
+      return coastal && tierOk && (tier >= 1 || lightNavalOnly);
+    }
     if (AIR_UNITS.has(unitType)) return tier >= (tier === 0 ? 0 : 0); // villages allow light air in Phase A
     if (unitType === 'TANK' || unitType === 'ARTILLERY') return tier >= 1;
     return true;

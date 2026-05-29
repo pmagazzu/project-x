@@ -50,7 +50,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.20.1';
+export const GAME_VERSION = 'v1.20.2';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -10076,6 +10076,7 @@ export class GameScene extends Phaser.Scene {
       // Home capital village + starting dirt road + deploy/supply ring
       const capital = createBuilding('VILLAGE', player, hq.q, hq.r);
       capital.isCapital = true;
+      if (adjWater(hq.q, hq.r)) capital.starterNaval = true;
       gs.buildings.push(capital);
       gs.buildings.push(createBuilding('ROAD', player, hq.q, hq.r));
       for (const [dq, dr] of NEIGHBORS) {

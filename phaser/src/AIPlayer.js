@@ -21,6 +21,7 @@ import {
   queueGlobalRecruit, deployReadyGlobalRecruitAtHex, enumerateGlobalDeployHexes,
   getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit, PRODUCTION_VTC_TYPES,
   getPlayerCapital, getPlayerCapitalBuildings, getEnemyCapitalBuildings, isPlayerCapitalBuilding,
+  isNavalDeployAllowed,
 } from './GameState.js';
 import { ensureAIDesigns, pickAIRecruit, getClosingPressure } from './AIDesigner.js';
 import {
@@ -55,6 +56,90 @@ function getPerceivedEnemyUnits(gs, player, terrain, mapSize) {
   }
   gs._aiEnemyIntel[player] = nextIntel;
   return Object.values(nextIntel);
+}
+
+const VTC_DEPLOY_TIER = { VILLAGE: 0, TOWN: 1, CITY: 2, HQ: 0 };
+
+function getOwnedProductionAnchors(gs, player) {
+  return gs.buildings.filter(bb =>
+    PRODUCTION_VTC_TYPES.has(bb.type) && Number(bb.owner) === Number(player) && !bb.underConstruction);
+}
+
+function pickBestVTCToQueue(gs, player, unitType, capital) {
+  const anchors = getOwnedProductionAnchors(gs, player)
+    .map(bb => ({
+      building: bb,
+      dist: capital ? hexDistance(bb.q, bb.r, capital.q, capital.r) : 0,
+      coastal: isNavalDeployAllowed(gs, bb, 8),
+      tier: VTC_DEPLOY_TIER[bb.type] ?? (bb.isCapital ? 0 : -1),
+      isCap: isPlayerCapitalBuilding(bb),
+    }))
+    .filter(a => getGlobalRecruitOptionsForVTC(gs, player, a.building.id).includes(unitType));
+  if (!anchors.length) return null;
+  const isNaval = NAVAL_UNITS.has(unitType);
+  if (isNaval) {
+    anchors.sort((a, b) => (b.tier - a.tier) || (b.coastal - a.coastal) || (b.dist - a.dist));
+    return anchors[0].building;
+  }
+  anchors.sort((a, b) => {
+    if (a.isCap !== b.isCap) return a.isCap ? 1 : -1;
+    return b.dist - a.dist;
+  });
+  return anchors[0].building;
+}
+
+function scoreGlobalDeploySite(gs, player, site, ready, terrain, ctx) {
+  const anchor = gs.buildings.find(b => b.id === site.buildingId);
+  const isNaval = NAVAL_UNITS.has(ready.type);
+  const t = terrain?.[`${site.q},${site.r}`] ?? 0;
+  const isWater = t === 4 || t === 5;
+  if (isNaval && !isWater) return -9999;
+  if (!isNaval && isWater) return -9999;
+
+  let score = 0;
+  const { capital, focusEnemy, unitObjective, territorial } = ctx;
+
+  if (anchor && capital && !isPlayerCapitalBuilding(anchor)) {
+    score += hexDistance(anchor.q, anchor.r, capital.q, capital.r) * 1.4;
+  }
+  if (anchor?.type === 'CITY') score += 10;
+  else if (anchor?.type === 'TOWN') score += 6;
+  else if (anchor?.type === 'VILLAGE' && !anchor?.isCapital) score += 3;
+
+  if (isNaval) {
+    if (anchor && isNavalDeployAllowed(gs, anchor, 8)) score += 16;
+    const nearCoastLand = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]].some(([dq, dr]) => {
+      const t2 = terrain?.[`${site.q + dq},${site.r + dr}`] ?? 0;
+      return t2 !== 4 && t2 !== 5;
+    });
+    if (nearCoastLand) score += 8;
+  }
+
+  for (const b of gs.buildings) {
+    if (!['VILLAGE', 'TOWN', 'CITY'].includes(b.type)) continue;
+    const d = hexDistance(site.q, site.r, b.q, b.r);
+    if (d > 3) continue;
+    if (Number(b.owner) === Number(player) && !isPlayerCapitalBuilding(b)) score += 22 - d * 4;
+    if (Number(b.owner) === 0) score += 14 - d * 3;
+  }
+
+  if (focusEnemy) score += Math.max(0, 28 - hexDistance(site.q, site.r, focusEnemy.q, focusEnemy.r));
+  const combatDeploy = ['INFANTRY', 'ANTI_TANK', 'MORTAR', 'RECON', 'TANK', 'ARTILLERY', 'ASSAULT_INFANTRY'].includes(ready.type);
+  if (combatDeploy) {
+    score += countFriendliesNear(gs, player, site.q, site.r, 2) * -1.8;
+    const threat = countHexThreats(gs, player, site.q, site.r, 4);
+    score -= threat.ground * 2.2 + threat.indirect * 3;
+  }
+
+  const holdTarget = Object.values(unitObjective || {}).find(o =>
+    (o?.mission === 'hold_vtc' || o?.kind === 'settlement') && o.q != null && hexDistance(o.q, o.r, site.q, site.r) <= 4);
+  if (holdTarget) score += 18;
+
+  const expand = territorial?.expansions?.find(e => hexDistance(e.q, e.r, site.q, site.r) <= 5);
+  if (expand) score += expand.score || 6;
+
+  if (site.buildingType === 'HQ' || anchor?.isCapital) score -= 4;
+  return score;
 }
 
 function isImmediateBacktrack(unit, dest, lastMove, turnNow) {
@@ -3659,8 +3744,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     if (plannedRecruits >= maxRecruitsThisTurn) return false;
     if (projectedUnits >= armyBudget.maxUnits) return false;
     if (isCombatUnitType(unitType) && projectedCombat >= armyBudget.maxCombat) return false;
-    if (armyRebuildMode && (NAVAL_UNITS.has(unitType) || AIR_UNITS.has(unitType))) return false;
-    if (armyRebuildMode && (unitType === 'SUPPLY_SHIP' || unitType === 'SUPPLY_TRUCK')) return false;
+    const waterMapRebuild = situation?.islandMap || (situation?.waterRatio || 0) >= 0.18;
+    if (armyRebuildMode && AIR_UNITS.has(unitType)) return false;
+    if (armyRebuildMode && NAVAL_UNITS.has(unitType) && !waterMapRebuild) return false;
+    if (armyRebuildMode && unitType === 'SUPPLY_TRUCK') return false;
+    if (armyRebuildMode && unitType === 'SUPPLY_SHIP' && !waterMapRebuild) return false;
     if (unitType === 'ENGINEER') {
       const engN = (plannedCount.ENGINEER || 0)
         + gs.units.filter(u => u.owner === player && u.type === 'ENGINEER').length;
@@ -3701,7 +3789,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const myEngNow = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked).length;
   const queuedEngNow = actions.filter(a => a.type === 'recruit' && a.unitType === 'ENGINEER').length;
   const unworkedResSites = getUnclaimedResourceSites(gs, player).length;
-  const myHQ = myBuildings.find(bb => bb.type === 'HQ' && !bb.underConstruction);
+  const myCapital = getPlayerCapital(gs, player)
+    || myBuildings.find(bb => isPlayerCapitalBuilding(bb) && !bb.underConstruction);
   let globalQueueBusy = (gs.pendingGlobalRecruits || []).some(r => Number(r.owner) === Number(player));
 
   const queueGlobalFromBuilding = (building, unitType) => {
@@ -3723,58 +3812,65 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     return true;
   };
 
-  const recruitEngineerFromHQ = () => {
-    if (!myHQ) return false;
-    return queueGlobalFromBuilding(myHQ, 'ENGINEER');
+  const queueGlobalBestVTC = (unitType) => {
+    const anchor = pickBestVTCToQueue(gs, player, unitType, myCapital);
+    return anchor ? queueGlobalFromBuilding(anchor, unitType) : false;
+  };
+
+  const recruitEngineerFromCapital = () => {
+    if (!myCapital) return false;
+    return queueGlobalFromBuilding(myCapital, 'ENGINEER');
   };
 
   const recruitCombatFromProduction = (prefer = ['INFANTRY', 'ANTI_TANK', 'MORTAR', 'RECON']) => {
-    const anchors = myBuildings.filter(bb => PRODUCTION_VTC_TYPES.has(bb.type) && !bb.underConstruction);
-    for (const anchor of anchors) {
-      for (const unitType of prefer) {
-        if (queueGlobalFromBuilding(anchor, unitType)) return true;
-      }
+    for (const unitType of prefer) {
+      if (queueGlobalBestVTC(unitType)) return true;
     }
     return false;
   };
 
-  const enemyHQ = gs.buildings.find(bb => bb.type === 'HQ' && Number(bb.owner) !== Number(player));
+  const focusEnemy = strategic?.focusEnemyHQ
+    || pickPrimaryEnemyHQ(gs, player, getEnemyCapitalBuildings(gs, player))
+    || getEnemyCapitalBuildings(gs, player)[0];
+  const deployCtx = {
+    capital: myCapital,
+    focusEnemy,
+    unitObjective: aiCtx?.unitObjective,
+    territorial: strategic?.territorial,
+  };
   for (const ready of (gs.readyGlobalRecruits || []).filter(r => Number(r.owner) === Number(player))) {
     if (actions.some(a => a.type === 'global_deploy' && a.readyId === ready.id)) continue;
     const sites = enumerateGlobalDeployHexes(gs, player, ready.type);
     if (!sites.length) continue;
-    const combatDeploy = ['INFANTRY', 'ANTI_TANK', 'MORTAR', 'RECON', 'TANK', 'ARTILLERY', 'ASSAULT_INFANTRY'].includes(ready.type);
-    let best = sites[0], bestScore = -Infinity;
+    let best = sites[0];
+    let bestScore = -Infinity;
     for (const site of sites) {
-      let score = 0;
-      if (enemyHQ) score += Math.max(0, 30 - hexDistance(site.q, site.r, enemyHQ.q, enemyHQ.r));
-      if (combatDeploy) score += countFriendliesNear(gs, player, site.q, site.r, 2) * -1.5;
-      const threat = countHexThreats(gs, player, site.q, site.r, 4);
-      score -= threat.ground * 2 + threat.indirect * 3;
-      if (site.buildingType === 'HQ') score += 2;
+      const score = scoreGlobalDeploySite(gs, player, site, ready, terrain, deployCtx);
       if (score > bestScore) { bestScore = score; best = site; }
     }
-    actions.push({ type: 'global_deploy', readyId: ready.id, q: best.q, r: best.r });
+    if (bestScore > -9000) {
+      actions.push({ type: 'global_deploy', readyId: ready.id, q: best.q, r: best.r });
+    }
   }
 
   if (armyRebuildMode) {
     for (let i = 0; i < 2 && plannedRecruits < maxRecruitsThisTurn; i++) {
       if (!recruitCombatFromProduction()) break;
     }
-    if ((myEngNow + queuedEngNow) < 1) recruitEngineerFromHQ();
+    if ((myEngNow + queuedEngNow) < 1) recruitEngineerFromCapital();
   }
 
   // Resource rush: extra engineers while many unclaimed mines/oil remain.
   if ((gs.turn || 1) <= 16 && unworkedResSites >= 2
     && (myEngNow + queuedEngNow) < Math.min(4, 1 + Math.floor(unworkedResSites / 2))) {
-    recruitEngineerFromHQ();
+    recruitEngineerFromCapital();
   }
 
   // Hard network engineer reserve when road network is behind schedule (not when army is gutted).
   const myUnitsForEng = gs.units.filter(u => u.owner === player && !u.embarked).length;
   if (roadDeficitGlobal >= 2 && myUnitsForEng >= 8 && (strategic?.phase !== 'pressure' || roadDeficitGlobal >= 6)) {
     if ((myEngNow + queuedEngNow) < 3) {
-      recruitEngineerFromHQ();
+      recruitEngineerFromCapital();
     }
   }
 
@@ -3824,50 +3920,46 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     }
   }
 
-  // Global production queue at HQ (and captured VTC) when pipeline is idle.
-  if (!globalQueueBusy && myHQ && plannedRecruits < armyBudget.maxRecruitsPerTurn) {
-    const hqOpts = getGlobalRecruitOptionsForVTC(gs, player, myHQ.id);
-    const globalPrefer = [...cfg.recruitPrio].filter(t => hqOpts.includes(t));
-    for (const unitType of globalPrefer) {
-      if (queueGlobalFromBuilding(myHQ, unitType)) break;
-    }
-  }
+  const waterMap = situation?.islandMap || (situation?.waterRatio || 0) >= 0.18;
+
+  // Global production queue: pick best VTC (forward for land, coastal town/city for naval).
   if (!globalQueueBusy && plannedRecruits < armyBudget.maxRecruitsPerTurn) {
-    const vtcAnchors = myBuildings.filter(bb => PRODUCTION_VTC_TYPES.has(bb.type) && bb.type !== 'HQ' && !bb.underConstruction);
-    for (const anchor of vtcAnchors) {
-      if (plannedRecruits >= armyBudget.maxRecruitsPerTurn) break;
-      const opts = getGlobalRecruitOptionsForVTC(gs, player, anchor.id);
-      const pick = cfg.recruitPrio.find(t => opts.includes(t));
-      if (pick) queueGlobalFromBuilding(anchor, pick);
+    const preferList = waterMap
+      ? [...cfg.navalPrio, ...cfg.recruitPrio]
+      : [...cfg.recruitPrio, ...cfg.navalPrio];
+    for (const unitType of preferList) {
+      if (queueGlobalBestVTC(unitType)) break;
     }
   }
 
-  // Island bootstrap: force first naval package online, even with fog and no enemy contact yet.
-  if (!armyRebuildMode && (situation?.islandMap || (situation?.waterRatio || 0) >= 0.18) && (gs.turn || 1) >= 5) {
+  // Island / coastal maps: naval via global queue at coastal VTCs (PATROL_BOAT, SUPPLY_SHIP).
+  if ((gs.turn || 1) >= 4 && waterMap) {
     const myNavalCombatNow = gs.units.filter(u => u.owner === player && !u.embarked && NAVAL_UNITS.has(u.type) && u.type !== 'SUPPLY_SHIP').length;
-    const myTransportsNow = gs.units.filter(u => u.owner === player && !u.embarked && ['LANDING_CRAFT', 'TRANSPORT_SM', 'TRANSPORT_MD', 'TRANSPORT_LG'].includes(u.type)).length;
     const mySupplyShipsNow = gs.units.filter(u => u.owner === player && !u.embarked && u.type === 'SUPPLY_SHIP').length;
-    const desiredNavalCombat = (gs.turn || 1) >= 16 ? 3 : 2;
-    const navalBootLow = myNavalCombatNow < desiredNavalCombat || myTransportsNow < 1 || mySupplyShipsNow < 1;
-    if (navalBootLow) {
-      const navalBuildings = myBuildings.filter(bb => ['HARBOR','NAVAL_YARD','SHIPYARD','DRYDOCK','DRY_DOCK','NAVAL_BASE','NAVAL_DOCKYARD'].includes(bb.type));
+    const desiredPatrol = (gs.turn || 1) >= 14 ? 2 : 1;
+    const navalBootLow = myNavalCombatNow < desiredPatrol || mySupplyShipsNow < 1;
+    if (navalBootLow && !globalQueueBusy) {
+      const bootOrder = mySupplyShipsNow < 1
+        ? ['SUPPLY_SHIP', 'PATROL_BOAT']
+        : ['PATROL_BOAT', 'SUPPLY_SHIP'];
+      for (const pick of bootOrder) {
+        if (queueGlobalBestVTC(pick)) break;
+      }
+    }
+    if (!globalQueueBusy && plannedRecruits < armyBudget.maxRecruitsPerTurn) {
+      const navalBuildings = myBuildings.filter(bb => ['HARBOR', 'NAVAL_YARD', 'SHIPYARD', 'DRYDOCK', 'DRY_DOCK', 'NAVAL_BASE', 'NAVAL_DOCKYARD'].includes(bb.type));
       for (const nb of navalBuildings) {
-        if (plannedRecruits >= (armyBudget.maxRecruitsPerTurn + 1)) break;
+        if (plannedRecruits >= armyBudget.maxRecruitsPerTurn) break;
         if (actions.some(a => a.type === 'recruit' && a.buildingId === nb.id)) continue;
         const can = BUILDING_TYPES[nb.type]?.canRecruit || [];
-        const bootOrder = mySupplyShipsNow < 1
-          ? ['SUPPLY_SHIP', 'TRANSPORT_MD', 'LANDING_CRAFT', 'PATROL_BOAT', 'DESTROYER', 'TRANSPORT_SM']
-          : myTransportsNow < 1
-            ? ['TRANSPORT_MD', 'LANDING_CRAFT', 'TRANSPORT_SM', 'SUPPLY_SHIP', 'PATROL_BOAT', 'DESTROYER']
-            : ['DESTROYER', 'PATROL_BOAT', 'TRANSPORT_MD', 'LANDING_CRAFT', 'SUPPLY_SHIP', 'TRANSPORT_SM'];
-        const pick = bootOrder.find(t => can.includes(t));
-        if (!pick || !recruitAllowed(pick)) continue;
-        const cost = UNIT_TYPES[pick]?.cost || {};
-        const foodCost = getRecruitFoodCost(pick);
+        const yardPick = cfg.navalPrio.find(t => can.includes(t) && recruitAllowed(t));
+        if (!yardPick) continue;
+        const cost = UNIT_TYPES[yardPick]?.cost || {};
+        const foodCost = getRecruitFoodCost(yardPick);
         if (resSim.iron >= (cost.iron || 0) && resSim.oil >= (cost.oil || 0) && resSim.wood >= (cost.wood || 0)
           && resSim.food >= foodCost && resSim.components >= (cost.components || 0)) {
-          actions.push({ type: 'recruit', buildingId: nb.id, unitType: pick });
-          noteRecruit(pick);
+          actions.push({ type: 'recruit', buildingId: nb.id, unitType: yardPick });
+          noteRecruit(yardPick);
           resSim.iron -= (cost.iron || 0);
           resSim.oil -= (cost.oil || 0);
           resSim.wood -= (cost.wood || 0);
