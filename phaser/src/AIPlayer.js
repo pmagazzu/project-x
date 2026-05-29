@@ -23,6 +23,9 @@ import {
   getPlayerCapital, getPlayerCapitalBuildings, getEnemyCapitalBuildings, isPlayerCapitalBuilding,
   isNavalDeployAllowed, getNavalCoastalCheckRadius, canPromoteSettlement, VTC_SUPPLY_RADIUS, findRoadPath, canPlaceRoadOnTerrain,
 } from './GameState.js';
+import {
+  getVtcUpgradeMenu, purchaseVtcUpgrade,
+} from './SettlementSystem.js';
 import { ensureAIDesigns, pickAIRecruit, getClosingPressure } from './AIDesigner.js';
 import {
   getActivePlayerCount, getAIArmyBudget, countPlayerCombatUnits,
@@ -4288,9 +4291,17 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   const waterMap = situation?.islandMap || (situation?.waterRatio || 0) >= 0.18;
 
-  if ((gs.turn || 1) >= 8 && !actions.some(a => a.type === 'upgrade_settlement')) {
+  if ((gs.turn || 1) >= 6 && !actions.some(a => a.type === 'vtc_upgrade' || a.type === 'upgrade_settlement')) {
     for (const { vtc } of listOwnedVTCSorted(gs, player, perceivedEnemies, myCapital)) {
       if (vtc.isCapital) continue;
+      const menu = getVtcUpgradeMenu(gs, player, vtc.id);
+      if (!menu || menu.capital) continue;
+      for (const it of menu.items) {
+        if (it.external || it.complete || it.building || !it.canBuy) continue;
+        actions.push({ type: 'vtc_upgrade', buildingId: vtc.id, upgradeId: it.id });
+        break;
+      }
+      if (actions.some(a => a.type === 'vtc_upgrade')) break;
       const promo = canPromoteSettlement(gs, player, vtc.id);
       if (promo.ok) {
         actions.push({ type: 'upgrade_settlement', buildingId: vtc.id });

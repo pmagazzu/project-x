@@ -1,145 +1,357 @@
 /**
- * Settlement UI helpers: produce catalog with disabled reasons, improvement checklist display.
+ * Settlement (VTC) growth — all upgrades purchased in the build menu UPGRADE tab.
+ * Engineers build roads, defenses, and field extractors only.
  */
 import {
-  hexDistance, roadAt, findRoadPath, ROAD_TYPES,
+  hexDistance, ROAD_TYPES,
   getPlayerCapital, isPlayerCapitalBuilding,
   getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit,
   getBuildingTierForDeploy, isNavalDeployAllowed, getNavalCoastalCheckRadius,
   isNavalAllowedAtVTCTier, UNIT_TYPES, NAVAL_UNITS, LOCKED_CHASSIS,
   PRODUCTION_VTC_TYPES, CITY_YARD_NAVAL_UNITS,
-  hasNavalYardNearSettlement, playerHasCityWithNavalYard,
-  canPromoteSettlement, SETTLEMENT_PROMOTE,
 } from './GameState.js';
 
-export { CITY_YARD_NAVAL_UNITS, canPromoteSettlement };
+export { CITY_YARD_NAVAL_UNITS };
+
+export const SETTLEMENT_PROMOTE = {
+  VILLAGE: { next: 'TOWN', promoteTurns: 2, cost: { iron: 32, wood: 22, oil: 6, components: 1 } },
+  TOWN:    { next: 'CITY', promoteTurns: 3, cost: { iron: 58, wood: 38, oil: 14, components: 6 } },
+};
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 
-const ECON_BUILDINGS = new Set(['MINE', 'OIL_PUMP', 'FARM', 'LUMBER_CAMP', 'MARKET']);
-const MIL_BUILDINGS = new Set(['BARRACKS', 'SUPPLY_DEPOT', 'SUPPLY_WAREHOUSE', 'SCIENCE_LAB', 'FACTORY']);
-
-export const SETTLEMENT_UPGRADE_DEFS = {
-  VILLAGE: {
-    next: 'TOWN',
-    promoteTurns: SETTLEMENT_PROMOTE.VILLAGE.promoteTurns,
-    cost: SETTLEMENT_PROMOTE.VILLAGE.cost,
-    minScore: SETTLEMENT_PROMOTE.VILLAGE.minScore,
-    checks: [
-      { id: 'road_capital', label: 'Road path to capital', fn: 'roadToCapital' },
-      { id: 'economy', label: 'Farm, lumber, mine, or pump nearby', fn: 'economyNear' },
-      { id: 'barracks', label: 'Barracks or supply depot nearby', fn: 'militaryNear' },
-      { id: 'housing', label: 'Housing near settlement', fn: 'housingNear' },
-    ],
+/** Purchasable upgrades at a VTC (build menu → UPGRADE tab). */
+export const VTC_MENU_UPGRADES = {
+  road_link: {
+    id: 'road_link',
+    label: 'Capital Road Link',
+    short: 'Road link',
+    cost: { iron: 6, wood: 8 },
+    buildTurns: 1,
+    forSettlement: 'VILLAGE',
   },
-  TOWN: {
-    next: 'CITY',
-    promoteTurns: SETTLEMENT_PROMOTE.TOWN.promoteTurns,
-    cost: SETTLEMENT_PROMOTE.TOWN.cost,
-    minScore: SETTLEMENT_PROMOTE.TOWN.minScore,
-    checks: [
-      { id: 'road_capital', label: 'Road path to capital', fn: 'roadToCapital' },
-      { id: 'factory_lab', label: 'Factory or science lab nearby', fn: 'industryNear' },
-      { id: 'concrete', label: 'Gravel/concrete/rail road on network', fn: 'upgradedRoad' },
-      { id: 'fort', label: 'Fortification nearby', fn: 'fortNear' },
-      { id: 'naval_yard', label: 'Naval yard (coastal maps)', fn: 'navalYardNear', optionalCoastal: true },
-    ],
+  local_farm: {
+    id: 'local_farm',
+    label: 'Local Farm',
+    short: 'Farm',
+    cost: { iron: 2, wood: 4 },
+    buildTurns: 2,
+    forSettlement: 'VILLAGE',
+    foodPerTurn: 2,
+  },
+  barracks: {
+    id: 'barracks',
+    label: 'Training Barracks',
+    short: 'Barracks',
+    cost: { iron: 4, wood: 4 },
+    buildTurns: 2,
+    forSettlement: 'VILLAGE',
+  },
+  housing: {
+    id: 'housing',
+    label: 'Housing District',
+    short: 'Housing',
+    cost: { iron: 4, wood: 5 },
+    buildTurns: 2,
+    forSettlement: 'VILLAGE',
+    popCapBonus: 2,
+  },
+  factory: {
+    id: 'factory',
+    label: 'Factory',
+    short: 'Factory',
+    cost: { iron: 10, oil: 3, wood: 8 },
+    buildTurns: 3,
+    forSettlement: 'TOWN',
+    componentsPerTurn: 1,
+  },
+  science_lab: {
+    id: 'science_lab',
+    label: 'Science Lab',
+    short: 'Lab',
+    cost: { iron: 6, wood: 4 },
+    buildTurns: 2,
+    forSettlement: 'TOWN',
+    rpPerTurn: 1,
+  },
+  paved_network: {
+    id: 'paved_network',
+    label: 'Paved Road Network',
+    short: 'Paved roads',
+    cost: { iron: 8, wood: 4 },
+    buildTurns: 1,
+    forSettlement: 'TOWN',
+    requiresResearch: 'gravel_roads',
+  },
+  market: {
+    id: 'market',
+    label: 'Market',
+    short: 'Market',
+    cost: { iron: 3, wood: 4 },
+    buildTurns: 2,
+    forSettlement: 'TOWN',
+    goldPerTurn: 1,
+  },
+  naval_yard: {
+    id: 'naval_yard',
+    label: 'Naval Yard',
+    short: 'Naval yard',
+    cost: { iron: 8, oil: 2 },
+    buildTurns: 3,
+    forSettlement: 'TOWN',
+    coastalOnly: true,
   },
 };
 
-function buildingsNear(gs, vtc, player, radius, typeSet) {
-  let n = 0;
-  for (const b of gs.buildings || []) {
-    if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
-    if (!typeSet.has(b.type)) continue;
-    if (hexDistance(b.q, b.r, vtc.q, vtc.r) <= radius) n++;
-  }
-  return n;
+/** All required before promoting to next tier. */
+export const VTC_PROMOTE_REQUIRED = {
+  VILLAGE: ['road_link', 'local_farm', 'barracks', 'housing'],
+  TOWN: ['factory', 'science_lab', 'paved_network', 'market'],
+};
+
+const FORT_TYPES = new Set([
+  'FORT_T0', 'FORT_T1', 'FORT_T2', 'FORT_T3', 'FORT_T4', 'FORT_T5',
+  'BUNKER', 'COASTAL_BATTERY', 'AA_EMPLACEMENT', 'OBS_POST',
+]);
+
+function getVtc(gs, player, buildingId) {
+  return gs.buildings?.find(x => x.id === buildingId && Number(x.owner) === Number(player));
 }
 
-function hasRoadPathToCapital(gs, vtc, player) {
-  const cap = getPlayerCapital(gs, player);
-  if (!cap) return false;
-  const mapSize = gs._mapSize || 40;
-  const terrain = gs._terrain || {};
-  if (roadAt(gs, vtc.q, vtc.r) && roadAt(gs, cap.q, cap.r)) {
-    const path = findRoadPath(terrain, mapSize, cap.q, cap.r, vtc.q, vtc.r);
-    if (path?.length) return true;
-  }
+function ensureVtcUpgrades(b) {
+  if (!b.vtcUpgrades) b.vtcUpgrades = {};
+  return b.vtcUpgrades;
+}
+
+export function isVtcUpgradeComplete(vtc, upgradeId) {
+  const u = vtc?.vtcUpgrades?.[upgradeId];
+  return u === true || u?.complete === true;
+}
+
+export function isVtcUpgradeBuilding(vtc, upgradeId) {
+  const u = vtc?.vtcUpgrades?.[upgradeId];
+  return u && typeof u === 'object' && (u.turnsLeft || 0) > 0;
+}
+
+export function hasEngineerFortNear(gs, player, vtc, maxDist = 5) {
   for (const b of gs.buildings || []) {
-    if (Number(b.owner) !== Number(player) || !ROAD_TYPES.has(b.type)) continue;
-    if (hexDistance(b.q, b.r, vtc.q, vtc.r) > 2) continue;
-    const path = findRoadPath(terrain, mapSize, cap.q, cap.r, b.q, b.r);
-    if (path?.length) return true;
+    if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
+    if (!FORT_TYPES.has(b.type)) continue;
+    if (hexDistance(b.q, b.r, vtc.q, vtc.r) <= maxDist) return true;
   }
   return false;
 }
 
-function runImprovementCheck(gs, player, vtc, check) {
-  const r = 4;
-  switch (check.fn) {
-    case 'roadToCapital':
-      return hasRoadPathToCapital(gs, vtc, player);
-    case 'economyNear':
-      return buildingsNear(gs, vtc, player, r, ECON_BUILDINGS) >= 1;
-    case 'militaryNear':
-      return buildingsNear(gs, vtc, player, r, MIL_BUILDINGS) >= 1;
-    case 'housingNear':
-      return buildingsNear(gs, vtc, player, r, new Set([
-        'HOUSING_SLUMS', 'HOUSING_RURAL', 'HOUSING_SUBURB', 'HOUSING_DISTRICT', 'HOUSING_BOROUGH', 'HOUSING_METRO',
-      ])) >= 1;
-    case 'industryNear':
-      return buildingsNear(gs, vtc, player, r, new Set(['FACTORY', 'SCIENCE_LAB', 'VEHICLE_DEPOT', 'ARMOR_WORKS'])) >= 1;
-    case 'upgradedRoad': {
-      for (const b of gs.buildings || []) {
-        if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
-        if (!ROAD_TYPES.has(b.type)) continue;
-        if (hexDistance(b.q, b.r, vtc.q, vtc.r) > 6) continue;
-        const tier = b.roadTier ?? (b.type === 'RAILWAY' ? 3 : b.type === 'CONCRETE_ROAD' ? 2 : b.type === 'GRAVEL_ROAD' ? 1 : 0);
-        if (tier >= 1) return true;
-      }
-      return false;
-    }
-    case 'fortNear':
-      return buildingsNear(gs, vtc, player, 5, new Set([
-        'FORT_T0', 'FORT_T1', 'FORT_T2', 'FORT_T3', 'FORT_T4', 'FORT_T5',
-        'BUNKER', 'COASTAL_BATTERY', 'AA_EMPLACEMENT', 'OBS_POST',
-      ])) >= 1;
-    case 'navalYardNear': {
-      if (check.optionalCoastal && !isNavalDeployAllowed(gs, vtc, getNavalCoastalCheckRadius(vtc))) return true;
-      return hasNavalYardNearSettlement(gs, player, vtc, 5);
-    }
-    default:
-      return false;
+/** Menu naval yard on this VTC or physical yard nearby (legacy saves). */
+export function vtcHasNavalYard(gs, player, vtc) {
+  if (!vtc) return false;
+  if (isVtcUpgradeComplete(vtc, 'naval_yard')) return true;
+  const YARD_TYPES = new Set(['NAVAL_YARD', 'HARBOR', 'PORT', 'NAVAL_BASE', 'NAVAL_DOCKYARD', 'DRY_DOCK', 'SHIPYARD']);
+  for (const b of gs.buildings || []) {
+    if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
+    if (!YARD_TYPES.has(b.type)) continue;
+    if (hexDistance(b.q, b.r, vtc.q, vtc.r) <= 5) return true;
   }
+  return false;
 }
 
-export function getSettlementImprovementStatus(gs, player, buildingId) {
-  const b = gs.buildings?.find(x => x.id === buildingId && Number(x.owner) === Number(player));
-  if (!b || !SETTLEMENT_TYPES.has(b.type)) return null;
-  const def = SETTLEMENT_UPGRADE_DEFS[b.type];
-  if (!def) return { complete: true, score: 0, required: 0, items: [] };
-  const items = def.checks.map((c) => ({
-    id: c.id,
-    label: c.label,
-    done: runImprovementCheck(gs, player, b, c),
-    weight: 1,
-  }));
-  const score = items.reduce((s, it) => s + (it.done ? 1 : 0), 0);
+export function getVtcUpgradeMenu(gs, player, buildingId) {
+  const vtc = getVtc(gs, player, buildingId);
+  if (!vtc || !SETTLEMENT_TYPES.has(vtc.type)) return null;
+  if (isPlayerCapitalBuilding(vtc)) return { capital: true, items: [] };
+
+  const required = VTC_PROMOTE_REQUIRED[vtc.type] || [];
+  const coastal = isNavalDeployAllowed(gs, vtc, getNavalCoastalCheckRadius(vtc));
+  const unlocked = new Set(gs.players[player]?.research?.unlocked || []);
+  const items = [];
+
+  for (const def of Object.values(VTC_MENU_UPGRADES)) {
+    if (def.forSettlement !== vtc.type) continue;
+    if (def.coastalOnly && !coastal) continue;
+    if (def.requiresResearch && !unlocked.has(def.requiresResearch)) continue;
+    const complete = isVtcUpgradeComplete(vtc, def.id);
+    const building = isVtcUpgradeBuilding(vtc, def.id);
+    const turnsLeft = building ? (vtc.vtcUpgrades[def.id].turnsLeft || 0) : 0;
+    const purchase = canPurchaseVtcUpgrade(gs, player, buildingId, def.id);
+    items.push({
+      id: def.id,
+      label: def.label,
+      cost: def.cost,
+      buildTurns: def.buildTurns,
+      complete,
+      building,
+      turnsLeft,
+      required: required.includes(def.id),
+      canBuy: purchase.ok,
+      reason: purchase.reason || '',
+    });
+  }
+
+  if (vtc.type === 'TOWN') {
+    const fortOk = hasEngineerFortNear(gs, player, vtc);
+    items.push({
+      id: '_fort_near',
+      label: 'Engineer fortification nearby',
+      external: true,
+      complete: fortOk,
+      required: true,
+      canBuy: false,
+      reason: fortOk ? '' : 'Build a fort with an Engineer within 5 hexes',
+    });
+    if (coastal) {
+      const ny = items.find(x => x.id === 'naval_yard');
+      if (ny) ny.required = false;
+    }
+  }
+
+  const doneRequired = required.filter(id => isVtcUpgradeComplete(vtc, id)).length
+    + (vtc.type === 'TOWN' && hasEngineerFortNear(gs, player, vtc) ? 1 : 0);
+  const totalRequired = required.length + (vtc.type === 'TOWN' ? 1 : 0);
+
+  const promo = SETTLEMENT_PROMOTE[vtc.type];
   return {
-    score,
-    required: def.minScore,
-    complete: score >= def.minScore,
+    settlementType: vtc.type,
+    promoting: (vtc.promoteTurnsLeft || 0) > 0,
+    promoteTurnsLeft: vtc.promoteTurnsLeft || 0,
+    promoteTarget: promo?.next,
+    promoteCost: promo?.cost,
+    promoteTurns: promo?.promoteTurns,
+    requiredDone: doneRequired,
+    requiredTotal: totalRequired,
+    canPromote: canPromoteSettlement(gs, player, buildingId),
     items,
-    promoteTurns: def.promoteTurns,
-    next: def.next,
-    cost: def.cost,
-    promoting: (b.promoteTurnsLeft || 0) > 0,
-    promoteTurnsLeft: b.promoteTurnsLeft || 0,
   };
 }
 
-/** Why a unit appears enabled/disabled in the PRODUCE tab at this anchor VTC. */
+export function canPurchaseVtcUpgrade(gs, player, buildingId, upgradeId) {
+  const def = VTC_MENU_UPGRADES[upgradeId];
+  const vtc = getVtc(gs, player, buildingId);
+  if (!def || !vtc) return { ok: false, reason: 'Invalid upgrade' };
+  if (isPlayerCapitalBuilding(vtc)) return { ok: false, reason: 'Use outposts for capital upgrades' };
+  if (def.forSettlement !== vtc.type) return { ok: false, reason: 'Wrong settlement tier' };
+  if (isVtcUpgradeComplete(vtc, upgradeId)) return { ok: false, reason: 'Already built' };
+  if (isVtcUpgradeBuilding(vtc, upgradeId)) return { ok: false, reason: 'Construction in progress' };
+  if (def.coastalOnly && !isNavalDeployAllowed(gs, vtc, getNavalCoastalCheckRadius(vtc))) {
+    return { ok: false, reason: 'Coastal settlement required' };
+  }
+  if (def.requiresResearch && !(gs.players[player]?.research?.unlocked || []).includes(def.requiresResearch)) {
+    return { ok: false, reason: 'Requires research' };
+  }
+  const pl = gs.players[player] || {};
+  const c = def.cost;
+  if ((pl.iron || 0) < (c.iron || 0)) return { ok: false, reason: 'Not enough iron' };
+  if ((pl.oil || 0) < (c.oil || 0)) return { ok: false, reason: 'Not enough oil' };
+  if ((pl.wood || 0) < (c.wood || 0)) return { ok: false, reason: 'Not enough wood' };
+  if ((pl.components || 0) < (c.components || 0)) return { ok: false, reason: 'Not enough components' };
+  return { ok: true };
+}
+
+export function purchaseVtcUpgrade(gs, player, buildingId, upgradeId) {
+  const check = canPurchaseVtcUpgrade(gs, player, buildingId, upgradeId);
+  if (!check.ok) return check;
+  const def = VTC_MENU_UPGRADES[upgradeId];
+  const vtc = getVtc(gs, player, buildingId);
+  const pl = gs.players[player];
+  const c = def.cost;
+  pl.iron -= (c.iron || 0);
+  pl.oil -= (c.oil || 0);
+  pl.wood -= (c.wood || 0);
+  pl.components = (pl.components || 0) - (c.components || 0);
+  const ups = ensureVtcUpgrades(vtc);
+  ups[upgradeId] = { turnsLeft: def.buildTurns, complete: false };
+  return { ok: true, turns: def.buildTurns };
+}
+
+export function tickVtcUpgrades(gs, player, events = []) {
+  for (const b of gs.buildings || []) {
+    if (Number(b.owner) !== Number(player) || !b.vtcUpgrades) continue;
+    for (const [id, state] of Object.entries(b.vtcUpgrades)) {
+      if (!state || state.complete || state === true) continue;
+      if ((state.turnsLeft || 0) <= 0) {
+        b.vtcUpgrades[id] = { complete: true };
+        const label = VTC_MENU_UPGRADES[id]?.label || id;
+        events.push(`P${player} finished ${label} at (${b.q},${b.r})`);
+        applyVtcUpgradeBonuses(gs, player, b, id);
+        continue;
+      }
+      state.turnsLeft = Math.max(0, state.turnsLeft - 1);
+      if (state.turnsLeft <= 0) {
+        b.vtcUpgrades[id] = { complete: true };
+        applyVtcUpgradeBonuses(gs, player, b, id);
+        events.push(`P${player} finished ${VTC_MENU_UPGRADES[id]?.label || id} at (${b.q},${b.r})`);
+      }
+    }
+  }
+}
+
+function applyVtcUpgradeBonuses(gs, player, vtc, upgradeId) {
+  const def = VTC_MENU_UPGRADES[upgradeId];
+  if (!def) return;
+  const pl = gs.players[player];
+  if (def.popCapBonus) pl.popCap = (pl.popCap || 10) + def.popCapBonus;
+}
+
+export function getSettlementImprovementStatus(gs, player, buildingId) {
+  const menu = getVtcUpgradeMenu(gs, player, buildingId);
+  if (!menu || menu.capital) return null;
+  return {
+    score: menu.requiredDone,
+    required: menu.requiredTotal,
+    complete: menu.canPromote.ok === true || (menu.requiredDone >= menu.requiredTotal && !menu.promoteTarget),
+    items: menu.items.map(it => ({
+      id: it.id,
+      label: it.label,
+      done: it.complete,
+    })),
+    promoteTurns: menu.promoteTurns,
+    next: menu.promoteTarget,
+    cost: menu.promoteCost,
+    promoting: menu.promoting,
+    promoteTurnsLeft: menu.promoteTurnsLeft,
+  };
+}
+
+export function canPromoteSettlement(gs, player, buildingId) {
+  const vtc = getVtc(gs, player, buildingId);
+  if (!vtc || !SETTLEMENT_TYPES.has(vtc.type)) return { ok: false, reason: 'Invalid settlement' };
+  if (isPlayerCapitalBuilding(vtc)) return { ok: false, reason: 'Capital cannot be promoted' };
+  if (vtc.promoteTurnsLeft > 0) return { ok: false, reason: 'Promotion in progress' };
+  const def = SETTLEMENT_PROMOTE[vtc.type];
+  if (!def) return { ok: false, reason: 'Already at max tier' };
+
+  const required = VTC_PROMOTE_REQUIRED[vtc.type] || [];
+  const missing = required.filter(id => !isVtcUpgradeComplete(vtc, id));
+  if (missing.length) {
+    const names = missing.map(id => VTC_MENU_UPGRADES[id]?.short || id).join(', ');
+    return { ok: false, reason: `Buy upgrades: ${names}` };
+  }
+  if (vtc.type === 'TOWN' && !hasEngineerFortNear(gs, player, vtc)) {
+    return { ok: false, reason: 'Engineer fortification within 5 hexes' };
+  }
+
+  const pl = gs.players[player] || {};
+  const c = def.cost;
+  if ((pl.iron || 0) < (c.iron || 0)) return { ok: false, reason: 'Not enough iron' };
+  if ((pl.oil || 0) < (c.oil || 0)) return { ok: false, reason: 'Not enough oil' };
+  if ((pl.wood || 0) < (c.wood || 0)) return { ok: false, reason: 'Not enough wood' };
+  if ((pl.components || 0) < (c.components || 0)) return { ok: false, reason: 'Not enough components' };
+  return { ok: true, next: def.next, promoteTurns: def.promoteTurns, cost: c };
+}
+
+// ── Re-export for GameState naval checks ───────────────────────────────────
+export function hasNavalYardNearSettlement(gs, player, vtc, _maxDist = 5) {
+  return vtcHasNavalYard(gs, player, vtc);
+}
+
+export function playerHasCityWithNavalYard(gs, player) {
+  for (const b of gs.buildings || []) {
+    if (Number(b.owner) !== Number(player) || b.type !== 'CITY' || b.underConstruction) continue;
+    if (vtcHasNavalYard(gs, player, b)) return true;
+  }
+  return false;
+}
+
+/** @deprecated alias */
 export function getProduceQueueStatus(gs, player, anchorId, unitType) {
   const anchor = gs.buildings?.find(x => x.id === anchorId && Number(x.owner) === Number(player));
   if (!anchor || !PRODUCTION_VTC_TYPES.has(anchor.type)) {
@@ -151,8 +363,8 @@ export function getProduceQueueStatus(gs, player, anchorId, unitType) {
     if (anchor.type !== 'CITY') {
       return { ok: false, reason: 'Need a City with a Naval Yard to build this' };
     }
-    if (!hasNavalYardNearSettlement(gs, player, anchor, 5)) {
-      return { ok: false, reason: 'Need a Naval Yard next to this City' };
+    if (!vtcHasNavalYard(gs, player, anchor)) {
+      return { ok: false, reason: 'Buy Naval Yard in City UPGRADE tab' };
     }
     const coastalR = getNavalCoastalCheckRadius(anchor);
     if (!isNavalDeployAllowed(gs, anchor, coastalR)) {
@@ -178,7 +390,7 @@ export function getProduceQueueStatus(gs, player, anchorId, unitType) {
       }
       if (!isNavalAllowedAtVTCTier(tier, unitType)) {
         if (unitType === 'SUPPLY_SHIP' && tier < 1) {
-          return { ok: false, reason: 'Supply ships need Town or City (promote settlement)' };
+          return { ok: false, reason: 'Promote to Town for supply ships' };
         }
         return { ok: false, reason: tier < 1 ? 'Requires Town or City' : 'Requires City for this hull' };
       }
@@ -186,8 +398,8 @@ export function getProduceQueueStatus(gs, player, anchorId, unitType) {
     if (unitType === 'TANK' || unitType === 'ARTILLERY') {
       return { ok: false, reason: 'Requires Town or City' };
     }
-    const def = UNIT_TYPES[unitType];
-    if (def.unlockedBy && !(gs.players[player]?.research?.unlocked || []).includes(def.unlockedBy)) {
+    const udef = UNIT_TYPES[unitType];
+    if (udef.unlockedBy && !(gs.players[player]?.research?.unlocked || []).includes(udef.unlockedBy)) {
       return { ok: false, reason: 'Requires research' };
     }
     return { ok: false, reason: 'Not available at this settlement' };
@@ -195,7 +407,6 @@ export function getProduceQueueStatus(gs, player, anchorId, unitType) {
   return canQueueGlobalRecruit(gs, player, unitType, anchorId);
 }
 
-/** Full PRODUCE list: queueable + greyed yard hulls and locked naval. */
 export function getProduceCatalog(gs, player, anchorId) {
   const fromOpts = new Set(getGlobalRecruitOptionsForVTC(gs, player, anchorId));
   for (const u of CITY_YARD_NAVAL_UNITS) fromOpts.add(u);

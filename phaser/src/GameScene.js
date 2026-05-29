@@ -42,7 +42,9 @@ import { getVictoryPointLeader } from './VictoryPoints.js';
 import { PLAYER_LABELS, VICTORY_MODES, clampPlayerCount, getPlayerIds } from './GameConfig.js';
 import { pickBalancedSpawnPoints, pickBalancedVictoryZones, pickIslandSpawnPoints, MIN_ISLAND_LAND_TILES } from './SpawnBalance.js';
 import { getBuildingCounterGlyph } from './BuildingCounters.js';
-import { getSettlementImprovementStatus, getProduceCatalog } from './SettlementSystem.js';
+import {
+  getVtcUpgradeMenu, getProduceCatalog, purchaseVtcUpgrade,
+} from './SettlementSystem.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
 const TERRAIN        = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2, HILL: 3, SHALLOW: 4, OCEAN: 5, SAND: 6 };
@@ -52,7 +54,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.20.8';
+export const GAME_VERSION = 'v1.20.9';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -3500,9 +3502,9 @@ export class GameScene extends Phaser.Scene {
     return t;
   }
 
-  _renderBuildMenuTabBtn(ax, y, label, tabKey, active, icon = '') {
-    const w = 108, h = 26;
-    const x = tabKey === 'produce' ? ax : ax + 112;
+  _renderBuildMenuTabBtn(ax, y, label, tabKey, active, icon = '', tabIndex = 0, tabW = 108) {
+    const w = tabW, h = 26;
+    const x = ax + tabIndex * (tabW + 2);
     const bg = this.add.rectangle(x + w / 2, y + h / 2, w, h, active ? BUILD_MENU.tabOn : BUILD_MENU.tabOff, active ? 0.98 : 0.92)
       .setStrokeStyle(2, active ? BUILD_MENU.accentHi : 0x334455)
       .setScrollFactor(0).setDepth(111).setInteractive({ useHandCursor: true });
@@ -3584,7 +3586,10 @@ export class GameScene extends Phaser.Scene {
     if (!building || !PRODUCTION_VTC_TYPES.has(building.type)) return;
     this._buildMenuFocusBuilding = building;
     this._buildMenuOpen = true;
-    this._buildMenuTab = 'produce';
+    const p = this.gameState.currentPlayer;
+    const canUpgrade = ['VILLAGE', 'TOWN', 'CITY'].includes(building.type)
+      && Number(building.owner) === Number(p) && !isPlayerCapitalBuilding(building);
+    this._buildMenuTab = canUpgrade ? 'upgrade' : 'produce';
     this._updateBottomPanel();
   }
 
@@ -3610,6 +3615,92 @@ export class GameScene extends Phaser.Scene {
     this._deployMode = null;
     this._deployHexes = [];
     this._redrawHighlights();
+  }
+
+  _formatUpgradeCost(cost = {}) {
+    const parts = [];
+    if (cost.iron) parts.push(`⚙${cost.iron}`);
+    if (cost.oil) parts.push(`🛢${cost.oil}`);
+    if (cost.wood) parts.push(`🪵${cost.wood}`);
+    if (cost.components) parts.push(`🧩${cost.components}`);
+    return parts.join(' ') || '—';
+  }
+
+  _renderBuildMenuUpgradeTab(ax, ay, gs, p, focus, panelH, bw, bh, gap) {
+    const menu = getVtcUpgradeMenu(gs, p, focus.id);
+    if (!menu) {
+      this._addBuildMenuText(ax, ay, 'No upgrades for this site.', { fill: '#aa8888' });
+      return;
+    }
+    if (!this._buildMenuHint) {
+      this._buildMenuHint = this.add.text(ax, panelH - 22, '', {
+        font: '10px monospace', fill: '#ffcc88', wordWrap: { width: 220 },
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(113).setVisible(false);
+      this._uiLayer.add(this._buildMenuHint);
+    }
+    this._buildMenuHint.setPosition(ax, panelH - 22);
+
+    if (menu.promoting) {
+      this._addBuildMenuText(ax, ay, `Promoting → ${BUILDING_TYPES[menu.promoteTarget]?.name || menu.promoteTarget} (${menu.promoteTurnsLeft}t left)`, {
+        fill: '#ffdd88', font: 'bold 10px monospace',
+      });
+      return;
+    }
+
+    this._addBuildMenuText(ax, ay, `Upgrades ${menu.requiredDone}/${menu.requiredTotal} · Engineers build forts on the map`, {
+      fill: '#99aabb', font: '9px monospace',
+    });
+    ay += 14;
+
+    let col = 0;
+    for (const it of menu.items) {
+      if (it.external) {
+        const mark = it.complete ? '✓' : '○';
+        this._addBuildMenuText(ax, ay, `${mark} ${it.label}`, {
+          fill: it.complete ? '#88cc88' : '#aa9988', font: '9px monospace',
+        });
+        ay += 12;
+        continue;
+      }
+      const status = it.complete ? '✓' : it.building ? `${it.turnsLeft}t` : '+';
+      const costStr = this._formatUpgradeCost(it.cost);
+      const label = `${status} ${it.label}\n${costStr}`;
+      const enabled = !it.complete && !it.building && it.canBuy;
+      const bx = ax + col * (bw + gap);
+      const btn = this._makeActionBtn(bx, ay, label, enabled ? 0x335544 : 0x252530, () => {
+        const out = purchaseVtcUpgrade(gs, p, focus.id, it.id);
+        if (!out.ok) this._pushLog(`Upgrade failed: ${out.reason}`);
+        else this._pushLog(`Building ${it.label} (${out.turns} turns)`);
+        this._refresh();
+      }, {
+        height: 38, fontSize: 9, dimmed: !enabled,
+        disabledReason: it.complete ? 'Already built' : (it.building ? 'Under construction' : (it.reason || '')),
+      });
+      this._uiLayer.add(btn);
+      this._dynBtns.push(btn);
+      col += 1;
+      if (col >= 2) { col = 0; ay += 42; }
+      if (ay > panelH - 50) break;
+    }
+    if (col) ay += 42;
+
+    if (menu.promoteTarget) {
+      const promo = menu.canPromote;
+      const pc = menu.promoteCost || {};
+      const promoLabel = `↑ Promote ${BUILDING_TYPES[menu.promoteTarget]?.name}\n${this._formatUpgradeCost(pc)} · ${menu.promoteTurns}t`;
+      const promoBtn = this._makeActionBtn(ax, ay, promoLabel, promo.ok ? 0x446633 : 0x333333, () => {
+        const out = upgradeSettlement(gs, p, focus.id);
+        if (!out.ok) this._pushLog(`Promote failed: ${out.reason}`);
+        else this._pushLog(`Promoting → ${BUILDING_TYPES[out.target]?.name} (${out.turns} turns)`);
+        this._buildMenuFocusBuilding = gs.buildings.find(b => b.id === focus.id) || null;
+        this._refresh();
+      }, {
+        height: 40, fontSize: 9, dimmed: !promo.ok,
+        disabledReason: promo.ok ? '' : (promo.reason || ''),
+      });
+      this._uiLayer.add(promoBtn);
+      this._dynBtns.push(promoBtn);
+    }
   }
 
   _renderBuildMenu() {
@@ -3655,47 +3746,28 @@ export class GameScene extends Phaser.Scene {
       clr.on('pointerdown', () => { this._clearBuildMenuBuildingFocus(); this._updateBottomPanel(); });
       this._uiLayer.add(clr);
       this._dynBtns.push(clr);
-      const imp = getSettlementImprovementStatus(gs, p, focus.id);
-      if (imp && imp.next) {
-        if (imp.promoting) {
-          this._addBuildMenuText(ax, ay, `Promoting → ${BUILDING_TYPES[imp.next]?.name || imp.next} (${imp.promoteTurnsLeft}t)`, {
-            fill: '#ffdd88', font: '10px monospace',
-          });
-          ay += 14;
-        } else {
-          const doneMark = (it) => (it.done ? '✓' : '○');
-          for (const it of imp.items.slice(0, 3)) {
-            this._addBuildMenuText(ax, ay, `${doneMark(it)} ${it.label}`, {
-              fill: it.done ? '#88cc88' : '#778899', font: '9px monospace',
-            });
-            ay += 12;
-          }
-          if (imp.items.length > 3) {
-            this._addBuildMenuText(ax, ay, `… ${imp.score}/${imp.required} requirements`, { fill: '#8899aa', font: '9px monospace' });
-            ay += 12;
-          }
-          const promo = canPromoteSettlement(gs, p, focus.id);
-          const upBtn = this._makeActionBtn(ax, ay, `↑ Promote ${BUILDING_TYPES[imp.next]?.name || imp.next}`, promo.ok ? 0x446633 : 0x333333, () => {
-            const out = upgradeSettlement(gs, p, focus.id);
-            if (!out.ok) this._pushLog(`Promote failed: ${out.reason}`);
-            else this._pushLog(`Promoting → ${BUILDING_TYPES[out.target]?.name || out.target} (${out.turns} turns)`);
-            this._buildMenuFocusBuilding = gs.buildings.find(b => b.id === focus.id) || null;
-            this._refresh();
-          }, {
-            dimmed: !promo.ok,
-            disabledReason: promo.ok ? '' : (promo.reason || 'Requirements not met'),
-          });
-          this._uiLayer.add(upBtn);
-          this._dynBtns.push(upBtn);
-          ay += bh + gap;
-        }
-      }
+    }
+
+    const showUpgradeTab = focus && ['VILLAGE', 'TOWN', 'CITY'].includes(focus.type)
+      && Number(focus.owner) === Number(p) && !isPlayerCapitalBuilding(focus);
+    if (showUpgradeTab && this._buildMenuTab !== 'upgrade' && this._buildMenuTab !== 'produce' && this._buildMenuTab !== 'deploy') {
+      this._buildMenuTab = 'upgrade';
     }
 
     const tabY = ay;
-    this._renderBuildMenuTabBtn(ax, tabY, 'PRODUCE', 'produce', this._buildMenuTab === 'produce', '⚙ ');
-    this._renderBuildMenuTabBtn(ax, tabY, 'DEPLOY', 'deploy', this._buildMenuTab === 'deploy', '📍 ');
+    const tabW = showUpgradeTab ? 72 : 108;
+    let ti = 0;
+    if (showUpgradeTab) {
+      this._renderBuildMenuTabBtn(ax, tabY, 'UPGRADE', 'upgrade', this._buildMenuTab === 'upgrade', '⬆ ', ti++, tabW);
+    }
+    this._renderBuildMenuTabBtn(ax, tabY, 'PRODUCE', 'produce', this._buildMenuTab === 'produce', '⚙ ', ti++, tabW);
+    this._renderBuildMenuTabBtn(ax, tabY, 'DEPLOY', 'deploy', this._buildMenuTab === 'deploy', '📍 ', ti++, tabW);
     ay += 32;
+
+    if (this._buildMenuTab === 'upgrade' && showUpgradeTab) {
+      this._renderBuildMenuUpgradeTab(ax, ay, gs, p, focus, h, bw, bh, gap);
+      return;
+    }
 
     const pending = (gs.pendingGlobalRecruits || []).filter(r => Number(r.owner) === Number(p));
     const ready = (gs.readyGlobalRecruits || []).filter(r => Number(r.owner) === Number(p));
@@ -8703,11 +8775,17 @@ export class GameScene extends Phaser.Scene {
       this._updateTopBar();
       next();
 
+    } else if (action.type === 'vtc_upgrade') {
+      const out = purchaseVtcUpgrade(gs, gs.currentPlayer, action.buildingId, action.upgradeId);
+      if (out.ok) this._pushLog(`AI VTC upgrade started (${action.upgradeId})`);
+      this._refresh();
+      this._updateTopBar();
+      next();
+
     } else if (action.type === 'upgrade_settlement') {
       const out = upgradeSettlement(gs, gs.currentPlayer, action.buildingId);
       if (out.ok) {
-        const b = gs.buildings.find(x => x.id === action.buildingId);
-        this._pushLog(`AI upgraded settlement to ${BUILDING_TYPES[b?.type]?.name || b?.type || 'VTC'}`);
+        this._pushLog(`AI promoting settlement → ${out.target} (${out.turns}t)`);
       }
       this._refresh();
       this._updateTopBar();
