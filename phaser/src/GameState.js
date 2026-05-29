@@ -1892,14 +1892,39 @@ const PHASE_A_GLOBAL_UNITS = new Set([
 ]);
 /** Naval types queueable at each VTC tier (coastal check still required). */
 const VTC_GLOBAL_NAVAL_BY_TIER = {
-  0: ['PATROL_BOAT', 'SUPPLY_SHIP', 'MTB', 'TORPEDO_BOAT'],
+  0: ['PATROL_BOAT', 'MTB', 'TORPEDO_BOAT', 'LANDING_CRAFT'],
   1: ['PATROL_BOAT', 'SUPPLY_SHIP', 'MTB', 'TORPEDO_BOAT', 'MOTOR_GUNBOAT', 'LANDING_CRAFT', 'TRANSPORT_SM'],
   2: ['PATROL_BOAT', 'SUPPLY_SHIP', 'MTB', 'TORPEDO_BOAT', 'MOTOR_GUNBOAT', 'LANDING_CRAFT',
     'TRANSPORT_SM', 'TRANSPORT_MD', 'DESTROYER', 'SUBMARINE'],
 };
+
+const YARD_BUILDING_TYPES = new Set([
+  'NAVAL_YARD', 'HARBOR', 'PORT', 'NAVAL_BASE', 'NAVAL_DOCKYARD', 'DRY_DOCK', 'SHIPYARD',
+]);
+
+/** Heavy hulls — global queue only from City VTC with a naval yard nearby. */
+export const CITY_YARD_NAVAL_UNITS = ['BATTLESHIP', 'CRUISER_LT', 'CRUISER_HV', 'DESTROYER_MK1'];
+
+export function hasNavalYardNearSettlement(state, player, vtc, maxDist = 4) {
+  if (!vtc) return false;
+  for (const b of state.buildings || []) {
+    if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
+    if (!YARD_BUILDING_TYPES.has(b.type)) continue;
+    if (hexDistance(b.q, b.r, vtc.q, vtc.r) <= maxDist) return true;
+  }
+  return false;
+}
+
+export function playerHasCityWithNavalYard(state, player) {
+  for (const b of state.buildings || []) {
+    if (Number(b.owner) !== Number(player) || b.type !== 'CITY' || b.underConstruction) continue;
+    if (hasNavalYardNearSettlement(state, player, b, 5)) return true;
+  }
+  return false;
+}
 let _nextGlobalRecruitId = 1;
 
-function getBuildingTierForDeploy(b) {
+export function getBuildingTierForDeploy(b) {
   if (!b) return -1;
   if (VTC_TIER[b.type] != null) return VTC_TIER[b.type];
   if (b.type === 'HQ' || (b.type === 'VILLAGE' && b.isCapital)) return 0;
@@ -1920,9 +1945,23 @@ export function getNavalDeployRadius(building) {
   return getNavalCoastalCheckRadius(building);
 }
 
-function isNavalAllowedAtVTCTier(tier, unitType) {
+export function isNavalAllowedAtVTCTier(tier, unitType) {
   const list = VTC_GLOBAL_NAVAL_BY_TIER[tier] || VTC_GLOBAL_NAVAL_BY_TIER[0];
   return list.includes(unitType);
+}
+
+function isCityYardNavalEligible(state, player, b, unitType) {
+  if (!CITY_YARD_NAVAL_UNITS.includes(unitType)) return false;
+  if (b.type !== 'CITY') return false;
+  if (!hasNavalYardNearSettlement(state, player, b, 5)) return false;
+  if (LOCKED_CHASSIS.has(unitType)) {
+    const unlocked = new Set(state.players[player]?.research?.unlocked || []);
+    const techMap = { DESTROYER_MK1: 'destroyer_mk1' };
+    const tid = techMap[unitType];
+    if (tid && !unlocked.has(tid)) return false;
+  }
+  const coastalR = getNavalCoastalCheckRadius(b);
+  return isNavalDeployAllowed(state, b, coastalR);
 }
 
 export function isNavalDeployAllowed(state, b, maxR = 6) {
@@ -1993,6 +2032,7 @@ export function getGlobalRecruitOptionsForVTC(state, player, buildingId) {
   const tier = getBuildingTierForDeploy(b);
   if (tier < 0) return [];
   const all = Object.keys(UNIT_TYPES).filter(t => PHASE_A_GLOBAL_UNITS.has(t));
+  const yardExtra = CITY_YARD_NAVAL_UNITS.filter(u => isCityYardNavalEligible(state, player, b, u));
   return all.filter((unitType) => {
     const def = UNIT_TYPES[unitType] || {};
     if (def.unlockedBy && !(state.players[player]?.research?.unlocked || []).includes(def.unlockedBy)) return false;
@@ -2004,7 +2044,7 @@ export function getGlobalRecruitOptionsForVTC(state, player, buildingId) {
     if (AIR_UNITS.has(unitType)) return tier >= (tier === 0 ? 0 : 0); // villages allow light air in Phase A
     if (unitType === 'TANK' || unitType === 'ARTILLERY') return tier >= 1;
     return true;
-  });
+  }).concat(yardExtra.filter(u => !all.includes(u)));
 }
 
 export function canQueueGlobalRecruit(state, player, unitType, buildingId) {
@@ -2061,9 +2101,15 @@ export function deployReadyGlobalRecruit(state, player, readyId, buildingId) {
   return { ok: true };
 }
 
+/** @deprecated Use SETTLEMENT_PROMOTE — kept for AI quick checks */
 export const SETTLEMENT_UPGRADE = {
-  VILLAGE: { next: 'TOWN', cost: { iron: 8, wood: 8, oil: 2 } },
-  TOWN:    { next: 'CITY', cost: { iron: 12, wood: 10, oil: 4, components: 2 } },
+  VILLAGE: { next: 'TOWN', cost: { iron: 32, wood: 22, oil: 6, components: 1 } },
+  TOWN:    { next: 'CITY', cost: { iron: 58, wood: 38, oil: 14, components: 6 } },
+};
+
+export const SETTLEMENT_PROMOTE = {
+  VILLAGE: { next: 'TOWN', promoteTurns: 2, cost: { iron: 32, wood: 22, oil: 6, components: 1 }, minScore: 4 },
+  TOWN:    { next: 'CITY', promoteTurns: 3, cost: { iron: 58, wood: 38, oil: 14, components: 6 }, minScore: 5 },
 };
 
 function canSpawnUnitAtHex(state, player, unitType, q, r, anchorQ, anchorR) {
@@ -2159,22 +2205,100 @@ export function deployReadyGlobalRecruitAtHex(state, player, readyId, q, r) {
 }
 
 export function upgradeSettlement(state, player, buildingId) {
-  const b = state.buildings.find(x => x.id === buildingId && Number(x.owner) === Number(player) && !x.underConstruction);
-  if (!b) return { ok: false, reason: 'Invalid settlement' };
-  const up = SETTLEMENT_UPGRADE[b.type];
-  if (!up) return { ok: false, reason: 'No upgrade for this settlement' };
+  const check = canPromoteSettlement(state, player, buildingId);
+  if (!check.ok) return check;
+  const b = state.buildings.find(x => x.id === buildingId);
   const pl = state.players[player];
-  const c = up.cost;
-  if ((pl.iron || 0) < (c.iron || 0)) return { ok: false, reason: 'Not enough iron' };
-  if ((pl.oil || 0) < (c.oil || 0)) return { ok: false, reason: 'Not enough oil' };
-  if ((pl.wood || 0) < (c.wood || 0)) return { ok: false, reason: 'Not enough wood' };
-  if ((pl.components || 0) < (c.components || 0)) return { ok: false, reason: 'Not enough components' };
+  const c = check.cost;
   pl.iron -= (c.iron || 0);
   pl.oil -= (c.oil || 0);
   pl.wood -= (c.wood || 0);
   pl.components = (pl.components || 0) - (c.components || 0);
-  b.type = up.next;
-  return { ok: true, newType: up.next };
+  b.promoteTarget = check.next;
+  b.promoteTurnsLeft = check.promoteTurns;
+  return { ok: true, target: check.next, turns: check.promoteTurns };
+}
+
+export function canPromoteSettlement(state, player, buildingId) {
+  const b = state.buildings?.find(x => x.id === buildingId && Number(x.owner) === Number(player));
+  if (!b || !['VILLAGE', 'TOWN', 'CITY'].includes(b.type) || b.underConstruction) {
+    return { ok: false, reason: 'Invalid settlement' };
+  }
+  if (isPlayerCapitalBuilding(b)) return { ok: false, reason: 'Capital cannot be promoted' };
+  if (b.promoteTurnsLeft > 0) return { ok: false, reason: 'Promotion in progress' };
+  const def = SETTLEMENT_PROMOTE[b.type];
+  if (!def) return { ok: false, reason: 'Already at max tier' };
+  const imp = getSettlementPromotionScore(state, player, b);
+  if (imp.score < def.minScore) {
+    return { ok: false, reason: `Need ${def.minScore - imp.score} more improvements (${imp.score}/${def.minScore})` };
+  }
+  const pl = state.players[player] || {};
+  const c = def.cost;
+  if ((pl.iron || 0) < (c.iron || 0)) return { ok: false, reason: 'Not enough iron' };
+  if ((pl.oil || 0) < (c.oil || 0)) return { ok: false, reason: 'Not enough oil' };
+  if ((pl.wood || 0) < (c.wood || 0)) return { ok: false, reason: 'Not enough wood' };
+  if ((pl.components || 0) < (c.components || 0)) return { ok: false, reason: 'Not enough components' };
+  return { ok: true, next: def.next, promoteTurns: def.promoteTurns, cost: c };
+}
+
+function getSettlementPromotionScore(state, player, vtc) {
+  const r = 4;
+  const near = (types) => (state.buildings || []).filter(b =>
+    Number(b.owner) === Number(player) && !b.underConstruction && types.has(b.type)
+    && hexDistance(b.q, b.r, vtc.q, vtc.r) <= r).length;
+  const econ = near(new Set(['MINE', 'OIL_PUMP', 'FARM', 'LUMBER_CAMP', 'MARKET']));
+  const mil = near(new Set(['BARRACKS', 'SUPPLY_DEPOT', 'SUPPLY_WAREHOUSE', 'SCIENCE_LAB', 'FACTORY']));
+  const housing = near(new Set(['HOUSING_SLUMS', 'HOUSING_RURAL', 'HOUSING_SUBURB', 'HOUSING_DISTRICT', 'HOUSING_BOROUGH', 'HOUSING_METRO']));
+  const industry = near(new Set(['FACTORY', 'SCIENCE_LAB', 'VEHICLE_DEPOT', 'ARMOR_WORKS']));
+  const roadOk = hasRoadPathToCapitalForPromote(state, vtc, player);
+  let score = 0;
+  if (vtc.type === 'VILLAGE') {
+    if (roadOk) score++;
+    if (econ >= 1) score++;
+    if (mil >= 1) score++;
+    if (housing >= 1) score++;
+  } else if (vtc.type === 'TOWN') {
+    if (roadOk) score++;
+    if (industry >= 1) score++;
+    if ((state.buildings || []).some(b => Number(b.owner) === Number(player) && ROAD_TYPES.has(b.type)
+      && hexDistance(b.q, b.r, vtc.q, vtc.r) <= 6 && (b.roadTier ?? 0) >= 1)) score++;
+    if (near(new Set(['FORT_T0', 'FORT_T1', 'FORT_T2', 'BUNKER', 'COASTAL_BATTERY']))) score++;
+    const coastal = isNavalDeployAllowed(state, vtc, getNavalCoastalCheckRadius(vtc));
+    if (!coastal || hasNavalYardNearSettlement(state, player, vtc, 5)) score++;
+  }
+  return { score };
+}
+
+function hasRoadPathToCapitalForPromote(state, vtc, player) {
+  const cap = getPlayerCapital(state, player);
+  if (!cap) return false;
+  const mapSize = state._mapSize || 40;
+  const terrain = state._terrain || {};
+  if (roadAt(state, vtc.q, vtc.r) && roadAt(state, cap.q, cap.r)) {
+    const path = findRoadPath(terrain, mapSize, cap.q, cap.r, vtc.q, vtc.r);
+    if (path?.length) return true;
+  }
+  for (const b of state.buildings || []) {
+    if (Number(b.owner) !== Number(player) || !ROAD_TYPES.has(b.type)) continue;
+    if (hexDistance(b.q, b.r, vtc.q, vtc.r) > 2) continue;
+    const path = findRoadPath(terrain, mapSize, cap.q, cap.r, b.q, b.r);
+    if (path?.length) return true;
+  }
+  return false;
+}
+
+export function tickSettlementPromotions(state, player, events = []) {
+  for (const b of state.buildings || []) {
+    if (Number(b.owner) !== Number(player) || !b.promoteTurnsLeft) continue;
+    if (!['VILLAGE', 'TOWN', 'CITY'].includes(b.type)) continue;
+    b.promoteTurnsLeft = Math.max(0, (b.promoteTurnsLeft || 1) - 1);
+    if (b.promoteTurnsLeft <= 0 && b.promoteTarget) {
+      const prev = b.type;
+      b.type = b.promoteTarget;
+      delete b.promoteTarget;
+      events.push(`P${player} promoted ${prev} → ${b.type} at (${b.q},${b.r})`);
+    }
+  }
 }
 
 // ── Turn resolution ────────────────────────────────────────────────────────
@@ -2661,6 +2785,11 @@ export function resolveTurn(state, terrain) {
     }
   }
   state.units = state.units.filter(u => u.health > 0);
+
+  // Phase 4c: Settlement promotions
+  for (const player of [1, 2]) {
+    tickSettlementPromotions(state, player, events);
+  }
 
   // Phase 5: Income
   for (const player of [1, 2]) {

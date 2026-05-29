@@ -21,7 +21,7 @@ import {
   queueGlobalRecruit, deployReadyGlobalRecruitAtHex, enumerateGlobalDeployHexes,
   getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit, PRODUCTION_VTC_TYPES,
   getPlayerCapital, getPlayerCapitalBuildings, getEnemyCapitalBuildings, isPlayerCapitalBuilding,
-  isNavalDeployAllowed, getNavalCoastalCheckRadius, SETTLEMENT_UPGRADE, VTC_SUPPLY_RADIUS, findRoadPath, canPlaceRoadOnTerrain,
+  isNavalDeployAllowed, getNavalCoastalCheckRadius, canPromoteSettlement, VTC_SUPPLY_RADIUS, findRoadPath, canPlaceRoadOnTerrain,
 } from './GameState.js';
 import { ensureAIDesigns, pickAIRecruit, getClosingPressure } from './AIDesigner.js';
 import {
@@ -4291,12 +4291,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   if ((gs.turn || 1) >= 8 && !actions.some(a => a.type === 'upgrade_settlement')) {
     for (const { vtc } of listOwnedVTCSorted(gs, player, perceivedEnemies, myCapital)) {
       if (vtc.isCapital) continue;
-      const up = SETTLEMENT_UPGRADE[vtc.type];
-      if (!up) continue;
-      const c = up.cost || {};
-      const pl = gs.players[player] || {};
-      if ((pl.iron || 0) >= (c.iron || 0) && (pl.oil || 0) >= (c.oil || 0)
-        && (pl.wood || 0) >= (c.wood || 0) && (pl.components || 0) >= (c.components || 0)) {
+      const promo = canPromoteSettlement(gs, player, vtc.id);
+      if (promo.ok) {
         actions.push({ type: 'upgrade_settlement', buildingId: vtc.id });
         break;
       }

@@ -13,7 +13,7 @@ import {
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
   findPath, findRoadPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, queueGlobalRecruit, deployReadyGlobalRecruit,
   getGlobalRecruitOptionsForVTC, getGlobalRecruitOptionsForPlayer, pickProductionAnchorBuilding, getOwnedDeployVTBuildings,
-  enumerateGlobalDeployHexes, deployReadyGlobalRecruitAtHex, upgradeSettlement, SETTLEMENT_UPGRADE, PRODUCTION_VTC_TYPES,
+  enumerateGlobalDeployHexes, deployReadyGlobalRecruitAtHex, upgradeSettlement, canPromoteSettlement, PRODUCTION_VTC_TYPES,
   isNavalDeployAllowed, getNavalCoastalCheckRadius, getNavalDeployRadius,
   isHQNetworkPluggedToNeutralRoads, registerDesign,
   getUnitPopCost, recalcPlayerPopulation,
@@ -42,6 +42,7 @@ import { getVictoryPointLeader } from './VictoryPoints.js';
 import { PLAYER_LABELS, VICTORY_MODES, clampPlayerCount, getPlayerIds } from './GameConfig.js';
 import { pickBalancedSpawnPoints, pickBalancedVictoryZones, pickIslandSpawnPoints, MIN_ISLAND_LAND_TILES } from './SpawnBalance.js';
 import { getBuildingCounterGlyph } from './BuildingCounters.js';
+import { getSettlementImprovementStatus, getProduceCatalog } from './SettlementSystem.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
 const TERRAIN        = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2, HILL: 3, SHALLOW: 4, OCEAN: 5, SAND: 6 };
@@ -51,7 +52,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.20.7';
+export const GAME_VERSION = 'v1.20.8';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -3469,10 +3470,22 @@ export class GameScene extends Phaser.Scene {
     };
     btn.on('pointerdown', () => { this._contextMenuClicked = true; });
     btn.on('pointerup', (ptr) => { if (ptr.button === 0) run(); });
-    btn.on('pointerover', () => btn.setAlpha(0.88));
-    btn.on('pointerout', () => btn.setAlpha(opts.dimmed ? 0.45 : 1.0));
+    btn.on('pointerover', () => {
+      btn.setAlpha(0.88);
+      if (opts.disabledReason) this._setBuildMenuHint(opts.disabledReason);
+    });
+    btn.on('pointerout', () => {
+      btn.setAlpha(opts.dimmed ? 0.45 : 1.0);
+      if (opts.disabledReason) this._setBuildMenuHint('');
+    });
     if (opts.dimmed) btn.setAlpha(0.45);
     return btn;
+  }
+
+  _setBuildMenuHint(text) {
+    if (!this._buildMenuHint) return;
+    this._buildMenuHint.setText(text || '');
+    this._buildMenuHint.setVisible(!!text);
   }
 
   _addBuildMenuText(x, y, text, style = {}) {
@@ -3642,25 +3655,40 @@ export class GameScene extends Phaser.Scene {
       clr.on('pointerdown', () => { this._clearBuildMenuBuildingFocus(); this._updateBottomPanel(); });
       this._uiLayer.add(clr);
       this._dynBtns.push(clr);
-      const up = SETTLEMENT_UPGRADE[focus.type];
-      if (up) {
-        const pl = gs.players[p];
-        const c = up.cost;
-        const canUp = (pl.iron || 0) >= (c.iron || 0) && (pl.oil || 0) >= (c.oil || 0) && (pl.wood || 0) >= (c.wood || 0)
-          && (pl.components || 0) >= (c.components || 0);
-        const upBtn = this._makeActionBtn(ax, ay, `↑ ${BUILDING_TYPES[up.next]?.name || up.next}`, canUp ? 0x446633 : 0x333333, () => {
-          const out = upgradeSettlement(gs, p, focus.id);
-          if (!out.ok) this._pushLog(`Upgrade failed: ${out.reason}`);
-          else {
-            this._pushLog(`Upgraded to ${BUILDING_TYPES[out.newType]?.name || out.newType}`);
-            this._buildMenuFocusBuilding = gs.buildings.find(b => b.id === focus.id) || null;
+      const imp = getSettlementImprovementStatus(gs, p, focus.id);
+      if (imp && imp.next) {
+        if (imp.promoting) {
+          this._addBuildMenuText(ax, ay, `Promoting → ${BUILDING_TYPES[imp.next]?.name || imp.next} (${imp.promoteTurnsLeft}t)`, {
+            fill: '#ffdd88', font: '10px monospace',
+          });
+          ay += 14;
+        } else {
+          const doneMark = (it) => (it.done ? '✓' : '○');
+          for (const it of imp.items.slice(0, 3)) {
+            this._addBuildMenuText(ax, ay, `${doneMark(it)} ${it.label}`, {
+              fill: it.done ? '#88cc88' : '#778899', font: '9px monospace',
+            });
+            ay += 12;
           }
-          this._refresh();
-        });
-        if (!canUp) upBtn.setAlpha(0.45);
-        this._uiLayer.add(upBtn);
-        this._dynBtns.push(upBtn);
-        ay += bh + gap;
+          if (imp.items.length > 3) {
+            this._addBuildMenuText(ax, ay, `… ${imp.score}/${imp.required} requirements`, { fill: '#8899aa', font: '9px monospace' });
+            ay += 12;
+          }
+          const promo = canPromoteSettlement(gs, p, focus.id);
+          const upBtn = this._makeActionBtn(ax, ay, `↑ Promote ${BUILDING_TYPES[imp.next]?.name || imp.next}`, promo.ok ? 0x446633 : 0x333333, () => {
+            const out = upgradeSettlement(gs, p, focus.id);
+            if (!out.ok) this._pushLog(`Promote failed: ${out.reason}`);
+            else this._pushLog(`Promoting → ${BUILDING_TYPES[out.target]?.name || out.target} (${out.turns} turns)`);
+            this._buildMenuFocusBuilding = gs.buildings.find(b => b.id === focus.id) || null;
+            this._refresh();
+          }, {
+            dimmed: !promo.ok,
+            disabledReason: promo.ok ? '' : (promo.reason || 'Requirements not met'),
+          });
+          this._uiLayer.add(upBtn);
+          this._dynBtns.push(upBtn);
+          ay += bh + gap;
+        }
       }
     }
 
@@ -3736,24 +3764,37 @@ export class GameScene extends Phaser.Scene {
         ay += 14;
       }
     }
-    const opts = getGlobalRecruitOptionsForVTC(gs, p, anchor.id);
+    if (!this._buildMenuHint) {
+      this._buildMenuHint = this.add.text(ax, ay, '', {
+        font: '10px monospace', fill: '#ffcc88', wordWrap: { width: 220 },
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(113).setVisible(false);
+      this._uiLayer.add(this._buildMenuHint);
+    }
+    this._buildMenuHint.setPosition(ax, h - 22);
+    const catalog = getProduceCatalog(gs, p, anchor.id);
     const pl = gs.players[p];
     let col = 0;
-    for (const unitType of opts) {
+    for (const entry of catalog) {
+      const { unitType, canQueue, reason } = entry;
       const def = UNIT_TYPES[unitType];
       if (!def) continue;
       const foodCost = getRecruitFoodCost(unitType);
       const canAfford = (pl.iron || 0) >= (def.cost.iron || 0) && (pl.oil || 0) >= (def.cost.oil || 0)
         && (pl.food || 0) >= foodCost && (pl.components || 0) >= (def.cost.components || 0);
+      const enabled = canQueue && canAfford;
       const costStr = this._formatRecruitCost(def, foodCost);
       const label = `${def.name}\n${costStr}`;
       const bx = ax + col * (bw + gap);
-      const btn = this._makeActionBtn(bx, ay, label, canAfford ? BUILD_MENU.produce : 0x252530, () => {
+      const btn = this._makeActionBtn(bx, ay, label, enabled ? BUILD_MENU.produce : 0x252530, () => {
+        if (!canQueue) return;
         const out = queueGlobalRecruit(gs, p, unitType, anchor.id);
         if (!out.ok) this._pushLog(`Queue failed: ${out.reason}`);
         else this._pushLog(`Queued ${def.name}`);
         this._refresh();
-      }, { height: 40, fontSize: 10, dimmed: !canAfford });
+      }, {
+        height: 40, fontSize: 10, dimmed: !enabled,
+        disabledReason: !canQueue ? reason : (!canAfford ? 'Cannot afford' : ''),
+      });
       this._uiLayer.add(btn);
       this._dynBtns.push(btn);
       col += 1;
@@ -10361,9 +10402,7 @@ export class GameScene extends Phaser.Scene {
 
     const scale = Math.max(0.55, ms / 50);
     const density = ms >= 100 ? 0.38 : ms >= 70 ? 0.52 : ms >= 50 ? 0.68 : 0.85;
-    const villageN = Math.max(2, Math.floor((3 + 3 * scale) * density));
-    const townN = Math.max(1, Math.floor((1 + 2 * scale) * density));
-    const cityN = Math.max(1, Math.floor((ms / 140) * density));
+    const settlementN = Math.max(3, Math.floor((5 + 4 * scale) * density));
     const placed = [];
     const minDist = ms >= 100 ? 22 : ms >= 70 ? 18 : ms >= 50 ? 14 : 11;
     const spawns = gs.buildings.filter(b => isPlayerCapitalBuilding(b))
@@ -10378,19 +10417,11 @@ export class GameScene extends Phaser.Scene {
     candidates.sort((a, b) => sectorScore(b.q, b.r) - sectorScore(a.q, a.r));
     const pick = (count, type) => {
       let done = 0;
-      const pickBonus = (st) => {
-        if (st === 'CITY') {
-          const roll = rng();
-          if (roll < 0.33) return { components: 1 };
-          if (roll < 0.66) return { iron: 1, oil: 1 };
-          return { rp: 1 };
-        }
-        if (st === 'TOWN') {
-          const roll = rng();
-          if (roll < 0.33) return { iron: 1 };
-          if (roll < 0.66) return { oil: 1 };
-          return { wood: 1 };
-        }
+      const pickBonus = () => {
+        const roll = rng();
+        if (roll < 0.25) return { wood: 1 };
+        if (roll < 0.5) return { iron: 1 };
+        if (roll < 0.75) return { oil: 1 };
         return null;
       };
       for (const c of candidates) {
@@ -10398,16 +10429,14 @@ export class GameScene extends Phaser.Scene {
         if (!free(c.q, c.r)) continue;
         if (placed.some(p => hexDistance(p.q, p.r, c.q, c.r) < minDist)) continue;
         const b = createBuilding(type, 0, c.q, c.r);
-        const bonus = pickBonus(type);
+        const bonus = pickBonus();
         if (bonus) b.settlementBonus = bonus;
         gs.buildings.push(b);
         placed.push({ q: c.q, r: c.r, type });
         done++;
       }
     };
-    pick(cityN, 'CITY');
-    pick(townN, 'TOWN');
-    pick(villageN, 'VILLAGE');
+    pick(settlementN, 'VILLAGE');
 
     // Connected neutral road grid: every settlement sits on a road; MST links the network.
     const roadType = (q, r) => (map[`${q},${r}`] === 2 ? null : 'ROAD');
