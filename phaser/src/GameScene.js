@@ -50,7 +50,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.20.0';
+export const GAME_VERSION = 'v1.20.1';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -10340,7 +10340,7 @@ export class GameScene extends Phaser.Scene {
     pick(townN, 'TOWN');
     pick(villageN, 'VILLAGE');
 
-    // Seed neutral road spines between nearby settlements to form conflict corridors.
+    // Connected neutral road grid: every settlement sits on a road; MST links the network.
     const roadType = (q, r) => (map[`${q},${r}`] === 2 ? null : 'ROAD');
     const addRoad = (q, r) => {
       if (!isLand(q, r)) return;
@@ -10349,27 +10349,98 @@ export class GameScene extends Phaser.Scene {
       if (gs.buildings.some(b => b.q === q && b.r === r && ROAD_TYPES.has(b.type))) return;
       gs.buildings.push(createBuilding(rt, 0, q, r));
     };
-    for (const a of placed) {
-      const near = placed
-        .filter(b => b !== a)
-        .sort((x, y) => hexDistance(a.q, a.r, x.q, x.r) - hexDistance(a.q, a.r, y.q, y.r))
-        .slice(0, 2);
-      for (const b of near) {
-        if (hexDistance(a.q, a.r, b.q, b.r) > (ms >= 100 ? 24 : ms >= 70 ? 18 : 14)) continue;
-        if (rng() < 0.38) continue; // loose connectivity — gaps until engineers connect
-        let cq = a.q, cr = a.r;
-        let steps = 0;
-        while ((cq !== b.q || cr !== b.r) && steps < 28) {
-          steps++;
-          const opts = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]
-            .map(([dq, dr]) => ({ q: cq + dq, r: cr + dr }))
-            .filter(h => h.q >= 0 && h.r >= 0 && h.q < ms && h.r < ms && isLand(h.q, h.r))
-            .sort((u, v) => hexDistance(u.q, u.r, b.q, b.r) - hexDistance(v.q, v.r, b.q, b.r));
-          if (!opts.length) break;
-          cq = opts[0].q; cr = opts[0].r;
-          addRoad(cq, cr);
+    const terrainStepCost = (q, r) => {
+      const t = map[`${q},${r}`];
+      if (t === 2) return 12;
+      if (t === 3) return 3;
+      return 0;
+    };
+    const routeRoad = (from, to, maxSteps = 56) => {
+      let cq = from.q, cr = from.r;
+      let steps = 0;
+      while ((cq !== to.q || cr !== to.r) && steps < maxSteps) {
+        steps++;
+        const opts = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]
+          .map(([dq, dr]) => ({ q: cq + dq, r: cr + dr }))
+          .filter(h => h.q >= 0 && h.r >= 0 && h.q < ms && h.r < ms && isLand(h.q, h.r))
+          .sort((u, v) => {
+            const du = hexDistance(u.q, u.r, to.q, to.r);
+            const dv = hexDistance(v.q, v.r, to.q, to.r);
+            if (du !== dv) return du - dv;
+            return terrainStepCost(u.q, u.r) - terrainStepCost(v.q, v.r);
+          });
+        if (!opts.length) break;
+        cq = opts[0].q;
+        cr = opts[0].r;
+        addRoad(cq, cr);
+      }
+    };
+
+    for (const s of placed) addRoad(s.q, s.r);
+
+    const roadNodes = [
+      ...placed.map(s => ({ q: s.q, r: s.r })),
+      ...spawns.map(s => ({ q: s.q, r: s.r })),
+    ];
+    if (roadNodes.length >= 2) {
+      const parent = roadNodes.map((_, i) => i);
+      const find = (i) => {
+        while (parent[i] !== i) {
+          parent[i] = parent[parent[i]];
+          i = parent[i];
+        }
+        return i;
+      };
+      const unite = (a, b) => {
+        const ra = find(a), rb = find(b);
+        if (ra !== rb) parent[rb] = ra;
+      };
+      const edges = [];
+      for (let i = 0; i < roadNodes.length; i++) {
+        for (let j = i + 1; j < roadNodes.length; j++) {
+          edges.push({
+            i, j,
+            d: hexDistance(roadNodes[i].q, roadNodes[i].r, roadNodes[j].q, roadNodes[j].r),
+          });
         }
       }
+      edges.sort((a, b) => a.d - b.d);
+      for (const { i, j } of edges) {
+        if (find(i) === find(j)) continue;
+        unite(i, j);
+        routeRoad(roadNodes[i], roadNodes[j]);
+      }
+      // Light redundancy: second-neighbor spurs so the map feels like a country road mesh.
+      const bonusDist = ms >= 100 ? 28 : ms >= 70 ? 22 : 18;
+      for (const a of placed) {
+        const near = placed
+          .filter(b => b !== a)
+          .sort((x, y) => hexDistance(a.q, a.r, x.q, x.r) - hexDistance(a.q, a.r, y.q, y.r));
+        const second = near[1];
+        if (!second) continue;
+        const d = hexDistance(a.q, a.r, second.q, second.r);
+        if (d > bonusDist) continue;
+        routeRoad(a, second, Math.min(40, d + 8));
+      }
+    }
+
+    // Highway spurs from the neutral grid toward each capital (stops one hex out).
+    for (const cap of spawns) {
+      if (!placed.length) continue;
+      const hub = placed
+        .slice()
+        .sort((a, b) => hexDistance(a.q, a.r, cap.q, cap.r) - hexDistance(b.q, b.r, cap.q, cap.r))[0];
+      if (!hub || hexDistance(hub.q, hub.r, cap.q, cap.r) <= 4) continue;
+      const stop = { q: cap.q, r: cap.r };
+      for (const [dq, dr] of [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]) {
+        const nq = cap.q + dq, nr = cap.r + dr;
+        if (nq < 0 || nr < 0 || nq >= ms || nr >= ms || !isLand(nq, nr)) continue;
+        if (hexDistance(nq, nr, hub.q, hub.r) < hexDistance(stop.q, stop.r, hub.q, hub.r)) {
+          stop.q = nq;
+          stop.r = nr;
+        }
+      }
+      routeRoad(hub, stop, 64);
     }
   }
 
