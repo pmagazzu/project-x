@@ -69,9 +69,16 @@ function vtcStrategicWeight(b) {
 }
 
 function garrisonWantForVTC(vtc, turn, enemyNear) {
-  if (vtc.isCapital) return turn < 12 ? 2 : 1;
+  if (vtc.isCapital) {
+    if (enemyNear) return turn < 12 ? 2 : 1;
+    return turn < 10 ? 1 : 0;
+  }
+  if (!enemyNear) {
+    if (vtc.type === 'CITY') return turn >= 20 ? 1 : 0;
+    if (vtc.type === 'TOWN') return 0;
+    return 0;
+  }
   let want = vtc.type === 'CITY' ? 3 : vtc.type === 'TOWN' ? 2 : 1;
-  if (enemyNear) want += 1;
   if (turn >= 24 && vtc.type === 'CITY') want += 1;
   return want;
 }
@@ -119,10 +126,18 @@ function assignOwnedVTCCoverage(gs, player, unitObjective, combatUnits, perceive
 
   const pool = combatUnits.filter(isCombatUnitForGarrison);
   const used = new Set();
+  const maxHoldAssign = Math.max(0, Math.min(
+    pool.length - 2,
+    Math.floor(pool.length * 0.4),
+    perceivedEnemies.length > 0 ? pool.length : Math.max(1, Math.floor(pool.length * 0.35)),
+  ));
 
   for (const { vtc, threat } of owned) {
+    if (used.size >= maxHoldAssign) break;
     const enemyNear = threat > 0;
+    if (pool.length <= 8 && !enemyNear && !vtc.isCapital) continue;
     const want = garrisonWantForVTC(vtc, turn, enemyNear);
+    if (want <= 0) continue;
     let onStation = gs.units.filter(u =>
       Number(u.owner) === Number(player) && !u.embarked && isCombatUnitForGarrison(u)
       && hexDistance(u.q, u.r, vtc.q, vtc.r) <= 2).length;
@@ -2118,6 +2133,43 @@ function shouldPrioritizeOilOverMine(gs, player) {
   return enemyOil >= myOil * 1.5 && myPumps < myMines;
 }
 
+/** At least one attack per turn when enemies are known but doctrine would stay passive. */
+function enforceContactAttackFloor(gs, player, actions, perceivedEnemies) {
+  const turn = gs.turn || 1;
+  if (turn < 12 || !perceivedEnemies?.length) return 0;
+  if (actions.some(a => a.type === 'attack')) return 0;
+
+  const attacked = new Set();
+  const combatUnits = gs.units.filter((u) => {
+    if (Number(u.owner) !== Number(player) || u.embarked) return false;
+    const role = getUnitRole(u.type);
+    if (role === 'engineer' || role === 'support') return false;
+    const d = UNIT_TYPES[u.type] || {};
+    return (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0 || (d.attack || 0) > 0;
+  });
+
+  for (const unit of combatUnits) {
+    const targets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
+    const target = chooseBestTarget(gs, unit, targets);
+    if (!target) continue;
+    const trade = estimateAttackCommitScore(gs, unit, target);
+    const kill = (target.health || 99) <= 1;
+    if (!kill && trade < -2) continue;
+    actions.unshift({
+      type: 'attack',
+      attackerId: unit.id,
+      targetId: target.id,
+      attackerQ: unit.q,
+      attackerR: unit.r,
+      targetQ: target.q,
+      targetR: target.r,
+    });
+    attacked.add(unit.id);
+    return 1;
+  }
+  return 0;
+}
+
 function enforceClosingAttackFloor(gs, player, actions, strategic) {
   const endgame = strategic?.endgamePressure ?? 0;
   if (strategic?.phase !== 'closing' && endgame < 0.5) return 0;
@@ -3248,7 +3300,13 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       (close >= 0.5 && (killShot || preTrade >= -2 || (!!unitInSupply && nearbyFriendliesForCommit >= 1)))
       || ((!!unitInSupply && hasCommitMass) || frontlineCommit)
     );
-    const canRiskAttack = scoutOk || probeOk || expandOk || mainOk
+    const holdObj = unitObjective[unit.id];
+    const holdDefend = unitMission === 'hold_vtc' && preMoveTarget && (
+      killShot
+      || (hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 2 && preTrade >= 0)
+      || (holdObj && hexDistance(preMoveTarget.q, preMoveTarget.r, holdObj.q, holdObj.r) <= 5 && (killShot || preTrade >= 1))
+    );
+    const canRiskAttack = scoutOk || probeOk || expandOk || mainOk || holdDefend
       || (close >= 0.55 && unitMission === 'main' && killShot)
       || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && killShot && hexDistance(unit.q, unit.r, preMoveTarget.q, preMoveTarget.r) <= 1);
     const preThreshold = (unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 2 : (unitMission === 'expand' ? 2
@@ -3343,17 +3401,21 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const lastMove = moveMemory?.[unit.id];
         const backtracking = isImmediateBacktrack(unit, bestDest, lastMove, gs.turn || 1);
         const objNow = unitObjective[unit.id] || strategic?.focusEnemyHQ;
-        const noContactJitter = !!bestDest && enemies.length === 0 && unitMission !== 'main' && unitMission !== 'closing' && (() => {
+        const isHoldMission = unitMission === 'hold_vtc' || objNow?.kind === 'settlement';
+        const noContactJitter = !!bestDest && enemies.length === 0 && unitMission !== 'main' && unitMission !== 'closing'
+          && unitMission !== 'hold_vtc' && !isHoldMission && (() => {
           if (!objNow) return hexDistance(unit.q, unit.r, bestDest.q, bestDest.r) <= 1;
           const curD = hexDistance(unit.q, unit.r, objNow.q, objNow.r);
           const newD = hexDistance(bestDest.q, bestDest.r, objNow.q, objNow.r);
           return newD >= curD && hexDistance(unit.q, unit.r, bestDest.q, bestDest.r) <= 1;
         })();
-        if (backtracking && enemies.length === 0 && (unitMission === 'expand' || unitMission === 'garrison' || unitMission === 'stabilize')) {
+        if (backtracking && enemies.length === 0 && !isHoldMission
+          && (unitMission === 'expand' || unitMission === 'garrison' || unitMission === 'stabilize')) {
           bestDest = null;
         }
         if (noContactJitter) bestDest = null;
-        if (bestDest && enemies.length === 0 && getUnitRole(unit.type) !== 'engineer' && getUnitRole(unit.type) !== 'support' && enemyHQs.length > 0) {
+        if (bestDest && enemies.length === 0 && !isHoldMission
+          && getUnitRole(unit.type) !== 'engineer' && getUnitRole(unit.type) !== 'support' && enemyHQs.length > 0) {
           const curHQ = Math.min(...enemyHQs.map(h => hexDistance(unit.q, unit.r, h.q, h.r)));
           const newHQ = Math.min(...enemyHQs.map(h => hexDistance(bestDest.q, bestDest.r, h.q, h.r)));
           if (newHQ >= curHQ) bestDest = null;
@@ -3388,9 +3450,17 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           : (nearbyFriendliesPost >= 3 || (postMoveTarget && (postMoveTarget.health || 99) <= 1));
         const postKill = postMoveTarget && (postMoveTarget.health || 99) <= 1;
         const expandPostOk = unitMission === 'expand' && (postKill || (postTrade >= 3 && nearbyFriendliesPost >= 2));
+        const holdObjPost = unitObjective[unit.id];
+        const holdPostDefend = unitMission === 'hold_vtc' && postMoveTarget && (
+          postKill
+          || (hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 2 && postTrade >= 0)
+          || (holdObjPost && hexDistance(postMoveTarget.q, postMoveTarget.r, holdObjPost.q, holdObjPost.r) <= 5
+            && (postKill || postTrade >= 1))
+        );
         const canRiskPostAttack = (unitMission === 'scout' && postKill)
           || ((unitMission === 'probe' || unitMission === 'diversion') && (postKill || postTrade >= 5))
           || expandPostOk
+          || holdPostDefend
           || (unitMission === 'main' && ((!!postInSupply && hasCommitMassPost) || frontlineCommitPost))
           || (((unit.outOfSupply || 0) < 2 && roadDeficitGlobal < 2) && postKill && hexDistance(unit.q, unit.r, postMoveTarget.q, postMoveTarget.r) <= 1);
         const postThreshold = (unitMission === 'scout' ? 3 : (unitMission === 'probe' ? 2 : (unitMission === 'expand' ? 2 : (unitMission === 'main' ? (close >= 0.5 ? -5 : -2) : 6)))) + midGameAggro + pressureAggro;
@@ -4675,7 +4745,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   // Hard cap build spam so stability trimmer does not discard combat (late-game perf).
   {
-    const maxBuildActions = Math.max(6, Math.min(20, 4 + Math.floor(roadDeficitGlobal) + (logisticsPressure ? 5 : 0)));
+    const combatAlive = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked && isCombatUnitForGarrison(u)).length;
+    let maxBuildActions = Math.max(6, Math.min(20, 4 + Math.floor(roadDeficitGlobal) + (logisticsPressure ? 5 : 0)));
+    if (combatAlive < 10) maxBuildActions = Math.min(maxBuildActions, 5);
+    if (combatAlive < 6) maxBuildActions = Math.min(maxBuildActions, 3);
     let buildN = 0;
     const trimmed = [];
     for (const a of actions) {
@@ -4783,6 +4856,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   };
 
   const researchFloor = planResearchFloorActions(gs, player, terrain, actions, resSim, canAfford, spend);
+  const contactAttackFloor = enforceContactAttackFloor(gs, player, actions, perceivedEnemies);
   const closingAttackFloor = enforceClosingAttackFloor(gs, player, actions, strategic);
 
   const transportActions = planTransportOperations(gs, terrain, mapSize, player, strategic, territorial, actions);
@@ -4795,6 +4869,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     builds: actions.filter(a => a.type === 'build').length,
     recruits: actions.filter(a => a.type === 'recruit').length,
     extractorRaids: Object.values(unitObjective).filter(o => o?.kind === 'raid_resource').length,
+    contactAttackFloor,
     closingAttackFloor,
     researchFloor,
   };
