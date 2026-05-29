@@ -5,6 +5,7 @@ import {
 } from './HexGrid.js';
 import { MenuScene } from './MenuScene.js';
 import { planAITurn, AI_STRATEGIES, randomStrategy, getAIKPIReport, pickAIStrategyForMap, buildAIOverviewForGame } from './AIPlayer.js';
+import { getEngineerBuildOptions, ENGINEER_BUILD_CATEGORIES } from './EngineerBuildOptions.js';
 import {
   createGameState, createUnit, createBuilding, unitAt, buildingAt, primaryBuildingAt, roadAt,
   canEngineerBuildAt,
@@ -48,7 +49,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.19.17';
+export const GAME_VERSION = 'v1.19.18';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -324,6 +325,7 @@ export class GameScene extends Phaser.Scene {
     this._buildMenuTab = 'produce'; // produce | deploy | struct
     this._buildMenuFocusBuilding = null;
     this._buildMenuStructPage = 0;
+    this._engineerBuildCategory = 'roads';
 
     // Build terrain RenderTexture
     const bounds  = getMapBounds(this.mapSize);
@@ -1444,11 +1446,38 @@ export class GameScene extends Phaser.Scene {
     return this._supplyCache[p];
   }
 
+  _stopCameraMotion() {
+    const cam = this.cameras.main;
+    if (!cam) return;
+    cam.stopFollow();
+    this.tweens.killTweensOf(cam);
+    if (typeof cam.resetFX === 'function') cam.resetFX();
+  }
+
+  _snapshotSpectatorCamera() {
+    if (!this._aiViewerMode) return null;
+    this._stopCameraMotion();
+    const cam = this.cameras.main;
+    if (!cam) return null;
+    return { scrollX: cam.scrollX, scrollY: cam.scrollY, zoom: cam.zoom };
+  }
+
+  _restoreSpectatorCamera(snap) {
+    if (!snap || !this._aiViewerMode) return;
+    this._stopCameraMotion();
+    const cam = this.cameras.main;
+    if (!cam) return;
+    cam.setScroll(snap.scrollX, snap.scrollY);
+    cam.setZoom(snap.zoom);
+  }
+
   // ── Full refresh ──────────────────────────────────────────────────────────
   _refresh(opts = {}) {
+    const camSnap = this._snapshotSpectatorCamera();
     if (opts.light) {
       this._updateTopBar();
       this._updateBottomPanel();
+      this._restoreSpectatorCamera(camSnap);
       return;
     }
     this._invalidateSupplyCache();
@@ -1487,6 +1516,7 @@ export class GameScene extends Phaser.Scene {
     this._updateBottomPanel();
     this._updateSpectatorStats();
     this.btnSubmit?.setVisible(true);
+    this._restoreSpectatorCamera(camSnap);
   }
 
   // ── Supply overlay ────────────────────────────────────────────────────────
@@ -3143,11 +3173,118 @@ export class GameScene extends Phaser.Scene {
 
   _getBottomChromeLayout() {
     const w = this.scale.width, h = this.scale.height;
-    const panH = this._inspectorPanH || 192;
+    const engineerPanel = this._buildMenuOpen && this._isEngineerBuildPanelActive();
+    const panH = engineerPanel
+      ? Math.min(360, h - PLAYFIELD_UI.top - 16)
+      : (this._inspectorPanH || 212);
     const topY = h - panH;
     const actionCx = w - 198;
     const contentLeft = actionCx - 190;
     return { w, h, panH, topY, actionCx, contentLeft };
+  }
+
+  _renderEngineerBuildPanel(eng) {
+    const { topY, panH, contentLeft } = this._getBottomChromeLayout();
+    const ax = contentLeft;
+    const maxY = topY + panH - 8;
+    let ay = topY + 8;
+    const colW = 168;
+    const btnH = 28;
+    const gap = 3;
+
+    this._addBuildMenuText(ax, ay, '🔧 ENGINEER CORPS', { font: 'bold 13px monospace', fill: '#88ffcc' });
+    ay += 20;
+
+    const quickBtns = [];
+    if (!eng.roadOrder) {
+      quickBtns.push({ label: 'AUTO-ROAD →', color: 0x2a4455, cb: () => this._enterRoadDestMode(eng) });
+    } else {
+      quickBtns.push({ label: '✕ CANCEL ROAD', color: 0x662222, cb: () => { delete eng.roadOrder; this._refresh(); } });
+    }
+    if (eng.moveOrder) {
+      quickBtns.push({ label: '✕ CANCEL MOVE', color: 0x334466, cb: () => { delete eng.moveOrder; this._refresh(); } });
+    } else if (!eng.moved) {
+      quickBtns.push({ label: 'Shift+RMB move', color: 0x223344, cb: () => {} });
+    }
+    let qx = ax;
+    for (const qb of quickBtns) {
+      const btn = this._makeActionBtn(qx, ay, qb.label, qb.color, qb.cb, { width: 108, height: 26, fontSize: 10 });
+      if (qb.label.startsWith('Shift')) btn.setAlpha(0.55);
+      this._uiLayer.add(btn);
+      this._dynBtns.push(btn);
+      qx += 108 + gap;
+    }
+    ay += 30;
+
+    const cat = this._engineerBuildCategory || 'roads';
+    const tabW = 66;
+    ENGINEER_BUILD_CATEGORIES.forEach((c, i) => {
+      const active = cat === c.key;
+      const tx = ax + i * (tabW + 2);
+      const tab = this.add.text(tx, ay, c.label, {
+        font: 'bold 9px monospace',
+        fill: active ? BUILD_MENU.gold : BUILD_MENU.muted,
+        backgroundColor: active ? '#2a4433' : '#1a2228',
+        padding: { x: 5, y: 4 },
+        fixedWidth: tabW,
+        align: 'center',
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(112).setInteractive({ useHandCursor: true });
+      tab.on('pointerdown', () => {
+        this._engineerBuildCategory = c.key;
+        this._buildMenuStructPage = 0;
+        this._updateBottomPanel();
+      });
+      this._uiLayer.add(tab);
+      this._dynBtns.push(tab);
+    });
+    ay += 26;
+
+    const allOpts = getEngineerBuildOptions(this, eng);
+    const pool = allOpts.filter(o => !o.header && o.category === cat);
+    const PAGE_SIZE = 12;
+    const totalPages = Math.max(1, Math.ceil(pool.length / PAGE_SIZE));
+    const page = Phaser.Math.Clamp(this._buildMenuStructPage || 0, 0, totalPages - 1);
+    this._buildMenuStructPage = page;
+    const slice = pool.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+    let row = 0;
+    let col = 0;
+    for (const o of slice) {
+      const bx = ax + col * (colW + gap);
+      const by = ay + row * (btnH + gap);
+      if (by + btnH > maxY - 30) break;
+      const label = o.enabled ? o.label : `${o.label}  ✗`;
+      const item = { label, enabled: o.enabled, cb: o.cb, color: o.enabled ? 0x2a5533 : 0x222222 };
+      const btn = this._makeActionBtn(bx, by, label, item.color, () => this._runContextMenuItem(item, eng), {
+        width: colW, height: btnH, fontSize: 9, dimmed: !o.enabled,
+      });
+      this._uiLayer.add(btn);
+      this._dynBtns.push(btn);
+      col += 1;
+      if (col >= 2) { col = 0; row += 1; }
+    }
+
+    const navY = Math.min(maxY - 22, ay + (row + 1) * (btnH + gap) + 4);
+    if (totalPages > 1) {
+      if (page > 0) {
+        const prev = this._makeActionBtn(ax, navY, '◀ PREV', 0x333355, () => {
+          this._buildMenuStructPage = page - 1;
+          this._updateBottomPanel();
+        }, { width: 72, height: 22, fontSize: 9 });
+        this._uiLayer.add(prev);
+        this._dynBtns.push(prev);
+      }
+      const pgLbl = this._addBuildMenuText(ax + 80, navY + 4, `PAGE ${page + 1}/${totalPages}`, { fill: '#8899aa', font: '9px monospace' });
+      pgLbl.setDepth(112);
+      if (page < totalPages - 1) {
+        const next = this._makeActionBtn(ax + 168, navY, 'NEXT ▶', 0x333355, () => {
+          this._buildMenuStructPage = page + 1;
+          this._updateBottomPanel();
+        }, { width: 72, height: 22, fontSize: 9 });
+        this._uiLayer.add(next);
+        this._dynBtns.push(next);
+      }
+    }
   }
 
   _isCurrentPlayerHumanControlled() {
@@ -3188,7 +3325,9 @@ export class GameScene extends Phaser.Scene {
       this._inspectorLines[i]?.setPosition(12, topY + 76 + i * 18);
     }
 
-    this.actionBg?.setPosition(actionCx, topY + panH / 2).setSize(380, panH).setVisible(true);
+    const engineerPanel = this._buildMenuOpen && this._isEngineerBuildPanelActive();
+    const actionW = engineerPanel ? 392 : 380;
+    this.actionBg?.setPosition(actionCx, topY + panH / 2).setSize(actionW, panH).setVisible(true);
     this.actionAccent?.setPosition(actionCx, topY + 1).setVisible(true);
   }
 
@@ -3477,32 +3616,7 @@ export class GameScene extends Phaser.Scene {
     const bw = 112, bh = 30, gap = 3;
 
     if (this._isEngineerBuildPanelActive()) {
-      const eng = this.selectedUnit;
-      this._addBuildMenuText(ax, ay, '🔧 ENGINEER CORPS', { font: 'bold 13px monospace', fill: '#88ffcc' });
-      ay += 20;
-      const quickBtns = [];
-      if (!eng.roadOrder) {
-        quickBtns.push({ label: 'AUTO-ROAD →', color: 0x2a4455, cb: () => this._enterRoadDestMode(eng) });
-      } else {
-        quickBtns.push({ label: '✕ CANCEL ROAD', color: 0x662222, cb: () => { delete eng.roadOrder; this._refresh(); } });
-      }
-      if (eng.moveOrder) {
-        quickBtns.push({ label: '✕ CANCEL MOVE', color: 0x334466, cb: () => { delete eng.moveOrder; this._refresh(); } });
-      } else if (!eng.moved) {
-        quickBtns.push({ label: 'Shift+RMB move', color: 0x223344, cb: () => {} });
-      }
-      let qx = ax;
-      for (const qb of quickBtns) {
-        const btn = this._makeActionBtn(qx, ay, qb.label, qb.color, qb.cb);
-        if (qb.label.startsWith('Shift')) btn.setAlpha(0.55);
-        this._uiLayer.add(btn);
-        this._dynBtns.push(btn);
-        qx += bw + gap;
-      }
-      ay += bh + gap + 4;
-      this._panelEmbedBuildMenu = { ax, ay, btnW: bw, btnH: 26, gap: 3 };
-      this._showContextMenu(eng, 'build', this._buildMenuStructPage, true);
-      this._panelEmbedBuildMenu = null;
+      this._renderEngineerBuildPanel(this.selectedUnit);
       return;
     }
 
@@ -3645,6 +3759,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   _updateBottomPanel() {
+    this._layoutInspectorChrome();
     const gs = this.gameState;
     const u = this.selectedUnit;
     const canAct = u && Number(u.owner) === Number(gs.currentPlayer);
@@ -5098,204 +5213,28 @@ export class GameScene extends Phaser.Scene {
       }));
     } else if (submenu === 'build') {
       title = '▸ BUILD';
-      const gs = this.gameState, p = gs.currentPlayer;
-      // Roads don't count as "a building" for placement purposes
-      const existingBuilding = primaryBuildingAt(gs, unit.q, unit.r);
-      const noBuilding = canEngineerBuildAt(gs, unit.q, unit.r, 'BARRACKS');
-      const canFort = canEngineerBuildAt(gs, unit.q, unit.r, 'FORT_T1');
-      const res = gs.resourceHexes[`${unit.q},${unit.r}`];
-      const iron = gs.players[p].iron, oil = gs.players[p].oil, wood = gs.players[p].wood || 0;
-      const coastal = this._isCoastalHex(unit.q, unit.r);
-      const ttype = this.terrain[`${unit.q},${unit.r}`] ?? 0;
-      const onForest  = ttype === 1 || ttype === 7;
-      const onPlains  = (ttype === 0 || ttype === 6 || ttype === 7);
-
-      // All possible build options — grouped for readability
-      const allOpts = [];
-      const addHeader = (label) => allOpts.push({ header: true, label: `── ${label} ──`, enabled: false, cb: () => {} });
-
-      addHeader('ROADS');
-      // Road building — show upgrade option if existing road is lower tier
-      const existingRoad = roadAt(gs, unit.q, unit.r);
-      const existingTier = existingRoad ? (BUILDING_TYPES[existingRoad.type]?.roadTier ?? 0) : -1;
-      const unlocked = new Set(gs.players[p].research?.unlocked || []);
-      const hasGravelTech   = unlocked.has('gravel_roads');
-      const hasConcreteTech = unlocked.has('concrete_roads');
-      const hasRailTech     = unlocked.has('railways');
-      if (!existingRoad) {
-        allOpts.push({ label: `Dirt Road   1🪵`,  cost: { iron:0, oil:0, wood:1 }, enabled: wood>=1,  cb: () => this._onBuildRoad('ROAD') });
-      } else if (existingTier < 1 && hasGravelTech) {
-        allOpts.push({ label: `Upgrade→Gravel  1⚙ 1🪵`, cost: { iron:1,oil:0,wood:1 }, enabled: iron>=1 && wood>=1,
-          cb: () => this._onUpgradeRoad(unit, 'GRAVEL_ROAD') });
-      } else if (existingTier < 2 && hasConcreteTech) {
-        allOpts.push({ label: `Upgrade→Concrete  2⚙`, cost: { iron:2,oil:0,wood:0 }, enabled: iron>=2,
-          cb: () => this._onUpgradeRoad(unit, 'CONCRETE_ROAD') });
-      } else if (existingTier < 3 && hasRailTech) {
-        allOpts.push({ label: `Upgrade→Railway  4⚙ 1🛢 2🪵`, cost: { iron:4,oil:1,wood:2 },
-          enabled: iron>=4 && oil>=1 && wood>=2,
-          cb: () => this._onUpgradeRoad(unit, 'RAILWAY') });
-      }
-      // Auto-road standing order (engineer pathfinds to destination, builds each turn)
-      if (unit.roadOrder) {
-        allOpts.push({ label: `✕ CANCEL ROAD ORDER`, cost: null, enabled: true, cb: () => { delete unit.roadOrder; this._hideContextMenu(true); this._refresh(); } });
-      } else {
-        allOpts.push({ label: `AUTO-ROAD →`, cost: null, enabled: true, cb: () => this._enterRoadDestMode(unit) });
-      }
-      addHeader('RESOURCE EXTRACTION');
-      if (res && noBuilding)
-        allOpts.push({ label: `${res.type==='OIL'?'Oil Pump   4⚙ 2🛢':'Mine        4⚙'}`,
-                       cost: { iron:4,oil: res.type==='OIL'?2:0 }, enabled: res.type==='OIL'?(iron>=4&&oil>=2):iron>=4,
-                       cb: () => this._onBuildMine(res.type) });
-      if (onForest && noBuilding)
-        allOpts.push({ label: `Lumber Camp 2⚙`, cost:{iron:2,oil:0,wood:0}, enabled: iron>=2,
-                       cb: () => this._onBuildLumberCamp() });
-      addHeader('LAND MILITARY');
-      if (noBuilding) allOpts.push({ label: `Barracks    4⚙ 4🪵`,    cost:{iron:4,oil:0,wood:4},  enabled: iron>=4&&wood>=4,        cb: () => this._onBuildStructure('BARRACKS',4,0,4) });
-      if (noBuilding) allOpts.push({ label: `Vehicle Depot 8⚙ 2🛢`, cost:{iron:8,oil:2},          enabled: iron>=8&&oil>=2,         cb: () => this._onBuildStructure('VEHICLE_DEPOT',8,2) });
-      if (noBuilding) allOpts.push({ label: `Adv Barracks T2 10⚙ 2🛢 6🪵 2🧩`, cost:{iron:10,oil:2,wood:6,components:2}, enabled: iron>=10&&oil>=2&&wood>=6&&(gs.players[p].components||0)>=2, cb: () => this._onBuildStructure('ADV_BARRACKS',10,2,6,2) });
-      if (noBuilding) allOpts.push({ label: `Armor Works T2 14⚙ 4🛢 4🪵 3🧩`,  cost:{iron:14,oil:4,wood:4,components:3}, enabled: iron>=14&&oil>=4&&wood>=4&&(gs.players[p].components||0)>=3, cb: () => this._onBuildStructure('ARMOR_WORKS',14,4,4,3) });
-      if (noBuilding) allOpts.push({ label: `Airfield     6⚙ 2🛢 2🪵`,      cost:{iron:6,oil:2,wood:2}, enabled: iron>=6&&oil>=2&&wood>=2, cb: () => this._onBuildStructure('AIRFIELD',6,2,2) });
-      if (noBuilding) allOpts.push({ label: `Adv Airfield T2 12⚙ 5🛢 4🪵 3🧩`, cost:{iron:12,oil:5,wood:4,components:3}, enabled: iron>=12&&oil>=5&&wood>=4&&(gs.players[p].components||0)>=3, cb: () => this._onBuildStructure('ADV_AIRFIELD',12,5,4,3) });
-      addHeader('NAVAL');
-      if (noBuilding && coastal) allOpts.push({ label: `Naval Yard  8⚙ 2🛢`,   cost:{iron:8,oil:2},  enabled: iron>=8&&oil>=2,  cb: () => this._onBuildStructure('NAVAL_YARD',8,2) });
-      if (noBuilding && coastal) allOpts.push({ label: `Harbor      5⚙ 1🛢 1🧩`,   cost:{iron:5,oil:1,components:1},  enabled: iron>=5&&oil>=1&&(gs.players[p].components||0)>=1,  cb: () => this._onBuildStructure('HARBOR',5,1,0,1) });
-      if (noBuilding && coastal) allOpts.push({ label: `Dry Dock   12⚙ 4🛢 2🧩`,   cost:{iron:12,oil:4,components:2}, enabled: iron>=12&&oil>=4&&(gs.players[p].components||0)>=2, cb: () => this._onBuildStructure('DRY_DOCK',12,4,0,2) });
-      if (noBuilding && coastal) allOpts.push({ label: `Naval Base 16⚙ 6🛢 3🧩`,   cost:{iron:16,oil:6,components:3}, enabled: iron>=16&&oil>=6&&(gs.players[p].components||0)>=3, cb: () => this._onBuildStructure('NAVAL_BASE',16,6,0,3) });
-      if (noBuilding && coastal) allOpts.push({ label: `Naval Dockyard T2 16⚙ 5🛢 4🪵 3🧩`, cost:{iron:16,oil:5,wood:4,components:3}, enabled: iron>=16&&oil>=5&&wood>=4&&(gs.players[p].components||0)>=3, cb: () => this._onBuildStructure('NAVAL_DOCKYARD',16,5,4,3) });
-      addHeader('DEFENSE & OBSTACLES');
-      const fortMenu = [
-        { key: 'FORT_T0', tech: 'sandbag_improved', label: 'T0 Foxhole 1🪵', cost: { wood: 1 } },
-        { key: 'FORT_T1', tech: null, label: 'T1 Splinter Pit 1⚙ 1🪵', cost: { iron: 1, wood: 1 } },
-        { key: 'FORT_T2', tech: 'entrenching_tools', label: 'T2 Field Trench 2🪵', cost: { wood: 2 } },
-        { key: 'FORT_T3', tech: 'bunker', label: 'T3 Pillbox 3⚙ 2🪵', cost: { iron: 3, wood: 2 } },
-        { key: 'FORT_T4', tech: 'hardened_bunker', label: 'T4 Bunker 5⚙ 3🪵 1🧩', cost: { iron: 5, wood: 3, components: 1 } },
-        { key: 'FORT_T5', tech: 'superfortress', label: 'T5 Superfort 8⚙ 2🪵 2🧩 🔩', cost: { iron: 8, wood: 2, components: 2, hardenedSteel: 1 } },
-      ];
-      for (const fo of fortMenu) {
-        if (!canFort) continue;
-        if (fo.tech && !unlocked.has(fo.tech)) continue;
-        const c = fo.cost;
-        const comp = gs.players[p].components || 0;
-        const steel = gs.players[p].hardenedSteel || 0;
-        const enabled = iron >= (c.iron || 0) && wood >= (c.wood || 0) && oil >= (c.oil || 0)
-          && comp >= (c.components || 0) && steel >= (c.hardenedSteel || 0);
-        allOpts.push({
-          label: fo.label,
-          cost: c,
-          enabled,
-          cb: () => this._onBuildStructure(fo.key, c.iron || 0, c.oil || 0, c.wood || 0, c.components || 0, c.hardenedSteel || 0),
-        });
-      }
-      if (noBuilding) allOpts.push({ label: `Obs. Post   3⚙`, cost:{iron:3,oil:0}, enabled: iron>=3, cb: () => this._onBuildStructure('OBS_POST',3) });
-      if (unlocked.has('barbed_wire') && noBuilding)
-        allOpts.push({ label: `Barbed Wire 1🪵`, cost:{iron:0,oil:0,wood:1}, enabled: wood>=1, cb: () => this._onBuildStructure('BARBED_WIRE',0,0,1) });
-      if (unlocked.has('supply_depot') && noBuilding)
-        allOpts.push({ label: `Supply Depot 3⚙ 1🛢 1🪵 (HQ road, +4)`, cost:{iron:3,oil:1,wood:1}, enabled: iron>=3&&oil>=1&&wood>=1, cb: () => this._onBuildStructure('SUPPLY_DEPOT',3,1,1) });
-      if (unlocked.has('supply_depot') && noBuilding && coastal)
-        allOpts.push({ label: `Supply Port 6⚙ 2🛢 3🪵 1🧩 (bridge supply)`, cost:{iron:6,oil:2,wood:3,components:1}, enabled: iron>=6&&oil>=2&&wood>=3&&comp>=1, cb: () => this._onBuildStructure('SUPPLY_PORT',6,2,3,1) });
-      addHeader('POPULATION & HOUSING');
-      const popLine = (key, label, cost, extra = '') => {
-        const d = BUILDING_TYPES[key];
-        if (d?.requiresTech && !unlocked.has(d.requiresTech)) return;
-        const c = cost || d.buildCost || {};
-        const comp = gs.players[p].components || 0;
-        const enabled = iron >= (c.iron || 0) && wood >= (c.wood || 0) && oil >= (c.oil || 0)
-          && comp >= (c.components || 0) && noBuilding && onPlains;
-        allOpts.push({ label: `${label}${extra}`, cost: c, enabled, cb: () => this._onBuildStructure(key, c.iron || 0, c.oil || 0, c.wood || 0, c.components || 0) });
-      };
-      if (onPlains) {
-        popLine('HOUSING_SLUMS', 'Slums T0  +1 pop', { iron: 1, wood: 2 }, ' (no cap)');
-        popLine('HOUSING_RURAL', 'Rural T1  +1 cap', { iron: 2, wood: 4 });
-        popLine('HOUSING_SUBURB', 'Suburb  +2 cap +1/t', { iron: 4, wood: 5 });
-        popLine('HOUSING_DISTRICT', 'District T2  +3 cap +1/t', { iron: 6, wood: 6, components: 1 });
-        popLine('HOUSING_BOROUGH', 'Borough T3  +5 cap +2/t', { iron: 8, wood: 8, components: 2 });
-        popLine('HOUSING_METRO', 'Metro T4  +8 cap +3/t', { iron: 12, wood: 10, components: 3 });
-      }
-      addHeader('ECONOMY & RESEARCH');
-      const foodGold = gs.players[p].food || 0;
-      const gold = gs.players[p].gold || 0;
-      if (noBuilding && onPlains) allOpts.push({ label: `Farm 🍞     2⚙ 3🪵`,   cost:{iron:2,oil:0,wood:3}, enabled: iron>=2&&wood>=3, cb: () => this._onBuildStructure('FARM',2,0,3) });
-      if (noBuilding) allOpts.push({ label: `Market 💰   3⚙ 4🪵`,             cost:{iron:3,oil:0,wood:4}, enabled: iron>=3&&wood>=4, cb: () => this._onBuildStructure('MARKET',3,0,4) });
-      if (noBuilding && coastal) allOpts.push({ label: `Port ⚓ T1 5⚙ 1🛢 4🪵`,  cost:{iron:5,oil:1,wood:4}, enabled: iron>=5&&oil>=1&&wood>=4, cb: () => this._onBuildStructure('PORT',5,1,4) });
-      if (noBuilding) allOpts.push({ label: `Science Lab ⚗  6⚙ 4🪵`,         cost:{iron:6,oil:0,wood:4}, enabled: iron>=6&&wood>=4, cb: () => this._onBuildStructure('SCIENCE_LAB',6,0,4) });
-      if (noBuilding) allOpts.push({ label: `Factory 🧩    10⚙ 3🛢 8🪵`,      cost:{iron:10,oil:3,wood:8}, enabled: iron>=10&&oil>=3&&wood>=8, cb: () => this._onBuildStructure('FACTORY',10,3,8) });
-      // Coastal Battery — must be placed on coastal land hex
-      if (coastal) allOpts.push({ label: `Coast. Battery 6⚙ 1🛢`, cost:{iron:6,oil:1}, enabled: iron>=6&&oil>=1, cb: () => this._onBuildCoastalBattery() });
-      // AA Emplacement — spawns as immobile anti-air unit
-      allOpts.push({ label: `AA Emplacement 4⚙ 1🛢`, cost:{iron:4,oil:1}, enabled: iron>=4&&oil>=1, cb: () => this._onBuildAAEmplacement() });
-      // Future entries just go here — pagination handles overflow automatically
-
-      const totalPages = Math.max(1, Math.ceil(allOpts.length / PAGE_SIZE));
-      page = Phaser.Math.Clamp(page, 0, totalPages - 1);
-      const slice = allOpts.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-
-      items = slice.map(o => ({
-        label:   o.header ? o.label : (o.enabled ? o.label : `${o.label}  ✗`),
-        color:   o.header ? 0x1d2b1d : (o.enabled ? 0x2a5533 : 0x222222),
+      const allOpts = getEngineerBuildOptions(this, unit);
+      const mapped = allOpts.map(o => ({
+        label: o.header ? o.label : (o.enabled ? o.label : `${o.label}  ✗`),
+        color: o.header ? 0x1d2b1d : (o.enabled ? 0x2a5533 : 0x222222),
         enabled: o.header ? false : o.enabled,
-        cb:      o.cb,
-        header:  !!o.header,
+        cb: o.cb,
+        header: !!o.header,
       }));
-
+      const totalPages = Math.max(1, Math.ceil(mapped.length / PAGE_SIZE));
+      page = Phaser.Math.Clamp(page, 0, totalPages - 1);
+      const slice = mapped.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+      items = slice;
       if (totalPages > 1) {
         if (page > 0) {
-          items.push({
-            label: '◀ PREV PAGE',
-            color: 0x333355,
-            enabled: true,
-            openSubmenu: 'build',
-            page: page - 1,
-          });
+          items.push({ label: '◀ PREV PAGE', color: 0x333355, enabled: true, openSubmenu: 'build', page: page - 1 });
         }
-        items.push({
-          label: `PAGE ${page + 1} / ${totalPages}`,
-          color: 0x333355,
-          enabled: false,
-          header: true,
-        });
+        items.push({ label: `PAGE ${page + 1} / ${totalPages}`, color: 0x333355, enabled: false, header: true });
         if (page < totalPages - 1) {
-          items.push({
-            label: 'NEXT PAGE ▶',
-            color: 0x333355,
-            enabled: true,
-            openSubmenu: 'build',
-            page: page + 1,
-          });
+          items.push({ label: 'NEXT PAGE ▶', color: 0x333355, enabled: true, openSubmenu: 'build', page: page + 1 });
         }
       }
 
-    }
-
-    const embed = this._panelEmbedBuildMenu;
-    if (embed && submenu === 'build') {
-      items = items.filter(i => !String(i.label || '').includes('BACK'));
-      let rowAy = embed.ay;
-      for (const item of items) {
-        if (item.header) {
-          const hdrTxt = this.add.text(embed.ax, rowAy, item.label, {
-            font: '10px monospace', fill: '#6688aa',
-          }).setScrollFactor(0).setDepth(112);
-          this._uiLayer.add(hdrTxt);
-          this._dynBtns.push(hdrTxt);
-          rowAy += embed.btnH;
-          continue;
-        }
-        const label = item.enabled ? item.label : `${item.label}  ✗`;
-        const col = item.enabled ? 0x2a5533 : 0x222222;
-        const btn = this._makeActionBtn(embed.ax, rowAy, label, col, () => {
-          if (item.openSubmenu === 'build') {
-            this._buildMenuStructPage = item.page || 0;
-            this._updateBottomPanel();
-            return;
-          }
-          this._runContextMenuItem(item, unit);
-        });
-        if (!item.enabled) btn.setAlpha(0.45);
-        this._uiLayer.add(btn);
-        this._dynBtns.push(btn);
-        rowAy += embed.btnH + embed.gap;
-      }
-      return;
     }
 
     // ── Position menu at cursor, clamped to screen ───────────────────────────
@@ -8245,6 +8184,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   _onSubmit() {
+    const camSnap = this._snapshotSpectatorCamera();
     this._aiLastProgressAt = Date.now();
     this._hideEndTurnConfirm();
     const gs = this.gameState;
@@ -8305,6 +8245,7 @@ export class GameScene extends Phaser.Scene {
     } else {
       this._showPassScreen(`Player ${gs.currentPlayer}'s turn — take the controls`);
     }
+    this._restoreSpectatorCamera(camSnap);
   }
 
   // ── AI turn runner ────────────────────────────────────────────────────────
@@ -8944,8 +8885,10 @@ export class GameScene extends Phaser.Scene {
         if (!targetHex) continue;
 
         const { x, y } = hexToWorld(targetHex.q, targetHex.r);
-        // Pan camera to the combat hex
-        await new Promise(res => this.cameras.main.pan(x, y, 350, 'Sine.easeInOut', false, (_cam, p) => { if (p >= 1) res(); }));
+        // Pan camera to the combat hex (skirmish only — spectator keeps free camera)
+        if (!this._aiViewerMode) {
+          await new Promise(res => this.cameras.main.pan(x, y, 350, 'Sine.easeInOut', false, (_cam, p) => { if (p >= 1) res(); }));
+        }
 
         // Explicit attacker/defender markers + slower shot animation
         let atkMarker = null, defMarker = null;
@@ -9135,7 +9078,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   _focusPlayerHQ(player, smooth = true) {
-    if (this._aiViewerMode) return;
+    if (this._aiViewerMode) {
+      this._stopCameraMotion();
+      return;
+    }
     const hq = this.gameState.buildings.find(b => b.type === 'HQ' && Number(b.owner) === Number(player));
     if (!hq) return;
     const cam = this.cameras.main;
