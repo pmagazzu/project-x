@@ -97,7 +97,8 @@ export function pickContestedVictoryZone(gs, player) {
 export function pickPrimaryEnemyHQ(gs, player, enemyHQs = []) {
   if (!enemyHQs?.length) return null;
   if (enemyHQs.length === 1) return enemyHQs[0];
-  const myHQ = gs.buildings.find(b => b.type === 'HQ' && Number(b.owner) === Number(player));
+  const myHQ = gs.buildings.find(b =>
+    (b.type === 'HQ' || (b.type === 'VILLAGE' && b.isCapital)) && Number(b.owner) === Number(player));
   if (!myHQ) return enemyHQs[0];
 
   const isCombat = (u) => {
@@ -134,13 +135,15 @@ export function pickPrimaryEnemyHQ(gs, player, enemyHQs = []) {
 /** Local theater pressure (not diluted by off-map enemies in 5p FFA). */
 export function getLocalClosingPressure(gs, player, mapSize = 40, focusEnemyOwner = null) {
   const ms = mapSize || gs?._mapSize || 40;
-  const myHQ = gs.buildings.find(b => b.type === 'HQ' && Number(b.owner) === Number(player));
+  const myHQ = gs.buildings.find(b =>
+    (b.type === 'HQ' || (b.type === 'VILLAGE' && b.isCapital)) && Number(b.owner) === Number(player));
   const theaterRadius = Math.max(14, Math.floor(ms * 0.38));
 
   const inTheater = (u) => {
     if (myHQ && hexDistance(u.q, u.r, myHQ.q, myHQ.r) <= theaterRadius) return true;
     if (focusEnemyOwner != null) {
-      const eHQ = gs.buildings.find(b => b.type === 'HQ' && Number(b.owner) === Number(focusEnemyOwner));
+      const eHQ = gs.buildings.find(b =>
+        (b.type === 'HQ' || (b.type === 'VILLAGE' && b.isCapital)) && Number(b.owner) === Number(focusEnemyOwner));
       if (eHQ && hexDistance(u.q, u.r, eHQ.q, eHQ.r) <= theaterRadius) return true;
     }
     for (const u2 of gs.units) {

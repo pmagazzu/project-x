@@ -20,6 +20,7 @@ import {
   ROAD_TYPES, unitAt, computeFog, buildHQRoadNetwork, isHQNetworkPluggedToNeutralRoads,
   queueGlobalRecruit, deployReadyGlobalRecruitAtHex, enumerateGlobalDeployHexes,
   getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit, PRODUCTION_VTC_TYPES,
+  getPlayerCapital, getPlayerCapitalBuildings, getEnemyCapitalBuildings, isPlayerCapitalBuilding,
 } from './GameState.js';
 import { ensureAIDesigns, pickAIRecruit, getClosingPressure } from './AIDesigner.js';
 import {
@@ -1507,8 +1508,8 @@ function buildTerritorialIntel(terrain, mapSize, gs, player, strategic, resource
     if (b.underConstruction) continue;
     if (!['VILLAGE', 'TOWN', 'CITY'].includes(b.type)) continue;
     const owned = Number(b.owner) === Number(player);
-    const base = b.type === 'CITY' ? 10 : b.type === 'TOWN' ? 8 : 6;
-    expansions.push({ q: b.q, r: b.r, score: owned ? base * 0.65 : base + 2.5, type: 'settlement' });
+    const base = b.type === 'CITY' ? 14 : b.type === 'TOWN' ? 11 : 8;
+    expansions.push({ q: b.q, r: b.r, score: owned ? base * 1.2 : base + 4, type: 'settlement' });
   }
   for (const o of (strategic?.objectives?.corridor || [])) {
     if (o.type === 'forward' || o.type === 'resource') {
@@ -1547,7 +1548,7 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
   const phase = strategic?.phase || 'expand';
   const closing = phase === 'closing' || (strategic?.endgamePressure || 0) >= 0.5;
   const theater = strategic?.theater;
-  const myHQ = gs.buildings.find(b => b.type === 'HQ' && b.owner === player);
+  const myHQ = getPlayerCapital(gs, player);
   const enemyHQ = strategic?.focusEnemyHQ || pickPrimaryEnemyHQ(gs, player, enemyHQs) || enemyHQs[0];
   if (!myHQ || !enemyHQ || myCombatUnits.length < 2) {
     return { unitObjective, deceptionActive: false, missionCounts };
@@ -1793,12 +1794,80 @@ function assignEnemyExtractorRaidMissions(gs, player, unitObjective, combatUnits
   }
 }
 
+/** Hold owned VTCs and secure threatened neutrals (supply + forward deploy). */
+function assignHoldVTCCMissions(gs, player, unitObjective, combatUnits, perceivedEnemies = []) {
+  const turn = gs.turn || 1;
+  if (turn < 3) return;
+  const capital = getPlayerCapital(gs, player);
+  const isCombatUnit = (u) => {
+    const d = UNIT_TYPES[u.type] || {};
+    const role = getUnitRole(u.type);
+    return role !== 'engineer' && role !== 'support'
+      && ((d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0 || (d.attack || 0) > 0);
+  };
+  const pool = combatUnits.filter((u) => {
+    const m = unitObjective[u.id]?.mission;
+    return !m || m === 'expand' || m === 'probe' || m === 'garrison' || m === 'hold_vtc';
+  });
+
+  const ownedVTC = gs.buildings.filter(b =>
+    Number(b.owner) === Number(player) && !b.underConstruction
+    && ['VILLAGE', 'TOWN', 'CITY'].includes(b.type));
+  for (const vtc of ownedVTC) {
+    if (vtc.isCapital) continue;
+    const want = vtc.type === 'CITY' ? 2 : vtc.type === 'TOWN' ? 2 : 1;
+    const guards = gs.units.filter(u =>
+      Number(u.owner) === Number(player) && !u.embarked && isCombatUnit(u)
+      && hexDistance(u.q, u.r, vtc.q, vtc.r) <= 2).length;
+    if (guards >= want) continue;
+    const enemyNear = perceivedEnemies.some(e => hexDistance(e.q, e.r, vtc.q, vtc.r) <= 12);
+    let best = null;
+    let bestD = Infinity;
+    for (const u of pool) {
+      if (unitObjective[u.id]?.kind === 'hold_vtc') continue;
+      const d = hexDistance(u.q, u.r, vtc.q, vtc.r);
+      if (d < bestD) { bestD = d; best = u; }
+    }
+    if (best && bestD <= (enemyNear ? 22 : 18)) {
+      unitObjective[best.id] = { q: vtc.q, r: vtc.r, mission: 'hold_vtc', kind: 'settlement' };
+    }
+  }
+
+  const neutralVTC = gs.buildings.filter(b =>
+    Number(b.owner) === 0 && !b.underConstruction
+    && ['VILLAGE', 'TOWN', 'CITY'].includes(b.type));
+  let secured = 0;
+  const maxSecure = turn < 20 ? 3 : 5;
+  for (const vtc of neutralVTC) {
+    if (secured >= maxSecure) break;
+    const nearCap = capital && hexDistance(vtc.q, vtc.r, capital.q, capital.r) <= 22;
+    const enemyNear = perceivedEnemies.some(e => hexDistance(e.q, e.r, vtc.q, vtc.r) <= 8);
+    const enemyOn = gs.units.some(u => Number(u.owner) !== Number(player) && !u.embarked
+      && hexDistance(u.q, u.r, vtc.q, vtc.r) <= 2);
+    if (!nearCap && !enemyNear && !enemyOn) continue;
+    let best = null;
+    let bestD = Infinity;
+    for (const u of pool) {
+      if (unitObjective[u.id]?.kind === 'settlement' || unitObjective[u.id]?.kind === 'hold_vtc') continue;
+      const d = hexDistance(u.q, u.r, vtc.q, vtc.r);
+      if (d < bestD) { bestD = d; best = u; }
+    }
+    if (best && bestD <= 24) {
+      unitObjective[best.id] = { q: vtc.q, r: vtc.r, mission: 'expand', kind: 'settlement' };
+      secured += 1;
+    }
+  }
+}
+
 /** Recapture nearby lost structures that are lightly defended. */
 function assignLocalRecaptureMissions(gs, player, unitObjective, combatUnits, perceivedEnemies = []) {
   const turn = gs.turn || 1;
   if (turn < 10) return;
-  const myHQs = gs.buildings.filter(b => Number(b.owner) === Number(player) && b.type === 'HQ');
-  const nearOwnAxis = (b) => myHQs.some(h => hexDistance(h.q, h.r, b.q, b.r) <= 18);
+  const myHQs = getPlayerCapitalBuildings(gs, player);
+  const nearOwnAxis = (b) => myHQs.some(h => hexDistance(h.q, h.r, b.q, b.r) <= 18)
+    || gs.buildings.some(v =>
+      Number(v.owner) === Number(player) && ['VILLAGE', 'TOWN', 'CITY'].includes(v.type)
+      && hexDistance(v.q, v.r, b.q, b.r) <= 14);
   const targets = gs.buildings.filter((b) =>
     Number(b.owner) !== Number(player) && !b.underConstruction && !ROAD_TYPES.has(b.type)
     && (b.type === 'MINE' || b.type === 'OIL_PUMP' || b.type === 'FACTORY' || b.type === 'SCIENCE_LAB' || b.type === 'BARRACKS' || b.type === 'VILLAGE' || b.type === 'TOWN' || b.type === 'CITY')
@@ -1818,7 +1887,8 @@ function assignLocalRecaptureMissions(gs, player, unitObjective, combatUnits, pe
       const d = hexDistance(t.q, t.r, e.q, e.r);
       return s + (d <= 5 ? (6 - d) : 0);
     }, 0);
-    const value = t.type === 'FACTORY' ? 8 : t.type === 'SCIENCE_LAB' ? 7 : (t.type === 'MINE' || t.type === 'OIL_PUMP') ? 6 : 5;
+    const value = t.type === 'CITY' ? 12 : t.type === 'TOWN' ? 10 : t.type === 'VILLAGE' ? 9
+      : t.type === 'FACTORY' ? 8 : t.type === 'SCIENCE_LAB' ? 7 : (t.type === 'MINE' || t.type === 'OIL_PUMP') ? 6 : 5;
     return { t, score: value - threat };
   }).sort((a, b) => b.score - a.score);
 
@@ -2232,8 +2302,8 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
     if (destBld && Number(destBld.owner) !== Number(unit.owner) && !destBld.underConstruction
         && (destBld.type === 'MINE' || destBld.type === 'OIL_PUMP' || destBld.type === 'VILLAGE' || destBld.type === 'TOWN' || destBld.type === 'CITY')) {
       const closing = ctx.closingPressure || 0;
-      const settlementBonus = destBld.type === 'CITY' ? 20 : destBld.type === 'TOWN' ? 14 : destBld.type === 'VILLAGE' ? 8 : 0;
-      const raidPull = (((gs.turn || 1) >= 24 ? 52 : 36) + settlementBonus) * phase.combat;
+      const settlementBonus = destBld.type === 'CITY' ? 28 : destBld.type === 'TOWN' ? 20 : destBld.type === 'VILLAGE' ? 14 : 0;
+      const raidPull = (((gs.turn || 1) >= 24 ? 58 : 42) + settlementBonus) * phase.combat;
       score += raidPull * (rushMissions.has(mission) || mission === 'probe' ? 1.15 : 0.75);
       score += closing * 18;
       if (obj?.kind === 'raid_resource') score += 28;
@@ -2250,7 +2320,7 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   }
 
   // HQ rush: main/closing assault — prefer focus enemy in FFA endgame.
-  const allEnemyHQs = gs.buildings.filter(b => b.type === 'HQ' && b.owner !== unit.owner);
+  const allEnemyHQs = gs.buildings.filter(b => isPlayerCapitalBuilding(b) && b.owner !== unit.owner);
   const focusHQ = ctx.strategic?.focusEnemyHQ;
   const enemyHQs = (focusHQ && rushMissions.has(mission))
     ? [focusHQ, ...allEnemyHQs.filter(h => h !== focusHQ)]
@@ -2273,7 +2343,17 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   }
 
   // Mission objective pressure (scout / probe / diversion / main / expand / garrison)
-  if (obj?.kind === 'resource' && mission === 'garrison') {
+  if ((obj?.kind === 'settlement' || obj?.kind === 'hold_vtc' || mission === 'hold_vtc') && mission !== 'expand') {
+    const dNew = hexDistance(q, r, obj.q, obj.r);
+    const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
+    if (dNew < dCur) score += 30 * (phase.economy || 1);
+    if (dNew <= 1) score += 26;
+    if (dNew <= 3) score += 12;
+    if (dCur <= 1 && dNew > 3) score -= 24;
+    const nearEnemy = enemies.length > 0 ? Math.min(...enemies.map((e) => hexDistance(q, r, e.q, e.r))) : 99;
+    if (nearEnemy <= 4 && dNew <= 2) score += 14;
+    if (nearEnemy <= 2 && dNew > 4) score -= 16;
+  } else if (obj?.kind === 'resource' && mission === 'garrison') {
     const dNew = hexDistance(q, r, obj.q, obj.r);
     const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
     if (dNew < dCur) score += 22 * (phase.combat * 0.85 + 0.4);
@@ -2738,7 +2818,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const moveMemory = gs._aiMoveMemory[player];
 
   const getEnemies = () => perceivedEnemies;
-  const getMyHQs   = () => gs.buildings.filter(b => b.owner === player && b.type === 'HQ');
+  const getMyHQs   = () => {
+    const cap = getPlayerCapital(gs, player);
+    return cap ? [cap] : getPlayerCapitalBuildings(gs, player);
+  };
   const mySupply   = getCachedSupply(gs, player, mapSize);
   const situation = assessMapSituation(terrain, mapSize, gs, player);
   const armyBudget = getAIArmyBudget(gs, player, mapSize, situation);
@@ -2752,7 +2835,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     .slice(0, 24);
 
   // Strategic planner + memory-backed task-group objective assignment.
-  const enemyHQs = gs.buildings.filter(b => b.type === 'HQ' && b.owner !== player);
+  const enemyHQs = getEnemyCapitalBuildings(gs, player);
   const myCombatUnits = gs.units.filter(u => u.owner === player && !u.embarked)
     .filter(u => {
       const d = UNIT_TYPES[u.type] || {};
@@ -2794,6 +2877,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   assignResourceGarrisonMissions(gs, player, unitObjective, sortedCombat);
   assignEnemyExtractorRaidMissions(gs, player, unitObjective, sortedCombat, perceivedEnemies);
   assignLocalRecaptureMissions(gs, player, unitObjective, sortedCombat, perceivedEnemies);
+  assignHoldVTCCMissions(gs, player, unitObjective, sortedCombat, perceivedEnemies);
   assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjective, sortedCombat, flankCountForGarrison);
 
   const opening = getOpeningMilestones(gs, player, situation);

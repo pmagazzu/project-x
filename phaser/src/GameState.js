@@ -643,6 +643,54 @@ export function getUnitTierIntel(gs, unit, viewerPlayer, context = {}) {
   return { tier: exact, tierLo: bandLo, tierHi: bandHi, label: `~T${bandLo}-${bandHi}`, certain: false };
 }
 
+/** Map-facing threat class (not design tier) for enemy unit markers. */
+export function getUnitThreatBand(unit) {
+  const type = unit?.type;
+  const def = UNIT_TYPES[type] || {};
+  const chassis = getChassisTier(type);
+  const armor = def.armor ?? 0;
+  const heavyTypes = new Set([
+    'HEAVY_TANK', 'BATTLESHIP', 'CRUISER', 'CRUISER_HV', 'HEAVY_BOMBER', 'SUBMARINE',
+    'MONITOR', 'DREADNOUGHT',
+  ]);
+  const lightTypes = new Set([
+    'INFANTRY', 'RECON', 'ENGINEER', 'MEDIC', 'MORTAR', 'ANTI_TANK', 'SUPPLY_TRUCK',
+    'LANDING_CRAFT', 'TRANSPORT_SM', 'OBS_PLANE', 'BIPLANE_FIGHTER', 'TRUCK',
+  ]);
+  if (heavyTypes.has(type) || chassis >= 4 || armor >= 8) {
+    return { id: 'heavy', label: 'Heavy', pips: 3, color: 0xc45c5c };
+  }
+  if (lightTypes.has(type) || (chassis <= 1 && armor <= 3)) {
+    return { id: 'light', label: 'Light', pips: 1, color: 0x7aa87a };
+  }
+  return { id: 'medium', label: 'Medium', pips: 2, color: 0xd4a24e };
+}
+
+/** Legacy HQ or owned capital village (v1.20 home spawn). */
+export function isPlayerCapitalBuilding(b) {
+  if (!b) return false;
+  if (b.type === 'HQ') return true;
+  return b.type === 'VILLAGE' && !!b.isCapital;
+}
+
+export function getPlayerCapital(state, player) {
+  const owned = Number(player);
+  return state.buildings.find(b =>
+    Number(b.owner) === owned && !b.underConstruction && isPlayerCapitalBuilding(b))
+    || state.buildings.find(b => Number(b.owner) === owned && isPlayerCapitalBuilding(b))
+    || null;
+}
+
+export function getPlayerCapitalBuildings(state, player) {
+  return state.buildings.filter(b =>
+    Number(b.owner) === Number(player) && !b.underConstruction && isPlayerCapitalBuilding(b));
+}
+
+export function getEnemyCapitalBuildings(state, player) {
+  return state.buildings.filter(b =>
+    Number(b.owner) !== Number(player) && isPlayerCapitalBuilding(b));
+}
+
 export const RESOURCE_TYPES = {
   IRON:   { name: 'Iron Deposit',   buildingType: 'MINE',     color: 0xbbbbcc },
   OIL:    { name: 'Oil Deposit',    buildingType: 'OIL_PUMP', color: 0x334466 },
@@ -701,7 +749,7 @@ export function recalcPlayerPopulation(state, player) {
   let hasHQ = false;
   for (const b of state.buildings) {
     if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
-    if (b.type === 'HQ') {
+    if (isPlayerCapitalBuilding(b)) {
       hasHQ = true;
       cap += HQ_BASE_POP_CAP;
       growth += HQ_POP_PER_TURN;
@@ -1250,10 +1298,12 @@ export function canEngineerBuildAt(state, q, r, buildingType) {
 }
 export const ROAD_TYPES = new Set(['ROAD', 'GRAVEL_ROAD', 'CONCRETE_ROAD', 'RAILWAY']);
 
-/** Only HQ seeds the road supply network; depots extend bubbles when road-linked to HQ. */
-export const SUPPLY_ANCHOR_TYPES = new Set(['HQ']);
+/** Capital (HQ or home village) seeds the road supply network; depots extend when road-linked. */
+export const SUPPLY_ANCHOR_TYPES = new Set(['HQ', 'VILLAGE']);
 
 export const HQ_SUPPLY_RADIUS = 6;
+/** Home capital bubble (HQ or capital village). */
+export const CAPITAL_SUPPLY_RADIUS = HQ_SUPPLY_RADIUS;
 /** Owned settlements project local supply (capture = territory control). */
 export const VTC_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 export const VTC_SUPPLY_RADIUS = { VILLAGE: 3, TOWN: 6, CITY: 9 };
@@ -1792,7 +1842,7 @@ let _nextGlobalRecruitId = 1;
 function getBuildingTierForDeploy(b) {
   if (!b) return -1;
   if (VTC_TIER[b.type] != null) return VTC_TIER[b.type];
-  if (b.type === 'HQ') return 0; // transitional Phase A compatibility
+  if (b.type === 'HQ' || (b.type === 'VILLAGE' && b.isCapital)) return 0;
   return -1;
 }
 
@@ -1817,6 +1867,20 @@ export const PRODUCTION_VTC_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY', 'HQ']);
 export function pickProductionAnchorBuilding(state, player) {
   const owned = state.buildings.filter(b =>
     PRODUCTION_VTC_TYPES.has(b.type) && Number(b.owner) === Number(player) && !b.underConstruction);
+  const capital = getPlayerCapital(state, player);
+  const forward = owned.filter(b => !isPlayerCapitalBuilding(b) && VTC_TYPES.has(b.type));
+  if (forward.length) {
+    for (const type of ['CITY', 'TOWN', 'VILLAGE']) {
+      const tier = forward.filter(x => x.type === type);
+      if (!tier.length) continue;
+      if (capital) {
+        tier.sort((a, b) =>
+          hexDistance(b.q, b.r, capital.q, capital.r) - hexDistance(a.q, a.r, capital.q, capital.r));
+        return tier[0];
+      }
+      return tier[0];
+    }
+  }
   for (const type of ['CITY', 'TOWN', 'VILLAGE', 'HQ']) {
     const b = owned.find(x => x.type === type);
     if (b) return b;
@@ -1945,7 +2009,7 @@ function canSpawnUnitAtHex(state, player, unitType, q, r, anchorQ, anchorR) {
   return true;
 }
 
-/** Deploy tiles for a VTC/HQ anchor (HQ = 1-hex ring only, not the HQ tile). */
+/** Deploy tiles for a VTC/capital anchor (legacy HQ = 1-hex ring only, not the HQ tile). */
 function getGlobalDeployCandidateHexes(building) {
   if (building.type === 'HQ') {
     return HEX_NEIGHBORS.map(([dq, dr]) => ({ q: building.q + dq, r: building.r + dr }));
@@ -3258,16 +3322,13 @@ export function checkWinner(state) {
   if (vpWin) return vpWin;
 
   const ids = getPlayerIds(state);
-  const alive = ids.filter((p) => state.buildings.some((b) => b.type === 'HQ' && Number(b.owner) === p));
+  const alive = ids.filter((p) => getPlayerCapital(state, p));
   if (alive.length === 1) return alive[0];
   if (alive.length === 0) return null;
 
-  // Legacy 2-player HQ check
-  const p1HQ = state.buildings.find(b => b.type === 'HQ' && b.owner === 1);
-  const p2HQ = state.buildings.find(b => b.type === 'HQ' && b.owner === 2);
   if (ids.length === 2) {
-    if (!p2HQ) return 1;
-    if (!p1HQ) return 2;
+    if (!getPlayerCapital(state, 2)) return 1;
+    if (!getPlayerCapital(state, 1)) return 2;
   }
   return null;
 }
@@ -3352,7 +3413,7 @@ function hexRadiusFlood(supplied, sq, sr, radius, isValid) {
   }
 }
 
-/** Same-owner road tiles connected to at least one HQ (depots do not seed roads). */
+/** Same-owner road tiles connected to at least one capital (HQ or home village). */
 export function buildHQRoadNetwork(state, player, mapSize) {
   const ms = mapSize || state._mapSize || 25;
   const isOwnedRoadHex = (q, r) => state.buildings.some(b =>
@@ -3360,8 +3421,7 @@ export function buildHQRoadNetwork(state, player, mapSize) {
   const _isValid = (q, r) => q >= 0 && r >= 0 && q < ms && r < ms;
 
   const roadConnected = new Set();
-  const hqs = state.buildings.filter(b =>
-    b.type === 'HQ' && Number(b.owner) === Number(player) && !b.underConstruction);
+  const hqs = getPlayerCapitalBuildings(state, player);
 
   const roadQueue = [];
   for (const hq of hqs) {
@@ -3608,11 +3668,9 @@ export function computeSupply(state, player, mapSize) {
   roadConnected = extendRoadNetworkWithNeutralRoads(state, roadConnected, ms);
   const isRoadHex = (q, r) => roadConnected.has(`${q},${r}`);
 
-  const hqs = state.buildings.filter(b =>
-    b.type === 'HQ' && Number(b.owner) === Number(player) && !b.underConstruction);
-  for (const hq of hqs) {
+  for (const hq of getPlayerCapitalBuildings(state, player)) {
     supplied.add(`${hq.q},${hq.r}`);
-    hexRadiusFlood(supplied, hq.q, hq.r, HQ_SUPPLY_RADIUS, _isValid);
+    hexRadiusFlood(supplied, hq.q, hq.r, CAPITAL_SUPPLY_RADIUS, _isValid);
   }
 
   // Owned villages/towns/cities project supply — rewards capturing the neutral grid.

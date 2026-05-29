@@ -22,6 +22,7 @@ import {
   designRegistrationCost, designTrainCost, computeDesignStats, computeEffectiveTier,
   formatResourceCost, getChassisTier, getModuleResourceCost, getPlayerIndustryTier,
   canPlayerUseModule, playerHasResources, refundResources, getUnitTierIntel, inferTierFromUnit, getPlayerMaxTrainableTier,
+  getUnitThreatBand, getPlayerCapital, isPlayerCapitalBuilding,
   UNIT_TIER_COLORS, MATERIAL_KEYS, MATERIAL_LABELS,
   NAVAL_UNITS, SHALLOW_UNITS, AIR_UNITS, canEnterTerrain, isStealthDetected,
   ROAD_TYPES, LOCKED_CHASSIS, hasLOS
@@ -49,7 +50,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.19.18';
+export const GAME_VERSION = 'v1.20.0';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -609,8 +610,9 @@ export class GameScene extends Phaser.Scene {
   _validateBuilderMap() {
     const pc = this.playerCount || this.gameState.playerCount || 2;
     for (let p = 1; p <= pc; p++) {
-      const hasHq = this.gameState.buildings.some(b => b.type === 'HQ' && Number(b.owner) === p);
-      if (!hasHq) return { ok: false, reason: `Map needs HQ for P${p}.` };
+      const hasCap = this.gameState.buildings.some(b =>
+        Number(b.owner) === p && (b.type === 'HQ' || (b.type === 'VILLAGE' && b.isCapital)));
+      if (!hasCap) return { ok: false, reason: `Map needs capital (HQ or home village) for P${p}.` };
     }
 
     for (const u of this.gameState.units) {
@@ -622,12 +624,12 @@ export class GameScene extends Phaser.Scene {
 
     const p1Res = this.gameState.resourceHexes ? Object.keys(this.gameState.resourceHexes).filter(k => {
       const [q, r] = k.split(',').map(Number);
-      const hq = this.gameState.buildings.find(b => b.type === 'HQ' && Number(b.owner) === 1);
+      const hq = getPlayerCapital(this.gameState, 1);
       return hq ? hexDistance(hq.q, hq.r, q, r) <= 10 : false;
     }).length : 0;
     const p2Res = this.gameState.resourceHexes ? Object.keys(this.gameState.resourceHexes).filter(k => {
       const [q, r] = k.split(',').map(Number);
-      const hq = this.gameState.buildings.find(b => b.type === 'HQ' && Number(b.owner) === 2);
+      const hq = getPlayerCapital(this.gameState, 2);
       return hq ? hexDistance(hq.q, hq.r, q, r) <= 10 : false;
     }).length : 0;
     if (Math.abs(p1Res - p2Res) > 3) {
@@ -2109,14 +2111,27 @@ export class GameScene extends Phaser.Scene {
     return UNIT_TIER_COLORS[Math.max(0, Math.min(5, tier ?? 0))] ?? 0x8a9aaa;
   }
 
+  /** Subtle threat glyph for enemy units (Light / Medium / Heavy). */
+  _drawThreatGlyph(gfx, x, y, band, alpha = 1) {
+    if (!band) return;
+    const pips = band.pips || 2;
+    const col = band.color ?? 0xd4a24e;
+    const bx = x - 10;
+    const by = y - 10;
+    gfx.fillStyle(0x0b0f16, alpha * 0.82);
+    gfx.fillRect(bx - 1, by - 1, 14, 8);
+    gfx.fillStyle(col, alpha * 0.95);
+    if (pips === 1) {
+      gfx.fillRect(bx + 4, by + 2, 5, 3);
+    } else {
+      for (let i = 0; i < pips; i++) gfx.fillRect(bx + 1 + i * 4, by + 2, 3, 4);
+    }
+  }
+
   // ── Units ─────────────────────────────────────────────────────────────────
   _redrawUnits() {
     this.unitGfx.clear();
     if (this.unitSpriteLayer) this.unitSpriteLayer.removeAll(true);
-    if (this._unitTierLabels) {
-      for (const t of this._unitTierLabels) { try { t.destroy(); } catch(e){} }
-    }
-    this._unitTierLabels = [];
     const gs  = this.gameState;
     const fog = this._currentFog;
     const supplyByOwner = gs.supplyEnabled === false ? {} : (() => {
@@ -2258,20 +2273,24 @@ export class GameScene extends Phaser.Scene {
         }
         this.unitGfx.fillStyle(0x000000, alpha * 0.35);
         this.unitGfx.fillEllipse(x + 2, y + sprH * 0.42, sprH * 0.7, sprH * 0.18);
-        // Tier pips + HP only (sprite carries the unit silhouette)
-        const tierIntel = this._unitTierIntelLabel(unit);
-        const shownTier = tierIntel.tier;
-        const tierCol = this._tierColor(shownTier);
-        const py = y - sprH * 0.35;
-        const startX = x + sprH * 0.22;
-        this.unitGfx.fillStyle(0x0b0f16, alpha * 0.72);
-        this.unitGfx.fillRect(startX - 2, py - 3, 14, 6);
-        if (shownTier === 0) {
-          this.unitGfx.fillStyle(0x6f7c88, alpha * 0.9);
-          this.unitGfx.fillRect(startX + 2, py - 1, 6, 2);
+        // Own units: tier pips; enemies: threat class only (no floating T# labels)
+        if (!isEnemy) {
+          const tierIntel = this._unitTierIntelLabel(unit);
+          const shownTier = tierIntel.tier;
+          const tierCol = this._tierColor(shownTier);
+          const py = y - sprH * 0.35;
+          const startX = x + sprH * 0.22;
+          this.unitGfx.fillStyle(0x0b0f16, alpha * 0.72);
+          this.unitGfx.fillRect(startX - 2, py - 3, 14, 6);
+          if (shownTier === 0) {
+            this.unitGfx.fillStyle(0x6f7c88, alpha * 0.9);
+            this.unitGfx.fillRect(startX + 2, py - 1, 6, 2);
+          } else {
+            this.unitGfx.fillStyle(tierCol, alpha * 0.95);
+            for (let i = 0; i < shownTier; i++) this.unitGfx.fillRect(startX + i * 4, py - 2, 3, 4);
+          }
         } else {
-          this.unitGfx.fillStyle(tierCol, alpha * 0.95);
-          for (let i = 0; i < shownTier; i++) this.unitGfx.fillRect(startX + i * 4, py - 2, 3, 4);
+          this._drawThreatGlyph(this.unitGfx, x - sprH * 0.28, y - sprH * 0.32, getUnitThreatBand(unit), alpha);
         }
         // HP bar under sprite
         const hpFrac = unit.health / (unit.maxHealth || unit.health || 1);
@@ -2300,17 +2319,6 @@ export class GameScene extends Phaser.Scene {
         if (unit.moveOrder || unit.roadOrder) {
           this.unitGfx.fillStyle(0x44ccff, alpha);
           this.unitGfx.fillCircle(x + sprH * 0.42, y - sprH * 0.42, 5);
-        }
-        if (isEnemy) {
-          const tierTxt = this.add.text(x, y - sprH * 0.62, tierIntel.label || `T${shownTier}`, {
-            fontFamily: 'monospace',
-            fontSize: 10,
-            fontStyle: 'bold',
-            color: '#f2f6ff',
-            backgroundColor: '#111a2a',
-            padding: { left: 3, right: 3, top: 1, bottom: 1 },
-          }).setOrigin(0.5).setDepth(86).setAlpha(alpha * 0.95);
-          this._unitTierLabels.push(tierTxt);
         }
         continue;
       }
@@ -2369,60 +2377,19 @@ export class GameScene extends Phaser.Scene {
       this.unitGfx.lineStyle(borderW, borderC, alpha);
       this.unitGfx.strokeRect(cx2, cy2, cW, cH);
 
-      // Enemy tier hint (T0..T3) — shows progression level only, not exact modules.
       if (isEnemy) {
-        const tierIntel = this._unitTierIntelLabel(unit);
-        const shownTier = tierIntel.tier;
-        const tierCol = this._tierColor(shownTier);
-
-        // Large top band marker (high visibility)
-        this.unitGfx.fillStyle(0x0b0f16, alpha * 0.92);
-        this.unitGfx.fillRect(cx2 + 1, cy2 + 1, cW - 2, 4);
-        this.unitGfx.fillStyle(tierCol, alpha * 0.98);
-        const segW = Math.max(6, Math.floor((cW - 8) / 3));
-        if (shownTier === 0) {
-          this.unitGfx.fillRect(cx2 + 4, cy2 + 2, segW, 2);
-        } else {
-          for (let i = 0; i < shownTier; i++) this.unitGfx.fillRect(cx2 + 4 + i * (segW + 1), cy2 + 2, segW, 2);
-        }
-
-        // Keep bottom-right badge too
-        const tx = cx2 + cW - 11, ty = cy2 + cH - 9;
-        this.unitGfx.fillStyle(0x0b0f16, alpha * 0.95);
-        this.unitGfx.fillRect(tx - 10, ty - 8, 20, 16);
-        this.unitGfx.lineStyle(1.2, tierCol, alpha);
-        this.unitGfx.strokeRect(tx - 10, ty - 8, 20, 16);
-        if (shownTier === 0) {
-          this.unitGfx.fillStyle(0x6f7c88, alpha * 0.95);
-          this.unitGfx.fillRect(tx - 5, ty - 1, 10, 2);
-        } else {
-          this.unitGfx.fillStyle(tierCol, alpha * 0.98);
-          for (let i = 0; i < shownTier; i++) this.unitGfx.fillRect(tx - 7 + i * 5, ty - 3, 4, 6);
-        }
-        const tierTxt = this.add.text(x, cy2 - 6, tierIntel.label || `T${shownTier}`, {
-          fontFamily: 'monospace',
-          fontSize: 10,
-          fontStyle: 'bold',
-          color: '#f2f6ff',
-          backgroundColor: '#111a2a',
-          padding: { left: 3, right: 3, top: 1, bottom: 1 },
-        }).setOrigin(0.5, 1).setDepth(86).setAlpha(alpha * 0.95);
-        this._unitTierLabels.push(tierTxt);
-      }
-
-      // Subtle tier counter for ALL units (integrated pips on counter, no floating text)
-      {
+        this._drawThreatGlyph(this.unitGfx, cx2 + 4, cy2 + 4, getUnitThreatBand(unit), alpha);
+      } else {
         const tierIntel = this._unitTierIntelLabel(unit);
         const shownTier = tierIntel.tier;
         const tierCol = this._tierColor(shownTier);
         const py = cy2 + 6;
         const startX = cx2 + cW - 16;
-        // backdrop strip
         this.unitGfx.fillStyle(0x0b0f16, alpha * 0.72);
         this.unitGfx.fillRect(startX - 2, py - 3, 14, 6);
         if (shownTier === 0) {
           this.unitGfx.fillStyle(0x6f7c88, alpha * 0.9);
-          this.unitGfx.fillRect(startX + 2, py - 1, 6, 2); // subtle T0 dash
+          this.unitGfx.fillRect(startX + 2, py - 1, 6, 2);
         } else {
           this.unitGfx.fillStyle(tierCol, alpha * 0.95);
           for (let i = 0; i < shownTier; i++) this.unitGfx.fillRect(startX + i * 4, py - 2, 3, 4);
@@ -3362,7 +3329,9 @@ export class GameScene extends Phaser.Scene {
       ? (gs.designs[u.owner]?.find(d => d.id === u.designId)?.name || def.name)
       : def.name;
     const prefix = isOwn && u.designId !== undefined ? '★ ' : '';
-    const tierLbl = this._unitTierIntelLabel(u).label;
+    const tierIntel = this._unitTierIntelLabel(u);
+    const threat = getUnitThreatBand(u);
+    const tierLbl = isOwn ? tierIntel.label : `${threat.label}${tierIntel.certain ? ` · ${tierIntel.label}` : (tierIntel.label.startsWith('~') || tierIntel.label.includes('–') ? ` · est. ${tierIntel.label}` : '')}`;
     const title = `${prefix}${displayName}  ·  Player ${u.owner}  ·  ${tierLbl}`;
     const ap = (u.moved ? 0 : 1) + (u.attacked ? 0 : 1);
     const fuel = u.fuel !== undefined ? `  Fuel ${u.fuel}/${u.fuelMax}` : '';
@@ -3626,7 +3595,8 @@ export class GameScene extends Phaser.Scene {
       ? focus
       : pickProductionAnchorBuilding(gs, p);
 
-    const settleIcon = focus?.type === 'CITY' ? '🏙' : focus?.type === 'TOWN' ? '🏘' : focus?.type === 'VILLAGE' ? '🛖' : focus?.type === 'HQ' ? '⭐' : '⚔';
+    const settleIcon = focus?.type === 'CITY' ? '🏙' : focus?.type === 'TOWN' ? '🏘'
+      : (focus?.isCapital || focus?.type === 'HQ') ? '⭐' : focus?.type === 'VILLAGE' ? '🛖' : '⚔';
     this._addBuildMenuText(ax, ay, focus
       ? `${settleIcon} ${BUILDING_TYPES[focus.type]?.name || focus.type}`
       : '⚔ ARMY COMMAND', {
@@ -8344,7 +8314,7 @@ export class GameScene extends Phaser.Scene {
     if (!Array.isArray(actions) || actions.length === 0) return actions || [];
     const noContact = !aiDebug?.mapSummary?.enemyCombatCentroid;
     if (!noContact) return actions;
-    const enemyHQs = gs.buildings.filter(b => b.type === 'HQ' && Number(b.owner) !== Number(player));
+    const enemyHQs = gs.buildings.filter(b => isPlayerCapitalBuilding(b) && Number(b.owner) !== Number(player));
     if (!enemyHQs.length) return actions;
     return actions.filter((a) => {
       if (a.type !== 'move' || a.unitId == null) return true;
@@ -9082,7 +9052,7 @@ export class GameScene extends Phaser.Scene {
       this._stopCameraMotion();
       return;
     }
-    const hq = this.gameState.buildings.find(b => b.type === 'HQ' && Number(b.owner) === Number(player));
+    const hq = getPlayerCapital(this.gameState, player);
     if (!hq) return;
     const cam = this.cameras.main;
     const { x, y } = hexToWorld(hq.q, hq.r);
@@ -9415,7 +9385,7 @@ export class GameScene extends Phaser.Scene {
         map[`${u.q},${u.r}`] = spawnType;
       }
     }
-    for (const b of gs.buildings.filter(b => b.type === 'HQ')) {
+    for (const b of gs.buildings.filter(b => isPlayerCapitalBuilding(b))) {
       for (const [dq, dr] of [[-1,0],[1,0],[0,-1],[0,1],[1,-1],[-1,1]])
         if (isValid(b.q+dq, b.r+dr, ms)) map[`${b.q+dq},${b.r+dr}`] = spawnType;
     }
@@ -10103,8 +10073,10 @@ export class GameScene extends Phaser.Scene {
         return dOwn <= dEnemy;
       };
 
-      // HQ + starting dirt road under HQ + 1-hex deploy/supply ring
-      gs.buildings.push(createBuilding('HQ', player, hq.q, hq.r));
+      // Home capital village + starting dirt road + deploy/supply ring
+      const capital = createBuilding('VILLAGE', player, hq.q, hq.r);
+      capital.isCapital = true;
+      gs.buildings.push(capital);
       gs.buildings.push(createBuilding('ROAD', player, hq.q, hq.r));
       for (const [dq, dr] of NEIGHBORS) {
         const rq = hq.q + dq, rr = hq.r + dr;
@@ -10306,8 +10278,9 @@ export class GameScene extends Phaser.Scene {
         const t = map[`${q},${r}`];
         if (!(t === 0 || t === 7 || t === 3)) continue;
         // Avoid immediate HQ overlap; prefer interior territory.
-        const nearHQ = gs.buildings.some(b => b.type === 'HQ' && hexDistance(q, r, b.q, b.r) <= 7);
-        if (nearHQ) continue;
+        const nearCap = gs.buildings.some(b =>
+          isPlayerCapitalBuilding(b) && hexDistance(q, r, b.q, b.r) <= 8);
+        if (nearCap) continue;
         candidates.push({ q, r });
       }
     }
@@ -10323,7 +10296,17 @@ export class GameScene extends Phaser.Scene {
     const townN = Math.max(1, Math.floor((1 + 2 * scale) * density));
     const cityN = Math.max(1, Math.floor((ms / 140) * density));
     const placed = [];
-    const minDist = ms >= 100 ? 20 : ms >= 70 ? 16 : ms >= 50 ? 12 : 9;
+    const minDist = ms >= 100 ? 22 : ms >= 70 ? 18 : ms >= 50 ? 14 : 11;
+    const spawns = gs.buildings.filter(b => isPlayerCapitalBuilding(b))
+      .map(b => ({ q: b.q, r: b.r }));
+    const sectorScore = (q, r) => {
+      if (!spawns.length) return 0;
+      const dists = spawns.map(s => hexDistance(q, r, s.q, s.r));
+      const minD = Math.min(...dists);
+      const maxD = Math.max(...dists);
+      return minD * 0.55 + (maxD - minD) * 0.35;
+    };
+    candidates.sort((a, b) => sectorScore(b.q, b.r) - sectorScore(a.q, a.r));
     const pick = (count, type) => {
       let done = 0;
       const pickBonus = (st) => {
@@ -10373,6 +10356,7 @@ export class GameScene extends Phaser.Scene {
         .slice(0, 2);
       for (const b of near) {
         if (hexDistance(a.q, a.r, b.q, b.r) > (ms >= 100 ? 24 : ms >= 70 ? 18 : 14)) continue;
+        if (rng() < 0.38) continue; // loose connectivity — gaps until engineers connect
         let cq = a.q, cr = a.r;
         let steps = 0;
         while ((cq !== b.q || cr !== b.r) && steps < 28) {
@@ -10470,7 +10454,7 @@ export class GameScene extends Phaser.Scene {
     forcePlace('OIL',  [OIL_TERRAIN],           MIN_OIL  - c.oil);
 
     // Contested oil: deposits near map center, balanced between all HQs.
-    const hqs = gs.buildings.filter(b => b.type === 'HQ');
+    const hqs = gs.buildings.filter(b => isPlayerCapitalBuilding(b));
     if (hqs.length >= 2) {
       const contested = [];
       const midQ = hqs.reduce((s, b) => s + b.q, 0) / hqs.length;
