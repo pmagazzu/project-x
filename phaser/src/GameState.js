@@ -13,7 +13,7 @@ import {
   deployReadyVtcUnitAtHex, deployReadyGlobalRecruitAtHex, deployReadyGlobalRecruit,
   enumerateVtcDeployHexes, enumerateGlobalDeployHexes,
   tickVtcProduction, forceDeployStrandedVtcReady, rebalanceVtcPopulationPipeline,
-  pruneVtcQueueBacklog, clearVtcQueueTailForIdlePop, ensureVtcRecruitCapacity, getMaxVtcQueueDepth,
+  pruneVtcQueueBacklog, clearVtcQueueTailForIdlePop, ensureVtcRecruitCapacity, hasOpenVtcRecruitSlot, getMaxVtcQueueDepth,
   migrateGlobalQueuesToVtc, getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
   LEGACY_PRODUCTION_MAP_HIDDEN, getVtcFacilityBadgeGlyphs, getVtcFacilityChips, getVtcInspectorLines,
   countPlayerVtcUpgrade, countPlayerScienceLabs, countPlayerFactories, countPlayerBarracksFacilities,
@@ -27,7 +27,7 @@ export {
   deployReadyVtcUnitAtHex, deployReadyGlobalRecruitAtHex, deployReadyGlobalRecruit,
   enumerateVtcDeployHexes, enumerateGlobalDeployHexes,
   tickVtcProduction, forceDeployStrandedVtcReady, rebalanceVtcPopulationPipeline,
-  pruneVtcQueueBacklog, clearVtcQueueTailForIdlePop, ensureVtcRecruitCapacity, getMaxVtcQueueDepth,
+  pruneVtcQueueBacklog, clearVtcQueueTailForIdlePop, ensureVtcRecruitCapacity, hasOpenVtcRecruitSlot, getMaxVtcQueueDepth,
   getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
   LEGACY_PRODUCTION_MAP_HIDDEN, getVtcFacilityBadgeGlyphs, getVtcFacilityChips, getVtcInspectorLines,
   countPlayerVtcUpgrade, countPlayerScienceLabs, countPlayerFactories, countPlayerBarracksFacilities,
@@ -2650,6 +2650,10 @@ export function resolveTurn(state, terrain) {
     tickVtcUpgrades(state, player, events);
     tickVtcProduction(state, player, events);
     rebalanceVtcPopulationPipeline(state, player, events);
+    const popCap = calcPlayerPopCap(state, player);
+    if (calcPopFieldedByPlayer(state, player) < Math.max(6, Math.floor(popCap * 0.35))) {
+      ensureVtcRecruitCapacity(state, player, events);
+    }
     tickSettlementPromotions(state, player, events);
     recalcPlayerPopulation(state, player);
   }

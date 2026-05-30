@@ -410,6 +410,14 @@ export function getMaxVtcQueueDepth(state, player, buildingOrId = null) {
   return Math.min(2, MAX_VTC_TRAIN_QUEUE);
 }
 
+/** True if any owned VTC can accept another train-queue entry (read-only). */
+export function hasOpenVtcRecruitSlot(state, player) {
+  const p = Number(player);
+  return (state.buildings || []).some((b) =>
+    Number(b.owner) === p && PRODUCTION_VTC_TYPES.has(b.type) && !b.underConstruction
+    && (b.trainQueue?.length || 0) < getMaxVtcQueueDepth(state, p, b));
+}
+
 /** Deploy ready bays and free one train slot when every VTC queue is full but the army is still tiny. */
 export function ensureVtcRecruitCapacity(state, player, events = []) {
   const p = Number(player);

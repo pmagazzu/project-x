@@ -20,7 +20,7 @@ import {
   ROAD_TYPES, unitAt, computeFog, buildHQRoadNetwork, isHQNetworkPluggedToNeutralRoads,
   queueGlobalRecruit, enumerateVtcDeployHexes,
   getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit, PRODUCTION_VTC_TYPES, MAX_VTC_TRAIN_QUEUE,
-  pruneVtcQueueBacklog, clearVtcQueueTailForIdlePop, ensureVtcRecruitCapacity, getMaxVtcQueueDepth,
+  hasOpenVtcRecruitSlot, getMaxVtcQueueDepth,
   getPlayerCapital, getPlayerCapitalBuildings, getEnemyCapitalBuildings, isPlayerCapitalBuilding,
   isNavalDeployAllowed, getNavalCoastalCheckRadius, canPromoteSettlement, VTC_SUPPLY_RADIUS, findRoadPath, canPlaceRoadOnTerrain,
   recalcPlayerPopulation, syncPlayerPopulationPool, calcPopUsedByPlayer, calcPopFieldedByPlayer, getPopBreakdown, canAffordPipelinePop,
@@ -255,15 +255,19 @@ function settlementCaptureProgress(gs, b, player) {
   return { turns, required, remaining: Math.max(0, required - turns) };
 }
 
-/** Unit standing on an enemy/neutral VTC hex with capture in progress (or about to start). */
+/** Unit standing on an enemy/neutral VTC hex — must hold for multi-turn capture. */
 function activeCaptureHoldForUnit(gs, unit) {
   if (!unit || !canUnitCaptureSettlement(unit)) return null;
   const b = buildingAt(gs, unit.q, unit.r);
   if (!b || !['VILLAGE', 'TOWN', 'CITY', 'HQ'].includes(b.type) || b.underConstruction) return null;
   if (Number(b.owner) === Number(unit.owner)) return null;
   const prog = settlementCaptureProgress(gs, b, unit.owner);
-  if (prog) return { building: b, onHex: true, ...prog };
-  return null;
+  const required = prog?.required || getSettlementCaptureTurns(b.type) || 2;
+  const turns = prog?.turns || 0;
+  return {
+    building: b, onHex: true,
+    turns, required, remaining: prog ? prog.remaining : required,
+  };
 }
 
 function canReassignForVTC(existing, vtc, guardsShort) {
@@ -484,12 +488,8 @@ function filterRecruitPrioForVtc(gs, player, unitList) {
     return avail;
   };
   let avail = collectAvail();
-  if (!avail.size) {
-    ensureVtcRecruitCapacity(gs, player);
-    avail = collectAvail();
-  }
   const filtered = unitList.filter(u => avail.has(u));
-  return filtered.length ? filtered : ['INFANTRY'];
+  return filtered.length ? filtered : (hasOpenVtcRecruitSlot(gs, player) ? ['INFANTRY'] : []);
 }
 
 function scoreGlobalDeploySite(gs, player, site, ready, terrain, ctx) {
@@ -2609,9 +2609,7 @@ function forceArmyRecruitWhenIdle(gs, player, actions, resSim, spend, noteRecrui
   const pop = getPopBreakdown(gs, player);
   const combatLive = countPlayerCombatUnits(gs, player);
   if (pop.avail < 1 || combatLive >= 14) return 0;
-  ensureVtcRecruitCapacity(gs, player);
-  clearVtcQueueTailForIdlePop(gs, player);
-  pruneVtcQueueBacklog(gs, player);
+  if (!hasOpenVtcRecruitSlot(gs, player)) return 0;
   const prefs = filterRecruitPrioForVtc(gs, player, ['INFANTRY', 'RECON', 'ANTI_TANK', 'MORTAR']);
   const vtcs = gs.buildings.filter(b =>
     Number(b.owner) === Number(player) && PRODUCTION_VTC_TYPES.has(b.type) && !b.underConstruction);
@@ -4014,14 +4012,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   assignSettlementCaptureHolds(gs, player, unitObjective, sortedCombat);
 
   recalcPlayerPopulation(gs, player);
-  pruneVtcQueueBacklog(gs, player);
   const popNow = getPopBreakdown(gs, player);
   const populationFull = popNow.avail < 1 && popNow.used >= popNow.cap;
   const armyUndersized = popNow.fielded < Math.max(6, Math.floor(popNow.cap * 0.35)) && popNow.avail >= 2;
-  if (armyUndersized) {
-    ensureVtcRecruitCapacity(gs, player);
-    clearVtcQueueTailForIdlePop(gs, player);
-  }
   const popReserveNow = popNow.reserve;
 
   planDeployReadyVtcUnits(gs, player, actions, terrain, {
@@ -4171,6 +4164,14 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     // A) Attack from current position
     const unitMission = unitObjective[unit.id]?.mission || 'expand';
     const captureOnHex = activeCaptureHoldForUnit(gs, unit);
+    if (captureOnHex && unitMission !== 'capture_hold') {
+      unitObjective[unit.id] = {
+        q: captureOnHex.building.q, r: captureOnHex.building.r,
+        mission: 'capture_hold', kind: 'capture', vtcType: captureOnHex.building.type,
+        anchorQ: captureOnHex.building.q, anchorR: captureOnHex.building.r,
+        captureTurns: captureOnHex.turns, captureRequired: captureOnHex.required,
+      };
+    }
     const unitInSupply = mySupply?.has?.(`${unit.q},${unit.r}`);
     const preMoveTargets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
     const preMoveTarget  = chooseBestTarget(gs, unit, preMoveTargets);
@@ -4862,20 +4863,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const queueGlobalFromBuilding = (building, unitType) => {
     if (!building) return false;
     let popBr = getPopBreakdown(gs, player);
-    if (popBr.ready > 0 && popBr.avail < getUnitPopCost(unitType)) {
-      planDeployReadyVtcUnits(gs, player, actions, terrain, {
-        capital: myCapital,
-        focusEnemy: strategic?.focusEnemyHQ || enemyHQs[0],
-        unitObjective: aiCtx?.unitObjective || {},
-        territorial,
-      });
-      popBr = getPopBreakdown(gs, player);
-      if (popBr.ready > 0 && popBr.avail < getUnitPopCost(unitType)) {
-        ensureVtcRecruitCapacity(gs, player);
-        popBr = getPopBreakdown(gs, player);
-        if (popBr.ready > 0 && popBr.avail < getUnitPopCost(unitType)) return false;
-      }
-    }
+    if (popBr.ready > 0 && popBr.avail < getUnitPopCost(unitType)) return false;
     if ((building.trainQueue?.length || 0) >= getMaxVtcQueueDepth(gs, player, building)) return false;
     if (actions.some(a => a.type === 'recruit' && a.global && a.buildingId === building.id)) return false;
     if (!getGlobalRecruitOptionsForVTC(gs, player, building.id).includes(unitType)) return false;
@@ -5730,8 +5718,6 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   let expansionMoveFloor = 0;
   if (stagnantArmyBreakout || armyUndersized) {
     trimActionsForStagnationBreakout(actions, armyUndersized ? 0 : 1);
-    ensureVtcRecruitCapacity(gs, player);
-    pruneVtcQueueBacklog(gs, player);
     recalcPlayerPopulation(gs, player);
     if (myCapital && !isVtcUpgradeComplete(myCapital, 'barracks')) {
       const barracksBuy = canPurchaseVtcUpgrade(gs, player, myCapital.id, 'barracks');
@@ -5834,7 +5820,6 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   if (!actions.length) {
     const myCapEnd = getPlayerCapital(gs, player) || myCapital;
-    clearVtcQueueTailForIdlePop(gs, player);
     forceArmyRecruitWhenIdle(
       gs, player, actions, resSim, spend, noteRecruit, recruitAllowed, myCapEnd, maxRecruitsThisTurn,
     );
@@ -5884,6 +5869,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     }
   }
 
+  restoreAIPlanningUnitPositions(gs);
   return actions;
 }
 

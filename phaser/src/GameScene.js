@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.27';
+export const GAME_VERSION = 'v1.21.28';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -7024,21 +7024,23 @@ export class GameScene extends Phaser.Scene {
                    W.UP.isDown || W.DOWN.isDown || W.LEFT.isDown || W.RIGHT.isDown);
     if (moving && this._contextMenuObjs) this._hideContextMenu(true);
 
-    // AI autoplay self-heal: only restart when truly idle (never while a turn's timers are live).
-    if (this._aiViewerMode && this._isSpectatorDuel() && !this._aiAutoplayPaused) {
+    // AI autoplay self-heal: recover stuck AI turns (spectator duel + human vs AI).
+    if (!this._aiAutoplayPaused && this._isAiControlled(this.gameState?.currentPlayer)) {
       const now = Date.now();
       const idleMs = now - (this._aiLastProgressAt || 0);
-      if (this._aiTurnInProgress && idleMs > 25000 && this._aiActiveFinishTurn) {
-        this._pushLog(`AI hard recover: forcing end of P${this._aiActiveTurnPlayer} turn`);
+      if (this._aiTurnInProgress && idleMs > 20000 && this._aiActiveFinishTurn) {
+        this._pushLog(`AI hard recover: forcing end of P${this._aiActiveTurnPlayer ?? this.gameState.currentPlayer} turn`);
         this._cancelAIPendingSteps();
         const fin = this._aiActiveFinishTurn;
         this._aiActiveFinishTurn = null;
         this._aiTurnInProgress = false;
         fin?.();
-      } else if (idleMs > 6000 && !this._aiTurnInProgress && !this._nameModalOpen && !this._settingsOpen
-          && !this._endTurnPending && this._isAiControlled(this.gameState.currentPlayer)
+      } else if (!this._nameModalOpen && !this._settingsOpen && !this._endTurnPending
+          && idleMs > 8000 && !this._aiTurnInProgress
           && !isPlayerMilitarilyEliminated(this.gameState, this.gameState.currentPlayer)) {
-        this._pushLog(`AI autoplay self-heal: restarting P${this.gameState.currentPlayer} turn`);
+        if (this._aiViewerMode && this._isSpectatorDuel()) {
+          this._pushLog(`AI autoplay self-heal: restarting P${this.gameState.currentPlayer} turn`);
+        }
         this._aiLastProgressAt = now;
         this._runAITurn();
       }
@@ -8685,6 +8687,11 @@ export class GameScene extends Phaser.Scene {
     const plannerMs = mapN >= 150 ? 8000 : (mapN >= 120 ? 6000 : (mapN >= 60 ? 4500 : 6000));
     gs._aiPlannerDeadline = performance.now() + plannerMs;
     const tPlan0 = performance.now();
+    const planWatchdog = setTimeout(() => {
+      if (performance.now() - tPlan0 > plannerMs + 500) {
+        this._pushLog(`AI P${gs.currentPlayer}: planner slow (>${plannerMs}ms) — may still be running`);
+      }
+    }, plannerMs + 500);
     try {
       actions = planAITurn(gs, this.terrain, this.mapSize, this.aiStrategies?.[gs.currentPlayer] || this.aiStrategy);
     } catch (e) {
@@ -8707,6 +8714,7 @@ export class GameScene extends Phaser.Scene {
       this._onSubmit();
       return;
     } finally {
+      clearTimeout(planWatchdog);
       delete gs._aiPlannerDeadline;
     }
     const planMs = performance.now() - tPlan0;
