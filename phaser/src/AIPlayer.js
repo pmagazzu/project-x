@@ -356,24 +356,36 @@ function effectiveVtcTrainQueueLength(gs, player, buildingId, actions = []) {
   const b = gs.buildings.find(x => x.id === buildingId);
   let len = b?.trainQueue?.length || 0;
   for (const a of actions) {
-    if (a.type !== 'cancel_vtc_train' || a.buildingId !== buildingId) continue;
-    len = Math.max(0, len - 1);
+    if (a.buildingId !== buildingId) continue;
+    if (a.type === 'cancel_vtc_train') len = Math.max(0, len - 1);
+    if (a.type === 'recruit' && a.global) len += 1;
   }
   return len;
 }
 
-/** Recruit gate during planning — respects queue relief actions queued earlier in the same plan. */
+/** Recruit gate during planning — respects queue relief and recruit actions queued earlier in the same plan. */
 function canPlanGlobalRecruitAtVTC(gs, player, unitType, buildingId, actions = []) {
   const b = gs.buildings.find(x => x.id === buildingId);
   if (!b) return { ok: false, reason: 'Invalid VTC' };
   const effLen = effectiveVtcTrainQueueLength(gs, player, buildingId, actions);
+  const liveLen = b.trainQueue?.length || 0;
   const maxQ = getMaxVtcQueueDepth(gs, player, b);
   if (effLen >= maxQ) return { ok: false, reason: 'Queue full' };
   if (!getGlobalRecruitOptionsForVTC(gs, player, buildingId).includes(unitType)) {
     return { ok: false, reason: 'Requires facility upgrade at this VTC' };
   }
-  if (effLen < (b.trainQueue?.length || 0)) {
-    return canAffordPipelinePop(gs, player, unitType);
+  const pipelineGate = canAffordPipelinePop(gs, player, unitType);
+  if (!pipelineGate.ok) return pipelineGate;
+  if (effLen !== liveLen) {
+    const def = UNIT_TYPES[unitType];
+    if (!def) return { ok: false, reason: 'Unknown unit' };
+    const pl = gs.players[player];
+    if ((pl.iron || 0) < (def.cost.iron || 0)) return { ok: false, reason: 'Not enough iron' };
+    if ((pl.oil || 0) < (def.cost.oil || 0)) return { ok: false, reason: 'Not enough oil' };
+    if ((pl.components || 0) < (def.cost.components || 0)) return { ok: false, reason: 'Not enough components' };
+    const foodCost = getRecruitFoodCost(unitType);
+    if ((pl.food || 0) < foodCost) return { ok: false, reason: 'Not enough food' };
+    return { ok: true };
   }
   return canQueueGlobalRecruit(gs, player, unitType, buildingId);
 }
@@ -406,8 +418,8 @@ function pickBestVTCToQueue(gs, player, unitType, capital, actions = []) {
   }
   if (!isNaval) {
     anchors.sort((a, b) => {
-      const qa = a.building.trainQueue?.length || 0;
-      const qb = b.building.trainQueue?.length || 0;
+      const qa = effectiveVtcTrainQueueLength(gs, player, a.building.id, actions);
+      const qb = effectiveVtcTrainQueueLength(gs, player, b.building.id, actions);
       if (qa !== qb) return qa - qb;
       if (a.isCap !== b.isCap) return a.isCap ? -1 : 1;
       return b.dist - a.dist;
@@ -2630,8 +2642,8 @@ function getStagnantArmyBreakout(gs, player, strategic, myCombatUnits) {
   return phaseStuck || longTinyArmy || buildOnlyStreak;
 }
 
-/** When manpower is idle but VTC queues are clogged, prune and queue infantry. */
-function planVtcRecruitSlotRelief(gs, player, actions, myCapital, maxRelief = 3) {
+/** Drop waiting queue tails only — never cancel the training head during planning. */
+function planVtcRecruitSlotRelief(gs, player, actions, myCapital, maxRelief = 12) {
   if (actions.some(a => a.type === 'cancel_vtc_train')) return 0;
   const simLen = new Map();
   for (const b of gs.buildings || []) {
@@ -2643,7 +2655,6 @@ function planVtcRecruitSlotRelief(gs, player, actions, myCapital, maxRelief = 3)
     return getMaxVtcQueueDepth(gs, player, b);
   };
   const hasSimOpen = () => [...simLen.entries()].some(([id, len]) => len < maxDepth(id));
-  if (hasSimOpen()) return 0;
 
   const vtcs = (gs.buildings || []).filter(b =>
     Number(b.owner) === Number(player) && PRODUCTION_VTC_TYPES.has(b.type) && !b.underConstruction)
@@ -2668,40 +2679,42 @@ function planVtcRecruitSlotRelief(gs, player, actions, myCapital, maxRelief = 3)
       acted = true;
       break;
     }
-    if (!acted) {
-      for (const b of vtcs) {
-        const len = simLen.get(b.id) || 0;
-        if (len <= 0 || isPlayerCapitalBuilding(b)) continue;
-        actions.unshift({ type: 'cancel_vtc_train', buildingId: b.id, mode: 'head' });
-        simLen.set(b.id, len - 1);
-        planned += 1;
-        acted = true;
-        break;
-      }
-    }
     if (!acted) break;
   }
   return planned;
 }
 
+function burstUndersizedInfantryRecruits(actions, recruitAllowed, queueGlobalBestVTC, maxCap) {
+  let added = 0;
+  let stalls = 0;
+  while (actions.filter(a => a.type === 'recruit').length < maxCap
+    && recruitAllowed('INFANTRY') && stalls < 4) {
+    if (queueGlobalBestVTC('INFANTRY')) { added += 1; stalls = 0; }
+    else stalls += 1;
+  }
+  return added;
+}
+
 function forceArmyRecruitWhenIdle(gs, player, actions, resSim, spend, noteRecruit, recruitAllowed, myCapital, maxRecruits, armyUndersized = false) {
-  if (actions.some(a => a.type === 'recruit')) return 0;
   const pop = getPopBreakdown(gs, player);
   const combatLive = countPlayerCombatUnits(gs, player);
   if (pop.avail < 1 || combatLive >= 14) return 0;
-  if (armyUndersized) planVtcRecruitSlotRelief(gs, player, actions, myCapital, 2);
-  if (!hasOpenVtcRecruitSlot(gs, player) && !actions.some(a => a.type === 'cancel_vtc_train')) return 0;
+  const recruitsPlanned = actions.filter(a => a.type === 'recruit').length;
+  if (!armyUndersized && recruitsPlanned > 0) return 0;
+  if (armyUndersized) planVtcRecruitSlotRelief(gs, player, actions, myCapital, 12);
+  if (!hasOpenVtcRecruitSlot(gs, player) && !actions.some(a => a.type === 'cancel_vtc_train')) return recruitsPlanned;
   const prefs = filterRecruitPrioForVtc(gs, player, ['INFANTRY', 'RECON', 'ANTI_TANK', 'MORTAR']);
   const vtcs = gs.buildings.filter(b =>
     Number(b.owner) === Number(player) && PRODUCTION_VTC_TYPES.has(b.type) && !b.underConstruction);
-  let queued = 0;
+  let queued = recruitsPlanned;
   for (let pass = 0; pass < maxRecruits && queued < maxRecruits; pass++) {
     let added = false;
     for (const unitType of prefs) {
       if (!recruitAllowed(unitType)) continue;
       const anchors = [
         pickBestVTCToQueue(gs, player, unitType, myCapital, actions),
-        ...vtcs.filter(b => (b.trainQueue?.length || 0) < getMaxVtcQueueDepth(gs, player, b)),
+        ...vtcs.filter(b => effectiveVtcTrainQueueLength(gs, player, b.id, actions)
+          < getMaxVtcQueueDepth(gs, player, b)),
       ].filter(Boolean);
       const seen = new Set();
       for (const anchor of anchors) {
@@ -4886,7 +4899,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const maxRecruitsThisTurn = armyBudget.maxRecruitsPerTurn
     + (stockpilePressure >= 0.55 ? 2 : (stockpilePressure >= 0.35 ? 1 : 0))
     + (strategic?.phase === 'closing' ? 2 : (strategic?.phase === 'pressure' ? 1 : 0))
-    + (armyUndersized ? 2 : 0);
+    + (armyUndersized ? Math.min(6, 2 + Math.floor(popNow.avail / 3)) : 0);
   const combatUnitsLive = myCombatUnits.length;
   const armyRebuildMode = combatUnitsLive < 4 && (gs.turn || 1) > 15;
   const armyCriticallyLow = combatUnitsLive < 4 || ((gs.turn || 1) >= 12 && combatUnitsLive < 7);
@@ -5807,11 +5820,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         actions.push({ type: 'vtc_upgrade', buildingId: myCapital.id, upgradeId: 'barracks' });
       }
     }
-    planVtcRecruitSlotRelief(gs, player, actions, myCapital, armyUndersized ? 3 : 1);
-    for (let i = 0; i < maxRecruitsThisTurn && recruitAllowed('INFANTRY'); i++) {
-      if (queueGlobalBestVTC('INFANTRY')) armyProgressFloor += 1;
-      else break;
-    }
+    planVtcRecruitSlotRelief(gs, player, actions, myCapital, 12);
+    armyProgressFloor += burstUndersizedInfantryRecruits(
+      actions, recruitAllowed, queueGlobalBestVTC, maxRecruitsThisTurn,
+    );
     expansionMoveFloor = enforceExpansionMoveFloor(
       gs, player, actions, terrain, mapSize, enemyHQs, myCapital, moveMemory,
     );
@@ -5823,7 +5835,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     }
     aiDebug.plannerReason = armyUndersized ? 'army_undersized_recruit' : 'stagnation_breakout';
   }
-  if (!actions.some(a => a.type === 'recruit') && (stagnantArmyBreakout || armyUndersized)) {
+  if ((stagnantArmyBreakout || armyUndersized)
+    && actions.filter(a => a.type === 'recruit').length < maxRecruitsThisTurn) {
     forceArmyRecruitWhenIdle(
       gs, player, actions, resSim, spend, noteRecruit, recruitAllowed, myCapital, maxRecruitsThisTurn, armyUndersized,
     );
@@ -5891,7 +5904,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         recruitAllowed, noteRecruit, spend, maxRecruitsThisTurn,
       );
     }
-    if (!actions.some(a => a.type === 'recruit') && (armyUndersized || stagnantArmyBreakout)) {
+    if ((armyUndersized || stagnantArmyBreakout)
+      && actions.filter(a => a.type === 'recruit').length < maxRecruitsThisTurn) {
       forceArmyRecruitWhenIdle(
         gs, player, actions, resSim, spend, noteRecruit, recruitAllowed, myCap, maxRecruitsThisTurn, armyUndersized,
       );

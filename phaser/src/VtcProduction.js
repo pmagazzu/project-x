@@ -256,34 +256,15 @@ function releaseUndersizedArmyQueueSlots(state, player, events = []) {
   const fieldedTarget = Math.max(6, Math.floor(pop.cap * 0.35));
   if (calcPopFieldedByPlayer(state, p) >= fieldedTarget || pop.avail < 2) return 0;
 
-  const capital = getPlayerCapital(state, p);
-  const anchors = (state.buildings || []).filter((b) =>
-    Number(b.owner) === p && PRODUCTION_VTC_TYPES.has(b.type) && !b.underConstruction);
-  const sorted = [...anchors].sort((a, b) => {
-    const aCap = isPlayerCapitalBuilding(a) ? 0 : 1;
-    const bCap = isPlayerCapitalBuilding(b) ? 1 : 0;
-    if (aCap !== bCap) return bCap - aCap;
-    const da = capital ? hexDistance(a.q, a.r, capital.q, capital.r) : 0;
-    const db = capital ? hexDistance(b.q, b.r, capital.q, capital.r) : 0;
-    return db - da;
-  });
-
-  const hasOpenSlot = () => anchors.some((b) =>
-    (b.trainQueue?.length || 0) < getMaxVtcQueueDepth(state, p, b));
-
   let released = 0;
-  while (!hasOpenSlot()) {
-    let cleared = false;
-    for (const b of sorted) {
-      ensureVtcProductionFields(b);
-      if (b.trainQueue.length <= 1) continue;
+  for (const b of state.buildings || []) {
+    if (Number(b.owner) !== p || !PRODUCTION_VTC_TYPES.has(b.type) || b.underConstruction) continue;
+    ensureVtcProductionFields(b);
+    while (b.trainQueue.length > 1) {
       const tail = b.trainQueue.pop();
       released += 1;
-      cleared = true;
       events.push(`P${p} cleared waiting ${UNIT_TYPES[tail.type]?.name || tail.type} at ${b.type} (${b.q},${b.r})`);
-      break;
     }
-    if (!cleared) break;
   }
   if (released > 0) recalcPlayerPopulation(state, p);
   return released;
