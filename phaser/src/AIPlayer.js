@@ -3393,13 +3393,38 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   return score;
 }
 
+/** Undo virtual positions after partial AI planning (prevents state corruption on deadline exit). */
+function restoreAIPlanningUnitPositions(gs) {
+  for (const u of gs.units) {
+    if (u._aiOrigQ === undefined) continue;
+    u.q = u._aiOrigQ;
+    u.r = u._aiOrigR;
+    u.moved = false;
+    u.movesLeft = UNIT_TYPES[u.type]?.move ?? (u.movesLeft || 1);
+    delete u._aiOrigQ;
+    delete u._aiOrigR;
+    delete u._aiPlannedAttack;
+  }
+}
+
+function finalizePlanOnDeadline(gs, player, actions, partialDebug = null) {
+  restoreAIPlanningUnitPositions(gs);
+  if (partialDebug) {
+    gs._aiDebug = gs._aiDebug || {};
+    gs._aiDebug[player] = { ...partialDebug, plannerReason: 'deadline' };
+  }
+  return actions;
+}
+
 // ── Plan AI turn — returns action list, does NOT execute ──────────────────
 
 export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const player  = gs.currentPlayer;
   const cfg     = AI_STRATEGIES[strategy] ?? AI_STRATEGIES.balanced;
   const actions = [];
+  const mapN = Number(mapSize || gs._mapSize || 40);
   const plannerOverBudget = () => gs._aiPlannerDeadline && performance.now() > gs._aiPlannerDeadline;
+  const overPlan = () => plannerOverBudget();
   const perceivedEnemies = getPerceivedEnemyUnits(gs, player, terrain, mapSize);
   gs._aiEnemyView = gs._aiEnemyView || {};
   gs._aiEnemyView[player] = perceivedEnemies;
@@ -3451,7 +3476,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const stockpilePressure = getStockpileSpendPressure(gs, player);
   const territorial = buildTerritorialIntel(terrain, mapSize, gs, player, strategic, resourceTargets, situation);
   strategic.territorial = territorial;
-  const waterBodies = buildWaterBodyIndex(terrain, mapSize);
+  if (!gs._aiWaterBodies || gs._aiWaterBodiesMapSize !== mapN) {
+    gs._aiWaterBodies = buildWaterBodyIndex(terrain, mapN);
+    gs._aiWaterBodiesMapSize = mapN;
+  }
+  const waterBodies = gs._aiWaterBodies;
   const transportMission = planTransportMissions(gs, terrain, mapSize, player, strategic, territorial);
 
   const sortedCombat = [...myCombatUnits].sort((a, b) => {
@@ -4127,16 +4156,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     delete unit._aiPlannedAttack;
   }
 
-  // Restore original unit positions after planning.
-  // Planning mutated q/r for attack-after-move scoring; execution replays from real positions.
-  for (const uid of unitIds) {
-    const unit = gs.units.find(u => u.id === uid);
-    if (!unit || unit._aiOrigQ === undefined) continue;
-    unit.q = unit._aiOrigQ; unit.r = unit._aiOrigR;
-    unit.moved     = false;
-    unit.movesLeft = UNIT_TYPES[unit.type]?.move ?? (unit.movesLeft || 1);
-    delete unit._aiOrigQ; delete unit._aiOrigR;
-  }
+  restoreAIPlanningUnitPositions(gs);
 
   // --- Phase 1b: Register simple custom designs (occasionally) ---
   const existingDesigns = gs.designs?.[player] || [];
@@ -4326,7 +4346,21 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   };
 
   // VTC UPGRADE tab: barracks/farm/etc. before training units that require them.
-  planAIVtcUpgrades(gs, player, actions, myCapital, perceivedEnemies, stockpilePressure >= 0.4 ? 2 : 1);
+  if (!overPlan()) {
+    planAIVtcUpgrades(gs, player, actions, myCapital, perceivedEnemies, stockpilePressure >= 0.4 ? 2 : 1);
+  }
+
+  const exitIfOverPlan = () => {
+    if (!overPlan()) return false;
+    if (gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked).length === 0) {
+      planArmyRecovery(gs, player, actions, resSim, spend, noteRecruit, recruitAllowed, myCapital, maxRecruitsThisTurn);
+    }
+    ensureMinimumArmyProgress(
+      gs, player, actions, resSim, terrain, mapN, enemyHQs, myCapital,
+      recruitAllowed, noteRecruit, spend, maxRecruitsThisTurn,
+    );
+    return true;
+  };
 
   const liveUnitsNow = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked).length;
   if (liveUnitsNow === 0) {
@@ -4343,6 +4377,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     territorial: strategic?.territorial,
   };
   for (const b of gs.buildings) {
+    if (overPlan()) break;
     if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type)) continue;
     for (const ready of b.readyUnits || []) {
       if (actions.some(a => a.type === 'global_deploy' && a.readyId === ready.id)) continue;
@@ -4471,8 +4506,19 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     }
   }
 
+  if (exitIfOverPlan()) {
+    return finalizePlanOnDeadline(gs, player, actions, { strategicPhase: strategic?.phase });
+  }
+
+  let vtcRecruitPasses = 0;
+  const maxVtcRecruitPasses = mapN >= 120 ? 10 : (mapN >= 60 ? 14 : 24);
   for (const b of myBuildings) {
+    if (overPlan()) break;
     if (plannedRecruits >= armyBudget.maxRecruitsPerTurn) break;
+    if (PRODUCTION_VTC_TYPES.has(b.type)) {
+      vtcRecruitPasses += 1;
+      if (vtcRecruitPasses > maxVtcRecruitPasses) continue;
+    }
     const bType = BUILDING_TYPES[b.type];
     if (!bType?.canRecruit?.length) continue;
 
@@ -4735,10 +4781,14 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     }
   }
 
+  if (exitIfOverPlan()) {
+    return finalizePlanOnDeadline(gs, player, actions, { strategicPhase: strategic?.phase });
+  }
+
   // Road quota: when behind network targets (or when supply is already strained),
   // ensure at least one road build is planned this turn when possible.
   const roadsAtCap = countPlayerRoadLike(gs, player) >= (armyBudget?.maxRoads ?? 36);
-  if (!roadsAtCap && (roadDeficitGlobal > 0 || logisticsPressure) && plannedRoadBuilds === 0) {
+  if (!overPlan() && !roadsAtCap && (roadDeficitGlobal > 0 || logisticsPressure) && plannedRoadBuilds === 0) {
     const roadableHere = (q, r) => {
       const t = terrain?.[`${q},${r}`] ?? 0;
       if (t === 2) return false; // no roads on mountains
@@ -4964,6 +5014,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const armyActionPlanned = actions.some(a => ['attack', 'move', 'recruit', 'global_deploy'].includes(a.type));
   let maxEngSweep = Math.max(4, Math.min(14, 2 + Math.floor(roadDeficitGlobal / 2) + (logisticsPressure ? 4 : 0)));
   if (!armyActionPlanned && myCombatUnits.length > 0) maxEngSweep = Math.min(maxEngSweep, 1);
+  if (mapN >= 90) maxEngSweep = Math.min(maxEngSweep, 4);
+  if (overPlan()) maxEngSweep = 0;
   let engSweepCount = 0;
   const roadCostFinal = BUILDING_TYPES['ROAD']?.buildCost || { wood: 1 };
   const roadableHereFinal = (q, r) => {
@@ -5123,8 +5175,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const contactAttackFloor = enforceContactAttackFloor(gs, player, actions, perceivedEnemies);
   const closingAttackFloor = enforceClosingAttackFloor(gs, player, actions, strategic);
 
-  const transportActions = planTransportOperations(gs, terrain, mapSize, player, strategic, territorial, actions);
-  actions.push(...transportActions);
+  let transportActions = [];
+  if (!overPlan()) {
+    transportActions = planTransportOperations(gs, terrain, mapN, player, strategic, territorial, actions);
+    actions.push(...transportActions);
+  }
   aiDebug.transportOps = transportActions.length;
 
   aiDebug.actionPlan = {

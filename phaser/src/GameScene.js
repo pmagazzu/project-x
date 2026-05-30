@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.7';
+export const GAME_VERSION = 'v1.21.8';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -1360,10 +1360,14 @@ export class GameScene extends Phaser.Scene {
       return (((rng >> 3) & 0xFF) / 255 - 0.5) * 6 * (1 - t); // max ±3px, zero at endpoints
     };
 
+    const cullRoadDraw = roadMap.size > 500 || this.mapSize >= 90;
+    const vp = cullRoadDraw ? this._vpBounds(HEX_SIZE * 6) : null;
+
     // Draw road segments — each edge drawn from both hexes, deduplicate by only drawing q<=nq
     for (const [key, { tier }] of roadMap) {
       const [q, r] = key.split(',').map(Number);
       const { x, y } = hexToWorld(q, r);
+      if (vp && (x < vp.L || x > vp.R || y < vp.T || y > vp.B)) continue;
       const style = TIER_STYLE[tier] || TIER_STYLE[0];
 
       for (const [dq, dr] of HEX_NEIGHBORS_LOCAL) {
@@ -1438,10 +1442,12 @@ export class GameScene extends Phaser.Scene {
     this._updateTopBar();
   }
 
-  _aiRefreshAfterBuild() {
+  _aiRefreshAfterBuild(roadPlaced = false) {
     this._invalidateSupplyCache();
-    this._redrawRoads();
-    this._redrawBuildings();
+    if (roadPlaced) this._roadsDirty = true;
+    else {
+      this._redrawBuildings();
+    }
     this._redrawUnits();
   }
 
@@ -8201,7 +8207,7 @@ export class GameScene extends Phaser.Scene {
     if (turn > 24 && turn % 2 !== 0) return;
     if (turn > 48 && turn % 4 !== 0) return;
 
-    const lite = turn > 32;
+    const lite = turn > 32 || (gs.buildings?.length || 0) > 700;
     const playerIds = getPlayerIds(gs);
     const players = {};
     for (const p of playerIds) {
@@ -8579,6 +8585,7 @@ export class GameScene extends Phaser.Scene {
     const turnId = this._aiTurnId;
     this._aiTurnInProgress = true;
     this._aiLastProgressAt = Date.now();
+    this._roadsDirty = false;
     const gs  = this.gameState;
     const preUnitsByOwner = {
       1: gs.units.filter(u => Number(u.owner) === 1).length,
@@ -8608,7 +8615,7 @@ export class GameScene extends Phaser.Scene {
     // Plan all actions (does NOT execute — pure data). Yield first so UI can paint "acting…".
     let actions = [];
     const mapN = Number(this.mapSize || gs._mapSize || 40);
-    const plannerMs = mapN >= 60 ? 6000 : 8000;
+    const plannerMs = mapN >= 120 ? 3200 : (mapN >= 60 ? 2600 : 6000);
     gs._aiPlannerDeadline = performance.now() + plannerMs;
     const tPlan0 = performance.now();
     try {
@@ -8734,6 +8741,10 @@ export class GameScene extends Phaser.Scene {
       try { lbl?.destroy();     } catch(e){}
       try { kpiLbl?.destroy();  } catch(e){}
       this._freezeFog();
+      if (this._roadsDirty) {
+        this._redrawRoads();
+        this._roadsDirty = false;
+      }
       this._refresh();
       this._onSubmit();
     };
@@ -8752,7 +8763,8 @@ export class GameScene extends Phaser.Scene {
     };
 
     if (lbl) lbl.setText(`⚙  AI Player ${gs.currentPlayer} — ${stratLabel} — planning…`);
-    this.time.delayedCall(0, runPlannedAITurn);
+    // Yield one frame so the planning overlay paints before synchronous planner work.
+    this.time.delayedCall(16, runPlannedAITurn);
   }
 
   _executeAIActions(actions, index, onDone, turnId = this._aiTurnId) {
@@ -8961,7 +8973,7 @@ export class GameScene extends Phaser.Scene {
 
       unit.moved = true;
       unit.building = true;
-      this._aiRefreshAfterBuild();
+      this._aiRefreshAfterBuild(ROAD_TYPES.has(bType));
       this._scheduleAIStep(120, next, turnId);
 
     } else if (action.type === 'design') {
@@ -10721,7 +10733,8 @@ export class GameScene extends Phaser.Scene {
       if (gs.buildings.some(b => b.q === q && b.r === r && ROAD_TYPES.has(b.type))) return;
       gs.buildings.push(createBuilding(rt, 0, q, r));
     };
-    const routeRoad = (from, to, maxSteps = 120) => {
+    const maxRoadSteps = Math.min(48, Math.max(24, Math.floor(ms / 5)));
+    const routeRoad = (from, to, maxSteps = maxRoadSteps) => {
       const path = findRoadPath(map, ms, from.q, from.r, to.q, to.r);
       if (path?.length) {
         for (const h of path.slice(0, maxSteps)) addRoad(h.q, h.r);
@@ -10789,22 +10802,13 @@ export class GameScene extends Phaser.Scene {
         unite(i, j);
         routeRoad(roadNodes[i], roadNodes[j]);
       }
-      // Light redundancy: second-neighbor spurs so the map feels like a country road mesh.
-      const bonusDist = ms >= 100 ? 28 : ms >= 70 ? 22 : 18;
-      for (const a of placed) {
-        const near = placed
-          .filter(b => b !== a)
-          .sort((x, y) => hexDistance(a.q, a.r, x.q, x.r) - hexDistance(a.q, a.r, y.q, y.r));
-        const second = near[1];
-        if (!second) continue;
-        const d = hexDistance(a.q, a.r, second.q, second.r);
-        if (d > bonusDist) continue;
-        routeRoad(a, second, Math.min(40, d + 8));
-      }
     }
 
     // Highway spurs from the neutral grid toward each capital (stops one hex out).
+    let highwaySpurs = 0;
+    const maxHighwaySpurs = Math.min(spawns.length, ms >= 100 ? 3 : 2);
     for (const cap of spawns) {
+      if (highwaySpurs >= maxHighwaySpurs) break;
       if (!placed.length) continue;
       const hub = placed
         .slice()
@@ -10819,7 +10823,8 @@ export class GameScene extends Phaser.Scene {
           stop.r = nr;
         }
       }
-      routeRoad(hub, stop, 64);
+      routeRoad(hub, stop, maxRoadSteps);
+      highwaySpurs += 1;
     }
   }
 
