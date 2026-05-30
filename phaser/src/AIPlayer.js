@@ -22,6 +22,7 @@ import {
   getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit, PRODUCTION_VTC_TYPES, MAX_VTC_TRAIN_QUEUE,
   getPlayerCapital, getPlayerCapitalBuildings, getEnemyCapitalBuildings, isPlayerCapitalBuilding,
   isNavalDeployAllowed, getNavalCoastalCheckRadius, canPromoteSettlement, VTC_SUPPLY_RADIUS, findRoadPath, canPlaceRoadOnTerrain,
+  recalcPlayerPopulation,
 } from './GameState.js';
 import {
   getVtcUpgradeMenu, purchaseVtcUpgrade, isVtcUpgradeComplete,
@@ -313,6 +314,62 @@ function planAIVtcUpgrades(gs, player, actions, capital, perceivedEnemies, maxPe
       actions.push({ type: 'upgrade_settlement', buildingId: vtc.id });
       planned++;
       break;
+    }
+  }
+}
+
+/** Army wiped — prioritize VTC upgrades, deploy ready units, and queue infantry/engineers. */
+function planArmyRecovery(gs, player, actions, resSim, spend, noteRecruit, recruitAllowed, myCapital, maxRecruitsThisTurn) {
+  const live = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked).length;
+  if (live > 0) return;
+
+  recalcPlayerPopulation(gs, player);
+
+  for (const b of gs.buildings) {
+    if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type) || b.underConstruction) continue;
+    for (const ready of b.readyUnits || []) {
+      if (actions.some(a => a.type === 'global_deploy' && a.readyId === ready.id)) continue;
+      const sites = enumerateVtcDeployHexes(gs, player, b.id, ready.type);
+      if (!sites.length) continue;
+      const site = sites[0];
+      actions.push({ type: 'global_deploy', readyId: ready.id, buildingId: b.id, q: site.q, r: site.r });
+    }
+  }
+
+  const queueAt = (building, unitType) => {
+    if (!building || !recruitAllowed(unitType)) return false;
+    if ((building.trainQueue?.length || 0) >= MAX_VTC_TRAIN_QUEUE) return false;
+    if (actions.some(a => a.type === 'recruit' && a.global && a.buildingId === building.id)) return false;
+    if (!getGlobalRecruitOptionsForVTC(gs, player, building.id).includes(unitType)) return false;
+    const check = canQueueGlobalRecruit(gs, player, unitType, building.id);
+    if (!check.ok) return false;
+    const c = UNIT_TYPES[unitType]?.cost || {};
+    const f = getRecruitFoodCost(unitType);
+    if (resSim.iron < (c.iron || 0) || resSim.oil < (c.oil || 0) || resSim.wood < (c.wood || 0)
+      || resSim.food < f || resSim.components < (c.components || 0)) return false;
+    actions.push({ type: 'recruit', buildingId: building.id, unitType, global: true });
+    noteRecruit(unitType);
+    spend(c);
+    resSim.food -= f;
+    return true;
+  };
+
+  const vtcs = gs.buildings.filter(b =>
+    Number(b.owner) === Number(player) && PRODUCTION_VTC_TYPES.has(b.type) && !b.underConstruction);
+  const sorted = [...vtcs].sort((a, b) => {
+    const qa = a.trainQueue?.length || 0;
+    const qb = b.trainQueue?.length || 0;
+    if (qa !== qb) return qa - qb;
+    if (isPlayerCapitalBuilding(a)) return -1;
+    if (isPlayerCapitalBuilding(b)) return 1;
+    return 0;
+  });
+
+  const rebuildOrder = ['INFANTRY', 'INFANTRY', 'ENGINEER', 'SUPPLY_TRUCK'];
+  for (const unitType of rebuildOrder) {
+    if (actions.filter(a => a.type === 'recruit').length >= maxRecruitsThisTurn) break;
+    for (const b of sorted) {
+      if (queueAt(b, unitType)) break;
     }
   }
 }
@@ -4158,6 +4215,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     + (strategic?.phase === 'closing' ? 2 : (strategic?.phase === 'pressure' ? 1 : 0));
   const combatUnitsLive = myCombatUnits.length;
   const armyRebuildMode = combatUnitsLive < 4 && (gs.turn || 1) > 15;
+  const armyCriticallyLow = combatUnitsLive < 4 || ((gs.turn || 1) >= 12 && combatUnitsLive < 7);
   const recruitAllowed = (unitType) => {
     if (plannedRecruits >= maxRecruitsThisTurn) return false;
     if (projectedUnits >= armyBudget.maxUnits) return false;
@@ -4249,6 +4307,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   // VTC UPGRADE tab: barracks/farm/etc. before training units that require them.
   planAIVtcUpgrades(gs, player, actions, myCapital, perceivedEnemies, stockpilePressure >= 0.4 ? 2 : 1);
 
+  const liveUnitsNow = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked).length;
+  if (liveUnitsNow === 0) {
+    planArmyRecovery(gs, player, actions, resSim, spend, noteRecruit, recruitAllowed, myCapital, maxRecruitsThisTurn);
+  }
+
   const focusEnemy = strategic?.focusEnemyHQ
     || pickPrimaryEnemyHQ(gs, player, getEnemyCapitalBuildings(gs, player))
     || getEnemyCapitalBuildings(gs, player)[0];
@@ -4270,15 +4333,15 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const score = scoreGlobalDeploySite(gs, player, site, ready, terrain, deployCtx);
         if (score > bestScore) { bestScore = score; best = site; }
       }
-      if (bestScore > -9000) {
+      if (bestScore > -9000 || (liveUnitsNow === 0 && sites.length > 0)) {
         actions.push({ type: 'global_deploy', readyId: ready.id, buildingId: b.id, q: best.q, r: best.r });
       }
     }
   }
 
   if (armyRebuildMode) {
-    for (let i = 0; i < 2 && plannedRecruits < maxRecruitsThisTurn; i++) {
-      if (!recruitCombatFromProduction()) break;
+    for (let i = 0; i < 4 && plannedRecruits < maxRecruitsThisTurn; i++) {
+      if (!recruitCombatFromProduction(['INFANTRY', 'INFANTRY', 'ANTI_TANK', 'MORTAR', 'RECON'])) break;
     }
     if ((myEngNow + queuedEngNow) < 1) recruitEngineerFromCapital();
   }
@@ -4354,7 +4417,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       ? [...cfg.navalPrio, ...cfg.recruitPrio]
       : [...cfg.recruitPrio, ...cfg.navalPrio]);
     for (const unitType of preferList) {
-      if (queueGlobalBestVTC(unitType)) break;
+      if (!queueGlobalBestVTC(unitType)) continue;
+      if (!armyRebuildMode && !armyCriticallyLow) break;
     }
   }
 

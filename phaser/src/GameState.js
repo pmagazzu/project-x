@@ -799,6 +799,23 @@ export function applyPopulationGrowth(state, player) {
   return pl.population - before;
 }
 
+/** Return manpower when a unit leaves play (death, desertion, crash). */
+export function refundPopulationForRemovedUnit(state, unit) {
+  if (!unit || unit.owner == null) return;
+  const pl = state.players[unit.owner];
+  if (!pl) return;
+  recalcPlayerPopulation(state, unit.owner);
+  const pop = getUnitPopCost(unit.type);
+  pl.population = Math.min(pl.popCap || HQ_BASE_POP_CAP, (pl.population || 0) + pop);
+}
+
+/** Remove dead units and restore population so VTC queues can train replacements. */
+export function removeDeadUnits(state) {
+  const dying = state.units.filter(u => u.health <= 0);
+  for (const u of dying) refundPopulationForRemovedUnit(state, u);
+  state.units = state.units.filter(u => u.health > 0);
+}
+
 export function onHousingBuildingComplete(state, player, buildingType) {
   const def = BUILDING_TYPES[buildingType];
   if (!def || !HOUSING_BUILDINGS.has(buildingType)) return;
@@ -2339,7 +2356,7 @@ export function resolveTurn(state, terrain) {
       if (t.health <= 0) events.push(`${UNIT_TYPES[t.type].name} (P${t.owner}) destroyed!`);
     }
   }
-  state.units = state.units.filter(u => u.health > 0);
+  removeDeadUnits(state);
   state._lastCombatLog = combatLog; // stored for UI to read
 
   // Phase 2.5: Medic healing + Harbor naval repair
@@ -2516,7 +2533,7 @@ export function resolveTurn(state, terrain) {
       }
     }
   }
-  state.units = state.units.filter(u => u.health > 0);
+  removeDeadUnits(state);
 
   // Phase 4c: VTC upgrades + local training queues + promotions
   migrateGlobalQueuesToVtc(state);
@@ -2960,7 +2977,7 @@ export function resolveEndOfTurn(state, terrain) {
     }
   }
   // Remove crashed air units
-  state.units = state.units.filter(u => u.health > 0);
+  removeDeadUnits(state);
 
   // ── Unit upkeep deduction ─────────────────────────────────────────────────
   const upkeep = calcUpkeep(state, player);
@@ -3002,7 +3019,7 @@ export function resolveEndOfTurn(state, terrain) {
         events.push(`${UNIT_TYPES[unit.type]?.name || unit.type} (P${player}) UNSUPPLIED (-move, -attack)`);
       }
     }
-    state.units = state.units.filter(u => u.health > 0);
+    removeDeadUnits(state);
   } else {
     // Clear unsupplied flags when resources are restored
     for (const unit of state.units.filter(u => u.owner === player)) {
