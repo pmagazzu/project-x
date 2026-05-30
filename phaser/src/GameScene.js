@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.21';
+export const GAME_VERSION = 'v1.21.22';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -8597,14 +8597,18 @@ export class GameScene extends Phaser.Scene {
     if (!noContact) return actions;
     const enemyHQs = gs.buildings.filter(b => isPlayerCapitalBuilding(b) && Number(b.owner) !== Number(player));
     if (!enemyHQs.length) return actions;
-    return actions.filter((a) => {
-      if (a.type !== 'move' || a.unitId == null) return true;
+    const nonMoves = actions.filter((a) => a.type !== 'move' || a.unitId == null);
+    const moves = actions.filter((a) => a.type === 'move' && a.unitId != null);
+    const closer = moves.filter((a) => {
       const u = gs.units.find(x => x.id === a.unitId);
       if (!u) return true;
       const curD = Math.min(...enemyHQs.map(h => hexDistance(u.q, u.r, h.q, h.r)));
       const newD = Math.min(...enemyHQs.map(h => hexDistance(a.toQ, a.toR, h.q, h.r)));
       return newD < curD;
     });
+    const keptMoves = closer.length ? closer : moves.slice(0, Math.min(4, moves.length));
+    const merged = [...nonMoves, ...keptMoves];
+    return merged.length ? merged : actions;
   }
 
   _runAITurn() {
@@ -8656,7 +8660,7 @@ export class GameScene extends Phaser.Scene {
     // Plan all actions (does NOT execute — pure data). Yield first so UI can paint "acting…".
     let actions = [];
     const mapN = Number(this.mapSize || gs._mapSize || 40);
-    const plannerMs = mapN >= 150 ? 2800 : (mapN >= 120 ? 3200 : (mapN >= 60 ? 2400 : 6000));
+    const plannerMs = mapN >= 150 ? 8000 : (mapN >= 120 ? 6000 : (mapN >= 60 ? 4500 : 6000));
     gs._aiPlannerDeadline = performance.now() + plannerMs;
     const tPlan0 = performance.now();
     try {

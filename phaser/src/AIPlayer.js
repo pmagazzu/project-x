@@ -20,7 +20,7 @@ import {
   ROAD_TYPES, unitAt, computeFog, buildHQRoadNetwork, isHQNetworkPluggedToNeutralRoads,
   queueGlobalRecruit, enumerateVtcDeployHexes,
   getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit, PRODUCTION_VTC_TYPES, MAX_VTC_TRAIN_QUEUE,
-  pruneVtcQueueBacklog, getMaxVtcQueueDepth,
+  pruneVtcQueueBacklog, clearVtcQueueTailForIdlePop, getMaxVtcQueueDepth,
   getPlayerCapital, getPlayerCapitalBuildings, getEnemyCapitalBuildings, isPlayerCapitalBuilding,
   isNavalDeployAllowed, getNavalCoastalCheckRadius, canPromoteSettlement, VTC_SUPPLY_RADIUS, findRoadPath, canPlaceRoadOnTerrain,
   recalcPlayerPopulation, syncPlayerPopulationPool, calcPopUsedByPlayer, calcPopFieldedByPlayer, getPopBreakdown, canAffordPipelinePop,
@@ -2451,32 +2451,43 @@ function forceArmyRecruitWhenIdle(gs, player, actions, resSim, spend, noteRecrui
   if (actions.some(a => a.type === 'recruit')) return 0;
   const pop = getPopBreakdown(gs, player);
   const combatLive = countPlayerCombatUnits(gs, player);
-  if (pop.avail < 2 || combatLive >= 10) return 0;
+  if (pop.avail < 1 || combatLive >= 14) return 0;
+  clearVtcQueueTailForIdlePop(gs, player);
   pruneVtcQueueBacklog(gs, player);
   const prefs = filterRecruitPrioForVtc(gs, player, ['INFANTRY', 'RECON', 'ANTI_TANK', 'MORTAR']);
+  const vtcs = gs.buildings.filter(b =>
+    Number(b.owner) === Number(player) && PRODUCTION_VTC_TYPES.has(b.type) && !b.underConstruction);
   let queued = 0;
   for (let pass = 0; pass < maxRecruits && queued < maxRecruits; pass++) {
     let added = false;
     for (const unitType of prefs) {
       if (!recruitAllowed(unitType)) continue;
-      const anchor = pickBestVTCToQueue(gs, player, unitType, myCapital);
-      if (!anchor) continue;
-      if (!getGlobalRecruitOptionsForVTC(gs, player, anchor.id).includes(unitType)) continue;
-      const check = canQueueGlobalRecruit(gs, player, unitType, anchor.id);
-      if (!check.ok) continue;
-      const popGate = canAffordPipelinePop(gs, player, unitType);
-      if (!popGate.ok) continue;
-      const c = UNIT_TYPES[unitType]?.cost || {};
-      const f = getRecruitFoodCost(unitType);
-      if (resSim.iron < (c.iron || 0) || resSim.oil < (c.oil || 0) || resSim.wood < (c.wood || 0)
-        || resSim.food < f || resSim.components < (c.components || 0)) continue;
-      actions.push({ type: 'recruit', buildingId: anchor.id, unitType, global: true });
-      noteRecruit(unitType);
-      spend(c);
-      resSim.food -= f;
-      queued += 1;
-      added = true;
-      break;
+      const anchors = [
+        pickBestVTCToQueue(gs, player, unitType, myCapital),
+        ...vtcs.filter(b => (b.trainQueue?.length || 0) < getMaxVtcQueueDepth(gs, player)),
+      ].filter(Boolean);
+      const seen = new Set();
+      for (const anchor of anchors) {
+        if (seen.has(anchor.id)) continue;
+        seen.add(anchor.id);
+        if (!getGlobalRecruitOptionsForVTC(gs, player, anchor.id).includes(unitType)) continue;
+        const check = canQueueGlobalRecruit(gs, player, unitType, anchor.id);
+        if (!check.ok) continue;
+        const popGate = canAffordPipelinePop(gs, player, unitType);
+        if (!popGate.ok) continue;
+        const c = UNIT_TYPES[unitType]?.cost || {};
+        const f = getRecruitFoodCost(unitType);
+        if (resSim.iron < (c.iron || 0) || resSim.oil < (c.oil || 0) || resSim.wood < (c.wood || 0)
+          || resSim.food < f || resSim.components < (c.components || 0)) continue;
+        actions.push({ type: 'recruit', buildingId: anchor.id, unitType, global: true });
+        noteRecruit(unitType);
+        spend(c);
+        resSim.food -= f;
+        queued += 1;
+        added = true;
+        break;
+      }
+      if (added) break;
     }
     if (!added) break;
   }
@@ -3774,7 +3785,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   pruneVtcQueueBacklog(gs, player);
   const popNow = getPopBreakdown(gs, player);
   const populationFull = popNow.avail < 1 && popNow.used >= popNow.cap;
-  const armyUndersized = popNow.fielded < Math.max(6, Math.floor(popNow.cap * 0.35)) && popNow.avail >= 3;
+  const armyUndersized = popNow.fielded < Math.max(6, Math.floor(popNow.cap * 0.35)) && popNow.avail >= 2;
+  if (armyUndersized) clearVtcQueueTailForIdlePop(gs, player);
   const popReserveNow = popNow.reserve;
 
   planDeployReadyVtcUnits(gs, player, actions, terrain, {
@@ -5558,6 +5570,58 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     }
     if (!actions.length) {
       aiDebug.plannerReason = populationFull ? 'pop_full_expand' : 'idle_breakout';
+    }
+  }
+
+  if (!actions.length) {
+    const myCapEnd = getPlayerCapital(gs, player) || myCapital;
+    clearVtcQueueTailForIdlePop(gs, player);
+    forceArmyRecruitWhenIdle(
+      gs, player, actions, resSim, spend, noteRecruit, recruitAllowed, myCapEnd, maxRecruitsThisTurn,
+    );
+    if (!actions.length) {
+      ensureMinimumArmyProgress(
+        gs, player, actions, resSim, terrain, mapN, enemyHQs, myCapEnd,
+        recruitAllowed, noteRecruit, spend, maxRecruitsThisTurn,
+      );
+    }
+    if (!actions.length) {
+      const fighters = gs.units.filter((u) => {
+        if (Number(u.owner) !== Number(player) || u.embarked) return false;
+        const role = getUnitRole(u.type);
+        if (role === 'engineer' || role === 'support') return false;
+        const d = UNIT_TYPES[u.type] || {};
+        return (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0 || (d.attack || 0) > 0;
+      });
+      const goals = enemyHQs?.length ? enemyHQs : [];
+      for (const b of gs.buildings || []) {
+        if (b.underConstruction || ROAD_TYPES.has(b.type)) continue;
+        const neutral = Number(b.owner) === 0;
+        const enemy = Number(b.owner) !== Number(player) && Number(b.owner) > 0;
+        if ((neutral || enemy) && ['HQ', 'VILLAGE', 'TOWN', 'CITY'].includes(b.type)) goals.push(b);
+      }
+      if (fighters.length && goals.length) {
+        const unit = fighters[0];
+        const goal = goals.reduce((best, g) => {
+          const d = hexDistance(unit.q, unit.r, g.q, g.r);
+          return d < best.d ? { g, d } : best;
+        }, { g: goals[0], d: hexDistance(unit.q, unit.r, goals[0].q, goals[0].r) });
+        const reachable = getReachableHexesForAI(gs, unit, terrain, mapN) || [];
+        const step = reachable
+          .filter((h) => hexDistance(h.q, h.r, goal.g.q, goal.g.r) <= hexDistance(unit.q, unit.r, goal.g.q, goal.g.r))
+          .sort((a, b) => hexDistance(a.q, a.r, goal.g.q, goal.g.r) - hexDistance(b.q, b.r, goal.g.q, goal.g.r))[0];
+        if (step) {
+          actions.push({
+            type: 'move', unitId: unit.id, fromQ: unit.q, fromR: unit.r, toQ: step.q, toR: step.r,
+          });
+          aiDebug.plannerReason = 'empty_plan_fallback_move';
+        }
+      }
+    }
+    if (actions.length) {
+      aiDebug.actionPlan = aiDebug.actionPlan || {};
+      aiDebug.actionPlan.recruits = actions.filter(a => a.type === 'recruit').length;
+      aiDebug.actionPlan.moves = actions.filter(a => a.type === 'move').length;
     }
   }
 

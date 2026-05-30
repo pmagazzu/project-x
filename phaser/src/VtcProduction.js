@@ -409,6 +409,26 @@ export function getMaxVtcQueueDepth(state, player) {
   return MAX_VTC_TRAIN_QUEUE;
 }
 
+/** When manpower is idle, collapse queues to the training head so new recruits can enqueue. */
+export function clearVtcQueueTailForIdlePop(state, player, events = []) {
+  const pop = getPopBreakdown(state, Number(player));
+  if (pop.avail < 3 || pop.fielded >= Math.floor(pop.cap * 0.55)) return 0;
+  let pruned = 0;
+  for (const b of state.buildings || []) {
+    if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type) || b.underConstruction) continue;
+    ensureVtcProductionFields(b);
+    while (b.trainQueue.length > 1) {
+      b.trainQueue.pop();
+      pruned += 1;
+    }
+  }
+  if (pruned > 0) {
+    recalcPlayerPopulation(state, player);
+    events.push(`P${player} cleared ${pruned} idle backlog recruit(s)`);
+  }
+  return pruned;
+}
+
 /** Drop tail queue slots that block new recruits while manpower sits idle. */
 export function pruneVtcQueueBacklog(state, player, events = []) {
   const p = Number(player);
