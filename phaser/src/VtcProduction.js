@@ -173,8 +173,9 @@ export function canQueueVtcRecruit(state, player, unitType, buildingId) {
   const b = state.buildings.find(x => x.id === buildingId);
   if (!b) return { ok: false, reason: 'Invalid VTC' };
   ensureVtcProductionFields(b);
-  if (b.trainQueue.length >= MAX_VTC_TRAIN_QUEUE) {
-    return { ok: false, reason: `Queue full (${MAX_VTC_TRAIN_QUEUE})` };
+  const maxQueue = getMaxVtcQueueDepth(state, player, b);
+  if (b.trainQueue.length >= maxQueue) {
+    return { ok: false, reason: `Queue full (${maxQueue})` };
   }
   const pipelineGate = canAffordPipelinePop(state, player, unitType);
   if (!pipelineGate.ok) return pipelineGate;
@@ -394,49 +395,78 @@ export function forceDeployStrandedVtcReady(state, player, events = []) {
   return deployAllVtcReady(state, player, events, 'deployed');
 }
 
-/** Max train-queue depth scales with army size — tiny forces should not lock 4-deep backlogs. */
-export function getMaxVtcQueueDepth(state, player) {
-  const p = Number(player);
-  let combat = 0;
-  for (const u of state.units || []) {
-    if (Number(u.owner) !== p || u.embarked || (u.health ?? 1) <= 0) continue;
-    const d = UNIT_TYPES[u.type] || {};
-    if ((d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0) combat += 1;
-  }
-  const fielded = calcPopFieldedByPlayer(state, p);
-  if (combat <= 4 || fielded <= 6) return 1;
-  if (combat <= 8 || fielded <= 12) return 2;
-  return MAX_VTC_TRAIN_QUEUE;
+function resolveVtcBuilding(state, buildingOrId) {
+  if (buildingOrId == null) return null;
+  if (typeof buildingOrId === 'object' && buildingOrId.id != null) return buildingOrId;
+  return state.buildings?.find((x) => x.id === buildingOrId) ?? null;
 }
 
-/** When manpower is idle, collapse queues to the training head so new recruits can enqueue. */
-export function clearVtcQueueTailForIdlePop(state, player, events = []) {
-  const pop = getPopBreakdown(state, Number(player));
-  if (pop.avail < 3 || pop.fielded >= Math.floor(pop.cap * 0.55)) return 0;
-  let pruned = 0;
-  for (const b of state.buildings || []) {
-    if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type) || b.underConstruction) continue;
+/** Per-VTC train queue cap (only the head reserves manpower until it trains). */
+export function getMaxVtcQueueDepth(state, player, buildingOrId = null) {
+  const b = resolveVtcBuilding(state, buildingOrId);
+  if (!b) return MAX_VTC_TRAIN_QUEUE;
+  if (b.type === 'CITY' || isPlayerCapitalBuilding(b)) return MAX_VTC_TRAIN_QUEUE;
+  if (b.type === 'TOWN') return Math.min(3, MAX_VTC_TRAIN_QUEUE);
+  return Math.min(2, MAX_VTC_TRAIN_QUEUE);
+}
+
+/** Deploy ready bays and free one train slot when every VTC queue is full but the army is still tiny. */
+export function ensureVtcRecruitCapacity(state, player, events = []) {
+  const p = Number(player);
+  const pop = getPopBreakdown(state, p);
+  const fieldedTarget = Math.max(6, Math.floor(pop.cap * 0.35));
+  if (calcPopFieldedByPlayer(state, p) >= fieldedTarget) {
+    return { deployed: 0, freed: 0 };
+  }
+
+  tickVtcProduction(state, p, events);
+  let deployed = deployAllVtcReady(state, p, events, 'unstick-deploy');
+  recalcPlayerPopulation(state, p);
+
+  const anchors = (state.buildings || []).filter((b) =>
+    Number(b.owner) === p && PRODUCTION_VTC_TYPES.has(b.type) && !b.underConstruction);
+  const hasOpenSlot = () => anchors.some((b) =>
+    (b.trainQueue?.length || 0) < getMaxVtcQueueDepth(state, p, b));
+  if (hasOpenSlot()) return { deployed, freed: 0 };
+
+  const capital = getPlayerCapital(state, p);
+  const sorted = [...anchors].sort((a, b) => {
+    const aCap = isPlayerCapitalBuilding(a) ? 1 : 0;
+    const bCap = isPlayerCapitalBuilding(b) ? 1 : 0;
+    if (aCap !== bCap) return aCap - bCap;
+    const da = capital ? hexDistance(a.q, a.r, capital.q, capital.r) : 0;
+    const db = capital ? hexDistance(b.q, b.r, capital.q, capital.r) : 0;
+    return db - da;
+  });
+
+  let freed = 0;
+  for (const b of sorted) {
+    if (hasOpenSlot()) break;
     ensureVtcProductionFields(b);
-    while (b.trainQueue.length > 1) {
-      b.trainQueue.pop();
-      pruned += 1;
+    if (!b.trainQueue?.length) continue;
+    const out = cancelVtcQueueHead(state, p, b.id);
+    if (out.ok) {
+      freed += 1;
+      events.push(`P${p} cleared stuck ${UNIT_TYPES[out.type]?.name || out.type} queue at ${b.type} to free recruit slot`);
     }
   }
-  if (pruned > 0) {
-    recalcPlayerPopulation(state, player);
-    events.push(`P${player} cleared ${pruned} idle backlog recruit(s)`);
-  }
-  return pruned;
+  if (freed > 0) recalcPlayerPopulation(state, p);
+  return { deployed, freed };
 }
 
-/** Drop tail queue slots that block new recruits while manpower sits idle. */
+/** Trim queue tails that exceed each VTC's allowed depth (waiting slots do not reserve manpower). */
+export function clearVtcQueueTailForIdlePop(state, player, events = []) {
+  return pruneVtcQueueBacklog(state, player, events);
+}
+
+/** Drop train-queue slots beyond each VTC's tier cap. */
 export function pruneVtcQueueBacklog(state, player, events = []) {
   const p = Number(player);
-  const maxDepth = getMaxVtcQueueDepth(state, p);
   let pruned = 0;
   for (const b of state.buildings || []) {
     if (Number(b.owner) !== p || !PRODUCTION_VTC_TYPES.has(b.type) || b.underConstruction) continue;
     ensureVtcProductionFields(b);
+    const maxDepth = getMaxVtcQueueDepth(state, p, b);
     while (b.trainQueue.length > maxDepth) {
       b.trainQueue.pop();
       pruned += 1;

@@ -20,7 +20,7 @@ import {
   ROAD_TYPES, unitAt, computeFog, buildHQRoadNetwork, isHQNetworkPluggedToNeutralRoads,
   queueGlobalRecruit, enumerateVtcDeployHexes,
   getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit, PRODUCTION_VTC_TYPES, MAX_VTC_TRAIN_QUEUE,
-  pruneVtcQueueBacklog, clearVtcQueueTailForIdlePop, getMaxVtcQueueDepth,
+  pruneVtcQueueBacklog, clearVtcQueueTailForIdlePop, ensureVtcRecruitCapacity, getMaxVtcQueueDepth,
   getPlayerCapital, getPlayerCapitalBuildings, getEnemyCapitalBuildings, isPlayerCapitalBuilding,
   isNavalDeployAllowed, getNavalCoastalCheckRadius, canPromoteSettlement, VTC_SUPPLY_RADIUS, findRoadPath, canPlaceRoadOnTerrain,
   recalcPlayerPopulation, syncPlayerPopulationPool, calcPopUsedByPlayer, calcPopFieldedByPlayer, getPopBreakdown, canAffordPipelinePop,
@@ -335,7 +335,7 @@ function pickBestVTCToQueue(gs, player, unitType, capital) {
       isCap: isPlayerCapitalBuilding(bb),
     }))
     .filter(a => getGlobalRecruitOptionsForVTC(gs, player, a.building.id).includes(unitType))
-    .filter(a => (a.building.trainQueue?.length || 0) < getMaxVtcQueueDepth(gs, player))
+    .filter(a => (a.building.trainQueue?.length || 0) < getMaxVtcQueueDepth(gs, player, a.building))
     .filter(a => !isNaval || a.deployHexes > 0);
   if (!anchors.length) return null;
   if (isNaval) {
@@ -351,7 +351,7 @@ function pickBestVTCToQueue(gs, player, unitType, capital) {
       const qa = a.building.trainQueue?.length || 0;
       const qb = b.building.trainQueue?.length || 0;
       if (qa !== qb) return qa - qb;
-      if (a.isCap !== b.isCap) return a.isCap ? 1 : -1;
+      if (a.isCap !== b.isCap) return a.isCap ? -1 : 1;
       return b.dist - a.dist;
     });
   }
@@ -410,7 +410,7 @@ function planArmyRecovery(gs, player, actions, resSim, spend, noteRecruit, recru
     if (!building) return false;
     const allowRecruit = recruitAllowed(unitType) || calcPopFieldedByPlayer(gs, player) < 1;
     if (!allowRecruit) return false;
-    if ((building.trainQueue?.length || 0) >= getMaxVtcQueueDepth(gs, player)) return false;
+    if ((building.trainQueue?.length || 0) >= getMaxVtcQueueDepth(gs, player, building)) return false;
     if (actions.some(a => a.type === 'recruit' && a.global && a.buildingId === building.id)) return false;
     if (!getGlobalRecruitOptionsForVTC(gs, player, building.id).includes(unitType)) return false;
     const check = canQueueGlobalRecruit(gs, player, unitType, building.id);
@@ -447,11 +447,19 @@ function planArmyRecovery(gs, player, actions, resSim, spend, noteRecruit, recru
 }
 
 function filterRecruitPrioForVtc(gs, player, unitList) {
-  const avail = new Set();
-  for (const b of gs.buildings) {
-    if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type) || b.underConstruction) continue;
-    if ((b.trainQueue?.length || 0) >= getMaxVtcQueueDepth(gs, player)) continue;
-    for (const u of getGlobalRecruitOptionsForVTC(gs, player, b.id)) avail.add(u);
+  const collectAvail = () => {
+    const avail = new Set();
+    for (const b of gs.buildings) {
+      if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type) || b.underConstruction) continue;
+      if ((b.trainQueue?.length || 0) >= getMaxVtcQueueDepth(gs, player, b)) continue;
+      for (const u of getGlobalRecruitOptionsForVTC(gs, player, b.id)) avail.add(u);
+    }
+    return avail;
+  };
+  let avail = collectAvail();
+  if (!avail.size) {
+    ensureVtcRecruitCapacity(gs, player);
+    avail = collectAvail();
   }
   const filtered = unitList.filter(u => avail.has(u));
   return filtered.length ? filtered : ['INFANTRY'];
@@ -2532,6 +2540,7 @@ function forceArmyRecruitWhenIdle(gs, player, actions, resSim, spend, noteRecrui
   const pop = getPopBreakdown(gs, player);
   const combatLive = countPlayerCombatUnits(gs, player);
   if (pop.avail < 1 || combatLive >= 14) return 0;
+  ensureVtcRecruitCapacity(gs, player);
   clearVtcQueueTailForIdlePop(gs, player);
   pruneVtcQueueBacklog(gs, player);
   const prefs = filterRecruitPrioForVtc(gs, player, ['INFANTRY', 'RECON', 'ANTI_TANK', 'MORTAR']);
@@ -2544,7 +2553,7 @@ function forceArmyRecruitWhenIdle(gs, player, actions, resSim, spend, noteRecrui
       if (!recruitAllowed(unitType)) continue;
       const anchors = [
         pickBestVTCToQueue(gs, player, unitType, myCapital),
-        ...vtcs.filter(b => (b.trainQueue?.length || 0) < getMaxVtcQueueDepth(gs, player)),
+        ...vtcs.filter(b => (b.trainQueue?.length || 0) < getMaxVtcQueueDepth(gs, player, b)),
       ].filter(Boolean);
       const seen = new Set();
       for (const anchor of anchors) {
@@ -3766,7 +3775,7 @@ function finalizeArmyWipedPlan(gs, player, actions, terrain, mapN, aiDebug, ctx)
 
   const queueWiped = (building, unitType) => {
     if (!building || plannedRecruits >= maxRecruitsThisTurn) return false;
-    if ((building.trainQueue?.length || 0) >= getMaxVtcQueueDepth(gs, player)) return false;
+    if ((building.trainQueue?.length || 0) >= getMaxVtcQueueDepth(gs, player, building)) return false;
     if (actions.some(a => a.type === 'recruit' && a.global && a.buildingId === building.id)) return false;
     if (!getGlobalRecruitOptionsForVTC(gs, player, building.id).includes(unitType)) return false;
     const check = canQueueGlobalRecruit(gs, player, unitType, building.id);
@@ -3919,7 +3928,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const popNow = getPopBreakdown(gs, player);
   const populationFull = popNow.avail < 1 && popNow.used >= popNow.cap;
   const armyUndersized = popNow.fielded < Math.max(6, Math.floor(popNow.cap * 0.35)) && popNow.avail >= 2;
-  if (armyUndersized) clearVtcQueueTailForIdlePop(gs, player);
+  if (armyUndersized) {
+    ensureVtcRecruitCapacity(gs, player);
+    clearVtcQueueTailForIdlePop(gs, player);
+  }
   const popReserveNow = popNow.reserve;
 
   planDeployReadyVtcUnits(gs, player, actions, terrain, {
@@ -4749,9 +4761,22 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     || myBuildings.find(bb => isPlayerCapitalBuilding(bb) && !bb.underConstruction);
   const queueGlobalFromBuilding = (building, unitType) => {
     if (!building) return false;
-    const popBr = getPopBreakdown(gs, player);
-    if (popBr.ready > 0 && popBr.avail < getUnitPopCost(unitType)) return false;
-    if ((building.trainQueue?.length || 0) >= getMaxVtcQueueDepth(gs, player)) return false;
+    let popBr = getPopBreakdown(gs, player);
+    if (popBr.ready > 0 && popBr.avail < getUnitPopCost(unitType)) {
+      planDeployReadyVtcUnits(gs, player, actions, terrain, {
+        capital: myCapital,
+        focusEnemy: strategic?.focusEnemyHQ || enemyHQs[0],
+        unitObjective: aiCtx?.unitObjective || {},
+        territorial,
+      });
+      popBr = getPopBreakdown(gs, player);
+      if (popBr.ready > 0 && popBr.avail < getUnitPopCost(unitType)) {
+        ensureVtcRecruitCapacity(gs, player);
+        popBr = getPopBreakdown(gs, player);
+        if (popBr.ready > 0 && popBr.avail < getUnitPopCost(unitType)) return false;
+      }
+    }
+    if ((building.trainQueue?.length || 0) >= getMaxVtcQueueDepth(gs, player, building)) return false;
     if (actions.some(a => a.type === 'recruit' && a.global && a.buildingId === building.id)) return false;
     if (!getGlobalRecruitOptionsForVTC(gs, player, building.id).includes(unitType)) return false;
     if (!recruitAllowed(unitType)) return false;
@@ -4895,7 +4920,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   // Per-VTC train queues: only unit types this player can build at some VTC right now.
   const vtcCanQueueMore = () => gs.buildings.some(b =>
     Number(b.owner) === Number(player) && PRODUCTION_VTC_TYPES.has(b.type)
-    && (b.trainQueue?.length || 0) < getMaxVtcQueueDepth(gs, player));
+    && (b.trainQueue?.length || 0) < getMaxVtcQueueDepth(gs, player, b));
   if (vtcCanQueueMore() && plannedRecruits < armyBudget.maxRecruitsPerTurn) {
     const preferList = filterRecruitPrioForVtc(gs, player, waterMap
       ? [...cfg.navalPrio, ...cfg.recruitPrio]
@@ -5605,6 +5630,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   let expansionMoveFloor = 0;
   if (stagnantArmyBreakout || armyUndersized) {
     trimActionsForStagnationBreakout(actions, armyUndersized ? 0 : 1);
+    ensureVtcRecruitCapacity(gs, player);
     pruneVtcQueueBacklog(gs, player);
     recalcPlayerPopulation(gs, player);
     if (myCapital && !isVtcUpgradeComplete(myCapital, 'barracks')) {

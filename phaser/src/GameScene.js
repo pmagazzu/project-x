@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.24';
+export const GAME_VERSION = 'v1.21.26';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -8609,18 +8609,26 @@ export class GameScene extends Phaser.Scene {
     if (!Array.isArray(actions) || actions.length === 0) return actions || [];
     const noContact = !aiDebug?.mapSummary?.enemyCombatCentroid;
     if (!noContact) return actions;
-    const enemyHQs = gs.buildings.filter(b => isPlayerCapitalBuilding(b) && Number(b.owner) !== Number(player));
-    if (!enemyHQs.length) return actions;
+    const goals = [];
+    for (const b of gs.buildings || []) {
+      if (b.underConstruction || ROAD_TYPES.has(b.type)) continue;
+      if (isPlayerCapitalBuilding(b) && Number(b.owner) !== Number(player)) goals.push(b);
+      else if (Number(b.owner) === 0 && ['VILLAGE', 'TOWN', 'CITY'].includes(b.type)) goals.push(b);
+      else if (Number(b.owner) !== Number(player) && Number(b.owner) > 0
+        && ['VILLAGE', 'TOWN', 'CITY', 'MINE', 'OIL_PUMP'].includes(b.type)) goals.push(b);
+    }
+    if (!goals.length) return actions;
+    const distToGoals = (q, r) => Math.min(...goals.map((g) => hexDistance(q, r, g.q, g.r)));
     const nonMoves = actions.filter((a) => a.type !== 'move' || a.unitId == null);
     const moves = actions.filter((a) => a.type === 'move' && a.unitId != null);
     const closer = moves.filter((a) => {
       const u = gs.units.find(x => x.id === a.unitId);
       if (!u) return true;
-      const curD = Math.min(...enemyHQs.map(h => hexDistance(u.q, u.r, h.q, h.r)));
-      const newD = Math.min(...enemyHQs.map(h => hexDistance(a.toQ, a.toR, h.q, h.r)));
+      const curD = distToGoals(u.q, u.r);
+      const newD = distToGoals(a.toQ, a.toR);
       return newD < curD;
     });
-    const keptMoves = closer.length ? closer : moves.slice(0, Math.min(4, moves.length));
+    const keptMoves = closer.length ? closer : moves.slice(0, Math.min(6, moves.length));
     const merged = [...nonMoves, ...keptMoves];
     return merged.length ? merged : actions;
   }
