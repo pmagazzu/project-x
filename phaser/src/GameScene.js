@@ -48,7 +48,8 @@ import {
   getVtcUpgradeMenu, getProduceCatalog, purchaseVtcUpgrade,
 } from './SettlementSystem.js';
 import {
-  migrateGlobalQueuesToVtc, enumerateVtcDeployHexes, getVtcFacilityChips, cancelVtcQueueHead,
+  migrateGlobalQueuesToVtc, enumerateVtcDeployHexes, getVtcFacilityChips, getVtcFacilityBadgeGlyphs,
+  cancelVtcQueueHead, getVtcInspectorLines, LEGACY_PRODUCTION_MAP_HIDDEN,
 } from './VtcProduction.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -59,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.5';
+export const GAME_VERSION = 'v1.21.6';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -1980,6 +1981,20 @@ export class GameScene extends Phaser.Scene {
       g.fillCircle(cx2 + cW - 5, cy2 + 5, 3);
     }
 
+    if (isSettlement) {
+      const badges = getVtcFacilityBadgeGlyphs(b);
+      if (badges.length) {
+        const badgeStr = badges.join(' ');
+        const badgeLbl = this.add.text(x, y + cH * 0.52, badgeStr, {
+          font: 'bold 8px monospace',
+          fill: '#e8f0ff',
+          stroke: '#0a0a0a',
+          strokeThickness: 2,
+        }).setOrigin(0.5, 0).setDepth(17).setAlpha(alpha * 0.95);
+        this.buildingSpriteLayer?.add(badgeLbl);
+      }
+    }
+
     if (b.underConstruction) {
       const prog = b.buildProgress || 0;
       const total = b.buildTurnsRequired || 1;
@@ -2016,6 +2031,7 @@ export class GameScene extends Phaser.Scene {
     for (const b of this.gameState.buildings) {
       try {
         if (ROAD_TYPES.has(b.type)) continue;
+        if (LEGACY_PRODUCTION_MAP_HIDDEN.has(b.type)) continue;
         const isSettlement = SETTLEMENT_TYPES.has(b.type);
         const hexKey = `${b.q},${b.r}`;
         const inFog = !!(fog && fog.size > 0 && !fog.has(hexKey));
@@ -3450,29 +3466,37 @@ export class GameScene extends Phaser.Scene {
     return { title, chips, lines };
   }
 
-  _inspectorBuildContent(gs, hex) {
+  _inspectorBuildContent(gs, hex, fogVisible = null) {
     const bu = buildingAt(gs, hex.q, hex.r);
     if (!bu || ROAD_TYPES.has(bu.type)) {
       return {
         title: 'No building',
         chips: 'Select a hex with a structure',
-        lines: ['Hover or click a tile with Barracks, Mine, HQ, etc.'],
+        lines: ['Hover or click a tile with a VTC, Mine, HQ, etc.'],
       };
     }
     const def = BUILDING_TYPES[bu.type] || {};
-    const isOwn = Number(bu.owner) === Number(gs.currentPlayer);
-    const title = `${def.name || bu.type}  ·  Player ${bu.owner}`;
+    const viewer = Number(gs.currentPlayer);
+    const isOwn = Number(bu.owner) === viewer;
+    const isVtc = PRODUCTION_VTC_TYPES.has(bu.type);
+    const facilityChips = isVtc ? getVtcFacilityChips(bu) : [];
+    const title = isVtc
+      ? `${def.name || bu.type}  ·  P${bu.owner}${facilityChips.length ? `  ·  ${facilityChips.join(' · ')}` : ''}`
+      : `${def.name || bu.type}  ·  Player ${bu.owner}`;
     const chips = bu.underConstruction
       ? `Building… ${bu.buildProgress || 0}/${bu.buildTurnsRequired || 1} turns`
-      : (isOwn ? 'Friendly' : 'Enemy') + (def.canRecruit?.length ? `  ·  Recruits: ${def.canRecruit.length} types` : '');
+      : (isOwn ? 'Friendly' : 'Enemy')
+        + (isVtc ? '  ·  VTC' : (def.canRecruit?.length ? `  ·  Recruits: ${def.canRecruit.length} types` : ''));
     const lines = [];
-    if (def.buildCost) {
+    if (!isVtc && def.buildCost) {
       const c = def.buildCost;
       lines.push(`Build cost: ${c.iron ? `⚙${c.iron} ` : ''}${c.wood ? `🪵${c.wood} ` : ''}${c.oil ? `🛢${c.oil}` : ''}`.trim());
     }
     const recruit = gs.pendingRecruits.find(r => r.buildingId === bu.id && Number(r.owner) === Number(bu.owner));
     if (recruit) lines.push(`Training: ${recruit.type || 'unit'} (${recruit.turnsLeft} turns left)`);
-    if (['VILLAGE', 'TOWN', 'CITY', 'HQ'].includes(bu.type) && isOwn) {
+    if (isVtc) {
+      lines.push(...getVtcInspectorLines(gs, viewer, bu, fogVisible));
+    } else if (['VILLAGE', 'TOWN', 'CITY', 'HQ'].includes(bu.type) && isOwn) {
       const vs = getVtcQueueSummary(gs, bu.owner, bu.id);
       if (vs.training) {
         lines.push(`Training: ${UNIT_TYPES[vs.training.type]?.name || vs.training.type} (${vs.training.turnsLeft}t)`);
@@ -3480,7 +3504,7 @@ export class GameScene extends Phaser.Scene {
       if (vs.pending.length > 1) lines.push(`Queued: ${vs.pending.length - 1} more`);
       if (vs.ready.length) lines.push(`Ready to deploy: ${vs.ready.length}`);
     }
-    if (['VILLAGE', 'TOWN', 'CITY'].includes(bu.type)) {
+    if (['VILLAGE', 'TOWN', 'CITY'].includes(bu.type) && isOwn && !isVtc) {
       const rad = VTC_SUPPLY_RADIUS[bu.type];
       if (rad) lines.push(`Supply bubble: ${rad} hexes (owned)`);
     }
@@ -3955,7 +3979,7 @@ export class GameScene extends Phaser.Scene {
     } else if (this._inspectorTab === 'unit' && !u) {
       content = { title: 'No unit selected', chips: 'Click your unit on the map', lines: ['Hover a hex for terrain info (HEX tab)'] };
     } else if (this._inspectorTab === 'build' && this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
-      content = this._inspectorBuildContent(gs, this.hoveredHex);
+      content = this._inspectorBuildContent(gs, this.hoveredHex, this._currentFog);
     } else if (this._inspectorTab === 'hex' && this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
       content = this._inspectorHexContent(gs, this.hoveredHex);
     } else if (u) {

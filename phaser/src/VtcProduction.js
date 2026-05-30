@@ -7,7 +7,7 @@ import {
   isNavalAllowedAtVTCTier, getRecruitFoodCost, getUnitPopCost, recalcPlayerPopulation,
   getPlayerCapital, isPlayerCapitalBuilding, PRODUCTION_VTC_TYPES,
   CITY_YARD_NAVAL_UNITS, hexDistance, createUnit, buildingAt, ROAD_TYPES,
-  canEnterTerrain,
+  canEnterTerrain, VTC_SUPPLY_RADIUS,
 } from './GameState.js';
 
 const HEX_NEIGHBORS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
@@ -342,6 +342,57 @@ export function tickVtcProduction(state, player, events = []) {
   }
 }
 
+/** Legacy production structures — hidden on map; facilities live on VTC upgrades. */
+export const LEGACY_PRODUCTION_MAP_HIDDEN = new Set([
+  'BARRACKS', 'ADV_BARRACKS', 'VEHICLE_DEPOT', 'ARMOR_WORKS', 'SCIENCE_LAB', 'FACTORY',
+  'AIRFIELD', 'ADV_AIRFIELD', 'HARBOR', 'NAVAL_YARD', 'SHIPYARD', 'DRY_DOCK', 'DRYDOCK',
+  'NAVAL_BASE', 'NAVAL_DOCKYARD',
+]);
+
+export function countPlayerVtcUpgrade(gs, player, upgradeId) {
+  return (gs.buildings || []).filter((b) =>
+    Number(b.owner) === Number(player)
+    && PRODUCTION_VTC_TYPES.has(b.type)
+    && !b.underConstruction
+    && isVtcUpgradeComplete(b, upgradeId),
+  ).length;
+}
+
+export function countPlayerScienceLabs(gs, player) {
+  const legacy = (gs.buildings || []).filter((b) =>
+    b.owner === player && b.type === 'SCIENCE_LAB' && !b.underConstruction,
+  ).length;
+  return legacy + countPlayerVtcUpgrade(gs, player, 'science_lab');
+}
+
+export function countPlayerFactories(gs, player) {
+  const legacy = (gs.buildings || []).filter((b) =>
+    b.owner === player && b.type === 'FACTORY' && !b.underConstruction,
+  ).length;
+  return legacy + countPlayerVtcUpgrade(gs, player, 'factory');
+}
+
+export function countPlayerBarracksFacilities(gs, player) {
+  const legacy = (gs.buildings || []).filter((b) =>
+    b.owner === player && (b.type === 'BARRACKS' || b.type === 'ADV_BARRACKS') && !b.underConstruction,
+  ).length;
+  return legacy + countPlayerVtcUpgrade(gs, player, 'barracks');
+}
+
+/** Short map badges on settlement counters. */
+export function getVtcFacilityBadgeGlyphs(building) {
+  if (!building) return [];
+  const g = [];
+  if (isPlayerCapitalBuilding(building)) g.push('★');
+  if (isVtcUpgradeComplete(building, 'barracks')) g.push('Ba');
+  if (isVtcUpgradeComplete(building, 'factory')) g.push('Fc');
+  if (isVtcUpgradeComplete(building, 'science_lab')) g.push('Lb');
+  if (isVtcUpgradeComplete(building, 'naval_yard')) g.push('Ny');
+  if (isVtcUpgradeComplete(building, 'local_farm')) g.push('Fm');
+  if (isVtcUpgradeComplete(building, 'housing')) g.push('Ho');
+  return g;
+}
+
 /** Facility labels for UI chips. */
 export function getVtcFacilityChips(building) {
   if (!building) return [];
@@ -353,5 +404,48 @@ export function getVtcFacilityChips(building) {
   if (isVtcUpgradeComplete(building, 'science_lab')) chips.push('Lab');
   if (isVtcUpgradeComplete(building, 'naval_yard')) chips.push('Naval');
   if (isVtcUpgradeComplete(building, 'housing')) chips.push('Housing');
+  if (isVtcUpgradeComplete(building, 'road_link')) chips.push('Road link');
+  if (isVtcUpgradeComplete(building, 'paved_network')) chips.push('Paved roads');
   return chips;
+}
+
+/** Inspector lines for a VTC (fog-aware). */
+export function getVtcInspectorLines(gs, viewerPlayer, building, fogVisibleHexes = null) {
+  if (!building || !PRODUCTION_VTC_TYPES.has(building.type)) return [];
+  const hexKey = `${building.q},${building.r}`;
+  const unexplored = fogVisibleHexes && fogVisibleHexes.size > 0 && !fogVisibleHexes.has(hexKey);
+  const isOwn = Number(building.owner) === Number(viewerPlayer);
+  const lines = [];
+
+  if (unexplored && !isOwn) {
+    lines.push('Intel: area not scouted');
+    return lines;
+  }
+
+  const chips = getVtcFacilityChips(building);
+  if (chips.length) lines.push(`Facilities: ${chips.join(' · ')}`);
+  else if (isOwn) lines.push('Facilities: none yet (UPGRADE tab)');
+  else lines.push('Facilities: none visible');
+
+  if (isOwn) {
+    const vs = getVtcQueueSummary(gs, building.owner, building.id);
+    if (vs.training) {
+      lines.push(`Training: ${UNIT_TYPES[vs.training.type]?.name || vs.training.type} (${vs.training.turnsLeft ?? 0}t)`);
+    } else if (!(building.trainQueue?.length)) {
+      lines.push('Training: idle');
+    }
+    if (vs.pending.length > 1) lines.push(`Queue: ${vs.pending.length - 1} waiting`);
+    if (vs.ready.length) lines.push(`Ready to deploy: ${vs.ready.length}`);
+    const up = building.vtcUpgrades || {};
+    const pendingUp = Object.entries(up).filter(([, v]) => v && !v.complete);
+    if (pendingUp.length) {
+      lines.push(`Upgrading: ${pendingUp.map(([id]) => id.replace(/_/g, ' ')).join(', ')}`);
+    }
+  } else {
+    lines.push('Production: unknown (enemy)');
+  }
+
+  const rad = VTC_SUPPLY_RADIUS?.[building.type];
+  if (rad && isOwn) lines.push(`Supply bubble: ${rad} hexes`);
+  return lines;
 }

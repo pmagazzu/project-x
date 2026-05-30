@@ -23,6 +23,7 @@ import {
   getPlayerCapital, getPlayerCapitalBuildings, getEnemyCapitalBuildings, isPlayerCapitalBuilding,
   isNavalDeployAllowed, getNavalCoastalCheckRadius, canPromoteSettlement, VTC_SUPPLY_RADIUS, findRoadPath, canPlaceRoadOnTerrain,
   recalcPlayerPopulation,
+  countPlayerScienceLabs, countPlayerFactories, countPlayerBarracksFacilities, countPlayerVtcUpgrade,
 } from './GameState.js';
 import {
   getVtcUpgradeMenu, purchaseVtcUpgrade, isVtcUpgradeComplete,
@@ -42,6 +43,8 @@ const ENGINEER_LEGACY_PRODUCTION = new Set([
   'AIRFIELD', 'ADV_AIRFIELD', 'HARBOR', 'NAVAL_YARD', 'SHIPYARD', 'DRY_DOCK', 'DRYDOCK',
   'NAVAL_BASE', 'NAVAL_DOCKYARD',
 ]);
+/** Engineers still claim/build these — never cap-trim below road spam limits. */
+const ENGINEER_RESOURCE_BUILDS = new Set(['MINE', 'OIL_PUMP', 'FARM', 'LUMBER_CAMP']);
 import { TECH_TREE } from './ResearchData.js';
 
 function getPerceivedEnemyUnits(gs, player, terrain, mapSize) {
@@ -669,9 +672,9 @@ function getOpeningMilestones(gs, player, situation = null) {
     pumps: count(['OIL_PUMP']),
     farms: count(['FARM']),
     lumber: count(['LUMBER_CAMP']),
-    labs: count(['SCIENCE_LAB']),
-    factories: count(['FACTORY']),
-    barracks: count(['BARRACKS','ADV_BARRACKS']),
+    labs: countPlayerScienceLabs(gs, player),
+    factories: countPlayerFactories(gs, player),
+    barracks: countPlayerBarracksFacilities(gs, player),
     supplyTrucks: unitCount(['SUPPLY_TRUCK']),
     supplyShips: unitCount(['SUPPLY_SHIP']),
   };
@@ -2461,32 +2464,92 @@ function enforceClosingAttackFloor(gs, player, actions, strategic) {
   return added;
 }
 
+/** When the plan is all logistics builds, force deploy / recruit / advance so the AI does not look idle. */
+function ensureMinimumArmyProgress(gs, player, actions, resSim, terrain, mapSize, enemyHQs, myCapital, recruitAllowed, noteRecruit, spend, maxRecruitsThisTurn) {
+  const hasArmyAction = actions.some(a =>
+    ['attack', 'move', 'recruit', 'global_deploy', 'vtc_upgrade'].includes(a.type));
+  if (hasArmyAction) return 0;
+
+  const isFighter = (u) => {
+    if (Number(u.owner) !== Number(player) || u.embarked) return false;
+    const role = getUnitRole(u.type);
+    if (role === 'engineer' || role === 'support') return false;
+    const d = UNIT_TYPES[u.type] || {};
+    return (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0 || (d.attack || 0) > 0;
+  };
+  const fighters = gs.units.filter(isFighter);
+  if (!fighters.length) return 0;
+
+  for (const b of gs.buildings) {
+    if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type) || b.underConstruction) continue;
+    for (const ready of b.readyUnits || []) {
+      if (actions.some(a => a.type === 'global_deploy' && a.readyId === ready.id)) continue;
+      const sites = enumerateVtcDeployHexes(gs, player, b.id, ready.type);
+      if (!sites.length) continue;
+      const site = sites[0];
+      actions.unshift({
+        type: 'global_deploy',
+        readyId: ready.id,
+        buildingId: b.id,
+        q: site.q,
+        r: site.r,
+      });
+      return 1;
+    }
+  }
+
+  if (actions.filter(a => a.type === 'recruit').length < maxRecruitsThisTurn && recruitAllowed('INFANTRY')) {
+    const anchor = pickBestVTCToQueue(gs, player, 'INFANTRY', myCapital);
+    if (anchor && canQueueGlobalRecruit(gs, player, 'INFANTRY', anchor.id).ok) {
+      const c = UNIT_TYPES.INFANTRY?.cost || {};
+      const food = getRecruitFoodCost('INFANTRY');
+      if (resSim.iron >= (c.iron || 0) && resSim.oil >= (c.oil || 0) && resSim.wood >= (c.wood || 0)
+        && resSim.food >= food && resSim.components >= (c.components || 0)) {
+        actions.push({ type: 'recruit', buildingId: anchor.id, unitType: 'INFANTRY', global: true });
+        noteRecruit('INFANTRY');
+        spend(c);
+        resSim.food -= food;
+        return 1;
+      }
+    }
+  }
+
+  const goals = (enemyHQs?.length ? enemyHQs : gs.buildings.filter((b) =>
+    Number(b.owner) !== Number(player) && Number(b.owner) > 0
+    && ['HQ', 'VILLAGE', 'TOWN', 'CITY'].includes(b.type)));
+  if (!goals.length) return 0;
+
+  const unit = fighters.find((u) => !actions.some((a) => a.unitId === u.id)) || fighters[0];
+  const goal = goals.slice().sort((a, b) =>
+    hexDistance(unit.q, unit.r, a.q, a.r) - hexDistance(unit.q, unit.r, b.q, b.r))[0];
+  const reachable = getReachableHexesForAI(gs, unit, terrain, mapSize) || [];
+  const step = reachable
+    .filter((h) => hexDistance(h.q, h.r, goal.q, goal.r) < hexDistance(unit.q, unit.r, goal.q, goal.r))
+    .sort((a, b) =>
+      hexDistance(a.q, a.r, goal.q, goal.r) - hexDistance(b.q, b.r, goal.q, goal.r))[0];
+  if (step) {
+    actions.unshift({
+      type: 'move',
+      unitId: unit.id,
+      fromQ: unit.q,
+      fromR: unit.r,
+      toQ: step.q,
+      toR: step.r,
+    });
+    return 1;
+  }
+  return 0;
+}
+
 function planResearchFloorActions(gs, player, terrain, actions, resSim, canAfford, spend) {
   const turn = gs.turn || 1;
   if (turn < 8) return { labQueued: false, researchQueued: false };
   let labQueued = false;
   let researchQueued = false;
 
-  const labsAny = gs.buildings.some(b => Number(b.owner) === Number(player) && b.type === 'SCIENCE_LAB');
-  const labsOnline = gs.buildings.filter(b => Number(b.owner) === Number(player) && b.type === 'SCIENCE_LAB' && !b.underConstruction).length;
-  const hasLabBuild = actions.some(a => a.type === 'build' && a.buildingType === 'SCIENCE_LAB');
-
-  if (!labsAny && !hasLabBuild && resSim.iron >= 26) {
-    const eng = gs.units.find(u => Number(u.owner) === Number(player) && u.type === 'ENGINEER'
-      && !u.embarked && !u.constructing
-      && !actions.some(a => a.unitId === u.id && (a.type === 'build' || a.type === 'move')));
-    if (eng) {
-      const cost = BUILDING_TYPES.SCIENCE_LAB?.buildCost || {};
-      const ttype = terrain?.[`${eng.q},${eng.r}`] ?? 0;
-      const onPlains = ttype === 0 || ttype === 7;
-      const occupied = buildingAt(gs, eng.q, eng.r);
-      if (onPlains && !occupied && canAfford(cost)) {
-        actions.unshift({ type: 'build', unitId: eng.id, buildingType: 'SCIENCE_LAB' });
-        spend(cost);
-        labQueued = true;
-      }
-    }
-  }
+  const labsOnline = countPlayerScienceLabs(gs, player);
+  const hasLabUpgrade = actions.some(a => a.type === 'vtc_upgrade' && a.upgradeId === 'science_lab');
+  labQueued = labsOnline > 0 || hasLabUpgrade;
 
   const pState = gs.players[player] || {};
   pState.research = pState.research || { queue: [], unlocked: [], slots: 1 };
@@ -3832,7 +3895,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           const unsupplied = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0).length;
           const roadUtilityHere = scoreRoadUtility(gs, player, unit.q, unit.r);
           const roadScoreNow = (8 - roadsNowForEng * 0.2 + unsupplied * 6.0 + opening.deficits.roads * 5 + roadDeficitForEng * 2 + Math.max(0, roadUtilityHere) * 0.6) * phaseWeights.logistics;
-          const barracksDone = gs.buildings.filter(bb => bb.owner === player && bb.type === 'BARRACKS' && !bb.underConstruction).length;
+          const barracksDone = countPlayerBarracksFacilities(gs, player);
           const barracksUrgent = (gs.turn >= 6 && barracksDone < 1) || (gs.turn >= 10 && barracksDone < 2 && myCombatUnits.length < 5);
           const deferWebRoad = barracksUrgent && roadDeficitForEng < 14;
           const closingPush = strategic?.phase === 'closing' && (strategic?.endgamePressure || 0) >= 0.55;
@@ -3846,8 +3909,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           const myPumps  = gs.buildings.filter(b => b.owner === player && b.type === 'OIL_PUMP').length;
           const myLumber = gs.buildings.filter(b => b.owner === player && b.type === 'LUMBER_CAMP').length;
           const myFarms  = gs.buildings.filter(b => b.owner === player && b.type === 'FARM' && !b.underConstruction).length;
-          const myLabs   = gs.buildings.filter(b => b.owner === player && b.type === 'SCIENCE_LAB' && !b.underConstruction).length;
-          const myFactories = gs.buildings.filter(b => b.owner === player && b.type === 'FACTORY' && !b.underConstruction).length;
+          const myLabs   = countPlayerScienceLabs(gs, player);
+          const myFactories = countPlayerFactories(gs, player);
           const myRoads  = countPlayerRoadLike(gs, player);
           const myAdvBarracks = gs.buildings.filter(b => b.owner === player && b.type === 'ADV_BARRACKS' && !b.underConstruction).length;
           const myArmorWorks = gs.buildings.filter(b => b.owner === player && b.type === 'ARMOR_WORKS' && !b.underConstruction).length;
@@ -3873,8 +3936,6 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             if (maybeBuild('HOUSING_SLUMS')) continue;
           }
           if (gs.turn >= 10 && myFarms < 2 && onPlainsMacro && maybeBuild('FARM')) continue;
-          if (gs.turn >= 8 && myLabs < 1 && resSim.iron >= 24 && maybeBuild('SCIENCE_LAB')) continue;
-          if (gs.turn >= 16 && myFactories < 1 && maybeBuild('FACTORY')) continue;
 
           // Priority 1: exploit local resources (always do this first)
           const wood = gs.players[player].wood || 0;
@@ -4079,7 +4140,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   // --- Phase 1b: Register simple custom designs (occasionally) ---
   const existingDesigns = gs.designs?.[player] || [];
-  const myLabsCount = gs.buildings.filter(b => b.owner === player && b.type === 'SCIENCE_LAB' && !b.underConstruction).length;
+  const myLabsCount = countPlayerScienceLabs(gs, player);
   const designChance = Math.min(0.72, (0.22 + myLabsCount * 0.10 + Math.max(0, gs.turn - 6) * 0.01) * phaseWeights.research);
   const canRegisterDesign = myLabsCount >= 1 || (resSim.components || 0) >= 2 || stockpilePressure >= 0.5;
   if (canRegisterDesign && existingDesigns.length < getMaxDesignSlots(gs, player) && gs.turn >= 3 && Math.random() < designChance) {
@@ -4112,16 +4173,17 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const pState = gs.players[player] || {};
   pState.research = pState.research || { queue: [], unlocked: [], slots: 1 };
   const resState = pState.research;
-  const labsOnline = gs.buildings.filter(b => b.owner === player && b.type === 'SCIENCE_LAB' && !b.underConstruction).length;
+  const labsOnline = countPlayerScienceLabs(gs, player);
   const queueCap = Math.max(1, resState.slots || 1);
-  // Phase 5: allow research queuing from turn 3 even without labs (queues for when lab comes online)
-  const canQueueResearch = labsOnline > 0 || (gs.turn >= 3 && gs.buildings.some(b => b.owner === player && b.type === 'SCIENCE_LAB' && b.underConstruction));
+  const canQueueResearch = labsOnline > 0
+    || (gs.turn >= 3 && actions.some(a => a.type === 'vtc_upgrade' && a.upgradeId === 'science_lab'));
   if (canQueueResearch && (resState.queue?.length || 0) < queueCap) {
     const techTree = gs._techTree || TECH_TREE || {};
     const unlocked = new Set(resState.unlocked || []);
     const queued = new Set((resState.queue || []).map(q => q.techId));
     const prereqsMet = (tech) => (tech.prereqs || []).every(p => unlocked.has(p));
-    const myVehicleDepots = gs.buildings.filter(b => b.owner === player && b.type === 'VEHICLE_DEPOT' && !b.underConstruction).length;
+    const myVehicleDepots = countPlayerVtcUpgrade(gs, player, 'factory')
+      + gs.buildings.filter(b => b.owner === player && b.type === 'VEHICLE_DEPOT' && !b.underConstruction).length;
     const myAirfields = gs.buildings.filter(b => b.owner === player && ['AIRFIELD','ADV_AIRFIELD'].includes(b.type) && !b.underConstruction).length;
     const unsupNow = gs.units.filter(u => u.owner === player && !u.embarked && (u.outOfSupply || 0) > 0).length;
 
@@ -4541,7 +4603,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       }
       if (logisticsPressure && (UNIT_TYPES[unitType]?.cost?.oil || 0) >= 2 && !logisticsCriticalRecruits.has(unitType)) {
         const closingSpend = strategic?.phase === 'closing' && stockpilePressure >= 0.35 && unsuppliedCombatNow <= 2;
-        if (!closingSpend) continue;
+        const armyStarved = !actions.some(a => ['attack', 'move', 'recruit', 'global_deploy'].includes(a.type));
+        const infantryRescue = armyStarved && unitType === 'INFANTRY';
+        if (!closingSpend && !infantryRescue) continue;
       }
 
       // Strategic doctrine gate: during expand/stabilize, suppress cheap recon spam — but keep infantry
@@ -4611,7 +4675,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         if (myTrucks >= ratioCap && unsuppliedGround < 2) continue;
         // Barracks gate: don't build 2nd+ truck until a barracks is online
         if (myTrucks >= 1) {
-          const hasBarracks = gs.buildings.some(bb => bb.owner === player && (bb.type === 'BARRACKS' || bb.type === 'ADV_BARRACKS') && !bb.underConstruction);
+          const hasBarracks = countPlayerBarracksFacilities(gs, player) > 0;
           if (!hasBarracks) continue;
         }
       }
@@ -4837,7 +4901,6 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       if (resHex?.type === 'OIL' && tryBuild('OIL_PUMP')) break;
       if ((t === 1 || t === 7) && tryBuild('LUMBER_CAMP')) break;
       if ((t === 0 || t === 6 || t === 7) && tryBuild('FARM')) break;
-      if (gs.turn >= 6 && tryBuild('SCIENCE_LAB')) break;
     }
   }
 
@@ -4898,7 +4961,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   // Engineer utilization sweep: avoid idle engineers when valid logistics work exists.
   const actedEngineerIds = new Set(actions.filter(a => a.unitId != null).map(a => a.unitId));
   const idleEngineers = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked && !u.constructing && !actedEngineerIds.has(u.id));
-  const maxEngSweep = Math.max(4, Math.min(14, 2 + Math.floor(roadDeficitGlobal / 2) + (logisticsPressure ? 4 : 0)));
+  const armyActionPlanned = actions.some(a => ['attack', 'move', 'recruit', 'global_deploy'].includes(a.type));
+  let maxEngSweep = Math.max(4, Math.min(14, 2 + Math.floor(roadDeficitGlobal / 2) + (logisticsPressure ? 4 : 0)));
+  if (!armyActionPlanned && myCombatUnits.length > 0) maxEngSweep = Math.min(maxEngSweep, 1);
   let engSweepCount = 0;
   const roadCostFinal = BUILDING_TYPES['ROAD']?.buildCost || { wood: 1 };
   const roadableHereFinal = (q, r) => {
@@ -4940,11 +5005,16 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     if (combatAlive < 10) maxBuildActions = Math.min(maxBuildActions, 5);
     if (combatAlive < 6) maxBuildActions = Math.min(maxBuildActions, 3);
     let buildN = 0;
+    let resourceBuildN = 0;
+    const maxResourceBuilds = 3;
     const trimmed = [];
     for (const a of actions) {
       if (a.type === 'build') {
-        if (buildN >= maxBuildActions) continue;
-        buildN += 1;
+        if (ENGINEER_RESOURCE_BUILDS.has(a.buildingType)) {
+          if (resourceBuildN >= maxResourceBuilds) continue;
+          resourceBuildN += 1;
+        } else if (buildN >= maxBuildActions) continue;
+        else buildN += 1;
       }
       trimmed.push(a);
     }
@@ -5046,6 +5116,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   };
 
   const researchFloor = planResearchFloorActions(gs, player, terrain, actions, resSim, canAfford, spend);
+  const armyProgressFloor = ensureMinimumArmyProgress(
+    gs, player, actions, resSim, terrain, mapSize, enemyHQs, myCapital,
+    recruitAllowed, noteRecruit, spend, maxRecruitsThisTurn,
+  );
   const contactAttackFloor = enforceContactAttackFloor(gs, player, actions, perceivedEnemies);
   const closingAttackFloor = enforceClosingAttackFloor(gs, player, actions, strategic);
 
@@ -5062,6 +5136,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     contactAttackFloor,
     closingAttackFloor,
     researchFloor,
+    armyProgressFloor,
   };
 
   const plDbg = gs.players[player] || {};

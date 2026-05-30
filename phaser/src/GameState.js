@@ -12,6 +12,8 @@ import {
   deployReadyVtcUnitAtHex, deployReadyGlobalRecruitAtHex, deployReadyGlobalRecruit,
   enumerateVtcDeployHexes, enumerateGlobalDeployHexes,
   tickVtcProduction, migrateGlobalQueuesToVtc, getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
+  LEGACY_PRODUCTION_MAP_HIDDEN, getVtcFacilityBadgeGlyphs, getVtcFacilityChips, getVtcInspectorLines,
+  countPlayerVtcUpgrade, countPlayerScienceLabs, countPlayerFactories, countPlayerBarracksFacilities,
 } from './VtcProduction.js';
 
 export {
@@ -21,6 +23,8 @@ export {
   deployReadyVtcUnitAtHex, deployReadyGlobalRecruitAtHex, deployReadyGlobalRecruit,
   enumerateVtcDeployHexes, enumerateGlobalDeployHexes,
   tickVtcProduction, getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
+  LEGACY_PRODUCTION_MAP_HIDDEN, getVtcFacilityBadgeGlyphs, getVtcFacilityChips, getVtcInspectorLines,
+  countPlayerVtcUpgrade, countPlayerScienceLabs, countPlayerFactories, countPlayerBarracksFacilities,
 };
 
 // ── Unit stat guide ────────────────────────────────────────────────────────
@@ -1093,12 +1097,6 @@ export function createGameState(scenario = 'default', options = {}) {
     const midR = Math.floor(lineTypes.length / 2) + 2;
     state.buildings.push(createBuilding('HQ', 1, p1q - 3, midR));
     state.buildings.push(createBuilding('HQ', 2, p2q + 3, midR));
-    state.buildings.push(createBuilding('BARRACKS', 1, p1q - 2, midR));
-    state.buildings.push(createBuilding('BARRACKS', 2, p2q + 2, midR));
-    state.buildings.push(createBuilding('VEHICLE_DEPOT', 1, p1q - 3, midR + 1));
-    state.buildings.push(createBuilding('VEHICLE_DEPOT', 2, p2q + 3, midR + 1));
-    state.buildings.push(createBuilding('AIRFIELD', 1, p1q - 3, midR - 1));
-    state.buildings.push(createBuilding('AIRFIELD', 2, p2q + 3, midR - 1));
     for (const pl of [1, 2]) {
       state.players[pl].iron = 99;
       state.players[pl].oil = 99;
