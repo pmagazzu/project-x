@@ -267,20 +267,28 @@ function getOwnedProductionAnchors(gs, player) {
 }
 
 function pickBestVTCToQueue(gs, player, unitType, capital) {
+  const isNaval = NAVAL_UNITS.has(unitType);
   const anchors = getOwnedProductionAnchors(gs, player)
     .map(bb => ({
       building: bb,
       dist: capital ? hexDistance(bb.q, bb.r, capital.q, capital.r) : 0,
       coastal: isNavalDeployAllowed(gs, bb, getNavalCoastalCheckRadius(bb)),
+      deployHexes: isNaval
+        ? enumerateVtcDeployHexes(gs, player, bb.id, unitType).length
+        : 0,
       tier: VTC_DEPLOY_TIER[bb.type] ?? (bb.isCapital ? 0 : -1),
       isCap: isPlayerCapitalBuilding(bb),
     }))
     .filter(a => getGlobalRecruitOptionsForVTC(gs, player, a.building.id).includes(unitType))
-    .filter(a => (a.building.trainQueue?.length || 0) < MAX_VTC_TRAIN_QUEUE);
+    .filter(a => (a.building.trainQueue?.length || 0) < MAX_VTC_TRAIN_QUEUE)
+    .filter(a => !isNaval || a.deployHexes > 0);
   if (!anchors.length) return null;
-  const isNaval = NAVAL_UNITS.has(unitType);
   if (isNaval) {
-    anchors.sort((a, b) => (b.tier - a.tier) || (b.coastal - a.coastal) || (b.dist - a.dist));
+    anchors.sort((a, b) => (b.deployHexes - a.deployHexes)
+      || (b.tier - a.tier)
+      || (b.coastal - a.coastal)
+      || (a.dist - b.dist)
+      || ((a.building.trainQueue?.length || 0) - (b.building.trainQueue?.length || 0)));
     return anchors[0].building;
   }
   if (!isNaval) {
@@ -341,7 +349,9 @@ function planArmyRecovery(gs, player, actions, resSim, spend, noteRecruit, recru
       const sites = enumerateVtcDeployHexes(gs, player, b.id, ready.type);
       if (!sites.length) continue;
       const site = sites[0];
-      actions.push({ type: 'global_deploy', readyId: ready.id, buildingId: b.id, q: site.q, r: site.r });
+      const act = { type: 'global_deploy', readyId: ready.id, buildingId: b.id, q: site.q, r: site.r };
+      if (NAVAL_UNITS.has(ready.type)) actions.unshift(act);
+      else actions.push(act);
     }
   }
 
@@ -1830,6 +1840,16 @@ function buildWaterBodyIndex(terrain, mapSize) {
     }
     for (const b of gs.buildings) {
       if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
+      if (!PRODUCTION_VTC_TYPES.has(b.type)) continue;
+      for (const q of b.trainQueue || []) {
+        if (NAVAL_UNITS.has(q.type)) tally(b.q, b.r, q.type);
+      }
+      for (const ru of b.readyUnits || []) {
+        if (NAVAL_UNITS.has(ru.type)) tally(b.q, b.r, ru.type);
+      }
+    }
+    for (const b of gs.buildings) {
+      if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
       if (!NAVAL_YARD_TYPES.has(b.type)) continue;
       tally(b.q, b.r, b.type, true);
     }
@@ -2486,13 +2506,18 @@ function ensureMinimumArmyProgress(gs, player, actions, resSim, terrain, mapSize
       if (actions.some(a => a.type === 'global_deploy' && a.readyId === ready.id)) continue;
       const sites = enumerateVtcDeployHexes(gs, player, b.id, ready.type);
       if (!sites.length) continue;
-      const site = sites[0];
+      let best = sites[0];
+      let bestScore = -Infinity;
+      for (const site of sites) {
+        const score = scoreGlobalDeploySite(gs, player, site, ready, terrain, { capital: myCapital });
+        if (score > bestScore) { bestScore = score; best = site; }
+      }
       actions.unshift({
         type: 'global_deploy',
         readyId: ready.id,
         buildingId: b.id,
-        q: site.q,
-        r: site.r,
+        q: best.q,
+        r: best.r,
       });
       return 1;
     }
@@ -4389,8 +4414,15 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const score = scoreGlobalDeploySite(gs, player, site, ready, terrain, deployCtx);
         if (score > bestScore) { bestScore = score; best = site; }
       }
-      if (bestScore > -9000 || (liveUnitsNow === 0 && sites.length > 0)) {
-        actions.push({ type: 'global_deploy', readyId: ready.id, buildingId: b.id, q: best.q, r: best.r });
+      const forceNavalDeploy = NAVAL_UNITS.has(ready.type);
+      if (forceNavalDeploy || bestScore > -9000 || (liveUnitsNow === 0 && sites.length > 0)) {
+        actions.unshift({
+          type: 'global_deploy',
+          readyId: ready.id,
+          buildingId: b.id,
+          q: best.q,
+          r: best.r,
+        });
       }
     }
   }

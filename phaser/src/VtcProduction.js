@@ -3,7 +3,7 @@
  */
 import {
   UNIT_TYPES, NAVAL_UNITS, AIR_UNITS, LOCKED_CHASSIS,
-  getBuildingTierForDeploy, isNavalDeployAllowed, getNavalCoastalCheckRadius,
+  getBuildingTierForDeploy, isNavalDeployAllowed, getNavalCoastalCheckRadius, canQueueNavalAtVtc,
   isNavalAllowedAtVTCTier, getRecruitFoodCost, getUnitPopCost, recalcPlayerPopulation,
   getPlayerCapital, isPlayerCapitalBuilding, PRODUCTION_VTC_TYPES,
   CITY_YARD_NAVAL_UNITS, hexDistance, createUnit, buildingAt, ROAD_TYPES,
@@ -90,7 +90,7 @@ export function getRecruitOptionsForVTC(state, player, buildingId) {
 
   if (NAVAL_UNITS.has('PATROL_BOAT')) {
     const coastalR = getNavalCoastalCheckRadius(b);
-    if (isNavalDeployAllowed(state, b, coastalR)) {
+    if (canQueueNavalAtVtc(state, b) && isNavalDeployAllowed(state, b, coastalR)) {
       const navalList = isNavalAllowedAtVTCTier(tier, 'PATROL_BOAT')
         ? ['PATROL_BOAT', 'MTB', 'TORPEDO_BOAT', 'LANDING_CRAFT']
         : [];
@@ -162,6 +162,10 @@ export function getVtcQueueSummary(state, player, buildingId) {
   };
 }
 
+export function countVtcNavalDeployHexes(state, player, buildingId, unitType) {
+  return enumerateVtcDeployHexes(state, player, buildingId, unitType).length;
+}
+
 export function canQueueVtcRecruit(state, player, unitType, buildingId) {
   const opts = getRecruitOptionsForVTC(state, player, buildingId);
   if (!opts.includes(unitType)) return { ok: false, reason: 'Requires facility upgrade at this VTC' };
@@ -170,6 +174,19 @@ export function canQueueVtcRecruit(state, player, unitType, buildingId) {
   ensureVtcProductionFields(b);
   if (b.trainQueue.length >= MAX_VTC_TRAIN_QUEUE) {
     return { ok: false, reason: `Queue full (${MAX_VTC_TRAIN_QUEUE})` };
+  }
+  if (NAVAL_UNITS.has(unitType)) {
+    const readyNaval = (b.readyUnits || []).filter((r) => NAVAL_UNITS.has(r.type));
+    if (readyNaval.some((r) => countVtcNavalDeployHexes(state, player, buildingId, r.type) === 0)) {
+      return { ok: false, reason: 'Deploy ready ships first (no water hex)' };
+    }
+    if (readyNaval.length > 0 && countVtcNavalDeployHexes(state, player, buildingId, unitType) === 0) {
+      return { ok: false, reason: 'No coastal deploy hex at this VTC' };
+    }
+    const pipeline = (b.trainQueue?.length || 0) + readyNaval.length;
+    if (pipeline >= 2 && countVtcNavalDeployHexes(state, player, buildingId, unitType) === 0) {
+      return { ok: false, reason: 'No coastal deploy hex at this VTC' };
+    }
   }
   const def = UNIT_TYPES[unitType];
   if (!def) return { ok: false, reason: 'Unknown unit' };

@@ -1965,6 +1965,41 @@ export function isNavalAllowedAtVTCTier(tier, unitType) {
   return list.includes(unitType);
 }
 
+/** Land hex directly adjacent to sea/lake (not water itself). */
+export function isCoastalLandHex(terrain, mapSize, q, r) {
+  const t = terrain?.[`${q},${r}`] ?? 0;
+  if (t === 4 || t === 5 || t === 2) return false;
+  const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
+  for (const [dq, dr] of dirs) {
+    const nq = q + dq;
+    const nr = r + dr;
+    if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) continue;
+    const nt = terrain?.[`${nq},${nr}`] ?? 0;
+    if (nt === 4 || nt === 5) return true;
+  }
+  return false;
+}
+
+/** VTC may queue naval units — on the coast or within 2 hexes of water (not deep interior). */
+export function canQueueNavalAtVtc(state, b) {
+  if (!b) return false;
+  if (b.starterNaval) return true;
+  const ms = state._mapSize || 25;
+  const terrain = state._terrain;
+  if (isCoastalLandHex(terrain, ms, b.q, b.r)) return true;
+  for (let dq = -2; dq <= 2; dq++) {
+    for (let dr = -2; dr <= 2; dr++) {
+      const q = b.q + dq;
+      const r = b.r + dr;
+      if (q < 0 || r < 0 || q >= ms || r >= ms) continue;
+      if (hexDistance(b.q, b.r, q, r) > 2) continue;
+      const t = terrain?.[`${q},${r}`] ?? 0;
+      if (t === 4 || t === 5) return true;
+    }
+  }
+  return false;
+}
+
 export function isNavalDeployAllowed(state, b, maxR = 6) {
   if (!b) return false;
   if (b.starterNaval) return true;
