@@ -213,6 +213,13 @@ function listOwnedVTCSorted(gs, player, perceivedEnemies = [], capital = null) {
     .sort((a, b) => b.weight - a.weight || b.threat - a.threat || b.dist - a.dist);
 }
 
+function countGroundCombatUnits(gs, player) {
+  return gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked && !NAVAL_UNITS.has(u.type)).filter(u => {
+    const d = UNIT_TYPES[u.type] || {};
+    return (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0 || (d.attack || 0) > 0;
+  }).length;
+}
+
 /** Combat units that can hold/capture VTC hexes (not Engineer/Recon/support). */
 function isCombatUnitForGarrison(u) {
   return canUnitCaptureSettlement(u);
@@ -418,14 +425,97 @@ function pickBestVTCToQueue(gs, player, unitType, capital, actions = []) {
   }
   if (!isNaval) {
     anchors.sort((a, b) => {
+      if (b.tier !== a.tier) return b.tier - a.tier;
       const qa = effectiveVtcTrainQueueLength(gs, player, a.building.id, actions);
       const qb = effectiveVtcTrainQueueLength(gs, player, b.building.id, actions);
       if (qa !== qb) return qa - qb;
-      if (a.isCap !== b.isCap) return a.isCap ? -1 : 1;
-      return b.dist - a.dist;
+      if (a.isCap !== b.isCap) return a.isCap ? 1 : -1;
+      return a.dist - b.dist;
     });
   }
   return anchors[0].building;
+}
+
+function findBestUpgradeOutpost(gs, player, capital) {
+  const owned = gs.buildings.filter(b => Number(b.owner) === Number(player) && !b.underConstruction
+    && PRODUCTION_VTC_TYPES.has(b.type) && !isPlayerCapitalBuilding(b));
+  if (!owned.length) return null;
+  owned.sort((a, b) => {
+    const ta = VTC_DEPLOY_TIER[a.type] ?? 0;
+    const tb = VTC_DEPLOY_TIER[b.type] ?? 0;
+    if (tb !== ta) return tb - ta;
+    const da = capital ? hexDistance(a.q, a.r, capital.q, capital.r) : 0;
+    const db = capital ? hexDistance(b.q, b.r, capital.q, capital.r) : 0;
+    return da - db;
+  });
+  return owned[0];
+}
+
+function planOutpostFacilityUpgrade(gs, player, actions, capital, upgradeId) {
+  const outpost = findBestUpgradeOutpost(gs, player, capital);
+  if (!outpost || isVtcUpgradeComplete(outpost, upgradeId)) return false;
+  const buy = canPurchaseVtcUpgrade(gs, player, outpost.id, upgradeId);
+  if (!buy.ok) return false;
+  if (actions.some(a => a.type === 'vtc_upgrade' && a.buildingId === outpost.id && a.upgradeId === upgradeId)) return true;
+  actions.push({ type: 'vtc_upgrade', buildingId: outpost.id, upgradeId });
+  return true;
+}
+
+/** Queue VTC upgrades that unlock the next unit type the strategy wants but cannot build yet. */
+function planRecruitFacilityUnlock(gs, player, actions, capital, cfg) {
+  if (actions.filter(a => a.type === 'vtc_upgrade' || a.type === 'upgrade_settlement').length >= 2) return;
+  const wishList = [...cfg.recruitPrio, ...cfg.navalPrio];
+  const anchors = getOwnedProductionAnchors(gs, player);
+  const canBuild = (unitType) => anchors.some(b => getGlobalRecruitOptionsForVTC(gs, player, b.id).includes(unitType));
+
+  for (const unitType of wishList) {
+    if (canBuild(unitType)) continue;
+    const tier = UNIT_TYPES[unitType]?.tier || 0;
+    const needsBarracks = ['ANTI_TANK', 'MORTAR', 'MEDIC', 'RECON'].includes(unitType) || tier >= 1;
+    const needsFactory = ['TANK', 'MEDIUM_TANK', 'ARTILLERY', 'HALFTRACK', 'SPG', 'ARMORED_CAR'].includes(unitType);
+    const needsNavalYard = NAVAL_UNITS.has(unitType) && !['PATROL_BOAT', 'MTB', 'TORPEDO_BOAT', 'MOTOR_GUNBOAT', 'LANDING_CRAFT'].includes(unitType);
+
+    if (needsBarracks && countPlayerBarracksFacilities(gs, player) < 1) {
+      if (planOutpostFacilityUpgrade(gs, player, actions, capital, 'barracks')) return;
+      const outpost = findBestUpgradeOutpost(gs, player, capital);
+      if (!outpost) return;
+    }
+
+    if (needsFactory || (tier >= 1 && !needsNavalYard)) {
+      const town = gs.buildings.find(b => Number(b.owner) === Number(player) && b.type === 'TOWN'
+        && !b.underConstruction && !isPlayerCapitalBuilding(b));
+      if (town && !isVtcUpgradeComplete(town, 'factory')) {
+        const buy = canPurchaseVtcUpgrade(gs, player, town.id, 'factory');
+        if (buy.ok && !actions.some(a => a.type === 'vtc_upgrade' && a.buildingId === town.id)) {
+          actions.push({ type: 'vtc_upgrade', buildingId: town.id, upgradeId: 'factory' });
+          return;
+        }
+      }
+      const village = findBestUpgradeOutpost(gs, player, capital);
+      if (village?.type === 'VILLAGE') {
+        const menu = getVtcUpgradeMenu(gs, player, village.id);
+        if (menu?.canPromote?.ok && !actions.some(a => a.type === 'upgrade_settlement' && a.buildingId === village.id)) {
+          actions.push({ type: 'upgrade_settlement', buildingId: village.id });
+          return;
+        }
+        if (!isVtcUpgradeComplete(village, 'barracks')) {
+          planOutpostFacilityUpgrade(gs, player, actions, capital, 'barracks');
+          return;
+        }
+      }
+    }
+
+    if (needsNavalYard) {
+      const coastal = anchors.find(b => b.type === 'TOWN' && isNavalDeployAllowed(gs, b, getNavalCoastalCheckRadius(b)));
+      if (coastal && !isVtcUpgradeComplete(coastal, 'naval_yard')) {
+        const buy = canPurchaseVtcUpgrade(gs, player, coastal.id, 'naval_yard');
+        if (buy.ok && !actions.some(a => a.type === 'vtc_upgrade' && a.buildingId === coastal.id)) {
+          actions.push({ type: 'vtc_upgrade', buildingId: coastal.id, upgradeId: 'naval_yard' });
+          return;
+        }
+      }
+    }
+  }
 }
 
 const AI_VILLAGE_FACILITY_PRIO = ['barracks', 'local_farm', 'road_link', 'housing'];
@@ -435,9 +525,11 @@ const AI_CITY_FACILITY_PRIO = ['urban_housing', 'suburbs'];
 /** Buy UPGRADE-tab facilities at forward VTCs before queuing units that need them. */
 function planAIVtcUpgrades(gs, player, actions, capital, perceivedEnemies, maxPerTurn = 2) {
   if ((gs.turn || 1) < 4) return;
+  const barracksGap = countPlayerBarracksFacilities(gs, player) < 1;
   let planned = 0;
+  const cap = maxPerTurn + (barracksGap ? 1 : 0);
   for (const { vtc } of listOwnedVTCSorted(gs, player, perceivedEnemies, capital)) {
-    if (planned >= maxPerTurn) break;
+    if (planned >= cap) break;
     if (vtc.isCapital || isPlayerCapitalBuilding(vtc)) continue;
     const menu = getVtcUpgradeMenu(gs, player, vtc.id);
     if (!menu || menu.capital || menu.promoting) continue;
@@ -454,7 +546,7 @@ function planAIVtcUpgrades(gs, player, actions, capital, perceivedEnemies, maxPe
       planned++;
       break;
     }
-    if (planned >= maxPerTurn) break;
+    if (planned >= cap) break;
     if (menu.canPromote?.ok) {
       actions.push({ type: 'upgrade_settlement', buildingId: vtc.id });
       planned++;
@@ -2169,7 +2261,7 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
   const theater = strategic?.theater;
   const myHQ = getPlayerCapital(gs, player);
   const enemyHQ = strategic?.focusEnemyHQ || pickPrimaryEnemyHQ(gs, player, enemyHQs) || enemyHQs[0];
-  if (!myHQ || !enemyHQ || freeCombat.length < 2) {
+  if (!myHQ || !enemyHQ || freeCombat.length < 1) {
     return { unitObjective, deceptionActive: false, missionCounts };
   }
 
@@ -2196,7 +2288,8 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
 
   const diversionTarget = resourceTargets.find(t => getLaneForR(t.r, mapSize) === secondaryLane)
     || { q: offLaneEnemy.q, r: offLaneEnemy.r, type: 'feint' };
-  const scoutTarget = territorial?.expansions?.[0] || territorial?.chokes?.[2]
+  const scoutTarget = neutralCaptureTargets[0] || territorial?.remoteTargets?.[0]
+    || territorial?.expansions?.[0] || territorial?.chokes?.[2]
     || forwardAnchor || resourceAnchor || { q: Math.round((myHQ.q + laneEnemy.q) / 2), r: myHQ.r };
   const expandTarget = resourceAnchor || forwardAnchor
     || { q: Math.round(myHQ.q + (laneEnemy.q - myHQ.q) * 0.45), r: Math.round(myHQ.r + (laneEnemy.r - myHQ.r) * 0.25) };
@@ -2228,7 +2321,8 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
     && ['VILLAGE', 'TOWN', 'CITY'].includes(b.type) && !b.isCapital);
   const neutralCaptureTargets = gs.buildings
     .filter(b => Number(b.owner) === 0 && !b.underConstruction && ['VILLAGE', 'TOWN', 'CITY'].includes(b.type))
-    .map(v => ({ q: v.q, r: v.r, type: 'settlement', score: vtcStrategicWeight(v), vtcType: v.type }));
+    .map(v => ({ q: v.q, r: v.r, type: 'settlement', score: vtcStrategicWeight(v), vtcType: v.type }))
+    .sort((a, b) => b.score - a.score || hexDistance(b.q, b.r, myHQ.q, myHQ.r) - hexDistance(a.q, a.r, myHQ.q, myHQ.r));
   const settlementExpandTargets = [
     ...neutralCaptureTargets,
     ...(territorial?.expansions || []).filter(e => e.type === 'settlement' && e.owner !== player),
@@ -2307,17 +2401,30 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
   }
 
   const assign = (u, mission, target) => {
+    const bld = buildingAt(gs, target.q, target.r);
+    if (mission === 'expand' && canUnitCaptureSettlement(u) && bld
+      && Number(bld.owner) === 0 && ['VILLAGE', 'TOWN', 'CITY'].includes(bld.type)) {
+      const required = getSettlementCaptureTurns(bld.type);
+      const prog = settlementCaptureProgress(gs, bld, player);
+      unitObjective[u.id] = {
+        q: target.q, r: target.r, mission: 'capture_hold', kind: 'capture', vtcType: bld.type,
+        anchorQ: target.q, anchorR: target.r,
+        captureRequired: required, captureTurns: prog?.turns || 0,
+      };
+      missionCounts.capture_hold = (missionCounts.capture_hold || 0) + 1;
+      return;
+    }
     unitObjective[u.id] = { q: target.q, r: target.r, mission, kind: mission };
     missionCounts[mission] = (missionCounts[mission] || 0) + 1;
   };
 
-  for (const u of pools.scout) {
-    let nearNeutral = null;
-    let nearD = Infinity;
-    for (const t of neutralCaptureTargets) {
-      const d = hexDistance(u.q, u.r, t.q, t.r);
-      if (d < nearD) { nearD = d; nearNeutral = t; }
+  for (let si = 0; si < pools.scout.length; si++) {
+    const u = pools.scout[si];
+    const neutrals = [...neutralCaptureTargets];
+    if (si % 2 === 1) {
+      neutrals.sort((a, b) => hexDistance(u.q, u.r, a.q, a.r) - hexDistance(u.q, u.r, b.q, b.r));
     }
+    const nearNeutral = neutrals[si % Math.max(1, neutrals.length)] || neutrals[0];
     if (nearNeutral && gs._terrain) {
       const ring = pickSettlementScoutHex(gs, gs._terrain, mapSize, { q: nearNeutral.q, r: nearNeutral.r, type: nearNeutral.vtcType || 'VILLAGE' }, u);
       assign(u, 'scout', ring);
@@ -2487,17 +2594,21 @@ function assignHoldVTCCMissions(gs, player, unitObjective, combatUnits, perceive
     .sort((a, b) => b.weight - a.weight || Number(b.nearOwned) - Number(a.nearOwned) || b.threat - a.threat);
 
   let secured = 0;
-  let maxSecure = turn < 20 ? 3 : 5;
-  if (defendDebt >= 2) maxSecure = 0;
-  else if (defendDebt >= 1) maxSecure = Math.min(maxSecure, 1);
+  const mapSize = gs._mapSize || 90;
+  let maxSecure = turn < 12 ? 3 : (turn < 22 ? 5 : 7);
+  if (defendDebt >= 2) maxSecure = Math.max(0, maxSecure - 2);
+  else if (defendDebt >= 1) maxSecure = Math.max(1, maxSecure - 1);
+  const maxReach = turn >= 18 ? 999 : (turn >= 8 ? 55 : 36);
+  const maxAssignDist = mapSize >= 90 ? 48 : 34;
   for (const { vtc, nearOwned } of neutralVTC) {
     if (secured >= maxSecure) break;
     const enemyOn = gs.units.some(u => Number(u.owner) !== Number(player) && !u.embarked
       && hexDistance(u.q, u.r, vtc.q, vtc.r) <= 2);
-    const nearCap = capital && hexDistance(vtc.q, vtc.r, capital.q, capital.r) <= 24;
-    const stagnantExpand = turn >= 28 && combatUnits.length <= 9;
-    if (!nearOwned && !nearCap && !enemyOn && !stagnantExpand) continue;
-    if (stagnantExpand && capital && hexDistance(vtc.q, vtc.r, capital.q, capital.r) > 44) continue;
+    const nearCap = capital && hexDistance(vtc.q, vtc.r, capital.q, capital.r) <= 28;
+    const distFromCap = capital ? hexDistance(vtc.q, vtc.r, capital.q, capital.r) : 0;
+    const stagnantExpand = turn >= 22 && combatUnits.length <= 9;
+    if (!nearOwned && !nearCap && !enemyOn && distFromCap > maxReach && !stagnantExpand) continue;
+    if (stagnantExpand && capital && distFromCap > 60) continue;
     let best = null;
     let bestD = Infinity;
     for (const u of pool) {
@@ -2505,7 +2616,7 @@ function assignHoldVTCCMissions(gs, player, unitObjective, combatUnits, perceive
       const d = hexDistance(u.q, u.r, vtc.q, vtc.r);
       if (d < bestD) { bestD = d; best = u; }
     }
-    if (best && bestD <= 26 && canUnitCaptureSettlement(best)) {
+    if (best && bestD <= maxAssignDist && canUnitCaptureSettlement(best)) {
       const required = getSettlementCaptureTurns(vtc.type);
       const prog = settlementCaptureProgress(gs, vtc, player);
       unitObjective[best.id] = {
@@ -2558,7 +2669,7 @@ function assignSettlementCaptureHolds(gs, player, unitObjective, combatUnits) {
 /** Recapture nearby lost structures that are lightly defended. */
 function assignLocalRecaptureMissions(gs, player, unitObjective, combatUnits, perceivedEnemies = []) {
   const turn = gs.turn || 1;
-  if (turn < 10) return;
+  if (turn < 6) return;
   const myHQs = getPlayerCapitalBuildings(gs, player);
   const nearOwnAxis = (b) => myHQs.some(h => hexDistance(h.q, h.r, b.q, b.r) <= 18)
     || gs.buildings.some(v =>
@@ -2741,12 +2852,8 @@ function forceArmyRecruitWhenIdle(gs, player, actions, resSim, spend, noteRecrui
     }
     if (!added) break;
   }
-  if (queued === 0 && myCapital && !isVtcUpgradeComplete(myCapital, 'barracks')) {
-    const barracksBuy = canPurchaseVtcUpgrade(gs, player, myCapital.id, 'barracks');
-    if (barracksBuy.ok && !actions.some(a => a.type === 'vtc_upgrade' && a.buildingId === myCapital.id)) {
-      actions.push({ type: 'vtc_upgrade', buildingId: myCapital.id, upgradeId: 'barracks' });
-      return 1;
-    }
+  if (queued === 0 && countPlayerBarracksFacilities(gs, player) < 1) {
+    if (planOutpostFacilityUpgrade(gs, player, actions, myCapital, 'barracks')) return 1;
   }
   return queued;
 }
@@ -4999,6 +5106,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   // VTC UPGRADE tab: barracks/farm/etc. before training units that require them.
   if (!overPlan()) {
     planAIVtcUpgrades(gs, player, actions, myCapital, perceivedEnemies, stockpilePressure >= 0.4 ? 2 : 1);
+    planRecruitFacilityUnlock(gs, player, actions, myCapital, cfg);
   }
 
   const exitIfOverPlan = () => {
@@ -5105,11 +5213,16 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     Number(b.owner) === Number(player) && PRODUCTION_VTC_TYPES.has(b.type)
     && (b.trainQueue?.length || 0) < getMaxVtcQueueDepth(gs, player, b));
   if (vtcCanQueueMore() && plannedRecruits < armyBudget.maxRecruitsPerTurn) {
-    const preferList = filterRecruitPrioForVtc(gs, player, waterMap
+    const myInfantry = gs.units.filter(u => u.owner === player && !u.embarked
+      && ['INFANTRY', 'ASSAULT_INFANTRY', 'ANTI_TANK', 'MORTAR', 'RECON'].includes(u.type)).length;
+    const landArmyFirst = myInfantry < 8 || countGroundCombatUnits(gs, player) < 10;
+    const preferList = filterRecruitPrioForVtc(gs, player, waterMap && !landArmyFirst
       ? [...cfg.navalPrio, ...cfg.recruitPrio]
       : [...cfg.recruitPrio, ...cfg.navalPrio]);
     for (const unitType of preferList) {
       if (!queueGlobalBestVTC(unitType)) continue;
+      const tier = UNIT_TYPES[unitType]?.tier || 0;
+      if (tier >= 1 || ['TANK', 'ARTILLERY', 'DESTROYER', 'ANTI_TANK'].includes(unitType)) break;
       if (!armyRebuildMode && !armyCriticallyLow && !armyExpansionMode) break;
     }
   }
@@ -5372,8 +5485,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
       // Composition guards: avoid overstacking one cheap chassis.
       const lineTypes = ['INFANTRY','ASSAULT_INFANTRY','SMG_SQUAD','LMG_TEAM','HMG_TEAM'];
-      if (gs.turn >= 12 && hasAdvancedOption && (unitType === 'INFANTRY' || unitType === 'RECON')) {
-        // Late-game: strongly de-prioritize pure T0 fillers when advanced options exist at this building.
+      const optsHere = getGlobalRecruitOptionsForVTC(gs, player, b.id);
+      const canBuildTier1Here = optsHere.some(t => (UNIT_TYPES[t]?.tier || 0) >= 1
+        || ['TANK', 'ARTILLERY', 'ANTI_TANK', 'MORTAR'].includes(t));
+      if (gs.turn >= 12 && canBuildTier1Here && (unitType === 'INFANTRY' || unitType === 'RECON') && !armyUndersized) {
         continue;
       }
       if (unitType === 'RECON') {
@@ -5814,11 +5929,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   if (stagnantArmyBreakout || armyUndersized) {
     trimActionsForStagnationBreakout(actions, armyUndersized ? 0 : 1);
     recalcPlayerPopulation(gs, player);
-    if (myCapital && !isVtcUpgradeComplete(myCapital, 'barracks')) {
-      const barracksBuy = canPurchaseVtcUpgrade(gs, player, myCapital.id, 'barracks');
-      if (barracksBuy.ok && !actions.some(a => a.type === 'vtc_upgrade' && a.buildingId === myCapital.id)) {
-        actions.push({ type: 'vtc_upgrade', buildingId: myCapital.id, upgradeId: 'barracks' });
-      }
+    if (countPlayerBarracksFacilities(gs, player) < 1) {
+      planOutpostFacilityUpgrade(gs, player, actions, myCapital, 'barracks');
     }
     planVtcRecruitSlotRelief(gs, player, actions, myCapital, 12);
     armyProgressFloor += burstUndersizedInfantryRecruits(

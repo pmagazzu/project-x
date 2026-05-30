@@ -5,7 +5,7 @@ import { computeTechBonuses } from './ResearchData.js';
 import {
   hasNavalYardNearSettlement, playerHasCityWithNavalYard,
   canPromoteSettlement, tickVtcUpgrades, tickSettlementCaptures, tickInstantBuildingCaptures,
-  SETTLEMENT_CAPTURE_TURNS, canUnitCaptureSettlement,
+  SETTLEMENT_CAPTURE_TURNS, canUnitCaptureSettlement, isVtcUpgradeComplete,
 } from './SettlementSystem.js';
 import {
   getRecruitOptionsForVTC, getGlobalRecruitOptionsForVTC, getGlobalRecruitOptionsForPlayer,
@@ -565,6 +565,12 @@ export function getPlayerIndustryTier(gs, player) {
   let max = 0;
   for (const b of gs.buildings || []) {
     if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
+    if (PRODUCTION_VTC_TYPES.has(b.type)) {
+      max = Math.max(max, getBuildingTierForDeploy(b));
+      if (isVtcUpgradeComplete(b, 'factory')) max = Math.max(max, 2);
+      if (isVtcUpgradeComplete(b, 'science_lab')) max = Math.max(max, 2);
+      if (b.type === 'CITY' && isVtcUpgradeComplete(b, 'naval_yard')) max = Math.max(max, 2);
+    }
     const t = BUILDING_TYPES[b.type]?.tier ?? 0;
     max = Math.max(max, t);
     if (b.type === 'FACTORY') max = Math.max(max, 2);
