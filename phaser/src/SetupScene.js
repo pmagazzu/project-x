@@ -10,6 +10,7 @@ const PLAYER_COUNT_OPTIONS = [2, 3, 4, 5, 6].map((n) => ({
 }));
 
 const VICTORY_MODE_OPTIONS = [
+  { key: VICTORY_MODES.VTC_CONTROL, label: 'VTC Control', sub: 'all settlements 5 turns' },
   { key: VICTORY_MODES.ELIMINATION, label: 'Elimination', sub: 'destroy all HQs' },
   { key: VICTORY_MODES.POINTS, label: 'Victory Points', sub: 'hold zones on map' },
 ];
@@ -89,7 +90,7 @@ function defaultConfig(mode, aiP2Default = true) {
     mapBuilder: false,
     playerCount: 2,
     humanPlayer: 1,
-    victoryMode: VICTORY_MODES.ELIMINATION,
+    victoryMode: VICTORY_MODES.VTC_CONTROL,
     victoryPointTarget: 100,
   };
   if (mode === 'skirmish') {

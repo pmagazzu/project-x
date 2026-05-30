@@ -40,6 +40,7 @@ import {
 } from './CombatUI.js';
 import { renderCombatPreviewPanel, renderCombatResultPanel } from './CombatPanelUI.js';
 import { getVictoryPointLeader } from './VictoryPoints.js';
+import { getVtcControlStatus } from './VictoryVtcControl.js';
 import { PLAYER_LABELS, VICTORY_MODES, clampPlayerCount, getPlayerIds } from './GameConfig.js';
 import { pickBalancedSpawnPoints, pickBalancedVictoryZones, pickIslandSpawnPoints, MIN_ISLAND_LAND_TILES } from './SpawnBalance.js';
 import { getBuildingCounterGlyph } from './BuildingCounters.js';
@@ -58,7 +59,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.4';
+export const GAME_VERSION = 'v1.21.5';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -289,7 +290,7 @@ export class GameScene extends Phaser.Scene {
       mapSize: this.mapSize,
       supplyEnabled: this.supplyEnabled,
       playerCount: this.playerCount,
-      victoryMode: data.victoryMode || VICTORY_MODES.ELIMINATION,
+      victoryMode: data.victoryMode || VICTORY_MODES.VTC_CONTROL,
       victoryPointTarget: data.victoryPointTarget || 100,
     });
     migrateGlobalQueuesToVtc(this.gameState);
@@ -1915,11 +1916,14 @@ export class GameScene extends Phaser.Scene {
     const g = this.buildingGfx;
     const glyph = getBuildingCounterGlyph(b.type);
     const typeDef = BUILDING_TYPES[b.type];
-    const cW = s * 2.35;
-    const cH = s * 1.75;
+    const isSettlement = SETTLEMENT_TYPES.has(b.type);
+    const isMinor = !isSettlement && b.type !== 'HQ';
+    const scale = isMinor ? 0.72 : (isSettlement ? 0.88 : 1);
+    const cW = s * 2.35 * scale;
+    const cH = s * 1.75 * scale;
     const cx2 = x - cW / 2;
     const cy2 = y - cH / 2;
-    const alpha = Math.max(0.12, Math.min(1, alphaOverride));
+    const alpha = Math.max(0.12, Math.min(1, alphaOverride * (isMinor ? 0.78 : 1)));
     const _mix = (a, bCol, t) => {
       const ca = Phaser.Display.Color.IntegerToColor(a);
       const cb = Phaser.Display.Color.IntegerToColor(bCol);
@@ -1934,43 +1938,40 @@ export class GameScene extends Phaser.Scene {
     const accent = _mix(color, 0xffffff, 0.22);
     const typeAccent = typeDef?.color ? _mix(typeDef.color, color, 0.42) : accent;
 
-    // Diamond pad — buildings read as structures, not unit counters.
-    const padR = Math.max(cW, cH) * 0.58;
-    g.fillStyle(0x000000, 0.42);
-    g.fillCircle(x + 2, y + 2, padR);
-    g.fillStyle(_mix(typeAccent, bodyColor, 0.35), alpha);
-    g.fillCircle(x, y, padR);
-    g.lineStyle(2, accent, alpha * 0.95);
-    g.strokeCircle(x, y, padR);
+    // Settlements: soft footprint only. Minor structures: no circle pad.
+    if (isSettlement) {
+      const padR = Math.max(cW, cH) * 0.4;
+      g.fillStyle(_mix(typeAccent, bodyColor, 0.35), alpha * 0.22);
+      g.fillCircle(x, y, padR);
+      g.lineStyle(1, accent, alpha * 0.4);
+      g.strokeCircle(x, y, padR);
+    } else if (!isMinor) {
+      const padR = Math.max(cW, cH) * 0.48;
+      g.fillStyle(_mix(typeAccent, bodyColor, 0.35), alpha * 0.3);
+      g.fillCircle(x, y, padR);
+      g.lineStyle(1, accent, alpha * 0.55);
+      g.strokeCircle(x, y, padR);
+    }
 
-    g.fillStyle(0x000000, 0.38);
-    g.fillRect(cx2 + 2, cy2 + 2, cW, cH);
+    g.fillStyle(0x000000, isMinor ? 0.22 : 0.32);
+    g.fillRect(cx2 + 1, cy2 + 1, cW, cH);
     g.fillStyle(bodyColor, alpha);
     g.fillRect(cx2, cy2, cW, cH);
-    // Squarer than units — double stripe marks "structure"
-    g.fillStyle(accent, alpha * 0.92);
-    g.fillRect(cx2 + 1, cy2 + 1, cW - 2, 3);
-    g.fillStyle(typeAccent, alpha * 0.95);
-    g.fillRect(cx2 + 1, cy2 + cH - 4, cW - 2, 2);
+    if (!isMinor) {
+      g.fillStyle(accent, alpha * 0.75);
+      g.fillRect(cx2 + 1, cy2 + 1, cW - 2, 2);
+      g.fillStyle(typeAccent, alpha * 0.8);
+      g.fillRect(cx2 + 1, cy2 + cH - 3, cW - 2, 2);
+    }
 
-    g.lineStyle(1, 0xffffff, alpha * 0.28);
-    g.beginPath();
-    g.moveTo(cx2, cy2 + cH - 1);
-    g.lineTo(cx2, cy2);
-    g.lineTo(cx2 + cW - 1, cy2);
-    g.strokePath();
-    g.lineStyle(1.5, accent, alpha);
+    g.lineStyle(1, accent, alpha * (isMinor ? 0.45 : 0.7));
     g.strokeRect(cx2, cy2, cW, cH);
 
-    // Small square "structure" notch tinted by building role
-    g.fillStyle(_mix(typeAccent, 0x0b0f16, 0.55), alpha * 0.85);
-    g.fillRect(cx2 + 3, cy2 + 5, 5, 5);
-
     const lbl = this.add.text(x, y + 1, glyph, {
-      font: 'bold 13px monospace',
-      fill: '#fff8e8',
+      font: `${isMinor ? 'bold 10px' : 'bold 12px'} monospace`,
+      fill: isMinor ? '#d8dcc8' : '#fff8e8',
       stroke: '#0a0a0a',
-      strokeThickness: 4,
+      strokeThickness: isMinor ? 2 : 3,
     }).setOrigin(0.5).setDepth(17).setAlpha(alpha);
     this.buildingSpriteLayer?.add(lbl);
 
@@ -3091,6 +3092,10 @@ export class GameScene extends Phaser.Scene {
         return `${tag}${pts}`;
       }).join(' ');
       this.turnLbl.setText(`Turn ${gs.turn}  |  P${p} (${PLAYER_LABELS[p] || '?'})  |  VP ${vp}/${tgt}  |  ${vpBoard}  |  ${modeStr}`);
+    } else if (gs.victoryMode === VICTORY_MODES.VTC_CONTROL) {
+      const vtc = getVtcControlStatus(gs);
+      const streak = vtc.controller === p ? `${vtc.streak}/${vtc.target}` : (vtc.controller ? `P${vtc.controller} ${vtc.streak}/${vtc.target}` : `0/${vtc.target}`);
+      this.turnLbl.setText(`Turn ${gs.turn}  |  P${p}  |  VTC ${vtc.vtcs} hex  |  Hold ${streak}  |  ${modeStr}${queueStr}`);
     } else if ((gs.playerCount || 2) > 2) {
       this.turnLbl.setText(`Turn ${gs.turn}  |  P${p} (${PLAYER_LABELS[p] || '?'})  |  ${modeStr}${queueStr}`);
     } else {
@@ -9472,9 +9477,13 @@ export class GameScene extends Phaser.Scene {
       yPos += 10;
       const label = PLAYER_LABELS[winner] || `Player ${winner}`;
       const vpWin = gs.victoryMode === VICTORY_MODES.POINTS;
+      const vtcWin = gs.victoryMode === VICTORY_MODES.VTC_CONTROL;
+      const vtcT = gs.vtcControlTurns || 5;
       addLine(vpWin
         ? `🏆  ${label.toUpperCase()} (P${winner}) WINS — ${gs.victoryPoints?.[winner] || 0} VP!`
-        : `🏆  ${label.toUpperCase()} (P${winner}) WINS!`, '#ffdd44', true);
+        : vtcWin
+          ? `🏆  ${label.toUpperCase()} (P${winner}) WINS — all settlements held ${vtcT} turns!`
+          : `🏆  ${label.toUpperCase()} (P${winner}) WINS!`, '#ffdd44', true);
       yPos += 6;
       addLine(`Game over — thanks for playing Attrition`, '#888888');
       this._addToUI(objects);

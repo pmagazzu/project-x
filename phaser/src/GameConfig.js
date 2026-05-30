@@ -23,6 +23,8 @@ export const PLAYER_LABELS = {
 };
 
 export const VICTORY_MODES = {
+  /** Default — hold every VTC on the map for 5 consecutive game turns. */
+  VTC_CONTROL: 'vtc_control',
   ELIMINATION: 'elimination',
   POINTS: 'points',
 };

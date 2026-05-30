@@ -36,6 +36,12 @@ import {
 } from './AIDoctrine.js';
 
 const AI_TRANSPORT_TYPES = new Set(['LANDING_CRAFT', 'TRANSPORT_SM', 'TRANSPORT_MD', 'TRANSPORT_LG']);
+/** Engineers no longer place legacy production buildings — use VTC UPGRADE menu instead. */
+const ENGINEER_LEGACY_PRODUCTION = new Set([
+  'BARRACKS', 'ADV_BARRACKS', 'VEHICLE_DEPOT', 'ARMOR_WORKS', 'SCIENCE_LAB', 'FACTORY',
+  'AIRFIELD', 'ADV_AIRFIELD', 'HARBOR', 'NAVAL_YARD', 'SHIPYARD', 'DRY_DOCK', 'DRYDOCK',
+  'NAVAL_BASE', 'NAVAL_DOCKYARD',
+]);
 import { TECH_TREE } from './ResearchData.js';
 
 function getPerceivedEnemyUnits(gs, player, terrain, mapSize) {
@@ -3990,61 +3996,18 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             if (gs.turn >= 10 && warehousesEarly < 3 && (unsupplied >= 2 || frontlineSpan >= 10)) {
               needs.push({ type: 'SUPPLY_WAREHOUSE', score: (14 + unsupplied * 2.0 + Math.floor(frontlineSpan / 3) - warehousesEarly * 2) * phaseWeights.logistics });
             }
-            // Science Lab: research, cap at 2 — high priority, force by turn 8
-            const labUrgency = gs.turn >= 8 && myLabs < 1 ? 30 : gs.turn >= 5 && myLabs < 1 ? 18 : 8;
-            if (myLabs < 2 && gs.turn >= 2) needs.push({ type: 'SCIENCE_LAB', score: (labUrgency - myLabs * 4 + d.labs * 6) * phaseWeights.research });
-            // Factory: components, cap at 2
-            if (myFactories < 2 && gs.turn >= 5) needs.push({ type: 'FACTORY', score: (6 - myFactories * 3 + d.factories * 7) * phaseWeights.economy });
-
-            // Military production baseline: don't stall on only T0 infantry/recon.
-            const myBarracks = gs.buildings.filter(bb => bb.owner === player && bb.type === 'BARRACKS' && !bb.underConstruction).length;
-            const myVehicleDepot = gs.buildings.filter(bb => bb.owner === player && bb.type === 'VEHICLE_DEPOT' && !bb.underConstruction).length;
-            const myAirfield = gs.buildings.filter(bb => bb.owner === player && ['AIRFIELD','ADV_AIRFIELD'].includes(bb.type) && !bb.underConstruction).length;
-            const myHarbor = gs.buildings.filter(bb => bb.owner === player && ['HARBOR','NAVAL_YARD','SHIPYARD','DRY_DOCK','NAVAL_BASE'].includes(bb.type) && !bb.underConstruction).length;
             const myBunkers = gs.buildings.filter(bb => bb.owner === player && HEAVY_FORT_TYPES.has(bb.type) && !bb.underConstruction).length;
             const myWarehouses = gs.buildings.filter(bb => bb.owner === player && bb.type === 'SUPPLY_WAREHOUSE' && !bb.underConstruction).length;
             const nearbyEnemies = getEnemies().filter(e => hexDistance(e.q, e.r, unit.q, unit.r) <= 3).length;
-            if (gs.turn >= 4 && myBarracks < Math.min(2, armyBudget.maxBarracks)) {
-              needs.push({ type: 'BARRACKS', score: (7.5 - myBarracks * 2.5 + d.barracks * 6) * phaseWeights.combat });
-            }
-            if (gs.turn >= 7 && myVehicleDepot < 1) needs.push({ type: 'VEHICLE_DEPOT', score: 8.2 * phaseWeights.combat });
-            if (gs.turn >= 12 && myVehicleDepot < 2) needs.push({ type: 'VEHICLE_DEPOT', score: 6.2 * phaseWeights.combat });
-            if (gs.turn >= 10 && myAirfield < 1) needs.push({ type: 'AIRFIELD', score: 7.0 * phaseWeights.combat });
-            if (gs.turn >= 6 && myHarbor < 1 && waterBodies.shouldBuildNavalYardHere(gs, player, unit.q, unit.r)) {
-              const wb = waterBodies.getBody(waterBodies.getBodyIdNear(unit.q, unit.r));
-              const yardScore = wb?.kind === 'lake' ? 3.2 : (situation?.islandMap ? 7.2 : 5.8);
-              needs.push({ type: 'NAVAL_YARD', score: yardScore * phaseWeights.logistics });
-            }
             if ((gs.turn >= 12 && nearbyEnemies >= 2) && myBunkers < 2 && unlockedEng.has('bunker')) {
               needs.push({ type: 'FORT_T3', score: (8.4 + nearbyEnemies) * phaseWeights.combat });
             }
-            // FOB expansion package: forward logistics + fallback defensive node + extra barracks.
+            // FOB expansion package: forward logistics + fallback defensive node.
             if (gs.turn >= 18 && (frontlineSpan >= 12 || roadDeficit >= 2)) {
               if (myWarehouses < 3) needs.push({ type: 'SUPPLY_WAREHOUSE', score: (10 + Math.floor(frontlineSpan / 3) + unsupplied * 1.2 - myWarehouses * 2) * phaseWeights.logistics });
               if (myBunkers < 4 && unlockedEng.has('bunker')) {
                 needs.push({ type: 'FORT_T3', score: (7.5 + Math.floor(frontlineSpan / 5) - myBunkers) * phaseWeights.combat });
               }
-              if (myBarracks < armyBudget.maxBarracks) {
-                needs.push({ type: 'BARRACKS', score: (7.2 + Math.floor(frontlineSpan / 6) - myBarracks) * phaseWeights.combat });
-              }
-            }
-
-            // Tier-2 production chain: once components economy exists, unlock higher-tier unit buildings.
-            const comp = resSim.components || 0;
-            const canPushTier2 = gs.turn >= 9 && (myFactories >= 1 || comp >= 3);
-            if (canPushTier2) {
-              if (myAdvBarracks < 1) needs.push({ type: 'ADV_BARRACKS', score: 8 * phaseWeights.combat });
-              if (myArmorWorks < 1)  needs.push({ type: 'ARMOR_WORKS', score: (9.0 + Math.min(3, comp * 0.4)) * phaseWeights.combat });
-              if (myAdvAirfield < 1) needs.push({ type: 'ADV_AIRFIELD', score: 7.5 * phaseWeights.combat });
-              if (myNavalDockyard < 1 && waterBodies.playerHasOpenSea(gs, player)
-                && (gs.buildings.some(bb => bb.owner === player && ['HARBOR','NAVAL_YARD','DRY_DOCK','NAVAL_BASE'].includes(bb.type)))) {
-                needs.push({ type: 'NAVAL_DOCKYARD', score: 7.2 * phaseWeights.logistics });
-              }
-            }
-            // Component sink doctrine: if components pile up, prioritize higher-tier war industry.
-            if (gs.turn >= 18 && comp >= 6) {
-              if (myArmorWorks < 1) needs.push({ type: 'ARMOR_WORKS', score: 11.5 * phaseWeights.combat });
-              if (myAdvAirfield < 1) needs.push({ type: 'ADV_AIRFIELD', score: 10.2 * phaseWeights.combat });
             }
 
             // Naval coastal defense doctrine
@@ -4066,11 +4029,6 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
               const onBridgeHex = territorial?.bridgeSites?.some(bs => bs.q === unit.q && bs.r === unit.r);
               if (onBridgeHex) portScore += 18;
               needs.push({ type: 'SUPPLY_PORT', score: portScore });
-            }
-            if (amphibLogistics && gs.turn >= 5 && myHarbor < 1 && (isOnCoastal || isAdjacentCoastal)) {
-              const wb = waterBodies.getBody(waterBodies.getBodyIdNear(unit.q, unit.r));
-              const yardScore = wb?.kind === 'lake' ? 3.2 : (situation?.islandMap ? 7.2 : 5.8);
-              needs.push({ type: 'NAVAL_YARD', score: yardScore * phaseWeights.naval });
             }
             if ((isOnCoastal || isAdjacentCoastal) && gs.turn >= 8) {
               const nearbyOwnCB = gs.units.filter(u2 => u2.owner === player && u2.type === 'COASTAL_BATTERY' && hexDistance(u2.q, u2.r, unit.q, unit.r) <= 6).length
@@ -4094,6 +4052,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
             needs.sort((a, b) => b.score - a.score);
             let built = false;
             for (const n of needs) {
+              if (ENGINEER_LEGACY_PRODUCTION.has(n.type)) continue;
               if (maybeBuild(n.type)) { built = true; break; }
             }
             // Fallback: road if nothing else applies
@@ -4676,8 +4635,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const reconCap = gs.turn >= 20 ? 3 : 4;
         if (myRecon >= reconCap) continue;
       }
-      const hasVehicleDepotBuilt = gs.buildings.some(bb => bb.owner === player && bb.type === 'VEHICLE_DEPOT' && !bb.underConstruction);
-      if (gs.turn >= 14 && hasVehicleDepotBuilt && b.type === 'BARRACKS' && (unitType === 'INFANTRY' || unitType === 'RECON')) {
+      const hasFactoryUpgrade = gs.buildings.some(bb =>
+        Number(bb.owner) === Number(player) && PRODUCTION_VTC_TYPES.has(bb.type)
+        && isVtcUpgradeComplete(bb, 'factory'));
+      if (gs.turn >= 14 && hasFactoryUpgrade && (unitType === 'INFANTRY' || unitType === 'RECON')) {
         continue;
       }
       const totalCombat = Math.max(1, Object.entries(plannedCount)
@@ -4846,31 +4807,6 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           resSim.iron -= (c.iron||0); resSim.oil -= (c.oil||0); resSim.wood -= (c.wood||0); resSim.food -= f; resSim.components -= (c.components||0);
         }
       }
-    }
-  }
-
-  // Milestone lock-ins: force strategic infrastructure online by turn gates.
-  const builtCount = (types) => gs.buildings.filter(b => b.owner === player && !b.underConstruction && (Array.isArray(types) ? types.includes(b.type) : b.type === types)).length;
-  const milestoneNeeds = [];
-  if (gs.turn >= 20 && builtCount('SCIENCE_LAB') < 1) milestoneNeeds.push('SCIENCE_LAB');
-  if (gs.turn >= 30 && builtCount('FACTORY') < 1) milestoneNeeds.push('FACTORY');
-  if (gs.turn >= 40 && builtCount(['VEHICLE_DEPOT','AIRFIELD','ADV_AIRFIELD']) < 1) milestoneNeeds.push('VEHICLE_DEPOT');
-  if (milestoneNeeds.length > 0) {
-    const idleEngineers = gs.units.filter(u => u.owner === player && u.type === 'ENGINEER' && !u.embarked && !u.constructing);
-    const canBuildHere = (q, r) => {
-      const b = buildingAt(gs, q, r);
-      return !b || ROAD_TYPES.has(b.type);
-    };
-    for (const eng of idleEngineers) {
-      for (const bt of milestoneNeeds) {
-        const c = BUILDING_TYPES[bt]?.buildCost || {};
-        if (!canBuildHere(eng.q, eng.r)) continue;
-        if (!canAfford(c)) continue;
-        actions.push({ type: 'build', unitId: eng.id, buildingType: bt });
-        spend(c);
-        break;
-      }
-      if (actions.some(a => a.type === 'build' && milestoneNeeds.includes(a.buildingType))) break;
     }
   }
 

@@ -719,6 +719,7 @@ export const RESOURCE_TYPES = {
 
 import { clampPlayerCount, getPlayerIds, makeVictoryPointLedger, defaultVictoryZones, VICTORY_MODES } from './GameConfig.js';
 import { tickVictoryPoints, checkVictoryPointWinner } from './VictoryPoints.js';
+import { tickVtcControlVictory, checkVtcControlWinner, VTC_CONTROL_TURNS_DEFAULT } from './VictoryVtcControl.js';
 
 export { PLAYER_COLORS, MAX_PLAYERS, getPlayerColor } from './GameConfig.js';
 
@@ -962,8 +963,10 @@ export function createGameState(scenario = 'default', options = {}) {
     designs: {},
     tradeOffers: [],  // active trade contract offers
     supplyEnabled: options.supplyEnabled !== undefined ? !!options.supplyEnabled : true,
-    victoryMode: options.victoryMode || VICTORY_MODES.ELIMINATION,
+    victoryMode: options.victoryMode || VICTORY_MODES.VTC_CONTROL,
     victoryPointTarget: options.victoryPointTarget || 100,
+    vtcControlTurns: options.vtcControlTurns ?? VTC_CONTROL_TURNS_DEFAULT,
+    vtcControlStreak: null,
     victoryZones: options.victoryZones || [],
     victoryPoints: makeVictoryPointLedger(playerIds),
   };
@@ -3218,6 +3221,8 @@ export function resolveEndOfTurn(state, terrain) {
   if (nextIdx === 0) {
     state.turn++;
     tickVictoryPoints(state, events);
+    const vtcWin = tickVtcControlVictory(state, events);
+    if (vtcWin) state._vtcControlWinner = vtcWin;
   }
   state.phase = 'planning';
 
@@ -3287,6 +3292,9 @@ function findFreeAdjacentHex(state, q, r, unitType = null, terrain = null, spawn
 }
 
 export function checkWinner(state) {
+  const vtcWin = checkVtcControlWinner(state);
+  if (vtcWin) return vtcWin;
+
   const vpWin = checkVictoryPointWinner(state);
   if (vpWin) return vpWin;
 
