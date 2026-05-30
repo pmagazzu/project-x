@@ -17,7 +17,7 @@ import {
   getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
   isNavalDeployAllowed, getNavalCoastalCheckRadius, getNavalDeployRadius,
   isHQNetworkPluggedToNeutralRoads, registerDesign,
-  getUnitPopCost, recalcPlayerPopulation,
+  getUnitPopCost, recalcPlayerPopulation, calcPopUsedByPlayer,
   calcUpkeep, calcRPFromLabs, computeSupply, invalidateSupplyCache, isHexInSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS, VTC_SUPPLY_RADIUS, getRecruitFoodCost, getUnitSupplyRadius,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, getMaxDesignSlots, BASE_DESIGN_SLOTS,
@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.15';
+export const GAME_VERSION = 'v1.21.16';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -3100,7 +3100,12 @@ export class GameScene extends Phaser.Scene {
     this._setCommandCard(c.wood, `${fmtRes(pl.wood || 0)}  ${sgn(netWood)}`);
     this._setCommandCard(c.food, `${fmtRes(pl.food || 0)}  ${sgn(netFood)}${ttzSuffix(ttzFood)}`, unitsOOS > 0 ? '#ff6644' : rowFill(ttzFood, ttzFood <= 1));
     recalcPlayerPopulation(gs, p);
-    this._setCommandCard(c.pop, `${pl.population ?? 0}/${pl.popCap ?? 0}`, (pl.population || 0) < 3 ? '#ff8888' : '#c8e8c8');
+    const popAvail = pl.population ?? 0;
+    const popCap = pl.popCap ?? 0;
+    const popUsed = calcPopUsedByPlayer(gs, p);
+    const popFull = popAvail < 1 && popUsed >= popCap;
+    const popText = popFull ? `${popAvail}/${popCap} full` : `${popAvail}/${popCap}`;
+    this._setCommandCard(c.pop, popText, popFull || popAvail < 2 ? '#ff8888' : '#c8e8c8');
     this._setCommandCard(c.gold, `${fmtRes(pl.gold || 0)}  ${sgn(netGold)}`);
     this._setCommandCard(c.parts, `${fmtRes(pl.components || 0)}`);
     this._setCommandCard(c.steel, `${fmtRes(pl.hardenedSteel || 0)}`);
@@ -8672,6 +8677,9 @@ export class GameScene extends Phaser.Scene {
     if (capped.truncated > 0) {
       this._pushLog(`AI P${gs.currentPlayer}: stability cap trimmed ${capped.truncated} actions (budget ${capped.budget})`);
     }
+    if (!actions.length) {
+      this._pushLog(`AI P${gs.currentPlayer}: no actions after planning — ending turn`);
+    }
     const aiCounts = actions.reduce((acc, a) => { acc[a.type] = (acc[a.type] || 0) + 1; return acc; }, {});
     const roadsBuiltThisTurn = actions.filter(a => a.type === 'build' && a.buildingType === 'ROAD').length;
     const depotsBuiltThisTurn = actions.filter(a => a.type === 'build' && a.buildingType === 'SUPPLY_DEPOT').length;
@@ -8762,7 +8770,8 @@ export class GameScene extends Phaser.Scene {
       const planP = gs.currentPlayer;
       const planCounts = this._aiLastPlans?.[planP]?.actionCounts || {};
       const buildOnlyPlan = (planCounts.build || 0) > 0
-        && !(planCounts.move || planCounts.attack || planCounts.recruit || planCounts.global_deploy);
+        && !(planCounts.move || planCounts.attack || planCounts.recruit || planCounts.global_deploy)
+        && actions.length <= 2;
       gs._aiStagnation = gs._aiStagnation || {};
       const stagMem = gs._aiStagnation[planP] || { buildOnlyStreak: 0 };
       stagMem.buildOnlyStreak = buildOnlyPlan ? (stagMem.buildOnlyStreak || 0) + 1 : 0;

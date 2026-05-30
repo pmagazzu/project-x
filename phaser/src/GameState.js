@@ -724,7 +724,8 @@ export const RESOURCE_TYPES = {
 import { clampPlayerCount, getPlayerIds, makeVictoryPointLedger, defaultVictoryZones, VICTORY_MODES } from './GameConfig.js';
 import { tickVictoryPoints, checkVictoryPointWinner } from './VictoryPoints.js';
 import { tickVtcControlVictory, checkVtcControlWinner, VTC_CONTROL_TURNS_DEFAULT } from './VictoryVtcControl.js';
-import { calcPlayerPopCap, DEFAULT_VTC_POP } from './Population.js';
+import { calcPlayerPopCap, DEFAULT_VTC_POP, CAPITAL_POP_BONUS } from './Population.js';
+export { CAPITAL_POP_BONUS } from './Population.js';
 
 export { PLAYER_COLORS, MAX_PLAYERS, getPlayerColor } from './GameConfig.js';
 
@@ -775,11 +776,9 @@ export function recalcPlayerPopulation(state, player) {
   syncPlayerPopulationPool(state, player);
 }
 
-/** Available manpower = popCap minus units on map and production pipeline. */
-export function syncPlayerPopulationPool(state, player) {
+/** Manpower currently fielded or reserved in queues. */
+export function calcPopUsedByPlayer(state, player) {
   const p = Number(player);
-  const pl = state.players[player];
-  if (!pl) return;
   let used = 0;
   for (const u of state.units || []) {
     if (Number(u.owner) !== p || (u.health ?? 1) <= 0) continue;
@@ -799,7 +798,16 @@ export function syncPlayerPopulationPool(state, player) {
   for (const r of state.readyGlobalRecruits || []) {
     if (Number(r.owner) === p) used += getUnitPopCost(r.type);
   }
-  pl.population = Math.max(0, Math.min(pl.popCap || HQ_BASE_POP_CAP, (pl.popCap || HQ_BASE_POP_CAP) - used));
+  return used;
+}
+
+/** Available manpower = popCap minus units on map and production pipeline. */
+export function syncPlayerPopulationPool(state, player) {
+  const pl = state.players[player];
+  if (!pl) return;
+  const cap = pl.popCap || calcPlayerPopCap(state, player);
+  const used = calcPopUsedByPlayer(state, player);
+  pl.population = Math.max(0, cap - used);
 }
 
 export function applyPopulationGrowth(state, player) {

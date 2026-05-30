@@ -22,9 +22,10 @@ import {
   getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit, PRODUCTION_VTC_TYPES, MAX_VTC_TRAIN_QUEUE,
   getPlayerCapital, getPlayerCapitalBuildings, getEnemyCapitalBuildings, isPlayerCapitalBuilding,
   isNavalDeployAllowed, getNavalCoastalCheckRadius, canPromoteSettlement, VTC_SUPPLY_RADIUS, findRoadPath, canPlaceRoadOnTerrain,
-  recalcPlayerPopulation, syncPlayerPopulationPool,
+  recalcPlayerPopulation, syncPlayerPopulationPool, calcPopUsedByPlayer,
   countPlayerScienceLabs, countPlayerFactories, countPlayerBarracksFacilities, countPlayerVtcUpgrade,
 } from './GameState.js';
+import { calcPlayerPopCap } from './Population.js';
 import {
   getVtcUpgradeMenu, purchaseVtcUpgrade, isVtcUpgradeComplete, canPurchaseVtcUpgrade,
 } from './SettlementSystem.js';
@@ -3659,6 +3660,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const unsuppliedNow = myUnitsNow.filter(u => (u.outOfSupply || 0) > 0).length;
   const unsuppliedCombatNow = myUnitsNow.filter(u => (u.outOfSupply || 0) > 0 && u.type !== 'ENGINEER').length;
   const stagnantArmyBreakout = getStagnantArmyBreakout(gs, player, strategic, myCombatUnits);
+  const popAvailNow = gs.players[player]?.population ?? 0;
+  const popCapNow = gs.players[player]?.popCap ?? calcPlayerPopCap(gs, player);
+  const popUsedNow = calcPopUsedByPlayer(gs, player);
+  const populationFull = popAvailNow < 1 && popUsedNow >= popCapNow;
   const engineerOnlyOOS = unsuppliedNow > 0 && unsuppliedCombatNow === 0;
   const logisticsPressure = !stagnantArmyBreakout && !engineerOnlyOOS
     && unsuppliedNow >= Math.max(2, Math.floor(myUnitsNow.length * 0.2));
@@ -5394,6 +5399,24 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   gs._aiDebug = gs._aiDebug || {};
   gs._aiDebug[player] = aiDebug;
+
+  const hasArmyAction = actions.some(a =>
+    ['attack', 'move', 'recruit', 'global_deploy', 'vtc_upgrade'].includes(a.type));
+  if (!hasArmyAction) {
+    const myCap = getPlayerCapital(gs, player) || myCapital;
+    if (populationFull || stagnantArmyBreakout) {
+      enforceExpansionMoveFloor(gs, player, actions, terrain, mapSize, enemyHQs, myCap, moveMemory);
+    }
+    if (!actions.some(a => ['move', 'attack'].includes(a.type))) {
+      ensureMinimumArmyProgress(
+        gs, player, actions, resSim, terrain, mapSize, enemyHQs, myCap,
+        recruitAllowed, noteRecruit, spend, maxRecruitsThisTurn,
+      );
+    }
+    if (!actions.length) {
+      aiDebug.plannerReason = populationFull ? 'pop_full_expand' : 'idle_breakout';
+    }
+  }
 
   return actions;
 }

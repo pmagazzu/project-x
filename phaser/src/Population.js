@@ -10,6 +10,12 @@ function isVtcUpgradeDone(vtc, upgradeId) {
 export const SETTLEMENT_POP_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 
 export const DEFAULT_VTC_POP = { VILLAGE: 5, TOWN: 10, CITY: 15, HQ: 5 };
+/** Extra cap on home capital so the opening squad fits the VTC pool (V5 + HQ5 = 10). */
+export const CAPITAL_POP_BONUS = 5;
+
+function isCapitalSettlement(b) {
+  return b.type === 'HQ' || (b.type === 'VILLAGE' && !!b.isCapital);
+}
 
 /** VTC upgrade ids → pop cap bonus (scaled by vtcPopScale). */
 export const VTC_HOUSING_POP = {
@@ -56,6 +62,9 @@ export function calcPlayerPopCap(state, player) {
     if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
     if (SETTLEMENT_POP_TYPES.has(b.type)) {
       cap += settlementPopBase(b.type, cfg) + getVtcHousingPopBonus(b, state);
+      if (isCapitalSettlement(b)) {
+        cap += Math.round(CAPITAL_POP_BONUS * getVtcPopConfig(state).scale);
+      }
     } else if (b.type === 'HQ') {
       cap += cfg.hq;
     }
