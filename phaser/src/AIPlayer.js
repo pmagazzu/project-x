@@ -29,6 +29,7 @@ import {
 import { calcPlayerPopCap } from './Population.js';
 import {
   getVtcUpgradeMenu, purchaseVtcUpgrade, isVtcUpgradeComplete, canPurchaseVtcUpgrade,
+  canUnitCaptureSettlement, getSettlementCaptureTurns,
 } from './SettlementSystem.js';
 import { ensureAIDesigns, pickAIRecruit, getClosingPressure } from './AIDesigner.js';
 import {
@@ -212,11 +213,39 @@ function listOwnedVTCSorted(gs, player, perceivedEnemies = [], capital = null) {
     .sort((a, b) => b.weight - a.weight || b.threat - a.threat || b.dist - a.dist);
 }
 
+/** Combat units that can hold/capture VTC hexes (not Engineer/Recon/support). */
 function isCombatUnitForGarrison(u) {
-  const d = UNIT_TYPES[u.type] || {};
-  const role = getUnitRole(u.type);
-  return role !== 'engineer' && role !== 'support'
-    && ((d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0 || (d.attack || 0) > 0);
+  return canUnitCaptureSettlement(u);
+}
+
+function isNeutralOrEnemySettlement(b, player) {
+  return b && ['VILLAGE', 'TOWN', 'CITY', 'HQ'].includes(b.type)
+    && Number(b.owner) !== Number(player) && !b.underConstruction;
+}
+
+/** Scout/recon rings a settlement — never stands on the hex (cannot capture). */
+function pickSettlementScoutHex(gs, terrain, mapSize, vtc, unit) {
+  const rad = Math.max(2, (vtcSupplyRadius(vtc) || 3) - 1);
+  let best = null;
+  let bestScore = -Infinity;
+  for (let dq = -rad; dq <= rad; dq++) {
+    for (let dr = -rad; dr <= rad; dr++) {
+      const q = vtc.q + dq;
+      const r = vtc.r + dr;
+      if (q < 0 || r < 0 || q >= mapSize || r >= mapSize) continue;
+      if (q === vtc.q && r === vtc.r) continue;
+      const d = hexDistance(q, r, vtc.q, vtc.r);
+      if (d < 2 || d > rad) continue;
+      const occ = unitAt(gs, q, r);
+      if (occ && occ.id !== unit?.id) continue;
+      const tt = terrain?.[`${q},${r}`] ?? 0;
+      if (tt === 4 || tt === 5) continue;
+      let score = 10 - Math.abs(d - 3);
+      if (unit) score -= hexDistance(unit.q, unit.r, q, r) * 0.2;
+      if (score > bestScore) { bestScore = score; best = { q, r }; }
+    }
+  }
+  return best || { q: vtc.q + 1, r: vtc.r };
 }
 
 function canReassignForVTC(existing, vtc, guardsShort) {
@@ -2120,9 +2149,12 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
   const ownedVTC = gs.buildings.filter(b =>
     Number(b.owner) === Number(player) && !b.underConstruction
     && ['VILLAGE', 'TOWN', 'CITY'].includes(b.type) && !b.isCapital);
+  const neutralCaptureTargets = gs.buildings
+    .filter(b => Number(b.owner) === 0 && !b.underConstruction && ['VILLAGE', 'TOWN', 'CITY'].includes(b.type))
+    .map(v => ({ q: v.q, r: v.r, type: 'settlement', score: vtcStrategicWeight(v), vtcType: v.type }));
   const settlementExpandTargets = [
-    ...ownedVTC.map(v => ({ q: v.q, r: v.r, type: 'settlement', score: vtcStrategicWeight(v) })),
-    ...(territorial?.expansions || []).filter(e => e.type === 'settlement'),
+    ...neutralCaptureTargets,
+    ...(territorial?.expansions || []).filter(e => e.type === 'settlement' && e.owner !== player),
   ];
 
   const pools = { scout: [], line: [], assault: [], indirect: [], anti: [] };
@@ -2202,7 +2234,20 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
     missionCounts[mission] = (missionCounts[mission] || 0) + 1;
   };
 
-  for (const u of pools.scout) assign(u, 'scout', scoutTarget);
+  for (const u of pools.scout) {
+    let nearNeutral = null;
+    let nearD = Infinity;
+    for (const t of neutralCaptureTargets) {
+      const d = hexDistance(u.q, u.r, t.q, t.r);
+      if (d < nearD) { nearD = d; nearNeutral = t; }
+    }
+    if (nearNeutral && gs._terrain) {
+      const ring = pickSettlementScoutHex(gs, gs._terrain, mapSize, { q: nearNeutral.q, r: nearNeutral.r, type: nearNeutral.vtcType || 'VILLAGE' }, u);
+      assign(u, 'scout', ring);
+    } else {
+      assign(u, 'scout', scoutTarget);
+    }
+  }
 
   const remaining = [...pools.assault, ...pools.line];
   let s = (turn * 997 + player * 131) >>> 0;
@@ -2214,7 +2259,8 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
 
   let idx = 0;
   let expandTargetIdx = 0;
-  const pickExpandTarget = () => {
+  const pickExpandTarget = (unit) => {
+    if (unit && !canUnitCaptureSettlement(unit)) return missionExpandTarget;
     if (settlementExpandTargets.length) {
       const t = settlementExpandTargets[expandTargetIdx % settlementExpandTargets.length];
       expandTargetIdx++;
@@ -2224,8 +2270,9 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
   };
   const batch = (count, mission, target) => {
     for (let i = 0; i < count && idx < remaining.length; i++, idx++) {
-      const t = mission === 'expand' ? pickExpandTarget() : target;
-      assign(remaining[idx], mission, t);
+      const u = remaining[idx];
+      const t = mission === 'expand' ? pickExpandTarget(u) : target;
+      assign(u, mission, t);
     }
   };
   batch(quotas.diversion, 'diversion', diversionTarget);
@@ -2344,6 +2391,7 @@ function assignHoldVTCCMissions(gs, player, unitObjective, combatUnits, perceive
   const capital = getPlayerCapital(gs, player);
   const defendDebt = countOwnedVTCsNeedingDefense(gs, player, perceivedEnemies);
   const pool = combatUnits.filter((u) => {
+    if (!canUnitCaptureSettlement(u)) return false;
     const m = unitObjective[u.id]?.mission;
     return m !== 'hold_vtc' && (!m || ['expand', 'probe', 'garrison'].includes(m));
   });
@@ -2380,8 +2428,12 @@ function assignHoldVTCCMissions(gs, player, unitObjective, combatUnits, perceive
       const d = hexDistance(u.q, u.r, vtc.q, vtc.r);
       if (d < bestD) { bestD = d; best = u; }
     }
-    if (best && bestD <= 26) {
-      unitObjective[best.id] = { q: vtc.q, r: vtc.r, mission: 'expand', kind: 'settlement', vtcType: vtc.type };
+    if (best && bestD <= 26 && canUnitCaptureSettlement(best)) {
+      const turns = getSettlementCaptureTurns(vtc.type);
+      unitObjective[best.id] = {
+        q: vtc.q, r: vtc.r, mission: 'expand', kind: 'settlement', vtcType: vtc.type,
+        captureHold: turns,
+      };
       secured += 1;
     }
   }
@@ -2404,7 +2456,7 @@ function assignLocalRecaptureMissions(gs, player, unitObjective, combatUnits, pe
   if (!targets.length) return;
   const pool = combatUnits.filter((u) => {
     const role = getUnitRole(u.type);
-    if (role === 'engineer' || role === 'support') return false;
+    if (role === 'engineer' || role === 'support' || role === 'recon') return false;
     const m = unitObjective[u.id]?.mission;
     return !m || m === 'expand' || m === 'probe' || m === 'main' || m === 'closing' || m === 'garrison';
   });
@@ -2435,6 +2487,7 @@ function assignLocalRecaptureMissions(gs, player, unitObjective, combatUnits, pe
       if (d < bestD) { bestD = d; best = u; }
     }
     if (!best || bestD > 20) continue;
+    if (['VILLAGE', 'TOWN', 'CITY', 'HQ'].includes(t.type) && !canUnitCaptureSettlement(best)) continue;
     unitObjective[best.id] = { q: t.q, r: t.r, mission: 'main', kind: 'recapture' };
     assigned += 1;
   }
@@ -2575,13 +2628,28 @@ function enforceExpansionMoveFloor(gs, player, actions, terrain, mapSize, enemyH
   let added = 0;
   for (const unit of fighters) {
     if (acted.has(unit.id)) continue;
-    const goal = goals.reduce((best, g) => {
+    const canCap = canUnitCaptureSettlement(unit);
+    const vtcTypes = new Set(['VILLAGE', 'TOWN', 'CITY', 'HQ']);
+    const eligibleGoals = canCap
+      ? goals
+      : goals.filter((g) => !vtcTypes.has(g.type));
+    const goalPool = eligibleGoals.length ? eligibleGoals : goals;
+    let goal = goalPool.reduce((best, g) => {
       const d = hexDistance(unit.q, unit.r, g.q, g.r);
       return d < best.d ? { g, d } : best;
-    }, { g: goals[0], d: hexDistance(unit.q, unit.r, goals[0].q, goals[0].r) });
+    }, { g: goalPool[0], d: hexDistance(unit.q, unit.r, goalPool[0].q, goalPool[0].r) });
+    if (!canCap && vtcTypes.has(goal.g.type)) {
+      const ring = pickSettlementScoutHex(gs, terrain, mapSize, goal.g, unit);
+      goal = { g: { q: ring.q, r: ring.r }, d: hexDistance(unit.q, unit.r, ring.q, ring.r) };
+    }
     const reachable = getReachableHexesForAI(gs, unit, terrain, mapSize) || [];
     const step = reachable
       .filter(h => hexDistance(h.q, h.r, goal.g.q, goal.g.r) < hexDistance(unit.q, unit.r, goal.g.q, goal.g.r))
+      .filter(h => {
+        if (canCap) return true;
+        const b = buildingAt(gs, h.q, h.r);
+        return !(b && vtcTypes.has(b.type) && h.q === b.q && h.r === b.r);
+      })
       .filter(h => !isImmediateBacktrack(unit, h, moveMemory?.[unit.id], gs.turn || 1))
       .sort((a, b) => hexDistance(a.q, a.r, goal.g.q, goal.g.r) - hexDistance(b.q, b.r, goal.g.q, goal.g.r))[0];
     if (!step) continue;
@@ -2824,10 +2892,18 @@ function assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjec
     if (settleIdx >= ownedSettle.length) break;
     const existing = unitObjective[u.id]?.mission;
     if (existing && !['expand', 'probe', 'garrison'].includes(existing)) continue;
+    if (!canUnitCaptureSettlement(u)) continue;
     const role = getUnitRole(u.type);
-    if (role === 'engineer' || role === 'support' || role === 'indirect') continue;
+    if (role === 'indirect') continue;
     const t = ownedSettle[settleIdx++];
-    unitObjective[u.id] = { q: t.q, r: t.r, kind: 'settlement', mission: 'hold_vtc' };
+    const vtcB = gs.buildings.find(b => b.q === t.q && b.r === t.r);
+    const patrol = vtcB && gs._terrain
+      ? pickVTCPatrolHex(gs, gs._terrain, mapSize, vtcB, u)
+      : t;
+    unitObjective[u.id] = {
+      q: patrol.q, r: patrol.r, mission: 'hold_vtc', kind: 'settlement',
+      anchorQ: t.q, anchorR: t.r, patrol: true,
+    };
   }
 
   const chokes = territorial.chokes || [];
@@ -2859,8 +2935,9 @@ function assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjec
     const expansions = (territorial.expansions || []).slice(0, 10);
     if (expansions.length > 0) {
       const claimPool = combatUnits.filter((u) => {
+        if (!canUnitCaptureSettlement(u)) return false;
         const role = getUnitRole(u.type);
-        if (role === 'engineer' || role === 'support' || role === 'indirect') return false;
+        if (role === 'indirect') return false;
         const existing = unitObjective[u.id]?.mission;
         return !existing || ['expand', 'probe', 'garrison'].includes(existing);
       });
@@ -2869,7 +2946,12 @@ function assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjec
         const u = claimPool[i];
         const t = expansions[i % expansions.length];
         if (!u || !t) break;
-        unitObjective[u.id] = { q: t.q, r: t.r, kind: 'expansion_claim', mission: 'expand' };
+        const destB = buildingAt(gs, t.q, t.r);
+        if (destB && isNeutralOrEnemySettlement(destB, player)) {
+          unitObjective[u.id] = { q: t.q, r: t.r, kind: 'expansion_claim', mission: 'expand', vtcType: destB.type };
+        } else {
+          unitObjective[u.id] = { q: t.q, r: t.r, kind: 'expansion_claim', mission: 'expand' };
+        }
       }
     }
   }
@@ -3089,23 +3171,38 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
 
     // Enemy extractors are captured by moving onto the hex — prioritize raids on frontline economy.
     const destBld = buildingAt(gs, q, r);
-    if (destBld && Number(destBld.owner) !== Number(unit.owner) && !destBld.underConstruction
-        && (destBld.type === 'MINE' || destBld.type === 'OIL_PUMP' || destBld.type === 'VILLAGE' || destBld.type === 'TOWN' || destBld.type === 'CITY')) {
-      const closing = ctx.closingPressure || 0;
-      const settlementBonus = destBld.type === 'CITY' ? 28 : destBld.type === 'TOWN' ? 20 : destBld.type === 'VILLAGE' ? 14 : 0;
-      const raidPull = (((gs.turn || 1) >= 24 ? 58 : 42) + settlementBonus) * phase.combat;
-      score += raidPull * (rushMissions.has(mission) || mission === 'probe' ? 1.15 : 0.75);
-      score += closing * 18;
-      if (obj?.kind === 'raid_resource') score += 28;
-      const guard = gs.units.find(u => u.q === q && u.r === r && u.owner !== unit.owner && !u.embarked);
-      if (guard && (guard.health || 99) <= 2) score += 14;
-    }
-    if (destBld && Number(destBld.owner) !== Number(unit.owner) && !destBld.underConstruction
-        && !ROAD_TYPES.has(destBld.type)) {
-      let capPull = 14 * phase.combat;
-      if (destBld.type === 'FACTORY' || destBld.type === 'SCIENCE_LAB') capPull += 8;
-      if (obj?.kind === 'recapture') capPull += 18;
-      score += capPull;
+    const isVtcHex = destBld && ['VILLAGE', 'TOWN', 'CITY', 'HQ'].includes(destBld.type);
+    const canCap = canUnitCaptureSettlement(unit);
+    if (destBld && Number(destBld.owner) !== Number(unit.owner) && !destBld.underConstruction) {
+      if (isVtcHex) {
+        if (!canCap) {
+          score -= 140;
+          if (mission === 'scout' || mission === 'probe' || getUnitRole(unit.type) === 'recon') {
+            const ring = pickSettlementScoutHex(gs, terrain, ctx.mapSize || gs._mapSize || 40, destBld, unit);
+            if (hexDistance(q, r, ring.q, ring.r) < hexDistance(q, r, destBld.q, destBld.r)) score += 22;
+          }
+        } else {
+          const closing = ctx.closingPressure || 0;
+          const settlementBonus = destBld.type === 'CITY' ? 28 : destBld.type === 'TOWN' ? 20 : 14;
+          const holdTurns = getSettlementCaptureTurns(destBld.type) || 2;
+          const raidPull = (((gs.turn || 1) >= 24 ? 58 : 42) + settlementBonus) * phase.combat;
+          score += raidPull * (rushMissions.has(mission) || mission === 'expand' ? 1.1 : 0.7);
+          score += closing * 18;
+          if (obj?.kind === 'recapture' || obj?.kind === 'settlement') score += 24;
+          if (q === destBld.q && r === destBld.r) score += 8 * holdTurns;
+          const guard = gs.units.find(u => u.q === q && u.r === r && u.owner !== unit.owner && !u.embarked);
+          if (guard && (guard.health || 99) <= 2) score += 14;
+        }
+      } else if (destBld.type === 'MINE' || destBld.type === 'OIL_PUMP') {
+        const raidPull = ((gs.turn || 1) >= 24 ? 58 : 42) * phase.combat;
+        score += raidPull * (rushMissions.has(mission) || mission === 'probe' ? 1.15 : 0.75);
+        if (obj?.kind === 'raid_resource') score += 28;
+      } else if (!ROAD_TYPES.has(destBld.type)) {
+        let capPull = 14 * phase.combat;
+        if (destBld.type === 'FACTORY' || destBld.type === 'SCIENCE_LAB') capPull += 8;
+        if (obj?.kind === 'recapture') capPull += 18;
+        score += capPull;
+      }
     }
   }
 
@@ -3203,6 +3300,14 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
     if (mission === 'expand' || mission === 'scout') {
       const resHex = ctx.resourceTargets?.find(t => t.q === obj.q && t.r === obj.r);
       if (resHex) score += 8 * (phase.economy || 1);
+    }
+    if (!canUnitCaptureSettlement(unit)) {
+      const objBld = buildingAt(gs, obj.q, obj.r);
+      if (objBld && ['VILLAGE', 'TOWN', 'CITY', 'HQ'].includes(objBld.type)) {
+        if (q === objBld.q && r === objBld.r) score -= 130;
+        const ring = pickSettlementScoutHex(gs, terrain, ctx.mapSize || gs._mapSize || 40, objBld, unit);
+        if (hexDistance(q, r, ring.q, ring.r) < hexDistance(q, r, obj.q, obj.r)) score += 20;
+      }
     }
     if (passiveMissions.has(mission) && enemies.length > 0 && nearestEnemy < 3) score -= 10;
   }
@@ -3729,6 +3834,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const player  = gs.currentPlayer;
   const cfg     = AI_STRATEGIES[strategy] ?? AI_STRATEGIES.balanced;
   const actions = [];
+  gs._terrain = terrain;
   const mapN = Number(mapSize || gs._mapSize || 40);
   const plannerOverBudget = () => gs._aiPlannerDeadline && performance.now() > gs._aiPlannerDeadline;
   const overPlan = () => plannerOverBudget();
