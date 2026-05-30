@@ -58,7 +58,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.1';
+export const GAME_VERSION = 'v1.21.2';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -3180,17 +3180,25 @@ export class GameScene extends Phaser.Scene {
 
   _getBottomChromeLayout() {
     const w = this.scale.width, h = this.scale.height;
+    const baseH = this._inspectorPanH || 212;
     const engineerPanel = this._buildMenuOpen && this._isEngineerBuildPanelActive();
     const vtcPanel = this._isVtcBuildPanelActive();
-    const panH = engineerPanel
+    const actionPanH = engineerPanel
       ? Math.min(360, h - PLAYFIELD_UI.top - 16)
       : vtcPanel
         ? Math.min(Math.floor(h * 0.58), h - PLAYFIELD_UI.top - 24)
-        : (this._inspectorPanH || 212);
-    const topY = h - panH;
+        : baseH;
+    // Tall VTC build menu is right-rail only; left inspector stays compact.
+    const inspPanH = vtcPanel && !engineerPanel ? baseH : actionPanH;
+    const actionTopY = h - actionPanH;
+    const inspTopY = h - inspPanH;
     const actionCx = w - (vtcPanel ? 210 : 198);
     const contentLeft = actionCx - (vtcPanel ? 200 : 190);
-    return { w, h, panH, topY, actionCx, contentLeft, vtcPanel };
+    return {
+      w, h, vtcPanel, engineerPanel,
+      panH: actionPanH, topY: actionTopY,
+      inspPanH, inspTopY, actionCx, contentLeft,
+    };
   }
 
   _renderEngineerBuildPanel(eng) {
@@ -3318,24 +3326,23 @@ export class GameScene extends Phaser.Scene {
   }
 
   _layoutInspectorChrome() {
-    const { w, h, panH, topY, actionCx } = this._getBottomChromeLayout();
+    const { panH, topY, inspPanH, inspTopY, actionCx, engineerPanel } = this._getBottomChromeLayout();
     const inspW = 500;
     const ix = inspW / 2 + 8;
 
-    this.inspectorBg?.setPosition(ix, topY + panH / 2);
-    this.inspectorAccent?.setPosition(ix, topY + 1.5);
-    const tabY = topY + 8;
+    this.inspectorBg?.setPosition(ix, inspTopY + inspPanH / 2).setSize(inspW, inspPanH);
+    this.inspectorAccent?.setPosition(ix, inspTopY + 1.5);
+    const tabY = inspTopY + 8;
     for (const [key, tab] of Object.entries(this._inspectorTabBtns || {})) {
       const idx = key === 'unit' ? 0 : key === 'hex' ? 1 : 2;
       tab?.setPosition(12 + idx * 62, tabY);
     }
-    this.inspectorTitle?.setPosition(12, topY + 34);
-    this.inspectorChips?.setPosition(12, topY + 56);
+    this.inspectorTitle?.setPosition(12, inspTopY + 34);
+    this.inspectorChips?.setPosition(12, inspTopY + 56);
     for (let i = 0; i < (this._inspectorLines?.length || 0); i++) {
-      this._inspectorLines[i]?.setPosition(12, topY + 76 + i * 18);
+      this._inspectorLines[i]?.setPosition(12, inspTopY + 76 + i * 18);
     }
 
-    const engineerPanel = this._buildMenuOpen && this._isEngineerBuildPanelActive();
     const actionW = engineerPanel ? 392 : 380;
     this.actionBg?.setPosition(actionCx, topY + panH / 2).setSize(actionW, panH).setVisible(true);
     this.actionAccent?.setPosition(actionCx, topY + 1).setVisible(true);
