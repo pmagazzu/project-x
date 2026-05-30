@@ -342,18 +342,12 @@ function planArmyRecovery(gs, player, actions, resSim, spend, noteRecruit, recru
 
   recalcPlayerPopulation(gs, player);
 
-  for (const b of gs.buildings) {
-    if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type) || b.underConstruction) continue;
-    for (const ready of b.readyUnits || []) {
-      if (actions.some(a => a.type === 'global_deploy' && a.readyId === ready.id)) continue;
-      const sites = enumerateVtcDeployHexes(gs, player, b.id, ready.type);
-      if (!sites.length) continue;
-      const site = sites[0];
-      const act = { type: 'global_deploy', readyId: ready.id, buildingId: b.id, q: site.q, r: site.r };
-      if (NAVAL_UNITS.has(ready.type)) actions.unshift(act);
-      else actions.push(act);
-    }
-  }
+  planDeployReadyVtcUnits(gs, player, actions, gs._terrain, {
+    capital: myCapital,
+    focusEnemy: getEnemyCapitalBuildings(gs, player)[0],
+    unitObjective: {},
+    territorial: null,
+  });
 
   const queueAt = (building, unitType) => {
     if (!building || !recruitAllowed(unitType)) return false;
@@ -456,6 +450,35 @@ function scoreGlobalDeploySite(gs, player, site, ready, terrain, ctx) {
 
   if (site.buildingType === 'HQ' || anchor?.isCapital) score -= 4;
   return score;
+}
+
+/** Deploy every ready VTC unit when a spawn hex exists (never gate on deploy score). */
+function planDeployReadyVtcUnits(gs, player, actions, terrain, deployCtx) {
+  let added = 0;
+  for (const b of gs.buildings) {
+    if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type) || b.underConstruction) continue;
+    for (const ready of b.readyUnits || []) {
+      if (actions.some(a => a.type === 'global_deploy' && a.readyId === ready.id)) continue;
+      const sites = enumerateVtcDeployHexes(gs, player, b.id, ready.type);
+      if (!sites.length) continue;
+      let best = sites[0];
+      let bestScore = -Infinity;
+      for (const site of sites) {
+        const score = scoreGlobalDeploySite(gs, player, site, ready, terrain, deployCtx);
+        if (score > bestScore) { bestScore = score; best = site; }
+      }
+      actions.unshift({
+        type: 'global_deploy',
+        readyId: ready.id,
+        buildingId: b.id,
+        q: best.q,
+        r: best.r,
+        unitType: ready.type,
+      });
+      added += 1;
+    }
+  }
+  return added;
 }
 
 function isImmediateBacktrack(unit, dest, lastMove, turnNow) {
@@ -2486,6 +2509,14 @@ function enforceClosingAttackFloor(gs, player, actions, strategic) {
 
 /** When the plan is all logistics builds, force deploy / recruit / advance so the AI does not look idle. */
 function ensureMinimumArmyProgress(gs, player, actions, resSim, terrain, mapSize, enemyHQs, myCapital, recruitAllowed, noteRecruit, spend, maxRecruitsThisTurn) {
+  const deployed = planDeployReadyVtcUnits(gs, player, actions, terrain, {
+    capital: myCapital,
+    focusEnemy: enemyHQs[0],
+    unitObjective: {},
+    territorial: null,
+  });
+  if (deployed > 0) return deployed;
+
   const hasArmyAction = actions.some(a =>
     ['attack', 'move', 'recruit', 'global_deploy', 'vtc_upgrade'].includes(a.type));
   if (hasArmyAction) return 0;
@@ -2502,25 +2533,13 @@ function ensureMinimumArmyProgress(gs, player, actions, resSim, terrain, mapSize
 
   for (const b of gs.buildings) {
     if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type) || b.underConstruction) continue;
-    for (const ready of b.readyUnits || []) {
-      if (actions.some(a => a.type === 'global_deploy' && a.readyId === ready.id)) continue;
-      const sites = enumerateVtcDeployHexes(gs, player, b.id, ready.type);
-      if (!sites.length) continue;
-      let best = sites[0];
-      let bestScore = -Infinity;
-      for (const site of sites) {
-        const score = scoreGlobalDeploySite(gs, player, site, ready, terrain, { capital: myCapital });
-        if (score > bestScore) { bestScore = score; best = site; }
-      }
-      actions.unshift({
-        type: 'global_deploy',
-        readyId: ready.id,
-        buildingId: b.id,
-        q: best.q,
-        r: best.r,
-      });
-      return 1;
-    }
+    const n = planDeployReadyVtcUnits(gs, player, actions, terrain, {
+      capital: myCapital,
+      focusEnemy: enemyHQs[0],
+      unitObjective: {},
+      territorial: null,
+    });
+    if (n > 0) return n;
   }
 
   if (actions.filter(a => a.type === 'recruit').length < maxRecruitsThisTurn && recruitAllowed('INFANTRY')) {
@@ -3526,6 +3545,13 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   assignHoldVTCCMissions(gs, player, unitObjective, sortedCombat, perceivedEnemies);
   assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjective, sortedCombat, flankCountForGarrison);
 
+  planDeployReadyVtcUnits(gs, player, actions, terrain, {
+    capital: getPlayerCapital(gs, player),
+    focusEnemy: strategic?.focusEnemyHQ || enemyHQs[0],
+    unitObjective,
+    territorial,
+  });
+
   const opening = getOpeningMilestones(gs, player, situation);
   const roadFloor = getRoadFloor(gs.turn || 1);
   const dynamicRoadTarget = getDynamicRoadTarget(gs, player, situation, armyBudget);
@@ -4377,6 +4403,12 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   const exitIfOverPlan = () => {
     if (!overPlan()) return false;
+    planDeployReadyVtcUnits(gs, player, actions, terrain, {
+      capital: myCapital,
+      focusEnemy: strategic?.focusEnemyHQ || enemyHQs[0],
+      unitObjective: aiCtx?.unitObjective || {},
+      territorial,
+    });
     if (gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked).length === 0) {
       planArmyRecovery(gs, player, actions, resSim, spend, noteRecruit, recruitAllowed, myCapital, maxRecruitsThisTurn);
     }
@@ -4395,36 +4427,13 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const focusEnemy = strategic?.focusEnemyHQ
     || pickPrimaryEnemyHQ(gs, player, getEnemyCapitalBuildings(gs, player))
     || getEnemyCapitalBuildings(gs, player)[0];
-  const deployCtx = {
-    capital: myCapital,
-    focusEnemy,
-    unitObjective: aiCtx?.unitObjective,
-    territorial: strategic?.territorial,
-  };
-  for (const b of gs.buildings) {
-    if (overPlan()) break;
-    if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type)) continue;
-    for (const ready of b.readyUnits || []) {
-      if (actions.some(a => a.type === 'global_deploy' && a.readyId === ready.id)) continue;
-      const sites = enumerateVtcDeployHexes(gs, player, b.id, ready.type);
-      if (!sites.length) continue;
-      let best = sites[0];
-      let bestScore = -Infinity;
-      for (const site of sites) {
-        const score = scoreGlobalDeploySite(gs, player, site, ready, terrain, deployCtx);
-        if (score > bestScore) { bestScore = score; best = site; }
-      }
-      const forceNavalDeploy = NAVAL_UNITS.has(ready.type);
-      if (forceNavalDeploy || bestScore > -9000 || (liveUnitsNow === 0 && sites.length > 0)) {
-        actions.unshift({
-          type: 'global_deploy',
-          readyId: ready.id,
-          buildingId: b.id,
-          q: best.q,
-          r: best.r,
-        });
-      }
-    }
+  if (!overPlan()) {
+    planDeployReadyVtcUnits(gs, player, actions, terrain, {
+      capital: myCapital,
+      focusEnemy,
+      unitObjective: aiCtx?.unitObjective,
+      territorial: strategic?.territorial,
+    });
   }
 
   if (armyRebuildMode) {

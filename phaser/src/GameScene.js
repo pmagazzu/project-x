@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.10';
+export const GAME_VERSION = 'v1.21.11';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -1499,7 +1499,7 @@ export class GameScene extends Phaser.Scene {
       this._restoreSpectatorCamera(camSnap);
       return;
     }
-    this._invalidateSupplyCache();
+    if (opts.invalidateSupply) this._invalidateSupplyCache();
     // Normalize currentPlayer defensively (prevents '2' string vs 2 number bugs across visibility logic)
     this.gameState.currentPlayer = Number(this.gameState.currentPlayer) || 1;
     this.gameState._terrain = this.terrain;
@@ -1522,7 +1522,10 @@ export class GameScene extends Phaser.Scene {
       for (const pid of getPlayerIds(this.gameState)) {
         if (!this._discovered[pid]) this._discovered[pid] = new Set();
       }
-      for (const k of this._currentFog || []) this._discovered[cp].add(k);
+      const disc = this._discovered[cp];
+      if (disc.size < 48000) {
+        for (const k of this._currentFog || []) disc.add(k);
+      }
       if (this.fogRT) this.fogRT.setVisible(true);
       this._fogDirty = true;
     }
@@ -8626,7 +8629,7 @@ export class GameScene extends Phaser.Scene {
     // Plan all actions (does NOT execute — pure data). Yield first so UI can paint "acting…".
     let actions = [];
     const mapN = Number(this.mapSize || gs._mapSize || 40);
-    const plannerMs = mapN >= 120 ? 3200 : (mapN >= 60 ? 2600 : 6000);
+    const plannerMs = mapN >= 150 ? 2800 : (mapN >= 120 ? 3200 : (mapN >= 60 ? 2400 : 6000));
     gs._aiPlannerDeadline = performance.now() + plannerMs;
     const tPlan0 = performance.now();
     try {
@@ -8872,13 +8875,19 @@ export class GameScene extends Phaser.Scene {
       }
 
     } else if (action.type === 'global_deploy') {
+      const unitType = action.unitType
+        || gs.buildings.find(b => b.id === action.buildingId)?.readyUnits
+          ?.find(r => r.id === action.readyId)?.type;
       const out = action.buildingId
         ? deployReadyVtcUnitAtHex(gs, gs.currentPlayer, action.buildingId, action.readyId, action.q, action.r)
         : deployReadyGlobalRecruitAtHex(gs, gs.currentPlayer, action.readyId, action.q, action.r);
       if (out.ok) {
-        this._pushLog(`AI deployed ${UNIT_TYPES[ready?.type]?.name || ready?.type || 'unit'} at (${action.q},${action.r})`);
+        this._pushLog(`AI deployed ${UNIT_TYPES[unitType]?.name || unitType || 'unit'} at (${action.q},${action.r})`);
+        this._invalidateSupplyCache();
+        this._aiRefreshAfterBuild(false);
+      } else {
+        this._pushLog(`AI deploy failed: ${out.reason || 'unknown'} (${unitType || 'unit'})`);
       }
-      this._refresh();
       this._updateTopBar();
       next();
 

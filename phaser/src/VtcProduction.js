@@ -175,6 +175,9 @@ export function canQueueVtcRecruit(state, player, unitType, buildingId) {
   if (b.trainQueue.length >= MAX_VTC_TRAIN_QUEUE) {
     return { ok: false, reason: `Queue full (${MAX_VTC_TRAIN_QUEUE})` };
   }
+  if ((b.readyUnits?.length || 0) >= 2) {
+    return { ok: false, reason: 'Deploy ready units first' };
+  }
   if (NAVAL_UNITS.has(unitType)) {
     const readyNaval = (b.readyUnits || []).filter((r) => NAVAL_UNITS.has(r.type));
     if (readyNaval.some((r) => countVtcNavalDeployHexes(state, player, buildingId, r.type) === 0)) {

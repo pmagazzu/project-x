@@ -1980,24 +1980,14 @@ export function isCoastalLandHex(terrain, mapSize, q, r) {
   return false;
 }
 
-/** VTC may queue naval units — on the coast or within 2 hexes of water (not deep interior). */
+/** VTC may queue naval units — coastal settlement or water within 4 hexes (not deep interior). */
 export function canQueueNavalAtVtc(state, b) {
   if (!b) return false;
   if (b.starterNaval) return true;
   const ms = state._mapSize || 25;
   const terrain = state._terrain;
   if (isCoastalLandHex(terrain, ms, b.q, b.r)) return true;
-  for (let dq = -2; dq <= 2; dq++) {
-    for (let dr = -2; dr <= 2; dr++) {
-      const q = b.q + dq;
-      const r = b.r + dr;
-      if (q < 0 || r < 0 || q >= ms || r >= ms) continue;
-      if (hexDistance(b.q, b.r, q, r) > 2) continue;
-      const t = terrain?.[`${q},${r}`] ?? 0;
-      if (t === 4 || t === 5) return true;
-    }
-  }
-  return false;
+  return isNavalDeployAllowed(state, b, 4);
 }
 
 export function isNavalDeployAllowed(state, b, maxR = 6) {
