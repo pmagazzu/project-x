@@ -3,7 +3,7 @@
  * Shared by AIPlayer.js (planning) and AIDesigner.js (closing pressure).
  */
 
-import { UNIT_TYPES, BUILDING_TYPES, hexDistance } from './GameState.js';
+import { UNIT_TYPES, BUILDING_TYPES, hexDistance, calcPopFieldedByPlayer } from './GameState.js';
 
 function isCombatUnitType(type) {
   const d = UNIT_TYPES[type] || {};
@@ -41,7 +41,8 @@ export function getAIArmyBudget(gs, player, mapSize = 40, situation = null) {
   let pending = (gs?.pendingRecruits || []).filter(r => Number(r.owner) === Number(player)).length;
   for (const b of gs?.buildings || []) {
     if (Number(b.owner) !== Number(player)) continue;
-    pending += (b.trainQueue?.length || 0) + (b.readyUnits?.length || 0);
+    pending += (b.readyUnits?.length || 0);
+    if ((b.trainQueue?.length || 0) > 0) pending += 1;
   }
 
   const mapScale = ms / 40;

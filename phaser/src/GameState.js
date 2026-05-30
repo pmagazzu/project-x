@@ -11,7 +11,7 @@ import {
   canQueueVtcRecruit, canQueueGlobalRecruit, queueVtcRecruit, queueGlobalRecruit,
   deployReadyVtcUnitAtHex, deployReadyGlobalRecruitAtHex, deployReadyGlobalRecruit,
   enumerateVtcDeployHexes, enumerateGlobalDeployHexes,
-  tickVtcProduction, migrateGlobalQueuesToVtc, getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
+  tickVtcProduction, forceDeployStrandedVtcReady, migrateGlobalQueuesToVtc, getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
   LEGACY_PRODUCTION_MAP_HIDDEN, getVtcFacilityBadgeGlyphs, getVtcFacilityChips, getVtcInspectorLines,
   countPlayerVtcUpgrade, countPlayerScienceLabs, countPlayerFactories, countPlayerBarracksFacilities,
 } from './VtcProduction.js';
@@ -22,7 +22,7 @@ export {
   canQueueVtcRecruit, canQueueGlobalRecruit, queueVtcRecruit, queueGlobalRecruit,
   deployReadyVtcUnitAtHex, deployReadyGlobalRecruitAtHex, deployReadyGlobalRecruit,
   enumerateVtcDeployHexes, enumerateGlobalDeployHexes,
-  tickVtcProduction, getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
+  tickVtcProduction, forceDeployStrandedVtcReady, getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
   LEGACY_PRODUCTION_MAP_HIDDEN, getVtcFacilityBadgeGlyphs, getVtcFacilityChips, getVtcInspectorLines,
   countPlayerVtcUpgrade, countPlayerScienceLabs, countPlayerFactories, countPlayerBarracksFacilities,
 };
@@ -2611,6 +2611,7 @@ export function resolveTurn(state, terrain) {
   for (const player of [1, 2]) {
     tickVtcUpgrades(state, player, events);
     tickVtcProduction(state, player, events);
+    forceDeployStrandedVtcReady(state, player, events);
     tickSettlementPromotions(state, player, events);
     recalcPlayerPopulation(state, player);
   }
@@ -3369,16 +3370,15 @@ function findFreeAdjacentHex(state, q, r, unitType = null, terrain = null, spawn
   return null;
 }
 
-/** Units on map or production that will field new units soon. */
+/** Units on map, ready to deploy, or legacy barracks pipeline — not deep train backlogs alone. */
 export function playerHasActiveForces(state, player) {
   const p = Number(player);
-  if ((state.units || []).some((u) => Number(u.owner) === p)) return true;
+  if (calcPopFieldedByPlayer(state, p) > 0) return true;
   if ((state.pendingRecruits || []).some((r) => Number(r.owner) === p)) return true;
   if ((state.readyGlobalRecruits || []).some((r) => Number(r.owner) === p)) return true;
   if ((state.pendingGlobalRecruits || []).some((r) => Number(r.owner) === p)) return true;
   for (const b of state.buildings || []) {
     if (Number(b.owner) !== p) continue;
-    if ((b.trainQueue?.length || 0) > 0) return true;
     if ((b.readyUnits?.length || 0) > 0) return true;
   }
   return false;
@@ -3452,6 +3452,12 @@ export function checkWinner(state) {
 /** Endless/spectator duels that never grow past a token force (supply trap, no combat). */
 export function checkLongRunStalemate(state) {
   const turn = state.turn || 1;
+  if (turn >= 50) {
+    const ids = getPlayerIds(state).filter((p) => getPlayerCapital(state, p));
+    const withFielded = ids.filter((p) => calcPopFieldedByPlayer(state, p) > 0);
+    if (withFielded.length === 1) return withFielded[0];
+    if (withFielded.length === 0 && ids.length >= 2) return resolveStandoffWinner(state);
+  }
   if (turn < 150) return null;
   const ids = getPlayerIds(state).filter((p) => getPlayerCapital(state, p));
   if (ids.length < 2) return null;

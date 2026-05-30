@@ -4,7 +4,7 @@
 import {
   UNIT_TYPES, NAVAL_UNITS, AIR_UNITS, LOCKED_CHASSIS,
   getBuildingTierForDeploy, isNavalDeployAllowed, getNavalCoastalCheckRadius, canQueueNavalAtVtc,
-  isNavalAllowedAtVTCTier, getRecruitFoodCost, getUnitPopCost, recalcPlayerPopulation, getPopBreakdown,
+  isNavalAllowedAtVTCTier, getRecruitFoodCost, getUnitPopCost, recalcPlayerPopulation, getPopBreakdown, calcPopFieldedByPlayer,
   getPlayerCapital, isPlayerCapitalBuilding, PRODUCTION_VTC_TYPES,
   CITY_YARD_NAVAL_UNITS, hexDistance, createUnit, buildingAt, ROAD_TYPES,
   canEnterTerrain, VTC_SUPPLY_RADIUS,
@@ -366,6 +366,28 @@ export function tickVtcProduction(state, player, events = []) {
       events.push(`P${player} ${UNIT_TYPES[head.type]?.name || head.type} ready at ${vtcName} (${b.q},${b.r})`);
     }
   }
+}
+
+/** When the map army is gone, spawn ready VTC units instead of leaving them stranded in the bay. */
+export function forceDeployStrandedVtcReady(state, player, events = []) {
+  if (calcPopFieldedByPlayer(state, player) > 0) return 0;
+  let deployed = 0;
+  for (const b of state.buildings) {
+    if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type) || b.underConstruction) continue;
+    ensureVtcProductionFields(b);
+    const readyCopy = [...(b.readyUnits || [])];
+    for (const ready of readyCopy) {
+      const sites = enumerateVtcDeployHexes(state, player, b.id, ready.type);
+      if (!sites.length) continue;
+      const site = sites[0];
+      const out = deployReadyVtcUnitAtHex(state, player, b.id, ready.id, site.q, site.r);
+      if (out.ok) {
+        deployed += 1;
+        events.push(`P${player} deployed ${UNIT_TYPES[ready.type]?.name || ready.type} from VTC (${b.q},${b.r})`);
+      }
+    }
+  }
+  return deployed;
 }
 
 /** Legacy production structures — hidden on map; facilities live on VTC upgrades. */
