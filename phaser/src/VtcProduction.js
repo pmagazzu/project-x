@@ -1,0 +1,357 @@
+/**
+ * Per-VTC training queues — each settlement trains and holds its own units.
+ */
+import {
+  UNIT_TYPES, NAVAL_UNITS, AIR_UNITS, LOCKED_CHASSIS,
+  getBuildingTierForDeploy, isNavalDeployAllowed, getNavalCoastalCheckRadius,
+  isNavalAllowedAtVTCTier, getRecruitFoodCost, getUnitPopCost, recalcPlayerPopulation,
+  getPlayerCapital, isPlayerCapitalBuilding, PRODUCTION_VTC_TYPES,
+  CITY_YARD_NAVAL_UNITS, hexDistance, createUnit, buildingAt, ROAD_TYPES,
+  canEnterTerrain,
+} from './GameState.js';
+
+const HEX_NEIGHBORS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
+import { isVtcUpgradeComplete, vtcHasNavalYard } from './SettlementSystem.js';
+
+export const MAX_VTC_TRAIN_QUEUE = 4;
+let _nextTrainId = 1;
+
+export function ensureVtcProductionFields(building) {
+  if (!building.trainQueue) building.trainQueue = [];
+  if (!building.readyUnits) building.readyUnits = [];
+}
+
+/** Migrate legacy global queues onto buildings (first load). */
+export function migrateGlobalQueuesToVtc(state) {
+  const pending = state.pendingGlobalRecruits || [];
+  const ready = state.readyGlobalRecruits || [];
+  for (const r of pending) {
+    const b = state.buildings.find(x => x.id === r.sourceBuildingId);
+    if (b) {
+      ensureVtcProductionFields(b);
+      b.trainQueue.push({
+        id: r.id || _nextTrainId++,
+        type: r.type,
+        turnsLeft: r.turnsLeft ?? 1,
+      });
+    }
+  }
+  for (const r of ready) {
+    const b = state.buildings.find(x => x.id === r.sourceBuildingId)
+      || state.buildings.find(x =>
+        PRODUCTION_VTC_TYPES.has(x.type) && Number(x.owner) === Number(r.owner) && !x.underConstruction);
+    if (b) {
+      ensureVtcProductionFields(b);
+      b.readyUnits.push({ id: r.id || _nextTrainId++, type: r.type });
+    }
+  }
+  state.pendingGlobalRecruits = [];
+  state.readyGlobalRecruits = [];
+}
+
+function isCityYardNavalEligible(state, player, b, unitType) {
+  if (!CITY_YARD_NAVAL_UNITS.includes(unitType)) return false;
+  if (b.type !== 'CITY') return false;
+  if (!vtcHasNavalYard(state, player, b)) return false;
+  if (LOCKED_CHASSIS.has(unitType)) {
+    const unlocked = new Set(state.players[player]?.research?.unlocked || []);
+    if (unitType === 'DESTROYER_MK1' && !unlocked.has('destroyer_mk1')) return false;
+  }
+  return isNavalDeployAllowed(state, b, getNavalCoastalCheckRadius(b));
+}
+
+/** Units this VTC can train based on tier + purchased facilities. */
+export function getRecruitOptionsForVTC(state, player, buildingId) {
+  const b = state.buildings.find(x => x.id === buildingId && Number(x.owner) === Number(player) && !x.underConstruction);
+  if (!b || !PRODUCTION_VTC_TYPES.has(b.type)) return [];
+
+  const tier = getBuildingTierForDeploy(b);
+  if (tier < 0) return [];
+
+  const opts = new Set();
+  const cap = isPlayerCapitalBuilding(b);
+
+  if (cap) {
+    ['INFANTRY', 'ENGINEER', 'RECON', 'SUPPLY_TRUCK'].forEach(u => opts.add(u));
+  } else if (isVtcUpgradeComplete(b, 'barracks')) {
+    ['INFANTRY', 'RECON', 'ANTI_TANK', 'MORTAR', 'MEDIC', 'ENGINEER'].forEach(u => opts.add(u));
+  } else {
+    opts.add('INFANTRY');
+  }
+  if (isVtcUpgradeComplete(b, 'local_farm') || cap) {
+    opts.add('SUPPLY_TRUCK');
+  }
+  if (tier >= 1 || isVtcUpgradeComplete(b, 'factory')) {
+    opts.add('TANK', 'ARTILLERY');
+  }
+  if (tier >= 1 || isVtcUpgradeComplete(b, 'science_lab')) {
+    opts.add('BIPLANE_FIGHTER', 'LIGHT_BOMBER', 'OBS_PLANE');
+  }
+
+  if (NAVAL_UNITS.has('PATROL_BOAT')) {
+    const coastalR = getNavalCoastalCheckRadius(b);
+    if (isNavalDeployAllowed(state, b, coastalR)) {
+      const navalList = isNavalAllowedAtVTCTier(tier, 'PATROL_BOAT')
+        ? ['PATROL_BOAT', 'MTB', 'TORPEDO_BOAT', 'LANDING_CRAFT']
+        : [];
+      for (const u of navalList) {
+        if (isNavalAllowedAtVTCTier(tier, u)) opts.add(u);
+      }
+      if (tier >= 1 && isVtcUpgradeComplete(b, 'local_farm')) opts.add('SUPPLY_SHIP');
+      if (isVtcUpgradeComplete(b, 'naval_yard') || cap) {
+        ['MOTOR_GUNBOAT', 'TRANSPORT_SM', 'DESTROYER', 'SUBMARINE'].forEach(u => {
+          if (isNavalAllowedAtVTCTier(tier, u) || tier >= 2) opts.add(u);
+        });
+      }
+    }
+  }
+
+  for (const u of CITY_YARD_NAVAL_UNITS) {
+    if (isCityYardNavalEligible(state, player, b, u)) opts.add(u);
+  }
+
+  return [...opts].filter((unitType) => {
+    const def = UNIT_TYPES[unitType] || {};
+    if (def.unlockedBy && !(state.players[player]?.research?.unlocked || []).includes(def.unlockedBy)) return false;
+    return true;
+  });
+}
+
+export function getGlobalRecruitOptionsForVTC(state, player, buildingId) {
+  return getRecruitOptionsForVTC(state, player, buildingId);
+}
+
+export function getGlobalRecruitOptionsForPlayer(state, player) {
+  const opts = new Set();
+  for (const b of state.buildings.filter(x =>
+    PRODUCTION_VTC_TYPES.has(x.type) && Number(x.owner) === Number(player) && !x.underConstruction)) {
+    for (const t of getRecruitOptionsForVTC(state, player, x.id)) opts.add(t);
+  }
+  return [...opts];
+}
+
+export function deployReadyGlobalRecruit(state, player, readyId, buildingId) {
+  const b = state.buildings.find(x => x.id === buildingId && Number(x.owner) === Number(player));
+  if (!b?.readyUnits?.length) return { ok: false, reason: 'No ready unit' };
+  const ready = b.readyUnits.find(r => r.id === readyId);
+  if (!ready) return { ok: false, reason: 'Unit not at this VTC' };
+  const sites = enumerateVtcDeployHexes(state, player, buildingId, ready.type);
+  const site = sites[0];
+  if (!site) return { ok: false, reason: 'No deploy hex' };
+  return deployReadyVtcUnitAtHex(state, player, buildingId, readyId, site.q, site.r);
+}
+
+export function getVtcTrainQueue(building) {
+  ensureVtcProductionFields(building);
+  return building.trainQueue;
+}
+
+export function getVtcReadyUnits(building) {
+  ensureVtcProductionFields(building);
+  return building.readyUnits;
+}
+
+export function getVtcQueueSummary(state, player, buildingId) {
+  const b = state.buildings.find(x => x.id === buildingId);
+  if (!b) return { pending: [], ready: [], training: null };
+  ensureVtcProductionFields(b);
+  return {
+    pending: [...b.trainQueue],
+    ready: [...b.readyUnits],
+    training: b.trainQueue[0] || null,
+  };
+}
+
+export function canQueueVtcRecruit(state, player, unitType, buildingId) {
+  const opts = getRecruitOptionsForVTC(state, player, buildingId);
+  if (!opts.includes(unitType)) return { ok: false, reason: 'Requires facility upgrade at this VTC' };
+  const b = state.buildings.find(x => x.id === buildingId);
+  if (!b) return { ok: false, reason: 'Invalid VTC' };
+  ensureVtcProductionFields(b);
+  if (b.trainQueue.length >= MAX_VTC_TRAIN_QUEUE) {
+    return { ok: false, reason: `Queue full (${MAX_VTC_TRAIN_QUEUE})` };
+  }
+  const def = UNIT_TYPES[unitType];
+  if (!def) return { ok: false, reason: 'Unknown unit' };
+  const pl = state.players[player];
+  if ((pl.iron || 0) < (def.cost.iron || 0)) return { ok: false, reason: 'Not enough iron' };
+  if ((pl.oil || 0) < (def.cost.oil || 0)) return { ok: false, reason: 'Not enough oil' };
+  if ((pl.components || 0) < (def.cost.components || 0)) return { ok: false, reason: 'Not enough components' };
+  const foodCost = getRecruitFoodCost(unitType);
+  if ((pl.food || 0) < foodCost) return { ok: false, reason: 'Not enough food' };
+  recalcPlayerPopulation(state, player);
+  const popCost = getUnitPopCost(unitType);
+  if ((pl.population || 0) < popCost) {
+    return { ok: false, reason: `Need ${popCost} population (${pl.population || 0}/${pl.popCap || 0})` };
+  }
+  return { ok: true };
+}
+
+export function canQueueGlobalRecruit(state, player, unitType, buildingId) {
+  return canQueueVtcRecruit(state, player, unitType, buildingId);
+}
+
+export function queueVtcRecruit(state, player, unitType, buildingId) {
+  const check = canQueueVtcRecruit(state, player, unitType, buildingId);
+  if (!check.ok) return check;
+  const def = UNIT_TYPES[unitType];
+  const pl = state.players[player];
+  const b = state.buildings.find(x => x.id === buildingId);
+  pl.iron -= (def.cost.iron || 0);
+  pl.oil -= (def.cost.oil || 0);
+  pl.components = (pl.components || 0) - (def.cost.components || 0);
+  pl.food = (pl.food || 0) - getRecruitFoodCost(unitType);
+  pl.population = Math.max(0, (pl.population || 0) - getUnitPopCost(unitType));
+  ensureVtcProductionFields(b);
+  b.trainQueue.push({
+    id: _nextTrainId++,
+    type: unitType,
+    turnsLeft: def.buildTime ?? 1,
+  });
+  return { ok: true };
+}
+
+export function queueGlobalRecruit(state, player, unitType, buildingId) {
+  return queueVtcRecruit(state, player, unitType, buildingId);
+}
+
+export function cancelVtcQueueHead(state, player, buildingId) {
+  const b = state.buildings.find(x => x.id === buildingId && Number(x.owner) === Number(player));
+  if (!b?.trainQueue?.length) return { ok: false, reason: 'Queue empty' };
+  const head = b.trainQueue.shift();
+  return { ok: true, type: head.type };
+}
+
+function canSpawnUnitAtHex(state, player, unitType, q, r, anchorQ, anchorR) {
+  const mapSize = state._mapSize || 25;
+  const terrain = state._terrain;
+  const isValid = (x, y) => x >= 0 && y >= 0 && x < mapSize && y < mapSize;
+  if (!isValid(q, r)) return false;
+  const unitsHere = state.units.filter(u => !u.dead && u.q === q && u.r === r);
+  if (Number(player) !== null && unitsHere.some(u => Number(u.owner) !== Number(player))) return false;
+  const isOrigin = (q === anchorQ && r === anchorR);
+  if (isOrigin) {
+    if (unitsHere.some(u => u.type !== 'ENGINEER' && !AIR_UNITS.has(u.type))) return false;
+  } else if (unitsHere.length > 0) return false;
+  const bld = buildingAt(state, q, r);
+  if (bld && !ROAD_TYPES.has(bld.type) && !(q === anchorQ && r === anchorR)) return false;
+  if (unitType && terrain) {
+    const ttype = terrain[`${q},${r}`] ?? 0;
+    if (!canEnterTerrain(unitType, ttype)) return false;
+  }
+  return true;
+}
+
+export function enumerateVtcDeployHexes(state, player, buildingId, unitType) {
+  const b = state.buildings.find(x => x.id === buildingId && Number(x.owner) === Number(player) && !x.underConstruction);
+  if (!b) return [];
+  const out = [];
+  const seen = new Set();
+  const isNaval = NAVAL_UNITS.has(unitType);
+  const mapSize = state._mapSize || 25;
+  const terrain = state._terrain;
+
+  if (isNaval) {
+    const radius = getNavalCoastalCheckRadius(b);
+    for (let dq = -radius; dq <= radius; dq++) {
+      for (let dr = -radius; dr <= radius; dr++) {
+        const q = b.q + dq, r = b.r + dr;
+        if (q < 0 || r < 0 || q >= mapSize || r >= mapSize) continue;
+        if (hexDistance(b.q, b.r, q, r) > radius) continue;
+        const t = terrain?.[`${q},${r}`] ?? 0;
+        if (t !== 4 && t !== 5) continue;
+        const k = `${q},${r}`;
+        if (seen.has(k)) continue;
+        if (!canSpawnUnitAtHex(state, player, unitType, q, r, b.q, b.r)) continue;
+        seen.add(k);
+        out.push({ q, r, buildingId: b.id });
+      }
+    }
+    return out;
+  }
+
+  const candidates = b.type === 'HQ'
+    ? HEX_NEIGHBORS.map(([dq, dr]) => ({ q: b.q + dq, r: b.r + dr }))
+    : [{ q: b.q, r: b.r }, ...HEX_NEIGHBORS.map(([dq, dr]) => ({ q: b.q + dq, r: b.r + dr }))];
+  for (const { q, r } of candidates) {
+    const k = `${q},${r}`;
+    if (seen.has(k)) continue;
+    if (!canSpawnUnitAtHex(state, player, unitType, q, r, b.q, b.r)) continue;
+    seen.add(k);
+    out.push({ q, r, buildingId: b.id });
+  }
+  return out;
+}
+
+export function enumerateGlobalDeployHexes(state, player, unitType, sourceBuildingId = null) {
+  if (sourceBuildingId != null) {
+    return enumerateVtcDeployHexes(state, player, sourceBuildingId, unitType);
+  }
+  const out = [];
+  const seen = new Set();
+  for (const b of state.buildings) {
+    if (!PRODUCTION_VTC_TYPES.has(b.type) || Number(b.owner) !== Number(player) || b.underConstruction) continue;
+    for (const site of enumerateVtcDeployHexes(state, player, b.id, unitType)) {
+      const k = `${site.q},${site.r}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(site);
+    }
+  }
+  return out;
+}
+
+export function deployReadyVtcUnitAtHex(state, player, buildingId, readyId, q, r) {
+  const b = state.buildings.find(x => x.id === buildingId && Number(x.owner) === Number(player));
+  if (!b) return { ok: false, reason: 'Invalid VTC' };
+  ensureVtcProductionFields(b);
+  const idx = b.readyUnits.findIndex(r => r.id === readyId);
+  if (idx < 0) return { ok: false, reason: 'No ready unit here' };
+  const ready = b.readyUnits[idx];
+  const sites = enumerateVtcDeployHexes(state, player, buildingId, ready.type);
+  if (!sites.some(s => s.q === q && s.r === r)) return { ok: false, reason: 'Cannot deploy here' };
+  state.units.push(createUnit(ready.type, player, q, r));
+  b.readyUnits.splice(idx, 1);
+  return { ok: true };
+}
+
+export function deployReadyGlobalRecruitAtHex(state, player, readyId, q, r) {
+  for (const b of state.buildings) {
+    if (Number(b.owner) !== Number(player)) continue;
+    ensureVtcProductionFields(b);
+    if (b.readyUnits?.some(ru => ru.id === readyId)) {
+      return deployReadyVtcUnitAtHex(state, player, b.id, readyId, q, r);
+    }
+  }
+  return { ok: false, reason: 'No ready unit' };
+}
+
+export function tickVtcProduction(state, player, events = []) {
+  for (const b of state.buildings) {
+    if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type)) continue;
+    ensureVtcProductionFields(b);
+    if (!b.trainQueue.length) continue;
+    const head = b.trainQueue[0];
+    head.turnsLeft = Math.max(0, (head.turnsLeft ?? 1) - 1);
+    if (head.turnsLeft <= 0) {
+      b.readyUnits.push({ id: head.id, type: head.type });
+      b.trainQueue.shift();
+      const vtcName = b.type;
+      events.push(`P${player} ${UNIT_TYPES[head.type]?.name || head.type} ready at ${vtcName} (${b.q},${b.r})`);
+    }
+  }
+}
+
+/** Facility labels for UI chips. */
+export function getVtcFacilityChips(building) {
+  if (!building) return [];
+  const chips = [];
+  if (isPlayerCapitalBuilding(building)) chips.push('Capital');
+  if (isVtcUpgradeComplete(building, 'barracks')) chips.push('Barracks');
+  if (isVtcUpgradeComplete(building, 'local_farm')) chips.push('Farm');
+  if (isVtcUpgradeComplete(building, 'factory')) chips.push('Factory');
+  if (isVtcUpgradeComplete(building, 'science_lab')) chips.push('Lab');
+  if (isVtcUpgradeComplete(building, 'naval_yard')) chips.push('Naval');
+  if (isVtcUpgradeComplete(building, 'housing')) chips.push('Housing');
+  return chips;
+}

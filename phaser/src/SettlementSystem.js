@@ -5,11 +5,12 @@
 import {
   hexDistance, ROAD_TYPES,
   getPlayerCapital, isPlayerCapitalBuilding,
-  getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit,
+  canQueueGlobalRecruit,
   getBuildingTierForDeploy, isNavalDeployAllowed, getNavalCoastalCheckRadius,
   isNavalAllowedAtVTCTier, UNIT_TYPES, NAVAL_UNITS, LOCKED_CHASSIS,
   PRODUCTION_VTC_TYPES, CITY_YARD_NAVAL_UNITS,
 } from './GameState.js';
+import { getRecruitOptionsForVTC } from './VtcProduction.js';
 
 export { CITY_YARD_NAVAL_UNITS };
 
@@ -376,12 +377,12 @@ export function getProduceQueueStatus(gs, player, anchorId, unitType) {
       const tid = techMap[unitType];
       if (tid && !unlocked.has(tid)) return { ok: false, reason: 'Requires research unlock' };
     }
-    const opts = getGlobalRecruitOptionsForVTC(gs, player, anchorId);
+    const opts = getRecruitOptionsForVTC(gs, player, anchorId);
     if (!opts.includes(unitType)) return { ok: false, reason: 'Not available at this City' };
     return canQueueGlobalRecruit(gs, player, unitType, anchorId);
   }
 
-  const opts = getGlobalRecruitOptionsForVTC(gs, player, anchorId);
+  const opts = getRecruitOptionsForVTC(gs, player, anchorId);
   if (!opts.includes(unitType)) {
     if (NAVAL_UNITS.has(unitType)) {
       const tier = getBuildingTierForDeploy(anchor);
@@ -408,7 +409,7 @@ export function getProduceQueueStatus(gs, player, anchorId, unitType) {
 }
 
 export function getProduceCatalog(gs, player, anchorId) {
-  const fromOpts = new Set(getGlobalRecruitOptionsForVTC(gs, player, anchorId));
+  const fromOpts = new Set(getRecruitOptionsForVTC(gs, player, anchorId));
   for (const u of CITY_YARD_NAVAL_UNITS) fromOpts.add(u);
   const order = [
     'INFANTRY', 'RECON', 'ENGINEER', 'ANTI_TANK', 'MORTAR', 'MEDIC', 'SUPPLY_TRUCK',

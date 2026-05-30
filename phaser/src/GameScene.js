@@ -13,7 +13,8 @@ import {
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
   findPath, findRoadPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, queueGlobalRecruit, deployReadyGlobalRecruit,
   getGlobalRecruitOptionsForVTC, getGlobalRecruitOptionsForPlayer, pickProductionAnchorBuilding, getOwnedDeployVTBuildings,
-  enumerateGlobalDeployHexes, deployReadyGlobalRecruitAtHex, upgradeSettlement, canPromoteSettlement, PRODUCTION_VTC_TYPES,
+  enumerateGlobalDeployHexes, deployReadyGlobalRecruitAtHex, deployReadyVtcUnitAtHex, upgradeSettlement, canPromoteSettlement, PRODUCTION_VTC_TYPES,
+  getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
   isNavalDeployAllowed, getNavalCoastalCheckRadius, getNavalDeployRadius,
   isHQNetworkPluggedToNeutralRoads, registerDesign,
   getUnitPopCost, recalcPlayerPopulation,
@@ -45,6 +46,9 @@ import { getBuildingCounterGlyph } from './BuildingCounters.js';
 import {
   getVtcUpgradeMenu, getProduceCatalog, purchaseVtcUpgrade,
 } from './SettlementSystem.js';
+import {
+  migrateGlobalQueuesToVtc, enumerateVtcDeployHexes, getVtcFacilityChips, cancelVtcQueueHead,
+} from './VtcProduction.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
 const TERRAIN        = { PLAINS: 0, FOREST: 1, MOUNTAIN: 2, HILL: 3, SHALLOW: 4, OCEAN: 5, SAND: 6 };
@@ -54,7 +58,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.20.9';
+export const GAME_VERSION = 'v1.21.0';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -288,6 +292,7 @@ export class GameScene extends Phaser.Scene {
       victoryMode: data.victoryMode || VICTORY_MODES.ELIMINATION,
       victoryPointTarget: data.victoryPointTarget || 100,
     });
+    migrateGlobalQueuesToVtc(this.gameState);
     this.gameState._techTree = TECH_TREE; // inject for resolveEndOfTurn research tick
     this.gameState._aiPlayers = [...this.aiPlayers];
     this.terrain   = this._generateTerrain();
@@ -3005,8 +3010,12 @@ export class GameScene extends Phaser.Scene {
     const pl  = gs.players[p];
     const inc = calcIncome(gs, p);
     const myOrders = gs.pendingRecruits.filter(r => r.owner === p);
-    const myGlobalOrders = (gs.pendingGlobalRecruits || []).filter(r => r.owner === p);
-    const myReadyGlobal = (gs.readyGlobalRecruits || []).filter(r => r.owner === p);
+    let vtcQueued = 0, vtcReady = 0;
+    for (const b of gs.buildings) {
+      if (Number(b.owner) !== Number(p) || !PRODUCTION_VTC_TYPES.has(b.type)) continue;
+      vtcQueued += (b.trainQueue?.length || 0);
+      vtcReady += (b.readyUnits?.length || 0);
+    }
     const modeStr = this.mode === 'move' ? 'MOVING' : this.mode === 'sprint' ? 'SPRINTING' : this.mode === 'attack' ? 'ATTACKING' : 'PLANNING';
     const legacyQueue = myOrders.length
       ? myOrders.map(r => {
@@ -3016,11 +3025,9 @@ export class GameScene extends Phaser.Scene {
           return `⚙${name}(${r.turnsLeft}t)`;
         }).join(' ')
       : '';
-    const globalQueue = myGlobalOrders.length
-      ? myGlobalOrders.map(r => `🏭${UNIT_TYPES[r.type]?.name || r.type}(${r.turnsLeft}t)`).join(' ')
-      : '';
-    const readyQueue = myReadyGlobal.length ? `📦Ready:${myReadyGlobal.length}` : '';
-    const queueBits = [legacyQueue, globalQueue, readyQueue].filter(Boolean);
+    const vtcQueue = vtcQueued ? `🏭VTC×${vtcQueued}` : '';
+    const readyQueue = vtcReady ? `📦Ready:${vtcReady}` : '';
+    const queueBits = [legacyQueue, vtcQueue, readyQueue].filter(Boolean);
     const queueStr = queueBits.length ? `  |  ${queueBits.join(' ')}` : '';
 
     const upkeep = calcUpkeep(gs, p);
@@ -3164,16 +3171,26 @@ export class GameScene extends Phaser.Scene {
     ]);
   }
 
+  _isVtcBuildPanelActive() {
+    const focus = this._buildMenuFocusBuilding;
+    const p = this.gameState?.currentPlayer;
+    return !!(this._buildMenuOpen && focus && ['VILLAGE', 'TOWN', 'CITY'].includes(focus.type)
+      && Number(focus.owner) === Number(p));
+  }
+
   _getBottomChromeLayout() {
     const w = this.scale.width, h = this.scale.height;
     const engineerPanel = this._buildMenuOpen && this._isEngineerBuildPanelActive();
+    const vtcPanel = this._isVtcBuildPanelActive();
     const panH = engineerPanel
       ? Math.min(360, h - PLAYFIELD_UI.top - 16)
-      : (this._inspectorPanH || 212);
+      : vtcPanel
+        ? Math.min(Math.floor(h * 0.58), h - PLAYFIELD_UI.top - 24)
+        : (this._inspectorPanH || 212);
     const topY = h - panH;
-    const actionCx = w - 198;
-    const contentLeft = actionCx - 190;
-    return { w, h, panH, topY, actionCx, contentLeft };
+    const actionCx = w - (vtcPanel ? 210 : 198);
+    const contentLeft = actionCx - (vtcPanel ? 200 : 190);
+    return { w, h, panH, topY, actionCx, contentLeft, vtcPanel };
   }
 
   _renderEngineerBuildPanel(eng) {
@@ -3444,10 +3461,12 @@ export class GameScene extends Phaser.Scene {
     const recruit = gs.pendingRecruits.find(r => r.buildingId === bu.id && Number(r.owner) === Number(bu.owner));
     if (recruit) lines.push(`Training: ${recruit.type || 'unit'} (${recruit.turnsLeft} turns left)`);
     if (['VILLAGE', 'TOWN', 'CITY', 'HQ'].includes(bu.type) && isOwn) {
-      const gq = (gs.pendingGlobalRecruits || []).find(r => Number(r.owner) === Number(bu.owner));
-      if (gq) lines.push(`Global queue: ${UNIT_TYPES[gq.type]?.name || gq.type} (${gq.turnsLeft} turns left)`);
-      const ready = (gs.readyGlobalRecruits || []).filter(r => Number(r.owner) === Number(bu.owner)).length;
-      if (ready > 0) lines.push(`Ready deploys: ${ready}`);
+      const vs = getVtcQueueSummary(gs, bu.owner, bu.id);
+      if (vs.training) {
+        lines.push(`Training: ${UNIT_TYPES[vs.training.type]?.name || vs.training.type} (${vs.training.turnsLeft}t)`);
+      }
+      if (vs.pending.length > 1) lines.push(`Queued: ${vs.pending.length - 1} more`);
+      if (vs.ready.length) lines.push(`Ready to deploy: ${vs.ready.length}`);
     }
     if (['VILLAGE', 'TOWN', 'CITY'].includes(bu.type)) {
       const rad = VTC_SUPPLY_RADIUS[bu.type];
@@ -3525,19 +3544,40 @@ export class GameScene extends Phaser.Scene {
     this._dynBtns.push(bg, txt);
   }
 
-  _renderProductionPipeline(ax, y, pending, ready) {
-    const pipeW = 220;
-    const bg = this.add.rectangle(ax + pipeW / 2, y + 10, pipeW, 22, 0x141828, 0.95)
+  _renderVtcProductionPanel(ax, y, gs, p, buildingId, panelW = 220) {
+    const q = getVtcQueueSummary(gs, p, buildingId);
+    const bg = this.add.rectangle(ax + panelW / 2, y + 18, panelW, 38, 0x141828, 0.95)
       .setStrokeStyle(1, 0x334455).setScrollFactor(0).setDepth(111);
     this._uiLayer.add(bg);
     this._dynBtns.push(bg);
-    const qLabel = pending.length ? (UNIT_TYPES[pending[0].type]?.name || pending[0].type) : '—';
-    const rLabel = ready.length ? (UNIT_TYPES[ready[0].type]?.name || ready[0].type) : '—';
-    this._addBuildMenuText(ax + 6, y + 2, `QUEUE ${pending.length}`, { fill: '#88bbdd', font: 'bold 9px monospace' });
-    this._addBuildMenuText(ax + 72, y + 2, '▶', { fill: '#556677', font: '10px monospace' });
-    this._addBuildMenuText(ax + 88, y + 2, `READY ${ready.length}`, { fill: '#88dd99', font: 'bold 9px monospace' });
-    this._addBuildMenuText(ax + 6, y + 13, qLabel, { fill: '#aabbcc', font: '9px monospace' });
-    this._addBuildMenuText(ax + 88, y + 13, rLabel, { fill: '#bbeecc', font: '9px monospace' });
+    const train = q.training;
+    const trainLabel = train
+      ? `${UNIT_TYPES[train.type]?.name || train.type} (${train.turnsLeft ?? 0}t)`
+      : 'idle';
+    this._addBuildMenuText(ax + 6, y + 4, `TRAINING  ·  ${trainLabel}`, { fill: '#88bbdd', font: 'bold 9px monospace' });
+    const queueNames = q.pending.slice(1).map(r => UNIT_TYPES[r.type]?.name || r.type).join(', ');
+    this._addBuildMenuText(ax + 6, y + 16, `QUEUED ${q.pending.length}/${MAX_VTC_TRAIN_QUEUE}${queueNames ? `: ${queueNames}` : ''}`, {
+      fill: '#778899', font: '9px monospace',
+    });
+    const readyNames = q.ready.map(r => UNIT_TYPES[r.type]?.name || r.type).join(', ') || '—';
+    this._addBuildMenuText(ax + 6, y + 28, `READY (${q.ready.length}): ${readyNames}`, { fill: '#88dd99', font: '9px monospace' });
+    if (q.pending.length > 0 && this._isHumanTurn()) {
+      const cancel = this._addBuildMenuText(ax + panelW - 8, y + 4, '✕ cancel head', {
+        fill: '#ff8888', font: '9px monospace', originX: 1,
+      });
+      cancel.setInteractive({ useHandCursor: true });
+      cancel.on('pointerdown', () => {
+        const out = cancelVtcQueueHead(gs, p, buildingId);
+        if (out.ok) {
+          const def = UNIT_TYPES[out.type];
+          if (def?.cost) refundResources(gs.players[p], def.cost);
+          gs.players[p].food = (gs.players[p].food || 0) + getRecruitFoodCost(out.type);
+          gs.players[p].population = (gs.players[p].population || 0) + getUnitPopCost(out.type);
+        }
+        this._refresh();
+      });
+    }
+    return y + 42;
   }
 
   _formatRecruitCost(def, foodCost) {
@@ -3551,17 +3591,21 @@ export class GameScene extends Phaser.Scene {
   }
 
   _inspectorProductionSummary(gs, p) {
-    const pending = (gs.pendingGlobalRecruits || []).filter(r => Number(r.owner) === Number(p));
-    const ready = (gs.readyGlobalRecruits || []).filter(r => Number(r.owner) === Number(p));
-    const head = pending[0];
+    let training = 0, queued = 0, ready = 0;
+    for (const b of gs.buildings) {
+      if (Number(b.owner) !== Number(p) || !PRODUCTION_VTC_TYPES.has(b.type)) continue;
+      const s = getVtcQueueSummary(gs, p, b.id);
+      if (s.training) training++;
+      queued += s.pending.length;
+      ready += s.ready.length;
+    }
     const plugged = isHQNetworkPluggedToNeutralRoads(gs, p, this.mapSize);
     return {
       title: 'War production',
-      chips: `READY ${ready.length}  ·  QUEUE ${pending.length}${plugged ? '' : '  ·  ⚠ plug HQ to road grid'}`,
+      chips: `READY ${ready}  ·  QUEUED ${queued}  ·  TRAINING ${training}${plugged ? '' : '  ·  ⚠ plug HQ to road grid'}`,
       lines: [
-        head ? `Building: ${UNIT_TYPES[head.type]?.name || head.type} (${head.turnsLeft ?? 0}t)` : 'Queue idle — order units in panel →',
-        ready.length ? `Deploy: ${ready.map(r => UNIT_TYPES[r.type]?.name || r.type).join(', ')}` : 'No units ready to deploy',
-        'Build menu (bottom-right, [B]): queue units, deploy when ready.',
+        'Each VTC has its own train queue — click a settlement, use [B] UPGRADE / PRODUCE.',
+        ready ? `Deploy ready units at their training VTC (${ready} waiting).` : 'No units ready — train at a captured VTC.',
       ],
     };
   }
@@ -3597,13 +3641,15 @@ export class GameScene extends Phaser.Scene {
     this._buildMenuFocusBuilding = null;
   }
 
-  _startDeployMode(readyId) {
+  _startDeployMode(readyId, buildingId = null) {
     const gs = this.gameState;
     const p = gs.currentPlayer;
-    const ready = (gs.readyGlobalRecruits || []).find(r => r.id === readyId && Number(r.owner) === Number(p));
-    if (!ready) return;
-    this._deployMode = { readyId };
-    this._deployHexes = enumerateGlobalDeployHexes(gs, p, ready.type);
+    const bId = buildingId || this._buildMenuFocusBuilding?.id;
+    const b = gs.buildings.find(x => x.id === bId);
+    const ready = b?.readyUnits?.find(r => r.id === readyId);
+    if (!ready || !bId) return;
+    this._deployMode = { readyId, buildingId: bId };
+    this._deployHexes = enumerateVtcDeployHexes(gs, p, bId, ready.type);
     this._buildMenuTab = 'deploy';
     this._buildMenuOpen = true;
     this._pushLog(`Deploy ${UNIT_TYPES[ready.type]?.name || ready.type}: click a purple hex`);
@@ -3736,7 +3782,8 @@ export class GameScene extends Phaser.Scene {
 
     if (focus) {
       const def = BUILDING_TYPES[focus.type] || {};
-      this._addBuildMenuText(ax, ay, `Owner P${focus.owner}  ·  hex (${focus.q},${focus.r})${def.tier != null ? `  ·  tier ${def.tier}` : ''}`, {
+      const chips = getVtcFacilityChips(focus);
+      this._addBuildMenuText(ax, ay, `Owner P${focus.owner}  ·  (${focus.q},${focus.r})${chips.length ? `  ·  ${chips.join(' · ')}` : '  ·  buy facilities in UPGRADE'}`, {
         fill: '#99bbdd', font: '10px monospace',
       });
       ay += 14;
@@ -3769,16 +3816,17 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const pending = (gs.pendingGlobalRecruits || []).filter(r => Number(r.owner) === Number(p));
-    const ready = (gs.readyGlobalRecruits || []).filter(r => Number(r.owner) === Number(p));
-    this._renderProductionPipeline(ax, ay, pending, ready);
-    ay += 28;
+    const vtcId = anchor?.id;
+    if (vtcId && PRODUCTION_VTC_TYPES.has(anchor.type)) {
+      ay = this._renderVtcProductionPanel(ax, ay, gs, p, vtcId, 228);
+    }
 
     if (this._buildMenuTab === 'deploy') {
-      this._addBuildMenuText(ax, ay, 'Select a ready unit, then click a purple hex on the map.', {
+      const ready = vtcId ? (getVtcQueueSummary(gs, p, vtcId).ready || []) : [];
+      this._addBuildMenuText(ax, ay, 'Deploy only from the VTC that trained the unit.', {
         fill: '#ccaadd', font: '10px monospace',
       });
-      ay += 16;
+      ay += 14;
       if (this._deployMode) {
         const hint = this._addBuildMenuText(ax, ay, '▶ DEPLOY MODE — click purple hex  ·  tap here to cancel', {
           fill: '#ffccff', font: 'bold 10px monospace', bg: '#2a1040',
@@ -3788,36 +3836,33 @@ export class GameScene extends Phaser.Scene {
         ay += 20;
       }
       if (!ready.length) {
-        this._addBuildMenuText(ax, ay, 'Nothing ready yet — queue units on PRODUCE.', { fill: '#888888' });
+        this._addBuildMenuText(ax, ay, 'Nothing ready at this VTC — train on PRODUCE.', { fill: '#888888' });
         return;
       }
-      let col = 0;
       for (const r of ready) {
         const active = this._deployMode?.readyId === r.id;
         const def = UNIT_TYPES[r.type] || {};
-        const label = `${active ? '▶ ' : ''}${def.name || r.type}`;
-        const bx = ax + col * (bw + gap);
-        const btn = this._makeActionBtn(bx, ay, label, active ? BUILD_MENU.deploy : 0x2a4455, () => this._startDeployMode(r.id), {
-          height: 38, fontSize: 11,
+        const label = `${active ? '▶ ' : ''}Deploy ${def.name || r.type}`;
+        const btn = this._makeActionBtn(ax, ay, label, active ? BUILD_MENU.deploy : 0x2a4455, () => this._startDeployMode(r.id, vtcId), {
+          width: 228, height: 32, fontSize: 11,
         });
         this._uiLayer.add(btn);
         this._dynBtns.push(btn);
-        col += 1;
-        if (col >= 2) { col = 0; ay += 42; }
+        ay += 36;
       }
       return;
     }
 
     // PRODUCE tab
     if (!anchor) {
-      this._addBuildMenuText(ax, ay, 'Capture your HQ or a village / town / city to begin production.', {
+      this._addBuildMenuText(ax, ay, 'Click a captured village / town / city on the map.', {
         fill: '#aa8888', font: '11px monospace',
       });
       return;
     }
     const anchorName = BUILDING_TYPES[anchor.type]?.name || anchor.type;
-    this._addBuildMenuText(ax, ay, `Training at ${anchorName}`, { fill: '#aabbcc', font: '10px monospace' });
-    ay += 16;
+    this._addBuildMenuText(ax, ay, `Local queue · ${anchorName}`, { fill: '#aabbcc', font: 'bold 10px monospace' });
+    ay += 14;
     const coastalR = getNavalCoastalCheckRadius(anchor);
     const anchorCoastal = isNavalDeployAllowed(gs, anchor, coastalR);
     if (anchorCoastal) {
@@ -3845,7 +3890,7 @@ export class GameScene extends Phaser.Scene {
     this._buildMenuHint.setPosition(ax, h - 22);
     const catalog = getProduceCatalog(gs, p, anchor.id);
     const pl = gs.players[p];
-    let col = 0;
+    const rowW = 228;
     for (const entry of catalog) {
       const { unitType, canQueue, reason } = entry;
       const def = UNIT_TYPES[unitType];
@@ -3855,26 +3900,25 @@ export class GameScene extends Phaser.Scene {
         && (pl.food || 0) >= foodCost && (pl.components || 0) >= (def.cost.components || 0);
       const enabled = canQueue && canAfford;
       const costStr = this._formatRecruitCost(def, foodCost);
-      const label = `${def.name}\n${costStr}`;
-      const bx = ax + col * (bw + gap);
-      const btn = this._makeActionBtn(bx, ay, label, enabled ? BUILD_MENU.produce : 0x252530, () => {
+      const label = `${def.name}  ${costStr}  ⏱${def.buildTime ?? 1}`;
+      const btn = this._makeActionBtn(ax, ay, label, enabled ? BUILD_MENU.produce : 0x252530, () => {
         if (!canQueue) return;
         const out = queueGlobalRecruit(gs, p, unitType, anchor.id);
         if (!out.ok) this._pushLog(`Queue failed: ${out.reason}`);
-        else this._pushLog(`Queued ${def.name}`);
+        else this._pushLog(`Queued ${def.name} at ${anchorName}`);
         this._refresh();
       }, {
-        height: 40, fontSize: 10, dimmed: !enabled,
+        width: rowW, height: 28, fontSize: 9, dimmed: !enabled,
         disabledReason: !canQueue ? reason : (!canAfford ? 'Cannot afford' : ''),
       });
       this._uiLayer.add(btn);
       this._dynBtns.push(btn);
-      col += 1;
-      if (col >= 2) { col = 0; ay += 44; }
-      if (ay > h - 28) break;
+      ay += 30;
+      if (ay > h - 36) break;
     }
-    if (ready.length) {
-      const depHint = this._addBuildMenuText(ax, ay + 4, `✓ ${ready.length} unit${ready.length > 1 ? 's' : ''} ready — open DEPLOY tab`, {
+    const localReady = getVtcQueueSummary(gs, p, anchor.id).ready;
+    if (localReady.length) {
+      const depHint = this._addBuildMenuText(ax, ay + 4, `✓ ${localReady.length} ready here — DEPLOY tab`, {
         fill: '#88ffaa', font: 'bold 10px monospace',
       });
       depHint.setInteractive({ useHandCursor: true });
@@ -3976,9 +4020,9 @@ export class GameScene extends Phaser.Scene {
 
     // Show queue summary for this building (queue supported)
     const buildingQueue = isVTC
-      ? (gs.pendingGlobalRecruits || []).filter(r => r.owner === p)
+      ? (getVtcQueueSummary(gs, p, building.id).pending || [])
       : gs.pendingRecruits.filter(r => r.buildingId === building.id && r.owner === p);
-    const readyGlobal = isVTC ? (gs.readyGlobalRecruits || []).filter(r => r.owner === p) : [];
+    const readyGlobal = isVTC ? (getVtcQueueSummary(gs, p, building.id).ready || []) : [];
     if (buildingQueue.length > 0) {
       const next = buildingQueue[0];
       const orderName = UNIT_TYPES[next.type]?.name || '?';
@@ -4001,8 +4045,7 @@ export class GameScene extends Phaser.Scene {
           gs.players[p].population = (gs.players[p].population || 0) + getUnitPopCost(refundType);
         }
         if (isVTC) {
-          const idx = (gs.pendingGlobalRecruits || []).findIndex(r => r === toCancel);
-          if (idx >= 0) gs.pendingGlobalRecruits.splice(idx, 1);
+          cancelVtcQueueHead(gs, p, building.id);
         } else {
           const idx = gs.pendingRecruits.findIndex(r => r === toCancel);
           if (idx >= 0) gs.pendingRecruits.splice(idx, 1);
@@ -4028,7 +4071,11 @@ export class GameScene extends Phaser.Scene {
         this._contextMenuClicked = true;
         const nextReady = readyGlobal[0];
         if (!nextReady) return;
-        const out = deployReadyGlobalRecruit(gs, p, nextReady.id, building.id);
+        const sites = enumerateVtcDeployHexes(gs, p, building.id, nextReady.type);
+        const site = sites[0];
+        const out = site
+          ? deployReadyVtcUnitAtHex(gs, p, building.id, nextReady.id, site.q, site.r)
+          : { ok: false, reason: 'No deploy hex' };
         if (!out.ok) this._pushLog(`Deploy failed: ${out.reason}`);
         else this._pushLog(`P${p} deployed ${UNIT_TYPES[nextReady.type]?.name || nextReady.type} at ${BUILDING_TYPES[building.type].name}`);
         this._hideRecruitPanel();
@@ -7216,7 +7263,9 @@ export class GameScene extends Phaser.Scene {
     if (this._deployMode) {
       const site = this._deployHexes?.find(s => s.q === q && s.r === r);
       if (site) {
-        const out = deployReadyGlobalRecruitAtHex(gs, gs.currentPlayer, this._deployMode.readyId, q, r);
+        const out = this._deployMode.buildingId
+          ? deployReadyVtcUnitAtHex(gs, gs.currentPlayer, this._deployMode.buildingId, this._deployMode.readyId, q, r)
+          : deployReadyGlobalRecruitAtHex(gs, gs.currentPlayer, this._deployMode.readyId, q, r);
         if (!out.ok) this._pushLog(`Deploy failed: ${out.reason}`);
         else this._pushLog(`Deployed ${UNIT_TYPES[gs.units[gs.units.length - 1]?.type]?.name || 'unit'}`);
         this._cancelDeployMode();
@@ -8757,8 +8806,9 @@ export class GameScene extends Phaser.Scene {
       }
 
     } else if (action.type === 'global_deploy') {
-      const ready = (gs.readyGlobalRecruits || []).find(r => r.id === action.readyId && Number(r.owner) === Number(gs.currentPlayer));
-      const out = deployReadyGlobalRecruitAtHex(gs, gs.currentPlayer, action.readyId, action.q, action.r);
+      const out = action.buildingId
+        ? deployReadyVtcUnitAtHex(gs, gs.currentPlayer, action.buildingId, action.readyId, action.q, action.r)
+        : deployReadyGlobalRecruitAtHex(gs, gs.currentPlayer, action.readyId, action.q, action.r);
       if (out.ok) {
         this._pushLog(`AI deployed ${UNIT_TYPES[ready?.type]?.name || ready?.type || 'unit'} at (${action.q},${action.r})`);
       }

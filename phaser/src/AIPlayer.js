@@ -18,8 +18,8 @@ import {
   designRegistrationCost, computeDesignStats,
   getReachableHexesForAI, getAttackableHexes, hexDistance, buildingAt, roadAt, getCachedSupply, getRecruitFoodCost,
   ROAD_TYPES, unitAt, computeFog, buildHQRoadNetwork, isHQNetworkPluggedToNeutralRoads,
-  queueGlobalRecruit, deployReadyGlobalRecruitAtHex, enumerateGlobalDeployHexes,
-  getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit, PRODUCTION_VTC_TYPES,
+  queueGlobalRecruit, enumerateVtcDeployHexes,
+  getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit, PRODUCTION_VTC_TYPES, MAX_VTC_TRAIN_QUEUE,
   getPlayerCapital, getPlayerCapitalBuildings, getEnemyCapitalBuildings, isPlayerCapitalBuilding,
   isNavalDeployAllowed, getNavalCoastalCheckRadius, canPromoteSettlement, VTC_SUPPLY_RADIUS, findRoadPath, canPlaceRoadOnTerrain,
 } from './GameState.js';
@@ -4160,10 +4160,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const unworkedResSites = getUnclaimedResourceSites(gs, player).length;
   const myCapital = getPlayerCapital(gs, player)
     || myBuildings.find(bb => isPlayerCapitalBuilding(bb) && !bb.underConstruction);
-  let globalQueueBusy = (gs.pendingGlobalRecruits || []).some(r => Number(r.owner) === Number(player));
-
   const queueGlobalFromBuilding = (building, unitType) => {
-    if (!building || globalQueueBusy) return false;
+    if (!building) return false;
+    if ((building.trainQueue?.length || 0) >= MAX_VTC_TRAIN_QUEUE) return false;
     if (actions.some(a => a.type === 'recruit' && a.global && a.buildingId === building.id)) return false;
     if (!getGlobalRecruitOptionsForVTC(gs, player, building.id).includes(unitType)) return false;
     if (!recruitAllowed(unitType)) return false;
@@ -4174,7 +4173,6 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     if (resSim.iron < (c.iron || 0) || resSim.oil < (c.oil || 0) || resSim.wood < (c.wood || 0)
       || resSim.food < f || resSim.components < (c.components || 0)) return false;
     actions.push({ type: 'recruit', buildingId: building.id, unitType, global: true });
-    globalQueueBusy = true;
     noteRecruit(unitType);
     spend(c);
     resSim.food -= f;
@@ -4207,18 +4205,21 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     unitObjective: aiCtx?.unitObjective,
     territorial: strategic?.territorial,
   };
-  for (const ready of (gs.readyGlobalRecruits || []).filter(r => Number(r.owner) === Number(player))) {
-    if (actions.some(a => a.type === 'global_deploy' && a.readyId === ready.id)) continue;
-    const sites = enumerateGlobalDeployHexes(gs, player, ready.type);
-    if (!sites.length) continue;
-    let best = sites[0];
-    let bestScore = -Infinity;
-    for (const site of sites) {
-      const score = scoreGlobalDeploySite(gs, player, site, ready, terrain, deployCtx);
-      if (score > bestScore) { bestScore = score; best = site; }
-    }
-    if (bestScore > -9000) {
-      actions.push({ type: 'global_deploy', readyId: ready.id, q: best.q, r: best.r });
+  for (const b of gs.buildings) {
+    if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type)) continue;
+    for (const ready of b.readyUnits || []) {
+      if (actions.some(a => a.type === 'global_deploy' && a.readyId === ready.id)) continue;
+      const sites = enumerateVtcDeployHexes(gs, player, b.id, ready.type);
+      if (!sites.length) continue;
+      let best = sites[0];
+      let bestScore = -Infinity;
+      for (const site of sites) {
+        const score = scoreGlobalDeploySite(gs, player, site, ready, terrain, deployCtx);
+        if (score > bestScore) { bestScore = score; best = site; }
+      }
+      if (bestScore > -9000) {
+        actions.push({ type: 'global_deploy', readyId: ready.id, buildingId: b.id, q: best.q, r: best.r });
+      }
     }
   }
 
@@ -4311,7 +4312,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   }
 
   // Global production queue: pick best VTC (forward for land, coastal town/city for naval).
-  if (!globalQueueBusy && plannedRecruits < armyBudget.maxRecruitsPerTurn) {
+  const vtcCanQueueMore = () => gs.buildings.some(b =>
+    Number(b.owner) === Number(player) && PRODUCTION_VTC_TYPES.has(b.type)
+    && (b.trainQueue?.length || 0) < MAX_VTC_TRAIN_QUEUE);
+  if (vtcCanQueueMore() && plannedRecruits < armyBudget.maxRecruitsPerTurn) {
     const preferList = waterMap
       ? [...cfg.navalPrio, ...cfg.recruitPrio]
       : [...cfg.recruitPrio, ...cfg.navalPrio];
@@ -4326,7 +4330,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const mySupplyShipsNow = gs.units.filter(u => u.owner === player && !u.embarked && u.type === 'SUPPLY_SHIP').length;
     const desiredPatrol = (gs.turn || 1) >= 14 ? 2 : 1;
     const navalBootLow = myNavalCombatNow < desiredPatrol || mySupplyShipsNow < 1;
-    if (navalBootLow && !globalQueueBusy) {
+    if (navalBootLow && vtcCanQueueMore()) {
       const bootOrder = mySupplyShipsNow < 1
         ? ['SUPPLY_SHIP', 'PATROL_BOAT']
         : ['PATROL_BOAT', 'SUPPLY_SHIP'];
@@ -4334,7 +4338,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         if (queueGlobalBestVTC(pick)) break;
       }
     }
-    if (!globalQueueBusy && plannedRecruits < armyBudget.maxRecruitsPerTurn) {
+    const vtcCanQueueMore = () => gs.buildings.some(b =>
+    Number(b.owner) === Number(player) && PRODUCTION_VTC_TYPES.has(b.type)
+    && (b.trainQueue?.length || 0) < MAX_VTC_TRAIN_QUEUE);
+  if (vtcCanQueueMore() && plannedRecruits < armyBudget.maxRecruitsPerTurn) {
       const navalBuildings = myBuildings.filter(bb => ['HARBOR', 'NAVAL_YARD', 'SHIPYARD', 'DRYDOCK', 'DRY_DOCK', 'NAVAL_BASE', 'NAVAL_DOCKYARD'].includes(bb.type));
       for (const nb of navalBuildings) {
         if (plannedRecruits >= armyBudget.maxRecruitsPerTurn) break;
