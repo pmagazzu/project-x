@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.6';
+export const GAME_VERSION = 'v1.21.7';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -10593,43 +10593,124 @@ export class GameScene extends Phaser.Scene {
       [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
     }
 
-    const scale = Math.max(0.55, ms / 50);
-    const density = ms >= 100 ? 0.38 : ms >= 70 ? 0.52 : ms >= 50 ? 0.68 : 0.85;
-    const settlementN = Math.max(3, Math.floor((5 + 4 * scale) * density));
+    // Scale VTC count with map size (large maps were under-spawning due to old density taper).
+    const settlementN = Math.max(6, Math.round(ms * 0.15 + 3));
+    const cityN = ms >= 120 ? Math.max(1, Math.floor(settlementN / 9))
+      : (ms >= 80 ? 1 : 0);
+    const townN = ms >= 50 ? Math.max(1, Math.floor(settlementN / 4)) : 0;
+    const villageN = Math.max(0, settlementN - cityN - townN);
+    const settlementTypes = [
+      ...Array(cityN).fill('CITY'),
+      ...Array(townN).fill('TOWN'),
+      ...Array(villageN).fill('VILLAGE'),
+    ];
+
     const placed = [];
-    const minDist = ms >= 100 ? 22 : ms >= 70 ? 18 : ms >= 50 ? 14 : 11;
+    const minDist = Math.max(7, Math.floor(ms / 11));
     const spawns = gs.buildings.filter(b => isPlayerCapitalBuilding(b))
       .map(b => ({ q: b.q, r: b.r }));
-    const sectorScore = (q, r) => {
-      if (!spawns.length) return 0;
-      const dists = spawns.map(s => hexDistance(q, r, s.q, s.r));
-      const minD = Math.min(...dists);
-      const maxD = Math.max(...dists);
-      return minD * 0.55 + (maxD - minD) * 0.35;
-    };
-    candidates.sort((a, b) => sectorScore(b.q, b.r) - sectorScore(a.q, a.r));
-    const pick = (count, type) => {
-      let done = 0;
-      const pickBonus = () => {
-        const roll = rng();
-        if (roll < 0.25) return { wood: 1 };
-        if (roll < 0.5) return { iron: 1 };
-        if (roll < 0.75) return { oil: 1 };
-        return null;
-      };
-      for (const c of candidates) {
-        if (done >= count) break;
-        if (!free(c.q, c.r)) continue;
-        if (placed.some(p => hexDistance(p.q, p.r, c.q, c.r) < minDist)) continue;
-        const b = createBuilding(type, 0, c.q, c.r);
-        const bonus = pickBonus();
-        if (bonus) b.settlementBonus = bonus;
-        gs.buildings.push(b);
-        placed.push({ q: c.q, r: c.r, type });
-        done++;
+    const mapCx = (ms - 1) / 2;
+    const mapCy = (ms - 1) / 2;
+    const maxCenterDist = hexDistance(0, 0, mapCx, mapCy) || 1;
+
+    const scoreCandidate = (q, r, zoneCx, zoneCy) => {
+      const centerDist = hexDistance(q, r, mapCx, mapCy);
+      const interior = ((maxCenterDist - centerDist) / maxCenterDist) * 42;
+      const edgeDist = Math.min(q, r, ms - 1 - q, ms - 1 - r);
+      const edgeBonus = Math.min(edgeDist, 12) * 1.1;
+      const zonePull = zoneCx != null
+        ? Math.max(0, 14 - hexDistance(q, r, zoneCx, zoneCy) * 0.55)
+        : 0;
+      let capClear = 0;
+      if (spawns.length) {
+        const dists = spawns.map(s => hexDistance(q, r, s.q, s.r));
+        const minCap = Math.min(...dists);
+        if (minCap < 9) return -999;
+        capClear = Math.min(minCap, 40) * 0.45;
       }
+      return interior + edgeBonus + zonePull + capClear + rng() * 3;
     };
-    pick(settlementN, 'VILLAGE');
+
+    const pickBonus = () => {
+      const roll = rng();
+      if (roll < 0.25) return { wood: 1 };
+      if (roll < 0.5) return { iron: 1 };
+      if (roll < 0.75) return { oil: 1 };
+      return null;
+    };
+
+    const tryPlace = (type, q, r) => {
+      if (!free(q, r)) return false;
+      if (placed.some(p => hexDistance(p.q, p.r, q, r) < minDist)) return false;
+      const b = createBuilding(type, 0, q, r);
+      const bonus = pickBonus();
+      if (bonus) b.settlementBonus = bonus;
+      gs.buildings.push(b);
+      placed.push({ q, r, type });
+      return true;
+    };
+
+    // Stratified grid: one VTC target per map sector so settlements spread through the interior.
+    const gridN = Math.max(2, Math.ceil(Math.sqrt(settlementN * 1.25)));
+    const margin = 3;
+    const cellSpan = (ms - 2 * margin) / gridN;
+    const zones = [];
+    for (let gy = 0; gy < gridN; gy++) {
+      for (let gx = 0; gx < gridN; gx++) {
+        zones.push({
+          gx, gy,
+          zq: margin + (gx + 0.5) * cellSpan,
+          zr: margin + (gy + 0.5) * cellSpan,
+          mapCenterDist: hexDistance(
+            margin + (gx + 0.5) * cellSpan,
+            margin + (gy + 0.5) * cellSpan,
+            mapCx, mapCy,
+          ),
+        });
+      }
+    }
+    zones.sort((a, b) => a.mapCenterDist - b.mapCenterDist);
+
+    for (let zi = 0; zi < zones.length && placed.length < settlementN; zi++) {
+      const zone = zones[zi];
+      const type = settlementTypes[Math.min(zi, settlementTypes.length - 1)] || 'VILLAGE';
+      const qLo = margin + zone.gx * cellSpan;
+      const qHi = margin + (zone.gx + 1) * cellSpan;
+      const rLo = margin + zone.gy * cellSpan;
+      const rHi = margin + (zone.gy + 1) * cellSpan;
+      const inZone = candidates.filter(c => c.q >= qLo && c.q < qHi && c.r >= rLo && c.r < rHi);
+      const pool = inZone.length ? inZone : candidates;
+      pool.sort((a, b) =>
+        scoreCandidate(b.q, b.r, zone.zq, zone.zr) - scoreCandidate(a.q, a.r, zone.zq, zone.zr));
+      for (const c of pool) {
+        if (tryPlace(type, c.q, c.r)) break;
+      }
+    }
+
+    // Global fill if sectors could not satisfy quota (tight terrain / high minDist).
+    if (placed.length < settlementN) {
+      const ranked = [...candidates].sort((a, b) =>
+        scoreCandidate(b.q, b.r, null, null) - scoreCandidate(a.q, a.r, null, null));
+      for (const c of ranked) {
+        if (placed.length >= settlementN) break;
+        const type = settlementTypes[placed.length] || 'VILLAGE';
+        tryPlace(type, c.q, c.r);
+      }
+    }
+
+    // Last resort: relax spacing slightly.
+    if (placed.length < settlementN) {
+      const relaxDist = Math.max(5, minDist - 3);
+      const ranked = [...candidates].sort((a, b) =>
+        scoreCandidate(b.q, b.r, null, null) - scoreCandidate(a.q, a.r, null, null));
+      for (const c of ranked) {
+        if (placed.length >= settlementN) break;
+        if (!free(c.q, c.r)) continue;
+        if (placed.some(p => hexDistance(p.q, p.r, c.q, c.r) < relaxDist)) continue;
+        const type = settlementTypes[placed.length] || 'VILLAGE';
+        tryPlace(type, c.q, c.r);
+      }
+    }
 
     // Connected neutral road grid: every settlement sits on a road; MST links the network.
     const roadType = (q, r) => (map[`${q},${r}`] === 2 ? null : 'ROAD');
