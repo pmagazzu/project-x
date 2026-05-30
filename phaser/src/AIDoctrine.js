@@ -38,7 +38,11 @@ export function getAIArmyBudget(gs, player, mapSize = 40, situation = null) {
   const turn = gs?.turn || 1;
   const myUnits = countPlayerUnits(gs, player);
   const myCombat = countPlayerCombatUnits(gs, player);
-  const pending = (gs?.pendingRecruits || []).filter(r => Number(r.owner) === Number(player)).length;
+  let pending = (gs?.pendingRecruits || []).filter(r => Number(r.owner) === Number(player)).length;
+  for (const b of gs?.buildings || []) {
+    if (Number(b.owner) !== Number(player)) continue;
+    pending += (b.trainQueue?.length || 0) + (b.readyUnits?.length || 0);
+  }
 
   const mapScale = ms / 40;
   const playerScale = Math.sqrt(playerCount);

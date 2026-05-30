@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.11';
+export const GAME_VERSION = 'v1.21.12';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -8592,14 +8592,16 @@ export class GameScene extends Phaser.Scene {
     this._roadsDirty = false;
     const gs  = this.gameState;
 
-    if (isPlayerMilitarilyEliminated(gs, gs.currentPlayer)) {
-      const winner = checkWinner(gs);
+    const winnerNow = checkWinner(gs);
+    if (winnerNow) {
       this._aiTurnInProgress = false;
-      if (winner) {
-        this._pushLog(`P${gs.currentPlayer} has no field army — P${winner} wins.`);
-        this._showResolution([], winner);
-        return;
-      }
+      this._pushLog(`Game over — P${winnerNow} wins.`);
+      this._showResolution([], winnerNow);
+      return;
+    }
+    if (isPlayerMilitarilyEliminated(gs, gs.currentPlayer)) {
+      this._aiTurnInProgress = false;
+      this._pushLog(`P${gs.currentPlayer} has no field army (standoff / rebuild).`);
     }
     const preUnitsByOwner = {
       1: gs.units.filter(u => Number(u.owner) === 1).length,

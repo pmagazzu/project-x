@@ -791,7 +791,34 @@ export function recalcPlayerPopulation(state, player) {
   }
   pl.popCap = Math.max(HQ_BASE_POP_CAP, cap);
   pl.popGrowthPerTurn = growth;
-  pl.population = Math.min(pl.popCap, pl.population ?? pl.popCap);
+  syncPlayerPopulationPool(state, player);
+}
+
+/** Available manpower = popCap minus units on map and production pipeline. */
+export function syncPlayerPopulationPool(state, player) {
+  const p = Number(player);
+  const pl = state.players[player];
+  if (!pl) return;
+  let used = 0;
+  for (const u of state.units || []) {
+    if (Number(u.owner) !== p || (u.health ?? 1) <= 0) continue;
+    used += getUnitPopCost(u.type);
+  }
+  for (const b of state.buildings || []) {
+    if (Number(b.owner) !== p) continue;
+    for (const q of b.trainQueue || []) used += getUnitPopCost(q.type);
+    for (const r of b.readyUnits || []) used += getUnitPopCost(r.type);
+  }
+  for (const r of state.pendingRecruits || []) {
+    if (Number(r.owner) === p) used += getUnitPopCost(r.type);
+  }
+  for (const r of state.pendingGlobalRecruits || []) {
+    if (Number(r.owner) === p) used += getUnitPopCost(r.type);
+  }
+  for (const r of state.readyGlobalRecruits || []) {
+    if (Number(r.owner) === p) used += getUnitPopCost(r.type);
+  }
+  pl.population = Math.max(0, Math.min(pl.popCap || HQ_BASE_POP_CAP, (pl.popCap || HQ_BASE_POP_CAP) - used));
 }
 
 export function applyPopulationGrowth(state, player) {
@@ -3324,8 +3351,36 @@ export function playerHasActiveForces(state, player) {
   for (const b of state.buildings || []) {
     if (Number(b.owner) !== p) continue;
     if ((b.trainQueue?.length || 0) > 0) return true;
+    if ((b.readyUnits?.length || 0) > 0) return true;
   }
   return false;
+}
+
+const SETTLEMENT_WIN_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
+
+function countOwnedSettlements(state, player) {
+  const p = Number(player);
+  return (state.buildings || []).filter((b) =>
+    SETTLEMENT_WIN_TYPES.has(b.type) && Number(b.owner) === p && !b.underConstruction).length;
+}
+
+/** Both armies dead — winner by settlement control (VTC mode tiebreak). */
+export function resolveStandoffWinner(state) {
+  const ids = getPlayerIds(state).filter((p) => getPlayerCapital(state, p));
+  if (!ids.length) return null;
+  let best = ids[0];
+  let bestSet = countOwnedSettlements(state, best);
+  let bestPop = state.players[best]?.popCap || 0;
+  for (const p of ids.slice(1)) {
+    const s = countOwnedSettlements(state, p);
+    const pop = state.players[p]?.popCap || 0;
+    if (s > bestSet || (s === bestSet && pop > bestPop)) {
+      best = p;
+      bestSet = s;
+      bestPop = pop;
+    }
+  }
+  return best;
 }
 
 /** Capital gone, or no units/recruits in the pipeline (cannot contest the map). */
@@ -3354,6 +3409,11 @@ export function checkWinner(state) {
 
   const withForces = ids.filter((p) => playerHasActiveForces(state, p));
   if (withForces.length === 1) return withForces[0];
+
+  const militarilyAlive = ids.filter((p) => !isPlayerMilitarilyEliminated(state, p));
+  if (militarilyAlive.length === 0 || withForces.length === 0) {
+    return resolveStandoffWinner(state);
+  }
 
   return null;
 }

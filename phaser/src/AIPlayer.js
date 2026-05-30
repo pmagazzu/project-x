@@ -22,7 +22,7 @@ import {
   getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit, PRODUCTION_VTC_TYPES, MAX_VTC_TRAIN_QUEUE,
   getPlayerCapital, getPlayerCapitalBuildings, getEnemyCapitalBuildings, isPlayerCapitalBuilding,
   isNavalDeployAllowed, getNavalCoastalCheckRadius, canPromoteSettlement, VTC_SUPPLY_RADIUS, findRoadPath, canPlaceRoadOnTerrain,
-  recalcPlayerPopulation,
+  recalcPlayerPopulation, syncPlayerPopulationPool,
   countPlayerScienceLabs, countPlayerFactories, countPlayerBarracksFacilities, countPlayerVtcUpgrade,
 } from './GameState.js';
 import {
@@ -4421,7 +4421,23 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   const liveUnitsNow = gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked).length;
   if (liveUnitsNow === 0) {
+    syncPlayerPopulationPool(gs, player);
     planArmyRecovery(gs, player, actions, resSim, spend, noteRecruit, recruitAllowed, myCapital, maxRecruitsThisTurn);
+    if (!overPlan()) {
+      for (let i = 0; i < maxRecruitsThisTurn; i++) {
+        if (!queueGlobalBestVTC('INFANTRY')) break;
+      }
+    }
+    aiDebug.plannerReason = 'army_wiped_rebuild';
+    aiDebug.actionPlan = {
+      attacks: 0, moves: 0, builds: 0,
+      recruits: actions.filter(a => a.type === 'recruit').length,
+      globalDeploy: actions.filter(a => a.type === 'global_deploy').length,
+    };
+    gs._aiDebug = gs._aiDebug || {};
+    gs._aiDebug[player] = { ...aiDebug, recruitMix: aiDebug.recruitMix || {} };
+    restoreAIPlanningUnitPositions(gs);
+    return actions;
   }
 
   const focusEnemy = strategic?.focusEnemyHQ
