@@ -58,7 +58,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.2';
+export const GAME_VERSION = 'v1.21.3';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -5070,6 +5070,7 @@ export class GameScene extends Phaser.Scene {
       }
       const now = performance.now();
       if (this._spaceGuardUntil && now < this._spaceGuardUntil) return;
+      if (this._gameOverActive) return; // game-over: only explicit MAIN MENU button leaves
       if (this._splashDismiss) {
         this._spaceGuardUntil = now + 380; // prevent chained submit from same key-repeat burst
         this._splashDismiss();
@@ -7969,7 +7970,11 @@ export class GameScene extends Phaser.Scene {
       this._pushLog('Attack resolved with no combat log entry (unexpected)');
     }
     const winner = checkWinner(gs);
-    if (winner) { this._showResolution([], winner); }
+    if (winner) {
+      this._cancelAIPendingSteps();
+      this._aiTurnInProgress = false;
+      this._showResolution([], winner);
+    }
   }
 
   _confirmEndTurn() {
@@ -8393,6 +8398,8 @@ export class GameScene extends Phaser.Scene {
 
     const winner = checkWinner(gs);
     if (winner) {
+      this._cancelAIPendingSteps();
+      this._aiTurnInProgress = false;
       this._showResolution([], winner);
       return;
     }
@@ -9211,6 +9218,15 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /** Tear down pass/resolution/combat splash without running navigation callbacks. */
+  _abortSplashModal() {
+    this._splashDismiss = null;
+    if (this._gameOverSpaceKey) {
+      this.input.keyboard.off('keydown-SPACE', this._gameOverSpaceKey);
+      this._gameOverSpaceKey = null;
+    }
+  }
+
   // ── Pass / Resolution screens ─────────────────────────────────────────────
   _showSplash(objects, onDismiss) {
     // Defensive: ensure only one splash/modal is ever alive.
@@ -9240,26 +9256,36 @@ export class GameScene extends Phaser.Scene {
 
   /** Victory / game-over: JSON export + return to menu (no accidental dismiss on download). */
   _showGameOverSplash(resolutionObjects, onMenu) {
-    if (this._splashDismiss) {
-      try { this._splashDismiss(); } catch (e) {}
-      this._splashDismiss = null;
+    this._cancelAIPendingSteps();
+    this._aiTurnInProgress = false;
+    this._abortSplashModal();
+    if (this._gameOverCleanup) {
+      try { this._gameOverCleanup(); } catch (e) {}
+      this._gameOverCleanup = null;
     }
+    this._gameOverActive = true;
+    this._spaceGuardUntil = performance.now() + 3200;
     this.btnSubmit?.setVisible(false);
 
     const w = this.scale.width, h = this.scale.height;
     const footerY = h - 54;
     const uiObjs = [];
 
-    const hint = this.add.text(w / 2, footerY - 44, 'Export turn history, AI decisions, economy, and combat log', {
+    const hint = this.add.text(w / 2, footerY - 58, 'Export turn history, AI decisions, economy, and combat log', {
       font: '13px monospace', fill: '#778899',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(202);
     uiObjs.push(hint);
+    const hint2 = this.add.text(w / 2, footerY - 38, 'Use buttons below — SPACE will not leave this screen', {
+      font: '11px monospace', fill: '#556677',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(202);
+    uiObjs.push(hint2);
 
     const dlBtn = this.add.text(w / 2 - 155, footerY, '📥 DOWNLOAD JSON', {
       font: 'bold 16px monospace', fill: '#ffffff', backgroundColor: '#2a5a8a', padding: { x: 16, y: 10 },
     }).setOrigin(0.5).setScrollFactor(0).setDepth(202).setInteractive({ useHandCursor: true });
     dlBtn.on('pointerdown', () => {
       this._contextMenuClicked = true;
+      this._spaceGuardUntil = performance.now() + 800;
       this._downloadRunJson('game-end');
     });
     dlBtn.on('pointerover', () => dlBtn.setAlpha(0.85));
@@ -9273,20 +9299,17 @@ export class GameScene extends Phaser.Scene {
     menuBtn.on('pointerout', () => menuBtn.setAlpha(1));
     uiObjs.push(menuBtn);
 
-    const dismiss = () => {
+    const goMenu = () => {
+      if (!this._gameOverActive) return;
+      this._gameOverActive = false;
+      this._gameOverCleanup = null;
+      this._abortSplashModal();
       this._spaceGuardUntil = performance.now() + 380;
-      this._splashDismiss = null;
-      if (this._gameOverSpaceKey) {
-        this.input.keyboard.off('keydown-SPACE', this._gameOverSpaceKey);
-        this._gameOverSpaceKey = null;
-      }
       [...resolutionObjects, ...uiObjs].forEach(o => { try { o.destroy(); } catch (e) {} });
       onMenu();
     };
-    this._splashDismiss = dismiss;
-    menuBtn.on('pointerdown', dismiss);
-    this._gameOverSpaceKey = () => dismiss();
-    this.input.keyboard.once('keydown-SPACE', this._gameOverSpaceKey);
+    this._gameOverCleanup = goMenu;
+    menuBtn.on('pointerdown', goMenu);
 
     this._addToUI(uiObjs);
   }
@@ -9444,6 +9467,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (winner) {
+      this._cancelAIPendingSteps();
+      this._aiTurnInProgress = false;
       yPos += 10;
       const label = PLAYER_LABELS[winner] || `Player ${winner}`;
       const vpWin = gs.victoryMode === VICTORY_MODES.POINTS;
