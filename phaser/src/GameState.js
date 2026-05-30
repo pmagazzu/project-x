@@ -3289,6 +3289,27 @@ function findFreeAdjacentHex(state, q, r, unitType = null, terrain = null, spawn
   return null;
 }
 
+/** Units on map or production that will field new units soon. */
+export function playerHasActiveForces(state, player) {
+  const p = Number(player);
+  if ((state.units || []).some((u) => Number(u.owner) === p)) return true;
+  if ((state.pendingRecruits || []).some((r) => Number(r.owner) === p)) return true;
+  if ((state.readyGlobalRecruits || []).some((r) => Number(r.owner) === p)) return true;
+  if ((state.pendingGlobalRecruits || []).some((r) => Number(r.owner) === p)) return true;
+  for (const b of state.buildings || []) {
+    if (Number(b.owner) !== p) continue;
+    if ((b.trainQueue?.length || 0) > 0) return true;
+  }
+  return false;
+}
+
+/** Capital gone, or no units/recruits in the pipeline (cannot contest the map). */
+export function isPlayerMilitarilyEliminated(state, player) {
+  const p = Number(player);
+  if (!getPlayerCapital(state, p)) return true;
+  return !playerHasActiveForces(state, p);
+}
+
 export function checkWinner(state) {
   const vtcWin = checkVtcControlWinner(state);
   if (vtcWin) return vtcWin;
@@ -3305,6 +3326,10 @@ export function checkWinner(state) {
     if (!getPlayerCapital(state, 2)) return 1;
     if (!getPlayerCapital(state, 1)) return 2;
   }
+
+  const withForces = ids.filter((p) => playerHasActiveForces(state, p));
+  if (withForces.length === 1) return withForces[0];
+
   return null;
 }
 

@@ -11,7 +11,7 @@ import {
   canEngineerBuildAt,
   enemyAtHex, resolveAttackTargetUnit, canUnitAttackTarget, unitCanAttack, isUnitAlive,
   getReachableHexes, getAttackableHexes, getAttackRangeHexes, hexDistance, computeFog,
-  findPath, findRoadPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, calcIncome, queueRecruit, queueGlobalRecruit, deployReadyGlobalRecruit,
+  findPath, findRoadPath, resolveTurn, resolveImmediateAttack, resolveEndOfTurn, checkWinner, isPlayerMilitarilyEliminated, calcIncome, queueRecruit, queueGlobalRecruit, deployReadyGlobalRecruit,
   getGlobalRecruitOptionsForVTC, getGlobalRecruitOptionsForPlayer, pickProductionAnchorBuilding, getOwnedDeployVTBuildings,
   enumerateGlobalDeployHexes, deployReadyGlobalRecruitAtHex, deployReadyVtcUnitAtHex, upgradeSettlement, canPromoteSettlement, PRODUCTION_VTC_TYPES,
   getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.8';
+export const GAME_VERSION = 'v1.21.9';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -7008,7 +7008,8 @@ export class GameScene extends Phaser.Scene {
         this._aiTurnInProgress = false;
         fin?.();
       } else if (idleMs > 6000 && !this._aiTurnInProgress && !this._nameModalOpen && !this._settingsOpen
-          && !this._endTurnPending && this._isAiControlled(this.gameState.currentPlayer)) {
+          && !this._endTurnPending && this._isAiControlled(this.gameState.currentPlayer)
+          && !isPlayerMilitarilyEliminated(this.gameState, this.gameState.currentPlayer)) {
         this._pushLog(`AI autoplay self-heal: restarting P${this.gameState.currentPlayer} turn`);
         this._aiLastProgressAt = now;
         this._runAITurn();
@@ -8587,6 +8588,16 @@ export class GameScene extends Phaser.Scene {
     this._aiLastProgressAt = Date.now();
     this._roadsDirty = false;
     const gs  = this.gameState;
+
+    if (isPlayerMilitarilyEliminated(gs, gs.currentPlayer)) {
+      const winner = checkWinner(gs);
+      this._aiTurnInProgress = false;
+      if (winner) {
+        this._pushLog(`P${gs.currentPlayer} has no field army — P${winner} wins.`);
+        this._showResolution([], winner);
+        return;
+      }
+    }
     const preUnitsByOwner = {
       1: gs.units.filter(u => Number(u.owner) === 1).length,
       2: gs.units.filter(u => Number(u.owner) === 2).length,
