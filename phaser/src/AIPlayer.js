@@ -1779,6 +1779,64 @@ function isCoastalLand(terrain, mapSize, q, r) {
   return false;
 }
 
+const LIGHT_NAVAL_TYPES = new Set(['PATROL_BOAT', 'MTB', 'TORPEDO_BOAT', 'MOTOR_GUNBOAT']);
+
+function countGroundCombatUnits(gs, player) {
+  return gs.units.filter(u => Number(u.owner) === Number(player) && !u.embarked && !NAVAL_UNITS.has(u.type)).filter(u => {
+    const d = UNIT_TYPES[u.type] || {};
+    return (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0 || (d.attack || 0) > 0;
+  }).length;
+}
+
+/** Cap cheap coastal spam — applies to all recruit paths (global VTC queue + building menu). */
+function lightNavalRecruitCapOk(gs, player, unitType, plannedCount, situation = null) {
+  if (!LIGHT_NAVAL_TYPES.has(unitType)) return true;
+  const lightNaval = LIGHT_NAVAL_TYPES.reduce((s, t) => s + (plannedCount[t] || 0), 0);
+  const typeHave = plannedCount[unitType] || 0;
+  const enemyNaval = gs.units.filter(u => Number(u.owner) !== Number(player) && !u.embarked
+    && NAVAL_UNITS.has(u.type) && u.type !== 'SUPPLY_SHIP').length;
+  const groundCombat = countGroundCombatUnits(gs, player);
+  const waterMap = situation?.islandMap || (situation?.waterRatio || 0) >= 0.18;
+
+  const typeCap = unitType === 'PATROL_BOAT'
+    ? Math.min(4, 1 + Math.ceil(enemyNaval / 2) + (waterMap ? 1 : 0))
+    : Math.min(2, 1 + Math.floor(enemyNaval / 3));
+  if (typeHave >= typeCap) return false;
+
+  const fleetCap = Math.min(5, 2 + Math.ceil(enemyNaval / 2) + (waterMap ? 1 : 0));
+  if (lightNaval >= fleetCap) return false;
+
+  if (groundCombat < 10 && lightNaval >= 2) return false;
+  if (groundCombat < 14 && lightNaval >= 3) return false;
+  if (groundCombat < 18 && lightNaval >= 4) return false;
+
+  const totalCombat = Object.entries(plannedCount).filter(([t]) => {
+    const d = UNIT_TYPES[t] || {};
+    return (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0 || (d.attack || 0) > 0;
+  }).reduce((s, [, n]) => s + n, 0);
+  if (totalCombat > 0 && lightNaval / totalCombat > 0.20) return false;
+
+  return true;
+}
+
+/** Naval patrol waypoint on water adjacent to a coastal land tile. */
+function pickNavalPatrolHex(terrain, mapSize, coastQ, coastR, gs, player, avoidUnitId = null) {
+  let best = null;
+  let bestScore = -999;
+  for (const [dq, dr] of _CHOKE_DIRS) {
+    const q = coastQ + dq, r = coastR + dr;
+    if (q < 0 || r < 0 || q >= mapSize || r >= mapSize) continue;
+    const t = terrain?.[`${q},${r}`] ?? 0;
+    if (t !== 4 && t !== 5) continue;
+    const occ = unitAt(gs, q, r);
+    if (occ && Number(occ.owner) === Number(player) && occ.id !== avoidUnitId) continue;
+    let score = t === 5 ? 4 : 2;
+    score += waterChokeValue(terrain, mapSize, q, r) * 0.6;
+    if (score > bestScore) { bestScore = score; best = { q, r }; }
+  }
+  return best || { q: coastQ, r: coastR };
+}
+
 /** Remote continents/islands + coastal supply-port bridge sites for amphibious expansion. */
 function buildRemoteExpansionIntel(terrain, mapSize, gs, player, landmassIndex, resourceTargets, situation) {
   const homeMass = getPlayerHomeLandmassId(gs, player, landmassIndex);
@@ -1945,7 +2003,14 @@ function buildWaterBodyIndex(terrain, mapSize) {
   const getPolicy = (body) => {
     if (!body) return { kind: 'unknown', allowed: null, maxByType: {}, maxCombat: 999, maxYards: 1, prio: null };
     if (body.kind === 'sea') {
-      return { kind: 'sea', allowed: null, maxByType: {}, maxCombat: 999, maxYards: 99, prio: null };
+      return {
+        kind: 'sea',
+        allowed: null,
+        maxByType: { PATROL_BOAT: 4, MTB: 2, TORPEDO_BOAT: 2, MOTOR_GUNBOAT: 1 },
+        maxCombat: 14,
+        maxYards: 99,
+        prio: ['PATROL_BOAT', 'MTB', 'DESTROYER', 'SUPPLY_SHIP'],
+      };
     }
     if (body.kind === 'lake') {
       return {
@@ -2015,7 +2080,7 @@ function buildWaterBodyIndex(terrain, mapSize) {
   const recruitAllowed = (unitType, bodyId, gs, player) => {
     const body = getBody(bodyId);
     const policy = getPolicy(body);
-    if (!policy || policy.kind === 'sea' || policy.kind === 'unknown') return true;
+    if (!policy || policy.kind === 'unknown') return true;
     const presence = countNavalOnBody(gs, player, bodyId);
 
     if (HEAVY_NAVAL_UNITS.has(unitType) || TRANSPORT_NAVAL_UNITS.has(unitType) || unitType === 'SUBMARINE' || unitType === 'SUPPLY_SHIP') {
@@ -2243,8 +2308,12 @@ function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemy
     }
     if (NAVAL_UNITS.has(u.type) && !['COASTAL_BATTERY'].includes(u.type)) {
       const coast = territorial?.coastal?.[0];
-      unitObjective[u.id] = coast
-        ? { q: coast.q, r: coast.r, mission: 'naval_screen', kind: 'coast' }
+      const terr = gs._terrain;
+      const dest = (coast && terr)
+        ? pickNavalPatrolHex(terr, mapSize, coast.q, coast.r, gs, player, u.id)
+        : null;
+      unitObjective[u.id] = dest
+        ? { q: dest.q, r: dest.r, mission: 'naval_screen', kind: 'coast' }
         : { q: laneEnemy.q, r: laneEnemy.r, mission: 'naval_raid', kind: 'coast' };
       missionCounts.naval = (missionCounts.naval || 0) + 1;
       continue;
@@ -3095,9 +3164,17 @@ function assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjec
   }
 
   const patrols = gs.units.filter(u => u.owner === player && u.type === 'PATROL_BOAT' && !u.embarked);
-  for (let i = 0; i < patrols.length; i++) {
+  const terr = gs._terrain;
+  const maxPatrolMissions = Math.min(patrols.length, 3);
+  for (let i = 0; i < maxPatrolMissions; i++) {
     const coast = coasts[i % Math.max(1, coasts.length)];
-    if (coast) unitObjective[patrols[i].id] = { q: coast.q, r: coast.r, kind: 'coast', role: 'patrol' };
+    if (!coast) continue;
+    const dest = terr
+      ? pickNavalPatrolHex(terr, mapSize, coast.q, coast.r, gs, player, patrols[i].id)
+      : coast;
+    unitObjective[patrols[i].id] = {
+      q: dest.q, r: dest.r, kind: 'coast', role: 'patrol', mission: 'naval_screen',
+    };
   }
 
   // Large maps: dedicate a subset of combat units to expansion anchors.
@@ -3461,10 +3538,17 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
     const dNew = hexDistance(q, r, obj.q, obj.r);
     const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
     const navalW = phase.naval || 1;
+    const mapSizeNav = ctx.mapSize || gs._mapSize || 40;
+    const destT = terrain?.[`${obj.q},${obj.r}`] ?? 0;
+    const hereT = terrain?.[`${q},${r}`] ?? 0;
+    const onWater = hereT === 4 || hereT === 5;
+    const objOnLand = isCoastalLand(terrain, mapSizeNav, obj.q, obj.r) || (destT !== 4 && destT !== 5);
+    if (onWater) score += 6 * navalW;
+    else if (isCoastalLand(terrain, mapSizeNav, q, r)) score -= 14 * navalW;
     if (dNew < dCur) score += 14 * navalW;
-    if (dNew <= 6) score += 8 * navalW;
-    if (dNew <= 2) score += 10 * navalW;
-    if (isCoastalLand(terrain, ctx.mapSize || gs._mapSize || 40, q, r)) score += 5 * navalW;
+    if (objOnLand && onWater && hexDistance(q, r, obj.q, obj.r) <= 2) score += 10 * navalW;
+    else if (!objOnLand && dNew <= 6) score += 8 * navalW;
+    else if (!objOnLand && dNew <= 2) score += 10 * navalW;
   } else if ((mission === 'air_patrol' || AIR_UNITS.has(unit.type)) && obj) {
     const dNew = hexDistance(q, r, obj.q, obj.r);
     const dCur = hexDistance(unit.q, unit.r, obj.q, obj.r);
@@ -4918,6 +5002,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         + gs.units.filter(u => u.owner === player && u.type === 'ENGINEER').length;
       if (engN >= armyBudget.maxEngineers) return false;
     }
+    if (!lightNavalRecruitCapOk(gs, player, unitType, plannedCount, situation)) return false;
     return true;
   };
   const noteRecruit = (unitType, opts = {}) => {
@@ -5105,7 +5190,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     Number(b.owner) === Number(player) && PRODUCTION_VTC_TYPES.has(b.type)
     && (b.trainQueue?.length || 0) < getMaxVtcQueueDepth(gs, player, b));
   if (vtcCanQueueMore() && plannedRecruits < armyBudget.maxRecruitsPerTurn) {
-    const preferList = filterRecruitPrioForVtc(gs, player, waterMap
+    const myInfantry = gs.units.filter(u => u.owner === player && !u.embarked
+      && ['INFANTRY', 'ASSAULT_INFANTRY', 'ANTI_TANK', 'MORTAR', 'RECON'].includes(u.type)).length;
+    const lightNavalNow = (plannedCount.PATROL_BOAT || 0) + (plannedCount.MTB || 0);
+    const landArmyFirst = myInfantry < 8 || countGroundCombatUnits(gs, player) < 10 || lightNavalNow >= 3;
+    const preferList = filterRecruitPrioForVtc(gs, player, waterMap && !landArmyFirst
       ? [...cfg.navalPrio, ...cfg.recruitPrio]
       : [...cfg.recruitPrio, ...cfg.navalPrio]);
     for (const unitType of preferList) {
@@ -5117,9 +5206,14 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   // Island / coastal maps: naval via global queue at coastal VTCs (PATROL_BOAT, SUPPLY_SHIP).
   if ((gs.turn || 1) >= 4 && waterMap) {
     const myNavalCombatNow = gs.units.filter(u => u.owner === player && !u.embarked && NAVAL_UNITS.has(u.type) && u.type !== 'SUPPLY_SHIP').length;
+    const myPatrolBoatsNow = gs.units.filter(u => u.owner === player && !u.embarked && u.type === 'PATROL_BOAT').length;
     const mySupplyShipsNow = gs.units.filter(u => u.owner === player && !u.embarked && u.type === 'SUPPLY_SHIP').length;
-    const desiredPatrol = (gs.turn || 1) >= 14 ? 2 : 1;
-    const navalBootLow = myNavalCombatNow < desiredPatrol || mySupplyShipsNow < 1;
+    const enemyNavalNow = gs.units.filter(u => u.owner !== player && !u.embarked
+      && NAVAL_UNITS.has(u.type) && u.type !== 'SUPPLY_SHIP').length;
+    const desiredPatrol = Math.min(3, 1 + Math.ceil(enemyNavalNow / 2));
+    const needPatrol = myPatrolBoatsNow < desiredPatrol
+      && lightNavalRecruitCapOk(gs, player, 'PATROL_BOAT', plannedCount, situation);
+    const navalBootLow = needPatrol || mySupplyShipsNow < 1;
     if (navalBootLow && vtcCanQueueMore()) {
       const bootOrder = mySupplyShipsNow < 1
         ? ['SUPPLY_SHIP', 'PATROL_BOAT']
@@ -5392,7 +5486,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         .reduce((s,[,n]) => s + n, 0));
       const lineCount = lineTypes.reduce((s,t) => s + (plannedCount[t] || 0), 0);
       if (unitType === 'INFANTRY' && lineCount / totalCombat > 0.55) continue;
-      if ((unitType === 'PATROL_BOAT' || unitType === 'MTB') && (plannedCount[unitType] || 0) >= 4) continue;
+      if (!lightNavalRecruitCapOk(gs, player, unitType, plannedCount, situation)) continue;
       if (isNaval && navalPolicy?.kind === 'lake' && (plannedCount[unitType] || 0) >= (navalPolicy.maxByType[unitType] || 1)) continue;
       if (isNaval && navalPolicy?.kind === 'lake' && HEAVY_NAVAL_UNITS.has(unitType)) continue;
       if (isNaval && navalPolicy?.kind === 'lake' && TRANSPORT_NAVAL_UNITS.has(unitType)) continue;
