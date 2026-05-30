@@ -304,7 +304,8 @@ function pickBestVTCToQueue(gs, player, unitType, capital) {
 }
 
 const AI_VILLAGE_FACILITY_PRIO = ['barracks', 'local_farm', 'road_link', 'housing'];
-const AI_TOWN_FACILITY_PRIO = ['factory', 'science_lab', 'paved_network', 'market', 'naval_yard'];
+const AI_TOWN_FACILITY_PRIO = ['factory', 'science_lab', 'paved_network', 'market', 'suburbs', 'naval_yard'];
+const AI_CITY_FACILITY_PRIO = ['urban_housing', 'suburbs'];
 
 /** Buy UPGRADE-tab facilities at forward VTCs before queuing units that need them. */
 function planAIVtcUpgrades(gs, player, actions, capital, perceivedEnemies, maxPerTurn = 2) {
@@ -315,9 +316,11 @@ function planAIVtcUpgrades(gs, player, actions, capital, perceivedEnemies, maxPe
     if (vtc.isCapital || isPlayerCapitalBuilding(vtc)) continue;
     const menu = getVtcUpgradeMenu(gs, player, vtc.id);
     if (!menu || menu.capital || menu.promoting) continue;
-    const prio = (vtc.type === 'TOWN' || vtc.type === 'CITY')
-      ? [...AI_VILLAGE_FACILITY_PRIO, ...AI_TOWN_FACILITY_PRIO]
-      : AI_VILLAGE_FACILITY_PRIO;
+    const prio = vtc.type === 'CITY'
+      ? [...AI_VILLAGE_FACILITY_PRIO, ...AI_TOWN_FACILITY_PRIO, ...AI_CITY_FACILITY_PRIO]
+      : vtc.type === 'TOWN'
+        ? [...AI_VILLAGE_FACILITY_PRIO, ...AI_TOWN_FACILITY_PRIO]
+        : AI_VILLAGE_FACILITY_PRIO;
     for (const uid of prio) {
       if (isVtcUpgradeComplete(vtc, uid)) continue;
       const it = menu.items.find(x => x.id === uid);

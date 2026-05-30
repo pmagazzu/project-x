@@ -50,12 +50,30 @@ export const VTC_MENU_UPGRADES = {
   },
   housing: {
     id: 'housing',
-    label: 'Housing District',
+    label: 'Housing Development',
     short: 'Housing',
-    cost: { iron: 4, wood: 5 },
+    cost: { iron: 3, wood: 4 },
     buildTurns: 2,
     forSettlement: 'VILLAGE',
-    popCapBonus: 2,
+    popBonus: 1,
+  },
+  suburbs: {
+    id: 'suburbs',
+    label: 'Suburbs',
+    short: 'Suburbs',
+    cost: { iron: 6, wood: 6 },
+    buildTurns: 2,
+    forSettlements: ['TOWN', 'CITY'],
+    popBonus: 2,
+  },
+  urban_housing: {
+    id: 'urban_housing',
+    label: 'Urban Housing',
+    short: 'Urban',
+    cost: { iron: 12, wood: 8, components: 2 },
+    buildTurns: 3,
+    forSettlement: 'CITY',
+    popBonus: 4,
   },
   factory: {
     id: 'factory',
@@ -167,7 +185,10 @@ export function getVtcUpgradeMenu(gs, player, buildingId) {
   const items = [];
 
   for (const def of Object.values(VTC_MENU_UPGRADES)) {
-    if (def.forSettlement !== vtc.type) continue;
+    const tierOk = def.forSettlements
+      ? def.forSettlements.includes(vtc.type)
+      : def.forSettlement === vtc.type;
+    if (!tierOk) continue;
     if (def.coastalOnly && !coastal) continue;
     if (def.requiresResearch && !unlocked.has(def.requiresResearch)) continue;
     const complete = isVtcUpgradeComplete(vtc, def.id);
@@ -229,7 +250,10 @@ export function canPurchaseVtcUpgrade(gs, player, buildingId, upgradeId) {
   const vtc = getVtc(gs, player, buildingId);
   if (!def || !vtc) return { ok: false, reason: 'Invalid upgrade' };
   if (isPlayerCapitalBuilding(vtc)) return { ok: false, reason: 'Use outposts for capital upgrades' };
-  if (def.forSettlement !== vtc.type) return { ok: false, reason: 'Wrong settlement tier' };
+  const tierOk = def.forSettlements
+    ? def.forSettlements.includes(vtc.type)
+    : def.forSettlement === vtc.type;
+  if (!tierOk) return { ok: false, reason: 'Wrong settlement tier' };
   if (isVtcUpgradeComplete(vtc, upgradeId)) return { ok: false, reason: 'Already built' };
   if (isVtcUpgradeBuilding(vtc, upgradeId)) return { ok: false, reason: 'Construction in progress' };
   if (def.coastalOnly && !isNavalDeployAllowed(gs, vtc, getNavalCoastalCheckRadius(vtc))) {
@@ -285,11 +309,8 @@ export function tickVtcUpgrades(gs, player, events = []) {
   }
 }
 
-function applyVtcUpgradeBonuses(gs, player, vtc, upgradeId) {
-  const def = VTC_MENU_UPGRADES[upgradeId];
-  if (!def) return;
-  const pl = gs.players[player];
-  if (def.popCapBonus) pl.popCap = (pl.popCap || 10) + def.popCapBonus;
+function applyVtcUpgradeBonuses(_gs, _player, _vtc, _upgradeId) {
+  // Population cap recalculated in GameState after tickVtcUpgrades.
 }
 
 export function getSettlementImprovementStatus(gs, player, buildingId) {

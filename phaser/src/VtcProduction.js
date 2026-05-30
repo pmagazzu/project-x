@@ -412,6 +412,8 @@ export function getVtcFacilityBadgeGlyphs(building) {
   if (isVtcUpgradeComplete(building, 'naval_yard')) g.push('Ny');
   if (isVtcUpgradeComplete(building, 'local_farm')) g.push('Fm');
   if (isVtcUpgradeComplete(building, 'housing')) g.push('Ho');
+  if (isVtcUpgradeComplete(building, 'suburbs')) g.push('Sb');
+  if (isVtcUpgradeComplete(building, 'urban_housing')) g.push('Uh');
   return g;
 }
 
@@ -426,6 +428,8 @@ export function getVtcFacilityChips(building) {
   if (isVtcUpgradeComplete(building, 'science_lab')) chips.push('Lab');
   if (isVtcUpgradeComplete(building, 'naval_yard')) chips.push('Naval');
   if (isVtcUpgradeComplete(building, 'housing')) chips.push('Housing');
+  if (isVtcUpgradeComplete(building, 'suburbs')) chips.push('Suburbs');
+  if (isVtcUpgradeComplete(building, 'urban_housing')) chips.push('Urban housing');
   if (isVtcUpgradeComplete(building, 'road_link')) chips.push('Road link');
   if (isVtcUpgradeComplete(building, 'paved_network')) chips.push('Paved roads');
   return chips;

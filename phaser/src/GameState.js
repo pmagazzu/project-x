@@ -337,12 +337,12 @@ export function registerDesign(state, player, chassis, moduleKeys, designName) {
 export const BUILDING_TYPES = {
   HQ:            { name: 'HQ',             ironPerTurn: 3, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 0, canRecruit: ['ENGINEER','RECON'],                   buildCost: null,               color: 0xffdd00, sight: 3, tier: 0 },
   // Housing — population cap & growth (engineer-built on open land)
-  HOUSING_SLUMS:   { name: 'Slum District',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 1, wood: 2 }, color: 0x5a4030, sight: 1, tier: 0, popGrant: 1, popCapBonus: 0, placementTerrain: new Set([0, 3, 7]) }, // slums may sprawl onto hills
-  HOUSING_RURAL:   { name: 'Rural Housing',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 2, wood: 4 }, color: 0x6a5540, sight: 1, tier: 1, popCapBonus: 1, placementTerrain: new Set([0, 7]) },
-  HOUSING_SUBURB:  { name: 'Suburb Block',     ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, wood: 5 }, color: 0x7a6550, sight: 1, tier: 1, popCapBonus: 2, popPerTurn: 1, requiresTech: 'suburban_planning', placementTerrain: new Set([0, 7]) },
-  HOUSING_DISTRICT:{ name: 'Urban District',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: [], buildCost: { iron: 6, wood: 6, components: 1 }, color: 0x8a7560, sight: 1, tier: 2, popCapBonus: 3, popPerTurn: 1, requiresTech: 'suburban_planning', placementTerrain: new Set([0, 7]) },
-  HOUSING_BOROUGH: { name: 'Borough',          ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: [], buildCost: { iron: 8, wood: 8, components: 2 }, color: 0x9a8570, sight: 2, tier: 3, popCapBonus: 5, popPerTurn: 2, requiresTech: 'metropolitan_growth', placementTerrain: new Set([0, 7]) },
-  HOUSING_METRO:   { name: 'Metropolis Core',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: [], buildCost: { iron: 12, wood: 10, components: 3 }, color: 0xaa9580, sight: 2, tier: 4, popCapBonus: 8, popPerTurn: 3, requiresTech: 'metropolitan_growth', placementTerrain: new Set([0, 7]) },
+  HOUSING_SLUMS:   { name: 'Slum District',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { iron: 1, wood: 2 }, color: 0x5a4030, sight: 1, tier: 0, placementTerrain: new Set([0, 3, 7]) },
+  HOUSING_RURAL:   { name: 'Rural Housing',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 2, wood: 4 }, color: 0x6a5540, sight: 1, tier: 1, requiresTech: 'suburban_planning', placementTerrain: new Set([0, 7]) },
+  HOUSING_SUBURB:  { name: 'Suburb Block',     ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 4, wood: 5 }, color: 0x7a6550, sight: 1, tier: 1, requiresTech: 'suburban_planning', placementTerrain: new Set([0, 7]) },
+  HOUSING_DISTRICT:{ name: 'Urban District',   ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: [], buildCost: { iron: 6, wood: 6, components: 1 }, color: 0x8a7560, sight: 1, tier: 2, requiresTech: 'suburban_planning', placementTerrain: new Set([0, 7]) },
+  HOUSING_BOROUGH: { name: 'Borough',          ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 3, canRecruit: [], buildCost: { iron: 8, wood: 8, components: 2 }, color: 0x9a8570, sight: 2, tier: 3, requiresTech: 'metropolitan_growth', placementTerrain: new Set([0, 7]) },
+  HOUSING_METRO:   { name: 'Metropolis Core',  ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 4, canRecruit: [], buildCost: { iron: 12, wood: 10, components: 3 }, color: 0xaa9580, sight: 2, tier: 4, requiresTech: 'metropolitan_growth', placementTerrain: new Set([0, 7]) },
   MINE:          { name: 'Iron Mine',      ironPerTurn: 2, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 6, oil: 1 },         color: 0xaaaaaa, sight: 2, tier: 0 },
   OIL_PUMP:      { name: 'Oil Pump',       ironPerTurn: 0, oilPerTurn: 2, woodPerTurn: 0, buildTurns: 2, canRecruit: [], buildCost: { iron: 6, oil: 1 },         color: 0x222244, sight: 2, tier: 0 },
   BARRACKS:      { name: 'Barracks',       ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 2, canRecruit: ['INFANTRY','ANTI_TANK','MORTAR','MEDIC'], buildCost: { iron: 6, oil: 1, wood: 5 }, color: 0xaa6644, sight: 2, tier: 0 },
@@ -373,9 +373,9 @@ export const BUILDING_TYPES = {
   SCIENCE_LAB:   { name: 'Science Lab',    ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, rpPerTurn: 3,  buildTurns: 4, canRecruit: [], buildCost: { iron: 8, oil: 1, wood: 5 }, color: 0x8844cc, sight: 2 },
   FACTORY:       { name: 'Factory',        ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 0, goldPerTurn: 0, componentsPerTurn: 1, buildTurns: 4, canRecruit: [], buildCost: { iron: 12, oil: 4, wood: 9 }, color: 0x666666, sight: 2, fragile: true },
   // Neutral settlement chain (spawned by map generator; capturable by occupation)
-  VILLAGE:       { name: 'Village',        ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 1, goldPerTurn: 1, popPerTurn: 2, buildTurns: 0, canRecruit: [], buildCost: null, color: 0x8f7b62, sight: 2, popCapBonus: 3, tier: 0 },
-  TOWN:          { name: 'Town',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 2, goldPerTurn: 2, popPerTurn: 3, buildTurns: 0, canRecruit: [], buildCost: null, color: 0x9f886e, sight: 2, popCapBonus: 6, tier: 1 },
-  CITY:          { name: 'City',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 3, goldPerTurn: 3, popPerTurn: 5, buildTurns: 0, canRecruit: [], buildCost: null, color: 0xb59678, sight: 3, popCapBonus: 10, tier: 2 },
+  VILLAGE:       { name: 'Village',        ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 1, goldPerTurn: 1, buildTurns: 0, canRecruit: [], buildCost: null, color: 0x8f7b62, sight: 2, tier: 0 },
+  TOWN:          { name: 'Town',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 2, goldPerTurn: 2, buildTurns: 0, canRecruit: [], buildCost: null, color: 0x9f886e, sight: 2, tier: 1 },
+  CITY:          { name: 'City',           ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, foodPerTurn: 3, goldPerTurn: 3, buildTurns: 0, canRecruit: [], buildCost: null, color: 0xb59678, sight: 3, tier: 2 },
   // Fortification tiers T0–T5 (~100 m hex): foxhole → superfortress
   FORT_T0: { name: 'Foxhole', fortTier: 0, fortScoreMod: 12, defenseBonus: 1, indirectAirBonus: 24,
     ironPerTurn: 0, oilPerTurn: 0, woodPerTurn: 0, buildTurns: 1, canRecruit: [], buildCost: { wood: 1 }, color: 0x5a5044, sight: 0 },
@@ -724,6 +724,7 @@ export const RESOURCE_TYPES = {
 import { clampPlayerCount, getPlayerIds, makeVictoryPointLedger, defaultVictoryZones, VICTORY_MODES } from './GameConfig.js';
 import { tickVictoryPoints, checkVictoryPointWinner } from './VictoryPoints.js';
 import { tickVtcControlVictory, checkVtcControlWinner, VTC_CONTROL_TURNS_DEFAULT } from './VictoryVtcControl.js';
+import { calcPlayerPopCap, DEFAULT_VTC_POP } from './Population.js';
 
 export { PLAYER_COLORS, MAX_PLAYERS, getPlayerColor } from './GameConfig.js';
 
@@ -734,9 +735,9 @@ export const STARTING_GOLD      = 0;
 export const BASE_IRON_PER_TURN = 3;
 export const BASE_OIL_PER_TURN  = 0;
 
-// Population (manpower) — caps army size; housing raises cap, HQ grows pop over time
-export const HQ_BASE_POP_CAP = 15;
-export const HQ_POP_PER_TURN = 1;
+// Legacy constants (saves/UI); cap is VTC-based — see Population.js
+export const HQ_BASE_POP_CAP = DEFAULT_VTC_POP.VILLAGE;
+export const HQ_POP_PER_TURN = 0;
 
 export const HOUSING_BUILDINGS = new Set([
   'HOUSING_SLUMS', 'HOUSING_RURAL', 'HOUSING_SUBURB', 'HOUSING_DISTRICT',
@@ -769,28 +770,8 @@ export function getUnitPopCost(unitType) {
 export function recalcPlayerPopulation(state, player) {
   const pl = state.players[player];
   if (!pl) return;
-  let cap = 0;
-  let growth = 0;
-  let hasHQ = false;
-  for (const b of state.buildings) {
-    if (Number(b.owner) !== Number(player) || b.underConstruction) continue;
-    if (isPlayerCapitalBuilding(b)) {
-      hasHQ = true;
-      cap += HQ_BASE_POP_CAP;
-      growth += HQ_POP_PER_TURN;
-      continue;
-    }
-    const def = BUILDING_TYPES[b.type];
-    if (!def) continue;
-    cap += def.popCapBonus || 0;
-    growth += def.popPerTurn || 0;
-  }
-  if (!hasHQ) {
-    cap += HQ_BASE_POP_CAP;
-    growth += HQ_POP_PER_TURN;
-  }
-  pl.popCap = Math.max(HQ_BASE_POP_CAP, cap);
-  pl.popGrowthPerTurn = growth;
+  pl.popCap = calcPlayerPopCap(state, player);
+  pl.popGrowthPerTurn = 0;
   syncPlayerPopulationPool(state, player);
 }
 
@@ -822,23 +803,14 @@ export function syncPlayerPopulationPool(state, player) {
 }
 
 export function applyPopulationGrowth(state, player) {
-  const pl = state.players[player];
-  if (!pl) return 0;
   recalcPlayerPopulation(state, player);
-  const g = pl.popGrowthPerTurn || HQ_POP_PER_TURN;
-  const before = pl.population ?? 0;
-  pl.population = Math.min(pl.popCap, before + g);
-  return pl.population - before;
+  return 0;
 }
 
 /** Return manpower when a unit leaves play (death, desertion, crash). */
 export function refundPopulationForRemovedUnit(state, unit) {
   if (!unit || unit.owner == null) return;
-  const pl = state.players[unit.owner];
-  if (!pl) return;
   recalcPlayerPopulation(state, unit.owner);
-  const pop = getUnitPopCost(unit.type);
-  pl.population = Math.min(pl.popCap || HQ_BASE_POP_CAP, (pl.population || 0) + pop);
 }
 
 /** Remove dead units and restore population so VTC queues can train replacements. */
@@ -849,13 +821,8 @@ export function removeDeadUnits(state) {
 }
 
 export function onHousingBuildingComplete(state, player, buildingType) {
-  const def = BUILDING_TYPES[buildingType];
-  if (!def || !HOUSING_BUILDINGS.has(buildingType)) return;
+  if (!HOUSING_BUILDINGS.has(buildingType)) return;
   recalcPlayerPopulation(state, player);
-  const pl = state.players[player];
-  if (def.popGrant) {
-    pl.population = Math.min(pl.popCap, (pl.population || 0) + def.popGrant);
-  }
 }
 
 // ── Science Lab RP formula (stacking with diminishing returns) ─────────────
@@ -917,21 +884,19 @@ export const UNIT_UPKEEP = {
 // Compute total upkeep for all of a player's units
 export function calcUpkeep(state, player) {
   const UPKEEP_SCALE = 0.78; // tighter economy pressure
-  const POP_UPKEEP_SCALE = 0.11; // stronger manpower pressure
-  let food = 0, iron = 0, oil = 0, population = 0;
+  let food = 0, iron = 0, oil = 0;
   for (const unit of state.units) {
     if (unit.owner !== player || unit.embarked) continue;
     const base = UNIT_UPKEEP[unit.type] || { food: 0, iron: 0, oil: 0 };
     food += base.food * UPKEEP_SCALE;
     iron += base.iron * UPKEEP_SCALE;
     oil  += base.oil  * UPKEEP_SCALE;
-    population += getUnitPopCost(unit.type) * POP_UPKEEP_SCALE;
   }
   return {
     food: +food.toFixed(2),
     iron: +iron.toFixed(2),
     oil: +oil.toFixed(2),
-    population: +population.toFixed(2),
+    population: 0,
   };
 }
 
@@ -966,9 +931,9 @@ export function createGameState(scenario = 'default', options = {}) {
   const makePlayer = (iron, oil, wood) => ({
     iron, oil, wood: wood || 0,
     food: STARTING_FOOD, gold: STARTING_GOLD,
-    population: HQ_BASE_POP_CAP,
-    popCap: HQ_BASE_POP_CAP,
-    popGrowthPerTurn: HQ_POP_PER_TURN,
+    population: 0,
+    popCap: 0,
+    popGrowthPerTurn: 0,
     components: 0,
     hardenedSteel: 0,
     aviationAlloy: 0,
@@ -1000,6 +965,13 @@ export function createGameState(scenario = 'default', options = {}) {
     vtcControlStreak: null,
     victoryZones: options.victoryZones || [],
     victoryPoints: makeVictoryPointLedger(playerIds),
+    vtcPopScale: Math.max(0.25, Math.min(4, Number(options.vtcPopScale) || 1)),
+    vtcPopBase: {
+      VILLAGE: options.vtcPopVillage ?? DEFAULT_VTC_POP.VILLAGE,
+      TOWN: options.vtcPopTown ?? DEFAULT_VTC_POP.TOWN,
+      CITY: options.vtcPopCity ?? DEFAULT_VTC_POP.CITY,
+      HQ: options.vtcPopHq ?? DEFAULT_VTC_POP.HQ,
+    },
   };
   for (const p of playerIds) {
     state.players[p] = makePlayer(STARTING_IRON, STARTING_OIL, 0);
@@ -2511,13 +2483,18 @@ export function resolveTurn(state, terrain) {
   }
 
   // Phase 3: Captures
+  let settlementCapture = false;
   for (const b of state.buildings) {
     if (ROAD_TYPES.has(b.type)) continue;
     const unit = unitAt(state, b.q, b.r);
     if (unit && unit.owner !== b.owner) {
       events.push(`P${unit.owner} captures ${BUILDING_TYPES[b.type].name}!`);
       b.owner = unit.owner;
+      if (VTC_TYPES.has(b.type) || b.type === 'HQ') settlementCapture = true;
     }
+  }
+  if (settlementCapture) {
+    for (const p of getPlayerIds(state)) recalcPlayerPopulation(state, p);
   }
 
   // Phase 4: Tick recruit timers — only queue head per building advances each turn.
@@ -2594,6 +2571,7 @@ export function resolveTurn(state, terrain) {
     tickVtcUpgrades(state, player, events);
     tickVtcProduction(state, player, events);
     tickSettlementPromotions(state, player, events);
+    recalcPlayerPopulation(state, player);
   }
 
   // Phase 5: Income
@@ -2819,13 +2797,18 @@ export function resolveEndOfTurn(state, terrain) {
   state._terrain = terrain;
 
   // Captures (only by current player's units)
+  let settlementCapture = false;
   for (const b of state.buildings) {
     if (ROAD_TYPES.has(b.type)) continue;
     const unit = unitAt(state, b.q, b.r);
     if (unit && unit.owner !== b.owner && unit.owner === player) {
       events.push(`P${player} captures ${BUILDING_TYPES[b.type].name}!`);
       b.owner = player;
+      if (VTC_TYPES.has(b.type) || b.type === 'HQ') settlementCapture = true;
     }
+  }
+  if (settlementCapture) {
+    for (const p of getPlayerIds(state)) recalcPlayerPopulation(state, p);
   }
 
   // Tick recruit timers for current player: only queue head per building progresses.

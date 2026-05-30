@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.12';
+export const GAME_VERSION = 'v1.21.13';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -293,6 +293,7 @@ export class GameScene extends Phaser.Scene {
       playerCount: this.playerCount,
       victoryMode: data.victoryMode || VICTORY_MODES.VTC_CONTROL,
       victoryPointTarget: data.victoryPointTarget || 100,
+      vtcPopScale: data.vtcPopScale ?? 1,
     });
     migrateGlobalQueuesToVtc(this.gameState);
     this.gameState._techTree = TECH_TREE; // inject for resolveEndOfTurn research tick
@@ -3099,8 +3100,7 @@ export class GameScene extends Phaser.Scene {
     this._setCommandCard(c.wood, `${fmtRes(pl.wood || 0)}  ${sgn(netWood)}`);
     this._setCommandCard(c.food, `${fmtRes(pl.food || 0)}  ${sgn(netFood)}${ttzSuffix(ttzFood)}`, unitsOOS > 0 ? '#ff6644' : rowFill(ttzFood, ttzFood <= 1));
     recalcPlayerPopulation(gs, p);
-    const popGrow = pl.popGrowthPerTurn || 0;
-    this._setCommandCard(c.pop, `${pl.population ?? 0}/${pl.popCap ?? 0}${popGrow > 0 ? ` +${popGrow}` : ''}`, (pl.population || 0) < 3 ? '#ff8888' : '#c8e8c8');
+    this._setCommandCard(c.pop, `${pl.population ?? 0}/${pl.popCap ?? 0}`, (pl.population || 0) < 3 ? '#ff8888' : '#c8e8c8');
     this._setCommandCard(c.gold, `${fmtRes(pl.gold || 0)}  ${sgn(netGold)}`);
     this._setCommandCard(c.parts, `${fmtRes(pl.components || 0)}`);
     this._setCommandCard(c.steel, `${fmtRes(pl.hardenedSteel || 0)}`);

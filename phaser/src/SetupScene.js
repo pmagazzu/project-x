@@ -34,6 +34,15 @@ export const LAND_PROFILES = [
   { key: 'landlocked', label: 'Landlocked' },
 ];
 
+const VTC_POP_SCALE_OPTIONS = [
+  { label: 'Pop 0.5×', scale: 0.5, sub: 'V5 T10 C15' },
+  { label: 'Pop 0.75×', scale: 0.75, sub: 'tight' },
+  { label: 'Pop 1×', scale: 1, sub: 'default' },
+  { label: 'Pop 1.25×', scale: 1.25, sub: '' },
+  { label: 'Pop 1.5×', scale: 1.5, sub: '' },
+  { label: 'Pop 2×', scale: 2, sub: 'large armies' },
+];
+
 const GAP_OPTIONS = [
   { label: 'Close', gap: 6, sub: '6 hex' },
   { label: 'Tight', gap: 8, sub: '8 hex' },
@@ -92,6 +101,7 @@ function defaultConfig(mode, aiP2Default = true) {
     humanPlayer: 1,
     victoryMode: VICTORY_MODES.VTC_CONTROL,
     victoryPointTarget: 100,
+    vtcPopScale: 1,
   };
   if (mode === 'skirmish') {
     return {
@@ -131,6 +141,8 @@ export class SetupScene extends Phaser.Scene {
     this._gapIdx = GAP_OPTIONS.findIndex(g => g.gap === this.cfg.combatLineGap) || 2;
     this._playerCountIdx = PLAYER_COUNT_OPTIONS.findIndex(o => o.count === this.cfg.playerCount) || 0;
     this._victoryModeIdx = VICTORY_MODE_OPTIONS.findIndex(o => o.key === this.cfg.victoryMode) || 0;
+    this._vtcPopScaleIdx = VTC_POP_SCALE_OPTIONS.findIndex(o => o.scale === this.cfg.vtcPopScale);
+    if (this._vtcPopScaleIdx < 0) this._vtcPopScaleIdx = 2;
     this._vpTargetIdx = VP_TARGET_OPTIONS.findIndex(o => o.target === this.cfg.victoryPointTarget) || 2;
     this._humanIdx = 0;
     if (this.mode === 'endless' && idxBySize < 0) this._sizeIdx = 1;
@@ -216,6 +228,15 @@ export class SetupScene extends Phaser.Scene {
       this._refreshSummary();
     });
     y += rowGap;
+
+    if (this.mode === 'skirmish' || this.mode === 'endless' || this.mode === 'map_builder') {
+      this._addCycleRow(rowLeft, y, rowW, 'VTC population', VTC_POP_SCALE_OPTIONS, () => this._vtcPopScaleIdx, (i) => {
+        this._vtcPopScaleIdx = i;
+        this.cfg.vtcPopScale = VTC_POP_SCALE_OPTIONS[i].scale;
+        this._refreshSummary();
+      });
+      y += rowGap;
+    }
 
     if (this.mode === 'skirmish' || this.mode === 'endless') {
       this._addCycleRow(rowLeft, y, rowW, 'Players', PLAYER_COUNT_OPTIONS, () => this._playerCountIdx, (i) => {
@@ -404,6 +425,10 @@ export class SetupScene extends Phaser.Scene {
       if (this.mode !== 'map_builder') parts.push(LAND_PROFILES[this._landIdx]?.label || '');
     }
     parts.push(this.cfg.supplyEnabled ? 'Supply ON' : 'Supply OFF');
+    if (this.mode === 'skirmish' || this.mode === 'endless' || this.mode === 'map_builder') {
+      const popOpt = VTC_POP_SCALE_OPTIONS[this._vtcPopScaleIdx] || VTC_POP_SCALE_OPTIONS[2];
+      parts.push(popOpt.label);
+    }
     parts.push(this.cfg.debugNoFog ? 'Fog OFF' : 'Fog ON');
     if (this.mode === 'skirmish' || this.mode === 'endless') {
       parts.push(`${this.cfg.playerCount}P`);
@@ -511,6 +536,7 @@ export class SetupScene extends Phaser.Scene {
       humanPlayer: c.humanPlayer,
       victoryMode: c.victoryMode,
       victoryPointTarget: c.victoryPointTarget,
+      vtcPopScale: c.vtcPopScale,
       aiPlayers: this._buildAiPlayers(),
       ...(this.mode === 'skirmish' ? { opponentAiEnabled: !!c.opponentAiEnabled } : {}),
       ...(this.mode === 'endless' ? { aiViewerMode: true, spectatorMode: true } : {}),
