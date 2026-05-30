@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.31';
+export const GAME_VERSION = 'v1.21.32';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -3181,6 +3181,10 @@ export class GameScene extends Phaser.Scene {
         this._inspectorTab = key;
         if (key === 'build') {
           this._buildMenuOpen = true;
+          if (this._isSpectatorMode?.() && this.hoveredHex && this.gameState) {
+            const bu = buildingAt(this.gameState, this.hoveredHex.q, this.hoveredHex.r);
+            if (bu && PRODUCTION_VTC_TYPES.has(bu.type)) this._focusSpectatorVtc(bu);
+          }
         }
         this._updateInspectorTabVisuals();
         this._updateBottomPanel();
@@ -3367,6 +3371,14 @@ export class GameScene extends Phaser.Scene {
     return this._isCurrentPlayerHumanControlled();
   }
 
+  _isSpectatorMode() {
+    return !!this._aiViewerMode;
+  }
+
+  _canShowSpectatorVtcPanel() {
+    return this._isSpectatorMode() && !!this._buildMenuFocusBuilding;
+  }
+
   _isEngineerBuildPanelActive() {
     const gs = this.gameState;
     const u = this.selectedUnit;
@@ -3507,6 +3519,7 @@ export class GameScene extends Phaser.Scene {
     }
     const def = BUILDING_TYPES[bu.type] || {};
     const viewer = Number(gs.currentPlayer);
+    const fullIntel = this._isSpectatorMode();
     const isOwn = Number(bu.owner) === viewer;
     const isVtc = PRODUCTION_VTC_TYPES.has(bu.type);
     const facilityChips = isVtc ? getVtcFacilityChips(bu) : [];
@@ -3515,7 +3528,7 @@ export class GameScene extends Phaser.Scene {
       : `${def.name || bu.type}  ·  Player ${bu.owner}`;
     const chips = bu.underConstruction
       ? `Building… ${bu.buildProgress || 0}/${bu.buildTurnsRequired || 1} turns`
-      : (isOwn ? 'Friendly' : 'Enemy')
+      : (fullIntel ? 'Spectator intel' : (isOwn ? 'Friendly' : 'Enemy'))
         + (isVtc ? '  ·  VTC' : (def.canRecruit?.length ? `  ·  Recruits: ${def.canRecruit.length} types` : ''));
     const lines = [];
     if (!isVtc && def.buildCost) {
@@ -3525,8 +3538,8 @@ export class GameScene extends Phaser.Scene {
     const recruit = gs.pendingRecruits.find(r => r.buildingId === bu.id && Number(r.owner) === Number(bu.owner));
     if (recruit) lines.push(`Training: ${recruit.type || 'unit'} (${recruit.turnsLeft} turns left)`);
     if (isVtc) {
-      lines.push(...getVtcInspectorLines(gs, viewer, bu, fogVisible));
-    } else if (['VILLAGE', 'TOWN', 'CITY', 'HQ'].includes(bu.type) && isOwn) {
+      lines.push(...getVtcInspectorLines(gs, viewer, bu, fogVisible, { fullIntel }));
+    } else if (['VILLAGE', 'TOWN', 'CITY', 'HQ'].includes(bu.type) && (isOwn || fullIntel)) {
       const vs = getVtcQueueSummary(gs, bu.owner, bu.id);
       if (vs.training) {
         lines.push(`Training: ${UNIT_TYPES[vs.training.type]?.name || vs.training.type} (${vs.training.turnsLeft}t)`);
@@ -3587,7 +3600,7 @@ export class GameScene extends Phaser.Scene {
     return t;
   }
 
-  _renderBuildMenuTabBtn(ax, y, label, tabKey, active, icon = '', tabIndex = 0, tabW = 108) {
+  _renderBuildMenuTabBtn(ax, y, label, tabKey, active, icon = '', tabIndex = 0, tabW = 108, opts = {}) {
     const w = tabW, h = 26;
     const x = ax + tabIndex * (tabW + 2);
     const bg = this.add.rectangle(x + w / 2, y + h / 2, w, h, active ? BUILD_MENU.tabOn : BUILD_MENU.tabOff, active ? 0.98 : 0.92)
@@ -3599,7 +3612,8 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setScrollFactor(0).setDepth(112);
     const click = () => {
       this._contextMenuClicked = true;
-      this._buildMenuTab = tabKey;
+      if (opts.spectator) this._spectatorVtcTab = tabKey;
+      else this._buildMenuTab = tabKey;
       this._hideContextMenu(true);
       this._updateBottomPanel();
     };
@@ -3676,6 +3690,35 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
+  _inspectorSpectatorVtcOverview(gs) {
+    const vtcs = (gs.buildings || []).filter(b => PRODUCTION_VTC_TYPES.has(b.type) && !b.underConstruction);
+    let training = 0, queued = 0, ready = 0;
+    const active = [];
+    for (const b of vtcs) {
+      const s = getVtcQueueSummary(gs, b.owner, b.id);
+      if (s.training) training++;
+      queued += Math.max(0, s.pending.length - (s.training ? 1 : 0));
+      ready += s.ready.length;
+      if (!s.training && s.pending.length <= 1 && !s.ready.length) continue;
+      const name = BUILDING_TYPES[b.type]?.name || b.type;
+      const bits = [];
+      if (s.training) bits.push(`${UNIT_TYPES[s.training.type]?.name || s.training.type} ${s.training.turnsLeft ?? 0}t`);
+      if (s.pending.length > 1) bits.push(`+${s.pending.length - 1} queued`);
+      if (s.ready.length) bits.push(`${s.ready.length} ready`);
+      active.push(`P${b.owner} ${name} (${b.q},${b.r}): ${bits.join(' · ')}`);
+    }
+    const lines = active.length
+      ? [...active.slice(0, 3)]
+      : ['All VTCs idle — click one for facilities & upgrades'];
+    if (active.length > 3) lines.push(`+${active.length - 3} more active VTCs — click one for details`);
+    else if (active.length) lines.push('Click any VTC on the map for full queue intel');
+    return {
+      title: 'AI war production',
+      chips: `${vtcs.length} VTCs  ·  TRAINING ${training}  ·  QUEUED ${queued}  ·  READY ${ready}`,
+      lines,
+    };
+  }
+
   _isHumanTurn() {
     return this._canControlBuildMenu();
   }
@@ -3701,6 +3744,18 @@ export class GameScene extends Phaser.Scene {
       && Number(building.owner) === Number(p) && !isPlayerCapitalBuilding(building);
     this._buildMenuTab = canUpgrade ? 'upgrade' : 'produce';
     this._updateBottomPanel();
+  }
+
+  _focusSpectatorVtc(building) {
+    if (!building || !PRODUCTION_VTC_TYPES.has(building.type)) return;
+    this._buildMenuFocusBuilding = building;
+    this._buildMenuOpen = true;
+    this._buildMenuTab = 'produce';
+    this._spectatorVtcTab = this._spectatorVtcTab || 'produce';
+    this.hoveredHex = { q: building.q, r: building.r };
+    this._inspectorTabManual = 'build';
+    this._updateBottomPanel();
+    this._redrawHighlights();
   }
 
   _clearBuildMenuBuildingFocus() {
@@ -3992,6 +4047,109 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  _renderSpectatorVtcUpgradeSection(ax, ay, gs, owner, focus) {
+    const menu = getVtcUpgradeMenu(gs, owner, focus.id);
+    if (!menu) {
+      this._addBuildMenuText(ax, ay, 'No upgrade data for this site.', { fill: '#aa8888' });
+      return ay + 14;
+    }
+    if (menu.promoting) {
+      this._addBuildMenuText(ax, ay, `Promoting → ${BUILDING_TYPES[menu.promoteTarget]?.name || menu.promoteTarget} (${menu.promoteTurnsLeft}t left)`, {
+        fill: '#ffdd88', font: 'bold 10px monospace',
+      });
+      return ay + 16;
+    }
+    this._addBuildMenuText(ax, ay, `Facilities ${menu.requiredDone}/${menu.requiredTotal} required for promotion`, {
+      fill: '#99aabb', font: '9px monospace',
+    });
+    ay += 14;
+    for (const it of menu.items) {
+      if (it.external) {
+        const mark = it.complete ? '✓' : '○';
+        this._addBuildMenuText(ax, ay, `${mark} ${it.label}`, {
+          fill: it.complete ? '#88cc88' : '#aa9988', font: '9px monospace',
+        });
+        ay += 12;
+        continue;
+      }
+      const status = it.complete ? '✓ built' : it.building ? `⏳ ${it.turnsLeft}t` : '— not built';
+      this._addBuildMenuText(ax, ay, `${status}  ${it.label}`, {
+        fill: it.complete ? '#88cc88' : (it.building ? '#ffdd88' : '#778899'), font: '9px monospace',
+      });
+      ay += 12;
+    }
+    if (menu.promoteTarget && menu.canPromote?.ok) {
+      this._addBuildMenuText(ax, ay, `Eligible to promote → ${BUILDING_TYPES[menu.promoteTarget]?.name}`, {
+        fill: '#aacc88', font: '9px monospace',
+      });
+      ay += 12;
+    }
+    return ay;
+  }
+
+  _renderSpectatorVtcPanel() {
+    const gs = this.gameState;
+    const focus = this._buildMenuFocusBuilding;
+    if (!focus) return;
+    const owner = Number(focus.owner);
+    const { topY, contentLeft } = this._getBottomChromeLayout();
+    const ax = contentLeft;
+    let ay = topY + 8;
+    const tab = this._spectatorVtcTab || 'produce';
+
+    const settleIcon = focus.type === 'CITY' ? '🏙' : focus.type === 'TOWN' ? '🏘'
+      : (focus.isCapital || focus.type === 'HQ') ? '⭐' : focus.type === 'VILLAGE' ? '🛖' : '⚔';
+    this._addBuildMenuText(ax, ay, `${settleIcon} ${BUILDING_TYPES[focus.type]?.name || focus.type}`, {
+      font: 'bold 13px monospace', fill: BUILD_MENU.gold,
+    });
+    this._addBuildMenuText(ax + 228, topY + 6, '👁', {
+      font: '10px monospace', fill: BUILD_MENU.muted,
+    });
+    ay += 20;
+
+    const chips = getVtcFacilityChips(focus);
+    this._addBuildMenuText(ax, ay, `P${owner}  ·  (${focus.q},${focus.r})  ·  Spectator read-only`, {
+      fill: '#99bbdd', font: '10px monospace',
+    });
+    ay += 14;
+    if (chips.length) {
+      this._addBuildMenuText(ax, ay, chips.join(' · '), { fill: '#88aacc', font: '9px monospace' });
+      ay += 12;
+    }
+
+    const clr = this.add.text(ax + 218, topY + 8, '✕', {
+      font: 'bold 12px monospace', fill: '#ffaaaa', backgroundColor: '#331111', padding: { x: 6, y: 2 },
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(112).setInteractive({ useHandCursor: true });
+    clr.on('pointerdown', () => { this._clearBuildMenuBuildingFocus(); this._buildMenuOpen = false; this._updateBottomPanel(); });
+    this._uiLayer.add(clr);
+    this._dynBtns.push(clr);
+
+    const tabY = ay;
+    this._renderBuildMenuTabBtn(ax, tabY, 'PRODUCE', 'produce', tab === 'produce', '⚙ ', 0, 108, { spectator: true });
+    this._renderBuildMenuTabBtn(ax, tabY, 'UPGRADES', 'upgrade', tab === 'upgrade', '⬆ ', 1, 108, { spectator: true });
+    this._spectatorVtcTab = tab;
+    ay += 32;
+
+    if (tab === 'upgrade') {
+      this._renderSpectatorVtcUpgradeSection(ax, ay, gs, owner, focus);
+      return;
+    }
+
+    ay = this._renderVtcProductionPanel(ax, ay, gs, owner, focus.id, 228);
+    const q = getVtcQueueSummary(gs, owner, focus.id);
+    if (q.ready.length) {
+      ay += 4;
+      this._addBuildMenuText(ax, ay, 'Ready units deploy when AI picks a hex — not player-controlled.', {
+        fill: '#8899aa', font: '9px monospace',
+      });
+    } else {
+      ay += 4;
+      this._addBuildMenuText(ax, ay, 'Hover BUILD tab for quick intel · click another VTC anytime', {
+        fill: '#667788', font: '9px monospace',
+      });
+    }
+  }
+
   _updateBottomPanel() {
     this._layoutInspectorChrome();
     const gs = this.gameState;
@@ -4006,10 +4164,12 @@ export class GameScene extends Phaser.Scene {
       content = this._inspectorUnitContent(gs, u);
     } else if (this._inspectorTab === 'unit' && !u && this._isHumanTurn()) {
       content = this._inspectorProductionSummary(gs, gs.currentPlayer);
+    } else if (this._inspectorTab === 'unit' && !u && this._isSpectatorMode()) {
+      content = this._inspectorSpectatorVtcOverview(gs);
     } else if (this._inspectorTab === 'unit' && !u) {
       content = { title: 'No unit selected', chips: 'Click your unit on the map', lines: ['Hover a hex for terrain info (HEX tab)'] };
     } else if (this._inspectorTab === 'build' && this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
-      content = this._inspectorBuildContent(gs, this.hoveredHex, this._currentFog);
+      content = this._inspectorBuildContent(gs, this.hoveredHex, this._isSpectatorMode() ? null : this._currentFog);
     } else if (this._inspectorTab === 'hex' && this.hoveredHex && isValid(this.hoveredHex.q, this.hoveredHex.r, this.mapSize)) {
       content = this._inspectorHexContent(gs, this.hoveredHex);
     } else if (u) {
@@ -4027,8 +4187,9 @@ export class GameScene extends Phaser.Scene {
     this._hideContextMenu(true);
 
     const canBuild = this._canControlBuildMenu();
-    this.actionBg?.setVisible(canBuild);
-    this.actionAccent?.setVisible(canBuild);
+    const canSpectatorVtc = this._canShowSpectatorVtcPanel();
+    this.actionBg?.setVisible(canBuild || canSpectatorVtc || (this._isSpectatorMode() && this._buildMenuOpen));
+    this.actionAccent?.setVisible(canBuild || canSpectatorVtc || (this._isSpectatorMode() && this._buildMenuOpen));
 
     if (canBuild) {
       if (this._buildMenuOpen) {
@@ -4042,6 +4203,15 @@ export class GameScene extends Phaser.Scene {
         this._uiLayer.add(hint);
         this._dynBtns.push(hint);
       }
+    } else if (canSpectatorVtc) {
+      this._renderSpectatorVtcPanel();
+    } else if (this._isSpectatorMode() && this._buildMenuOpen) {
+      const { contentLeft, topY: ty } = this._getBottomChromeLayout();
+      const hint = this.add.text(contentLeft, ty + 24, 'Click any VTC on the map for production intel', {
+        font: 'bold 11px monospace', fill: '#ccaadd', backgroundColor: '#2a1040', padding: { x: 8, y: 6 },
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(110);
+      this._uiLayer.add(hint);
+      this._dynBtns.push(hint);
     }
   }
 
@@ -7348,22 +7518,32 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Own HQ / settlement — open build menu upgrades & production for this site
-    if (clickedBuilding && Number(clickedBuilding.owner) === Number(gs.currentPlayer)
-        && PRODUCTION_VTC_TYPES.has(clickedBuilding.type)) {
-      this._focusBuildMenuBuilding(clickedBuilding);
-      if (clickedUnit && Number(clickedUnit.owner) === Number(gs.currentPlayer)) {
-        this.selectedUnit = clickedUnit;
-        this.reachable = getReachableHexes(gs, clickedUnit, this.terrain, this.mapSize);
-        this.attackable = getAttackableHexes(gs, clickedUnit, clickedUnit.q, clickedUnit.r, this._currentFog);
-      } else {
+    // VTC — open build menu (human) or spectator intel panel (AI vs AI)
+    if (clickedBuilding && PRODUCTION_VTC_TYPES.has(clickedBuilding.type)) {
+      if (this._isSpectatorMode()) {
+        this._focusSpectatorVtc(clickedBuilding);
         this.selectedUnit = null;
         this.reachable = [];
         this.attackable = [];
+        this.mode = 'select';
+        this._refresh();
+        return;
       }
-      this.mode = 'select';
-      this._refresh();
-      return;
+      if (Number(clickedBuilding.owner) === Number(gs.currentPlayer)) {
+        this._focusBuildMenuBuilding(clickedBuilding);
+        if (clickedUnit && Number(clickedUnit.owner) === Number(gs.currentPlayer)) {
+          this.selectedUnit = clickedUnit;
+          this.reachable = getReachableHexes(gs, clickedUnit, this.terrain, this.mapSize);
+          this.attackable = getAttackableHexes(gs, clickedUnit, clickedUnit.q, clickedUnit.r, this._currentFog);
+        } else {
+          this.selectedUnit = null;
+          this.reachable = [];
+          this.attackable = [];
+        }
+        this.mode = 'select';
+        this._refresh();
+        return;
+      }
     }
 
     // Own unit on hex

@@ -627,37 +627,49 @@ export function getVtcFacilityChips(building) {
   return chips;
 }
 
-/** Inspector lines for a VTC (fog-aware). */
-export function getVtcInspectorLines(gs, viewerPlayer, building, fogVisibleHexes = null) {
+/** Inspector lines for a VTC (fog-aware). options.fullIntel = spectator / debug full queue view. */
+export function getVtcInspectorLines(gs, viewerPlayer, building, fogVisibleHexes = null, options = {}) {
   if (!building || !PRODUCTION_VTC_TYPES.has(building.type)) return [];
+  const fullIntel = !!options.fullIntel;
   const hexKey = `${building.q},${building.r}`;
   const unexplored = fogVisibleHexes && fogVisibleHexes.size > 0 && !fogVisibleHexes.has(hexKey);
   const isOwn = Number(building.owner) === Number(viewerPlayer);
+  const showProduction = isOwn || fullIntel;
   const lines = [];
 
-  if (unexplored && !isOwn) {
+  if (unexplored && !isOwn && !fullIntel) {
     lines.push('Intel: area not scouted');
     return lines;
   }
 
   const chips = getVtcFacilityChips(building);
   if (chips.length) lines.push(`Facilities: ${chips.join(' · ')}`);
-  else if (isOwn) lines.push('Facilities: none yet (UPGRADE tab)');
+  else if (showProduction) lines.push('Facilities: none yet');
   else lines.push('Facilities: none visible');
 
-  if (isOwn) {
+  if (showProduction) {
     const vs = getVtcQueueSummary(gs, building.owner, building.id);
     if (vs.training) {
       lines.push(`Training: ${UNIT_TYPES[vs.training.type]?.name || vs.training.type} (${vs.training.turnsLeft ?? 0}t)`);
     } else if (!(building.trainQueue?.length)) {
       lines.push('Training: idle');
     }
-    if (vs.pending.length > 1) lines.push(`Queue: ${vs.pending.length - 1} waiting`);
-    if (vs.ready.length) lines.push(`Ready to deploy: ${vs.ready.length}`);
+    if (vs.pending.length > 1) {
+      const waiting = vs.pending.slice(1).map(r => UNIT_TYPES[r.type]?.name || r.type).join(', ');
+      lines.push(`Queue: ${waiting}`);
+    }
+    if (vs.ready.length) {
+      const readyNames = vs.ready.map(r => UNIT_TYPES[r.type]?.name || r.type).join(', ');
+      lines.push(`Ready: ${readyNames}`);
+    }
     const up = building.vtcUpgrades || {};
-    const pendingUp = Object.entries(up).filter(([, v]) => v && !v.complete);
+    const built = Object.entries(up).filter(([, v]) => v === true || v?.complete);
+    const pendingUp = Object.entries(up).filter(([, v]) => v && typeof v === 'object' && !v.complete && (v.turnsLeft || 0) > 0);
+    if (built.length) {
+      lines.push(`Built: ${built.map(([id]) => id.replace(/_/g, ' ')).join(', ')}`);
+    }
     if (pendingUp.length) {
-      lines.push(`Upgrading: ${pendingUp.map(([id]) => id.replace(/_/g, ' ')).join(', ')}`);
+      lines.push(`Upgrading: ${pendingUp.map(([id, v]) => `${id.replace(/_/g, ' ')} (${v.turnsLeft}t)`).join(', ')}`);
     }
   } else {
     lines.push('Production: unknown (enemy)');
@@ -667,14 +679,14 @@ export function getVtcInspectorLines(gs, viewerPlayer, building, fogVisibleHexes
     }
   }
 
-  if (isOwn && building.captureProgress?.player != null) {
+  if ((isOwn || fullIntel) && building.captureProgress?.player != null) {
     const cp = building.captureProgress;
-    if (Number(cp.player) !== Number(viewerPlayer)) {
+    if (Number(cp.player) !== Number(building.owner)) {
       lines.push(`⚠ Being captured: P${cp.player} ${cp.turns || 0}/${cp.required}`);
     }
   }
 
   const rad = VTC_SUPPLY_RADIUS?.[building.type];
-  if (rad && isOwn) lines.push(`Supply bubble: ${rad} hexes`);
+  if (rad && showProduction) lines.push(`Supply bubble: ${rad} hexes`);
   return lines;
 }
