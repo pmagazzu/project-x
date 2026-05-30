@@ -3168,6 +3168,7 @@ export function resolveEndOfTurn(state, terrain) {
   } else {
   const suppliedHexes = computeSupply(state, player, state._mapSize || 25);
   for (const unit of state.units.filter(u => u.owner === player && !u.embarked)) {
+    if ((unit.outOfSupply || 0) > 2) unit.outOfSupply = 2;
     // Recon upgrade: unit ignores supply needs entirely.
     if ((unit.ignoreSupply || 0) > 0) {
       unit.outOfSupply = 0;
@@ -3234,10 +3235,13 @@ export function resolveEndOfTurn(state, terrain) {
         }
       }
 
-      unit.outOfSupply = (unit.outOfSupply || 0) + 1;
-      if (unit.outOfSupply === 1) events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) is OUT OF SUPPLY (-1 move, -1 attack)`);
-      else if (unit.outOfSupply === 2) events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) unsupplied 2 turns (-2 move, -2 attack)`);
-      else events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) critically unsupplied`);
+      const prevOos = unit.outOfSupply || 0;
+      unit.outOfSupply = Math.min(2, prevOos + 1);
+      if (unit.outOfSupply === 1 && prevOos < 1) {
+        events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) is OUT OF SUPPLY (-1 move, -1 attack)`);
+      } else if (unit.outOfSupply === 2 && prevOos < 2) {
+        events.push(`${UNIT_TYPES[unit.type]?.name} (P${player}) unsupplied 2 turns (-2 move, -2 attack)`);
+      }
       // Apply move penalty for this coming turn
       const pen = supplyPenalty(unit.outOfSupply);
       unit.movesLeft = Math.max(1, unit.movesLeft - pen.movePenalty);
@@ -3398,7 +3402,31 @@ export function checkWinner(state) {
     return resolveStandoffWinner(state);
   }
 
+  const stalemate = checkLongRunStalemate(state);
+  if (stalemate) return stalemate;
+
   return null;
+}
+
+/** Endless/spectator duels that never grow past a token force (supply trap, no combat). */
+export function checkLongRunStalemate(state) {
+  const turn = state.turn || 1;
+  if (turn < 150) return null;
+  const ids = getPlayerIds(state).filter((p) => getPlayerCapital(state, p));
+  if (ids.length < 2) return null;
+
+  const combatCap = turn >= 200 ? 10 : 8;
+  for (const p of ids) {
+    let combat = 0;
+    for (const u of state.units || []) {
+      if (Number(u.owner) !== Number(p) || u.embarked || (u.health ?? 1) <= 0) continue;
+      const d = UNIT_TYPES[u.type] || {};
+      if ((d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0) combat += 1;
+    }
+    if (combat > combatCap) return null;
+  }
+
+  return resolveStandoffWinner(state);
 }
 
 const HEX_NEIGHBORS = [[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];

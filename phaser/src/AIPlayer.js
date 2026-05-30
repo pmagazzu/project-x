@@ -3563,7 +3563,14 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const myUnitsNow = gs.units.filter(u => u.owner === player && !u.embarked);
   const unsuppliedNow = myUnitsNow.filter(u => (u.outOfSupply || 0) > 0).length;
   const unsuppliedCombatNow = myUnitsNow.filter(u => (u.outOfSupply || 0) > 0 && u.type !== 'ENGINEER').length;
-  const logisticsPressure = unsuppliedNow >= Math.max(2, Math.floor(myUnitsNow.length * 0.2));
+  const phaseTurns = strategic?.phaseTurns || 0;
+  const stagnationLogisticsTrap = (gs.turn || 1) > 70
+    && strategic?.phase === 'pressure'
+    && phaseTurns > 35
+    && myCombatUnits.length <= 8
+    && (gs.players[player]?.iron || 0) >= 80;
+  const logisticsPressure = !stagnationLogisticsTrap
+    && unsuppliedNow >= Math.max(2, Math.floor(myUnitsNow.length * 0.2));
   // Engineers alone going out of supply should not freeze the entire barracks production tree.
   const logisticsEmergency = unsuppliedCombatNow >= Math.max(3, Math.floor(myUnitsNow.length * 0.28));
   const myEngineersNow = gs.units.filter(u => u.owner === player && !u.embarked && u.type === 'ENGINEER');
@@ -4002,22 +4009,12 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           const roadDeficit = Math.max(0, dynamicRoadTarget - myRoads);
           const pop = gs.players[player]?.population || 0;
           const popCap = gs.players[player]?.popCap || 1;
-          const popRatio = pop / Math.max(1, popCap);
-          const popTight = popRatio <= 0.22;
-          const canHousing = (ttype === 0 || ttype === 7 || (ttype === 3 && gs.turn >= 12));
-
           // Utility-first logistics: only hard-force roads when deficit is severe.
           const roadUtilityHere = scoreRoadUtility(gs, player, unit.q, unit.r);
           if (roadDeficit >= 4 && !hasRoad && roadUtilityHere >= 14 && maybeBuild('ROAD')) continue;
 
           // Macro floor nudges: if we're stockpiling, force missing core econ/tech pieces online.
           const onPlainsMacro = (ttype === 0 || ttype === 6 || ttype === 7);
-          if (canHousing && gs.turn >= 6 && popTight) {
-            if (gs.turn >= 28 && maybeBuild('HOUSING_DISTRICT')) continue;
-            if (gs.turn >= 16 && maybeBuild('HOUSING_SUBURB')) continue;
-            if (maybeBuild('HOUSING_RURAL')) continue;
-            if (maybeBuild('HOUSING_SLUMS')) continue;
-          }
           if (gs.turn >= 10 && myFarms < 2 && onPlainsMacro && maybeBuild('FARM')) continue;
 
           // Priority 1: exploit local resources (always do this first)
@@ -5228,10 +5225,23 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   };
 
   const researchFloor = planResearchFloorActions(gs, player, terrain, actions, resSim, canAfford, spend);
-  const armyProgressFloor = ensureMinimumArmyProgress(
+  let armyProgressFloor = ensureMinimumArmyProgress(
     gs, player, actions, resSim, terrain, mapSize, enemyHQs, myCapital,
     recruitAllowed, noteRecruit, spend, maxRecruitsThisTurn,
   );
+  if (stagnationLogisticsTrap && armyProgressFloor === 0 && !actions.some(a => a.type === 'recruit')) {
+    recalcPlayerPopulation(gs, player);
+    for (let i = 0; i < maxRecruitsThisTurn && recruitAllowed('INFANTRY'); i++) {
+      if (queueGlobalBestVTC('INFANTRY')) armyProgressFloor += 1;
+      else break;
+    }
+    if (armyProgressFloor === 0) {
+      armyProgressFloor = ensureMinimumArmyProgress(
+        gs, player, actions, resSim, terrain, mapSize, enemyHQs, myCapital,
+        recruitAllowed, noteRecruit, spend, maxRecruitsThisTurn,
+      );
+    }
+  }
   const contactAttackFloor = enforceContactAttackFloor(gs, player, actions, perceivedEnemies);
   const closingAttackFloor = enforceClosingAttackFloor(gs, player, actions, strategic);
 
