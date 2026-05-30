@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.14';
+export const GAME_VERSION = 'v1.21.15';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -8538,7 +8538,10 @@ export class GameScene extends Phaser.Scene {
     const attackCap = Math.max(6, Math.min(22, Math.floor(budget * 0.22)));
     const hugeMap = Number(this.mapSize || gs?._mapSize || 40) >= 90;
     const moveCap = Math.max(8, Math.min(Math.floor(budget * 0.55), hugeMap ? 36 : (turn > 80 ? 48 : 64)));
-    const buildCap = Math.max(4, Math.min(Math.floor(budget * 0.28), hugeMap ? 12 : (turn > 80 ? 14 : 24)));
+    let buildCap = Math.max(4, Math.min(Math.floor(budget * 0.28), hugeMap ? 12 : (turn > 80 ? 14 : 24)));
+    const hasArmyAction = (actions || []).some(a =>
+      ['attack', 'move', 'recruit', 'global_deploy', 'vtc_upgrade'].includes(a.type));
+    if (!hasArmyAction) buildCap = Math.min(buildCap, 2);
     const recruitCap = Math.max(2, Math.min(Math.floor(budget * 0.14), hugeMap ? 5 : 7));
     const kept = [];
     const byUnit = {};
@@ -8756,6 +8759,19 @@ export class GameScene extends Phaser.Scene {
       try { overlay?.destroy(); } catch(e){}
       try { lbl?.destroy();     } catch(e){}
       try { kpiLbl?.destroy();  } catch(e){}
+      const planP = gs.currentPlayer;
+      const planCounts = this._aiLastPlans?.[planP]?.actionCounts || {};
+      const buildOnlyPlan = (planCounts.build || 0) > 0
+        && !(planCounts.move || planCounts.attack || planCounts.recruit || planCounts.global_deploy);
+      gs._aiStagnation = gs._aiStagnation || {};
+      const stagMem = gs._aiStagnation[planP] || { buildOnlyStreak: 0 };
+      stagMem.buildOnlyStreak = buildOnlyPlan ? (stagMem.buildOnlyStreak || 0) + 1 : 0;
+      stagMem.lastTurn = gs.turn;
+      gs._aiStagnation[planP] = stagMem;
+      if (buildOnlyPlan && stagMem.buildOnlyStreak >= 2) {
+        this._pushLog(`AI P${planP}: stagnation breakout armed (${stagMem.buildOnlyStreak} build-only turns)`);
+      }
+
       this._freezeFog();
       if (this._roadsDirty) {
         this._redrawRoads();

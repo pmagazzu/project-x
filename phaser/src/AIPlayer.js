@@ -26,7 +26,7 @@ import {
   countPlayerScienceLabs, countPlayerFactories, countPlayerBarracksFacilities, countPlayerVtcUpgrade,
 } from './GameState.js';
 import {
-  getVtcUpgradeMenu, purchaseVtcUpgrade, isVtcUpgradeComplete,
+  getVtcUpgradeMenu, purchaseVtcUpgrade, isVtcUpgradeComplete, canPurchaseVtcUpgrade,
 } from './SettlementSystem.js';
 import { ensureAIDesigns, pickAIRecruit, getClosingPressure } from './AIDesigner.js';
 import {
@@ -2340,7 +2340,9 @@ function assignHoldVTCCMissions(gs, player, unitObjective, combatUnits, perceive
     const enemyOn = gs.units.some(u => Number(u.owner) !== Number(player) && !u.embarked
       && hexDistance(u.q, u.r, vtc.q, vtc.r) <= 2);
     const nearCap = capital && hexDistance(vtc.q, vtc.r, capital.q, capital.r) <= 24;
-    if (!nearOwned && !nearCap && !enemyOn) continue;
+    const stagnantExpand = turn >= 28 && combatUnits.length <= 9;
+    if (!nearOwned && !nearCap && !enemyOn && !stagnantExpand) continue;
+    if (stagnantExpand && capital && hexDistance(vtc.q, vtc.r, capital.q, capital.r) > 44) continue;
     let best = null;
     let bestD = Infinity;
     for (const u of pool) {
@@ -2424,6 +2426,93 @@ function shouldPrioritizeOilOverMine(gs, player) {
     }
   }
   return enemyOil >= myOil * 1.5 && myPumps < myMines;
+}
+
+function getStagnantArmyBreakout(gs, player, strategic, myCombatUnits) {
+  const turn = gs.turn || 1;
+  if (turn < 20 || myCombatUnits.length > 11) return false;
+  const iron = gs.players[player]?.iron || 0;
+  if (iron < 30 && turn < 45) return false;
+  const streak = gs._aiStagnation?.[player]?.buildOnlyStreak || 0;
+  const phaseTurns = strategic?.phaseTurns || 0;
+  const phase = strategic?.phase || 'expand';
+  const phaseStuck = ['pressure', 'stabilize', 'expand'].includes(phase)
+    && phaseTurns >= 12 && myCombatUnits.length <= 9;
+  const longTinyArmy = turn >= 35 && myCombatUnits.length <= 8;
+  const buildOnlyStreak = streak >= 2;
+  return phaseStuck || longTinyArmy || buildOnlyStreak;
+}
+
+function trimActionsForStagnationBreakout(actions, maxBuilds = 1) {
+  const kept = [];
+  let builds = 0;
+  for (const a of actions) {
+    if (['attack', 'move', 'recruit', 'global_deploy', 'vtc_upgrade', 'transport_load', 'transport_unload', 'digin', 'ambush', 'research_queue'].includes(a.type)) {
+      kept.push(a);
+      continue;
+    }
+    if (a.type === 'build' && builds < maxBuilds) {
+      kept.push(a);
+      builds += 1;
+    }
+  }
+  actions.length = 0;
+  actions.push(...kept);
+}
+
+/** Push combat units toward neutral/enemy settlements when the plan was logistics-only. */
+function enforceExpansionMoveFloor(gs, player, actions, terrain, mapSize, enemyHQs, myCapital, moveMemory) {
+  const goals = [];
+  for (const b of gs.buildings || []) {
+    if (b.underConstruction || ROAD_TYPES.has(b.type)) continue;
+    if (Number(b.owner) === 0 && ['VILLAGE', 'TOWN', 'CITY'].includes(b.type)) {
+      goals.push(b);
+    } else if (Number(b.owner) !== Number(player) && Number(b.owner) > 0
+      && ['VILLAGE', 'TOWN', 'CITY', 'HQ'].includes(b.type)) {
+      goals.push(b);
+    }
+  }
+  for (const hq of enemyHQs || []) {
+    if (!goals.some(g => g.q === hq.q && g.r === hq.r)) goals.push(hq);
+  }
+  if (!goals.length && myCapital) goals.push(myCapital);
+  if (!goals.length) return 0;
+
+  const acted = new Set(actions.filter(a => (a.type === 'move' || a.type === 'attack') && a.unitId != null).map(a => a.unitId));
+  const fighters = gs.units.filter((u) => {
+    if (Number(u.owner) !== Number(player) || u.embarked) return false;
+    const role = getUnitRole(u.type);
+    if (role === 'engineer' || role === 'support') return false;
+    const d = UNIT_TYPES[u.type] || {};
+    return (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0 || (d.attack || 0) > 0;
+  });
+
+  let added = 0;
+  for (const unit of fighters) {
+    if (acted.has(unit.id)) continue;
+    const goal = goals.reduce((best, g) => {
+      const d = hexDistance(unit.q, unit.r, g.q, g.r);
+      return d < best.d ? { g, d } : best;
+    }, { g: goals[0], d: hexDistance(unit.q, unit.r, goals[0].q, goals[0].r) });
+    const reachable = getReachableHexesForAI(gs, unit, terrain, mapSize) || [];
+    const step = reachable
+      .filter(h => hexDistance(h.q, h.r, goal.g.q, goal.g.r) < hexDistance(unit.q, unit.r, goal.g.q, goal.g.r))
+      .filter(h => !isImmediateBacktrack(unit, h, moveMemory?.[unit.id], gs.turn || 1))
+      .sort((a, b) => hexDistance(a.q, a.r, goal.g.q, goal.g.r) - hexDistance(b.q, b.r, goal.g.q, goal.g.r))[0];
+    if (!step) continue;
+    actions.push({
+      type: 'move',
+      unitId: unit.id,
+      fromQ: unit.q,
+      fromR: unit.r,
+      toQ: step.q,
+      toR: step.r,
+    });
+    moveMemory[unit.id] = { fromQ: unit.q, fromR: unit.r, toQ: step.q, toR: step.r, turn: gs.turn || 1 };
+    acted.add(unit.id);
+    added += 1;
+  }
+  return added;
 }
 
 /** At least one attack per turn when enemies are known but doctrine would stay passive. */
@@ -2561,9 +2650,15 @@ function ensureMinimumArmyProgress(gs, player, actions, resSim, terrain, mapSize
     }
   }
 
-  const goals = (enemyHQs?.length ? enemyHQs : gs.buildings.filter((b) =>
-    Number(b.owner) !== Number(player) && Number(b.owner) > 0
-    && ['HQ', 'VILLAGE', 'TOWN', 'CITY'].includes(b.type)));
+  const goals = (enemyHQs?.length ? enemyHQs : []);
+  for (const b of gs.buildings || []) {
+    if (b.underConstruction || ROAD_TYPES.has(b.type)) continue;
+    const neutral = Number(b.owner) === 0;
+    const enemy = Number(b.owner) !== Number(player) && Number(b.owner) > 0;
+    if ((neutral || enemy) && ['HQ', 'VILLAGE', 'TOWN', 'CITY'].includes(b.type)) {
+      goals.push(b);
+    }
+  }
   if (!goals.length) return 0;
 
   const unit = fighters.find((u) => !actions.some((a) => a.unitId === u.id)) || fighters[0];
@@ -3563,13 +3658,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const myUnitsNow = gs.units.filter(u => u.owner === player && !u.embarked);
   const unsuppliedNow = myUnitsNow.filter(u => (u.outOfSupply || 0) > 0).length;
   const unsuppliedCombatNow = myUnitsNow.filter(u => (u.outOfSupply || 0) > 0 && u.type !== 'ENGINEER').length;
-  const phaseTurns = strategic?.phaseTurns || 0;
-  const stagnationLogisticsTrap = (gs.turn || 1) > 70
-    && strategic?.phase === 'pressure'
-    && phaseTurns > 35
-    && myCombatUnits.length <= 8
-    && (gs.players[player]?.iron || 0) >= 80;
-  const logisticsPressure = !stagnationLogisticsTrap
+  const stagnantArmyBreakout = getStagnantArmyBreakout(gs, player, strategic, myCombatUnits);
+  const engineerOnlyOOS = unsuppliedNow > 0 && unsuppliedCombatNow === 0;
+  const logisticsPressure = !stagnantArmyBreakout && !engineerOnlyOOS
     && unsuppliedNow >= Math.max(2, Math.floor(myUnitsNow.length * 0.2));
   // Engineers alone going out of supply should not freeze the entire barracks production tree.
   const logisticsEmergency = unsuppliedCombatNow >= Math.max(3, Math.floor(myUnitsNow.length * 0.28));
@@ -3935,6 +4026,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           spend(cost);
           return true;
         };
+
+        if (stagnantArmyBreakout) {
+          if (roadDeficitGlobal >= 6 && !hasRoad && maybeBuild('ROAD')) continue;
+          continue;
+        }
 
         const memEng = engineerMemory[unit.id];
         const engTask = memEng?.task;
@@ -4308,6 +4404,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const combatUnitsLive = myCombatUnits.length;
   const armyRebuildMode = combatUnitsLive < 4 && (gs.turn || 1) > 15;
   const armyCriticallyLow = combatUnitsLive < 4 || ((gs.turn || 1) >= 12 && combatUnitsLive < 7);
+  const armyExpansionMode = (gs.turn || 1) >= 25 && combatUnitsLive < 12;
   const recruitAllowed = (unitType) => {
     if (plannedRecruits >= maxRecruitsThisTurn) return false;
     if (projectedUnits >= armyBudget.maxUnits) return false;
@@ -4531,7 +4628,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       : [...cfg.recruitPrio, ...cfg.navalPrio]);
     for (const unitType of preferList) {
       if (!queueGlobalBestVTC(unitType)) continue;
-      if (!armyRebuildMode && !armyCriticallyLow) break;
+      if (!armyRebuildMode && !armyCriticallyLow && !armyExpansionMode) break;
     }
   }
 
@@ -4845,7 +4942,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   // Road quota: when behind network targets (or when supply is already strained),
   // ensure at least one road build is planned this turn when possible.
   const roadsAtCap = countPlayerRoadLike(gs, player) >= (armyBudget?.maxRoads ?? 36);
-  if (!overPlan() && !roadsAtCap && (roadDeficitGlobal > 0 || logisticsPressure) && plannedRoadBuilds === 0) {
+  if (!overPlan() && !stagnantArmyBreakout && !roadsAtCap && (roadDeficitGlobal > 0 || logisticsPressure) && plannedRoadBuilds === 0) {
     const roadableHere = (q, r) => {
       const t = terrain?.[`${q},${r}`] ?? 0;
       if (t === 2) return false; // no roads on mountains
@@ -4894,7 +4991,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     || (a.type === 'recruit' && (a.unitType === 'SUPPLY_TRUCK' || a.unitType === 'SUPPLY_SHIP'));
   const countLogisticsPlanned = () => actions.filter(isLogisticsAction).length;
 
-  if (logisticsPressure && countLogisticsPlanned() === 0) {
+  if (logisticsPressure && !stagnantArmyBreakout && countLogisticsPlanned() === 0) {
     const canBuildHere = (q, r) => {
       const b = buildingAt(gs, q, r);
       return !b || ROAD_TYPES.has(b.type);
@@ -5072,6 +5169,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   let maxEngSweep = Math.max(4, Math.min(14, 2 + Math.floor(roadDeficitGlobal / 2) + (logisticsPressure ? 4 : 0)));
   if (!armyActionPlanned && myCombatUnits.length > 0) maxEngSweep = Math.min(maxEngSweep, 1);
   if (mapN >= 90) maxEngSweep = Math.min(maxEngSweep, 4);
+  if (stagnantArmyBreakout) maxEngSweep = 0;
   if (overPlan()) maxEngSweep = 0;
   let engSweepCount = 0;
   const roadCostFinal = BUILDING_TYPES['ROAD']?.buildCost || { wood: 1 };
@@ -5113,6 +5211,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     let maxBuildActions = Math.max(6, Math.min(20, 4 + Math.floor(roadDeficitGlobal) + (logisticsPressure ? 5 : 0)));
     if (combatAlive < 10) maxBuildActions = Math.min(maxBuildActions, 5);
     if (combatAlive < 6) maxBuildActions = Math.min(maxBuildActions, 3);
+    if (stagnantArmyBreakout) maxBuildActions = Math.min(maxBuildActions, 1);
     let buildN = 0;
     let resourceBuildN = 0;
     const maxResourceBuilds = 3;
@@ -5229,18 +5328,30 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     gs, player, actions, resSim, terrain, mapSize, enemyHQs, myCapital,
     recruitAllowed, noteRecruit, spend, maxRecruitsThisTurn,
   );
-  if (stagnationLogisticsTrap && armyProgressFloor === 0 && !actions.some(a => a.type === 'recruit')) {
+  let expansionMoveFloor = 0;
+  if (stagnantArmyBreakout) {
+    trimActionsForStagnationBreakout(actions, 1);
     recalcPlayerPopulation(gs, player);
+    if (myCapital && !isVtcUpgradeComplete(myCapital, 'barracks')) {
+      const barracksBuy = canPurchaseVtcUpgrade(gs, player, myCapital.id, 'barracks');
+      if (barracksBuy.ok && !actions.some(a => a.type === 'vtc_upgrade' && a.buildingId === myCapital.id)) {
+        actions.push({ type: 'vtc_upgrade', buildingId: myCapital.id, upgradeId: 'barracks' });
+      }
+    }
     for (let i = 0; i < maxRecruitsThisTurn && recruitAllowed('INFANTRY'); i++) {
       if (queueGlobalBestVTC('INFANTRY')) armyProgressFloor += 1;
       else break;
     }
-    if (armyProgressFloor === 0) {
+    expansionMoveFloor = enforceExpansionMoveFloor(
+      gs, player, actions, terrain, mapSize, enemyHQs, myCapital, moveMemory,
+    );
+    if (armyProgressFloor === 0 && expansionMoveFloor === 0) {
       armyProgressFloor = ensureMinimumArmyProgress(
         gs, player, actions, resSim, terrain, mapSize, enemyHQs, myCapital,
         recruitAllowed, noteRecruit, spend, maxRecruitsThisTurn,
       );
     }
+    aiDebug.plannerReason = 'stagnation_breakout';
   }
   const contactAttackFloor = enforceContactAttackFloor(gs, player, actions, perceivedEnemies);
   const closingAttackFloor = enforceClosingAttackFloor(gs, player, actions, strategic);
@@ -5262,6 +5373,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     closingAttackFloor,
     researchFloor,
     armyProgressFloor,
+    expansionMoveFloor,
   };
 
   const plDbg = gs.players[player] || {};
