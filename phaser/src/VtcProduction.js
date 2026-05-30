@@ -328,6 +328,34 @@ export function enumerateVtcDeployHexes(state, player, buildingId, unitType) {
     seen.add(k);
     out.push({ q, r, buildingId: b.id });
   }
+
+  if (out.length > 0) return out;
+
+  // Wider fallback when the VTC ring is blocked by garrison / structures.
+  const maxSearch = b.type === 'CITY' ? 6 : (b.type === 'TOWN' ? 5 : 4);
+  const bfs = [{ q: b.q, r: b.r, d: 0 }];
+  const bfsSeen = new Set([`${b.q},${b.r}`]);
+  while (bfs.length) {
+    const cur = bfs.shift();
+    if (cur.d > 0 && cur.d <= maxSearch
+      && canSpawnUnitAtHex(state, player, unitType, cur.q, cur.r, b.q, b.r)) {
+      const k = `${cur.q},${cur.r}`;
+      if (!seen.has(k)) {
+        seen.add(k);
+        out.push({ q: cur.q, r: cur.r, buildingId: b.id });
+      }
+    }
+    if (cur.d >= maxSearch) continue;
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+      const nq = cur.q + dq;
+      const nr = cur.r + dr;
+      if (nq < 0 || nr < 0 || nq >= mapSize || nr >= mapSize) continue;
+      const k = `${nq},${nr}`;
+      if (bfsSeen.has(k)) continue;
+      bfsSeen.add(k);
+      bfs.push({ q: nq, r: nr, d: cur.d + 1 });
+    }
+  }
   return out;
 }
 

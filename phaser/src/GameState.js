@@ -3091,6 +3091,18 @@ export function resolveEndOfTurn(state, terrain) {
   // Remove crashed air units
   removeDeadUnits(state);
 
+  // ── VTC training queues (IGOUUG — must tick per player end-turn) ─────────
+  migrateGlobalQueuesToVtc(state);
+  tickVtcUpgrades(state, player, events);
+  tickVtcProduction(state, player, events);
+  rebalanceVtcPopulationPipeline(state, player, events);
+  const popCapAfterTrain = calcPlayerPopCap(state, player);
+  if (calcPopFieldedByPlayer(state, player) < Math.max(6, Math.floor(popCapAfterTrain * 0.35))) {
+    ensureVtcRecruitCapacity(state, player, events);
+  }
+  tickSettlementPromotions(state, player, events);
+  recalcPlayerPopulation(state, player);
+
   // ── Unit upkeep deduction ─────────────────────────────────────────────────
   const upkeep = calcUpkeep(state, player);
   const pl = state.players[player];
