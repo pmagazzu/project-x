@@ -17,7 +17,7 @@ import {
   getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
   isNavalDeployAllowed, getNavalCoastalCheckRadius, getNavalDeployRadius,
   isHQNetworkPluggedToNeutralRoads, registerDesign,
-  getUnitPopCost, recalcPlayerPopulation, calcPopUsedByPlayer, getPopBreakdown,
+  getUnitPopCost, recalcPlayerPopulation, calcPopUsedByPlayer, getPopBreakdown, canAffordPipelinePop,
   calcUpkeep, calcRPFromLabs, computeSupply, invalidateSupplyCache, isHexInSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS, VTC_SUPPLY_RADIUS, getRecruitFoodCost, getUnitSupplyRadius,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, getMaxDesignSlots, BASE_DESIGN_SLOTS,
@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.18';
+export const GAME_VERSION = 'v1.21.19';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -3101,8 +3101,8 @@ export class GameScene extends Phaser.Scene {
     this._setCommandCard(c.food, `${fmtRes(pl.food || 0)}  ${sgn(netFood)}${ttzSuffix(ttzFood)}`, unitsOOS > 0 ? '#ff6644' : rowFill(ttzFood, ttzFood <= 1));
     recalcPlayerPopulation(gs, p);
     const pop = getPopBreakdown(gs, p);
-    const popText = pop.reserve > 0 && pop.avail < 1
-      ? `${pop.avail}/${pop.cap} · ${pop.reserve} queued`
+    const popText = pop.reserve > 0 && pop.avail < 2
+      ? `${pop.avail}/${pop.cap} · ${pop.fielded} map + ${pop.reserve} training`
       : (pop.avail < 1 && pop.used >= pop.cap)
         ? `${pop.avail}/${pop.cap} full`
         : `${pop.avail}/${pop.cap}`;
@@ -4172,7 +4172,8 @@ export class GameScene extends Phaser.Scene {
       // Cost right
       const popCost = getUnitPopCost(unitType);
       recalcPlayerPopulation(gs, p);
-      const hasPop = (gs.players[p].population || 0) >= popCost;
+      const popGate = isVTC ? canAffordPipelinePop(gs, p, unitType) : { ok: (gs.players[p].population || 0) >= popCost };
+      const hasPop = popGate.ok;
       const costStr = `⚙${def.cost.iron||0}${(def.cost.oil||0) > 0 ? `  🛢${def.cost.oil}` : ''}${(def.cost.components||0) > 0 ? `  🧩${def.cost.components}` : ''}${foodCost > 0 ? `  🌾${foodCost}` : ''}  👥${popCost}`;
       const costClr = (canAfford && hasPop) ? '#88bb66' : '#554444';
       const costTxt = this.add.text(w/2 + rowW/2 - 12, ry, costStr, {

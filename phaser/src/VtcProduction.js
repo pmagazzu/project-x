@@ -5,6 +5,7 @@ import {
   UNIT_TYPES, NAVAL_UNITS, AIR_UNITS, LOCKED_CHASSIS,
   getBuildingTierForDeploy, isNavalDeployAllowed, getNavalCoastalCheckRadius, canQueueNavalAtVtc,
   isNavalAllowedAtVTCTier, getRecruitFoodCost, getUnitPopCost, recalcPlayerPopulation, getPopBreakdown, calcPopFieldedByPlayer,
+  canAffordPipelinePop, countEmpirePipelineSlots,
   getPlayerCapital, isPlayerCapitalBuilding, PRODUCTION_VTC_TYPES,
   CITY_YARD_NAVAL_UNITS, hexDistance, createUnit, buildingAt, ROAD_TYPES,
   canEnterTerrain, VTC_SUPPLY_RADIUS,
@@ -175,11 +176,8 @@ export function canQueueVtcRecruit(state, player, unitType, buildingId) {
   if (b.trainQueue.length >= MAX_VTC_TRAIN_QUEUE) {
     return { ok: false, reason: `Queue full (${MAX_VTC_TRAIN_QUEUE})` };
   }
-  const liveUnits = (state.units || []).filter((u) =>
-    Number(u.owner) === Number(player) && (u.health ?? 1) > 0).length;
-  if (liveUnits > 0 && (b.readyUnits?.length || 0) >= 2) {
-    return { ok: false, reason: 'Deploy ready units first' };
-  }
+  const pipelineGate = canAffordPipelinePop(state, player, unitType);
+  if (!pipelineGate.ok) return pipelineGate;
   if (NAVAL_UNITS.has(unitType)) {
     const readyNaval = (b.readyUnits || []).filter((r) => NAVAL_UNITS.has(r.type));
     if (readyNaval.some((r) => countVtcNavalDeployHexes(state, player, buildingId, r.type) === 0)) {
@@ -201,14 +199,7 @@ export function canQueueVtcRecruit(state, player, unitType, buildingId) {
   if ((pl.components || 0) < (def.cost.components || 0)) return { ok: false, reason: 'Not enough components' };
   const foodCost = getRecruitFoodCost(unitType);
   if ((pl.food || 0) < foodCost) return { ok: false, reason: 'Not enough food' };
-  recalcPlayerPopulation(state, player);
-  const popCost = getUnitPopCost(unitType);
-  const pop = getPopBreakdown(state, player);
-  if (pop.avail < popCost) {
-    const reserveNote = pop.reserve > 0 ? `, ${pop.reserve} in queues` : '';
-    return { ok: false, reason: `Need ${popCost} manpower (${pop.avail}/${pop.cap}${reserveNote})` };
-  }
-  return { ok: true };
+  return canAffordPipelinePop(state, player, unitType);
 }
 
 export function canQueueGlobalRecruit(state, player, unitType, buildingId) {
@@ -368,9 +359,7 @@ export function tickVtcProduction(state, player, events = []) {
   }
 }
 
-/** When the map army is gone, spawn ready VTC units instead of leaving them stranded in the bay. */
-export function forceDeployStrandedVtcReady(state, player, events = []) {
-  if (calcPopFieldedByPlayer(state, player) > 0) return 0;
+function deployAllVtcReady(state, player, events, label = 'deployed') {
   let deployed = 0;
   for (const b of state.buildings) {
     if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type) || b.underConstruction) continue;
@@ -383,10 +372,58 @@ export function forceDeployStrandedVtcReady(state, player, events = []) {
       const out = deployReadyVtcUnitAtHex(state, player, b.id, ready.id, site.q, site.r);
       if (out.ok) {
         deployed += 1;
-        events.push(`P${player} deployed ${UNIT_TYPES[ready.type]?.name || ready.type} from VTC (${b.q},${b.r})`);
+        events.push(`P${player} ${label} ${UNIT_TYPES[ready.type]?.name || ready.type} from VTC (${b.q},${b.r})`);
       }
     }
   }
+  return deployed;
+}
+
+/** When the map army is gone, spawn ready VTC units instead of leaving them stranded in the bay. */
+export function forceDeployStrandedVtcReady(state, player, events = []) {
+  if (calcPopFieldedByPlayer(state, player) > 0) return 0;
+  return deployAllVtcReady(state, player, events, 'deployed');
+}
+
+/** Deploy ready bays when manpower is hoarded in pipelines (few units on map, huge reserve). */
+export function forceDeployExcessVtcReady(state, player, events = []) {
+  const pop = getPopBreakdown(state, player);
+  if (pop.ready < 1) return 0;
+  const hoarded = pop.reserve > Math.max(6, pop.fielded * 3 + 2);
+  const starved = pop.avail < 2 && pop.fielded > 0;
+  if (!hoarded && !starved) return 0;
+  return deployAllVtcReady(state, player, events, 'deployed');
+}
+
+function pruneVtcQueueTail(state, player, building) {
+  if (!building?.trainQueue?.length) return false;
+  building.trainQueue.pop();
+  recalcPlayerPopulation(state, player);
+  return true;
+}
+
+/** End-of-turn safety: deploy ready units and trim over-long train backlogs. */
+export function rebalanceVtcPopulationPipeline(state, player, events = []) {
+  recalcPlayerPopulation(state, player);
+  let deployed = forceDeployExcessVtcReady(state, player, events);
+  if (calcPopFieldedByPlayer(state, player) < 1) {
+    deployed += forceDeployStrandedVtcReady(state, player, events);
+  }
+  let pop = getPopBreakdown(state, player);
+  const maxReserve = Math.max(0, pop.cap - pop.fielded - 1);
+  let guard = 0;
+  while (pop.reserve > maxReserve + 1 && guard < 48) {
+    guard += 1;
+    let longest = null;
+    for (const b of state.buildings || []) {
+      if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type) || b.underConstruction) continue;
+      if (!b.trainQueue?.length) continue;
+      if (!longest || b.trainQueue.length > longest.trainQueue.length) longest = b;
+    }
+    if (!longest || !pruneVtcQueueTail(state, player, longest)) break;
+    pop = getPopBreakdown(state, player);
+  }
+  recalcPlayerPopulation(state, player);
   return deployed;
 }
 

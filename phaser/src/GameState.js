@@ -11,7 +11,8 @@ import {
   canQueueVtcRecruit, canQueueGlobalRecruit, queueVtcRecruit, queueGlobalRecruit,
   deployReadyVtcUnitAtHex, deployReadyGlobalRecruitAtHex, deployReadyGlobalRecruit,
   enumerateVtcDeployHexes, enumerateGlobalDeployHexes,
-  tickVtcProduction, forceDeployStrandedVtcReady, migrateGlobalQueuesToVtc, getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
+  tickVtcProduction, forceDeployStrandedVtcReady, rebalanceVtcPopulationPipeline,
+  migrateGlobalQueuesToVtc, getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
   LEGACY_PRODUCTION_MAP_HIDDEN, getVtcFacilityBadgeGlyphs, getVtcFacilityChips, getVtcInspectorLines,
   countPlayerVtcUpgrade, countPlayerScienceLabs, countPlayerFactories, countPlayerBarracksFacilities,
 } from './VtcProduction.js';
@@ -22,7 +23,8 @@ export {
   canQueueVtcRecruit, canQueueGlobalRecruit, queueVtcRecruit, queueGlobalRecruit,
   deployReadyVtcUnitAtHex, deployReadyGlobalRecruitAtHex, deployReadyGlobalRecruit,
   enumerateVtcDeployHexes, enumerateGlobalDeployHexes,
-  tickVtcProduction, forceDeployStrandedVtcReady, getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
+  tickVtcProduction, forceDeployStrandedVtcReady, rebalanceVtcPopulationPipeline,
+  getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
   LEGACY_PRODUCTION_MAP_HIDDEN, getVtcFacilityBadgeGlyphs, getVtcFacilityChips, getVtcInspectorLines,
   countPlayerVtcUpgrade, countPlayerScienceLabs, countPlayerFactories, countPlayerBarracksFacilities,
 };
@@ -833,6 +835,52 @@ export function getPopBreakdown(state, player) {
   const reserve = Math.max(0, used - fielded);
   const avail = Math.max(0, cap - used);
   return { cap, used, avail, fielded, reserve, queued, ready, legacyPending };
+}
+
+const PIPELINE_VTC_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY', 'HQ']);
+
+/** Train-queue + ready-bay counts across all owned VTCs. */
+export function countEmpirePipelineSlots(state, player) {
+  const p = Number(player);
+  let queueSlots = 0;
+  let readySlots = 0;
+  for (const b of state.buildings || []) {
+    if (Number(b.owner) !== p || !PIPELINE_VTC_TYPES.has(b.type) || b.underConstruction) continue;
+    queueSlots += b.trainQueue?.length || 0;
+    readySlots += b.readyUnits?.length || 0;
+  }
+  return { queueSlots, readySlots };
+}
+
+/** Block training when VTC queues would hoard the whole manpower pool. */
+export function canAffordPipelinePop(state, player, unitType) {
+  const pop = getPopBreakdown(state, player);
+  const cost = getUnitPopCost(unitType);
+  if (pop.avail < cost) {
+    return {
+      ok: false,
+      reason: `Need ${cost} manpower (${pop.avail}/${pop.cap}, ${pop.reserve} in training)`,
+    };
+  }
+  const maxReserve = Math.max(0, pop.cap - pop.fielded - 2);
+  if (pop.reserve + cost > maxReserve) {
+    return {
+      ok: false,
+      reason: `Deploy units first (${pop.fielded} on map, ${pop.reserve} manpower in VTC queues)`,
+    };
+  }
+  const { queueSlots, readySlots } = countEmpirePipelineSlots(state, player);
+  const maxQueueSlots = Math.max(4, Math.floor(pop.cap / 2));
+  if (queueSlots >= maxQueueSlots) {
+    return {
+      ok: false,
+      reason: `Too many units training (${queueSlots}) — deploy VTC ready bays first`,
+    };
+  }
+  if (readySlots >= Math.max(3, Math.floor(pop.cap / 4)) && pop.avail < cost + 2) {
+    return { ok: false, reason: 'VTC ready bays full — deploy before training more' };
+  }
+  return { ok: true };
 }
 
 /** Available manpower = popCap minus units on map and production pipeline. */
@@ -2611,7 +2659,7 @@ export function resolveTurn(state, terrain) {
   for (const player of [1, 2]) {
     tickVtcUpgrades(state, player, events);
     tickVtcProduction(state, player, events);
-    forceDeployStrandedVtcReady(state, player, events);
+    rebalanceVtcPopulationPipeline(state, player, events);
     tickSettlementPromotions(state, player, events);
     recalcPlayerPopulation(state, player);
   }
