@@ -394,9 +394,45 @@ export function forceDeployStrandedVtcReady(state, player, events = []) {
   return deployAllVtcReady(state, player, events, 'deployed');
 }
 
-/** End-of-turn: deploy any units stuck in VTC ready bays onto the map. */
+/** Max train-queue depth scales with army size — tiny forces should not lock 4-deep backlogs. */
+export function getMaxVtcQueueDepth(state, player) {
+  const p = Number(player);
+  let combat = 0;
+  for (const u of state.units || []) {
+    if (Number(u.owner) !== p || u.embarked || (u.health ?? 1) <= 0) continue;
+    const d = UNIT_TYPES[u.type] || {};
+    if ((d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0) combat += 1;
+  }
+  const fielded = calcPopFieldedByPlayer(state, p);
+  if (combat <= 4 || fielded <= 6) return 1;
+  if (combat <= 8 || fielded <= 12) return 2;
+  return MAX_VTC_TRAIN_QUEUE;
+}
+
+/** Drop tail queue slots that block new recruits while manpower sits idle. */
+export function pruneVtcQueueBacklog(state, player, events = []) {
+  const p = Number(player);
+  const maxDepth = getMaxVtcQueueDepth(state, p);
+  let pruned = 0;
+  for (const b of state.buildings || []) {
+    if (Number(b.owner) !== p || !PRODUCTION_VTC_TYPES.has(b.type) || b.underConstruction) continue;
+    ensureVtcProductionFields(b);
+    while (b.trainQueue.length > maxDepth) {
+      b.trainQueue.pop();
+      pruned += 1;
+    }
+  }
+  if (pruned > 0) {
+    recalcPlayerPopulation(state, player);
+    events.push(`P${p} cleared ${pruned} backlog recruit slot(s)`);
+  }
+  return pruned;
+}
+
+/** End-of-turn: deploy ready bays, prune over-deep queues, sync manpower. */
 export function rebalanceVtcPopulationPipeline(state, player, events = []) {
   recalcPlayerPopulation(state, player);
+  pruneVtcQueueBacklog(state, player, events);
   const deployed = deployAllVtcReady(state, player, events, 'auto-deployed');
   recalcPlayerPopulation(state, player);
   return deployed;

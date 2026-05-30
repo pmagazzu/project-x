@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.20';
+export const GAME_VERSION = 'v1.21.21';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -3101,13 +3101,12 @@ export class GameScene extends Phaser.Scene {
     this._setCommandCard(c.food, `${fmtRes(pl.food || 0)}  ${sgn(netFood)}${ttzSuffix(ttzFood)}`, unitsOOS > 0 ? '#ff6644' : rowFill(ttzFood, ttzFood <= 1));
     recalcPlayerPopulation(gs, p);
     const pop = getPopBreakdown(gs, p);
-    const waitNote = pop.waiting > 0 ? ` · ${pop.waiting} waiting` : '';
-    const popText = pop.reserve > 0 && pop.avail < 3
-      ? `${pop.avail}/${pop.cap} (${pop.fielded} map + ${pop.reserve} train${waitNote})`
-      : (pop.avail < 1 && pop.used >= pop.cap)
-        ? `${pop.avail}/${pop.cap} full`
-        : `${pop.avail}/${pop.cap}${waitNote}`;
-    const popWarn = pop.avail < 2 || (pop.reserve > 0 && pop.avail < 1);
+    const waitNote = pop.waiting > 0 ? ` · ${pop.waiting} wait` : '';
+    const trainNote = pop.reserve > 0 ? ` +${pop.reserve} train` : '';
+    const popText = (pop.avail < 1 && pop.used >= pop.cap)
+      ? `${pop.fielded}/${pop.cap} map · full${trainNote}${waitNote}`
+      : `${pop.fielded}/${pop.cap} map · ${pop.avail} free${trainNote}${waitNote}`;
+    const popWarn = pop.fielded < Math.max(4, Math.floor(pop.cap * 0.3)) && pop.avail >= 4;
     this._setCommandCard(c.pop, popText, popWarn ? '#ff8888' : '#c8e8c8');
     this._setCommandCard(c.gold, `${fmtRes(pl.gold || 0)}  ${sgn(netGold)}`);
     this._setCommandCard(c.parts, `${fmtRes(pl.components || 0)}`);
@@ -5902,6 +5901,9 @@ export class GameScene extends Phaser.Scene {
           ? `Theater ${row.primaryTheaterId} · obj ${row.theaterObjective || '?'} · lane ${row.primaryLane || '?'}`
           : `Lane ${row.primaryLane || '?'}`,
         `Eco Fe${econ.iron?.toFixed?.(0) ?? econ.iron} Oil${econ.oil?.toFixed?.(0) ?? econ.oil} W${econ.wood?.toFixed?.(0) ?? econ.wood} C${econ.components?.toFixed?.(0) ?? econ.components} RP${econ.rp?.toFixed?.(0) ?? econ.rp}`,
+        row.pop
+          ? `Pop ${row.pop.fielded}/${row.pop.cap} map · ${row.pop.avail} free${row.pop.waiting ? ` · ${row.pop.waiting} wait` : ''}`
+          : 'Pop —',
         `Army ${bud.myCombat || 0}/${bud.maxCombat || '?'} units ${bud.myUnits || 0}/${bud.maxUnits || '?'}`,
         row.actionPlan
           ? `Plan atk:${row.actionPlan.attacks} move:${row.actionPlan.moves} bld:${row.actionPlan.builds} rec:${row.actionPlan.recruits} raids:${row.actionPlan.extractorRaids} close+${row.actionPlan.closingAttackFloor}`
@@ -8166,6 +8168,7 @@ export class GameScene extends Phaser.Scene {
       combatUnits: combat.length,
       unsupplied: units.filter(u => (u.outOfSupply || 0) > 0).length,
       population: pop.avail,
+      popFree: pop.avail,
       popCap: pop.cap,
       popUsed: pop.used,
       popFielded: pop.fielded,

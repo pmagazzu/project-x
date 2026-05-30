@@ -12,6 +12,7 @@ import {
   deployReadyVtcUnitAtHex, deployReadyGlobalRecruitAtHex, deployReadyGlobalRecruit,
   enumerateVtcDeployHexes, enumerateGlobalDeployHexes,
   tickVtcProduction, forceDeployStrandedVtcReady, rebalanceVtcPopulationPipeline,
+  pruneVtcQueueBacklog, getMaxVtcQueueDepth,
   migrateGlobalQueuesToVtc, getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
   LEGACY_PRODUCTION_MAP_HIDDEN, getVtcFacilityBadgeGlyphs, getVtcFacilityChips, getVtcInspectorLines,
   countPlayerVtcUpgrade, countPlayerScienceLabs, countPlayerFactories, countPlayerBarracksFacilities,
@@ -24,6 +25,7 @@ export {
   deployReadyVtcUnitAtHex, deployReadyGlobalRecruitAtHex, deployReadyGlobalRecruit,
   enumerateVtcDeployHexes, enumerateGlobalDeployHexes,
   tickVtcProduction, forceDeployStrandedVtcReady, rebalanceVtcPopulationPipeline,
+  pruneVtcQueueBacklog, getMaxVtcQueueDepth,
   getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
   LEGACY_PRODUCTION_MAP_HIDDEN, getVtcFacilityBadgeGlyphs, getVtcFacilityChips, getVtcInspectorLines,
   countPlayerVtcUpgrade, countPlayerScienceLabs, countPlayerFactories, countPlayerBarracksFacilities,
@@ -3499,6 +3501,22 @@ export function checkLongRunStalemate(state) {
     const withFielded = ids.filter((p) => calcPopFieldedByPlayer(state, p) > 0);
     if (withFielded.length === 1) return withFielded[0];
     if (withFielded.length === 0 && ids.length >= 2) return resolveStandoffWinner(state);
+  }
+  if (turn >= 90) {
+    const idsEarly = getPlayerIds(state).filter((p) => getPlayerCapital(state, p));
+    if (idsEarly.length >= 2) {
+      let peakCombat = 0;
+      for (const p of idsEarly) {
+        let c = 0;
+        for (const u of state.units || []) {
+          if (Number(u.owner) !== Number(p) || u.embarked || (u.health ?? 1) <= 0) continue;
+          const d = UNIT_TYPES[u.type] || {};
+          if ((d.attack || 0) > 0 || (d.soft_attack || 0) > 0 || (d.hard_attack || 0) > 0) c += 1;
+        }
+        peakCombat = Math.max(peakCombat, c);
+      }
+      if (peakCombat <= 4) return resolveStandoffWinner(state);
+    }
   }
   if (turn < 150) return null;
   const ids = getPlayerIds(state).filter((p) => getPlayerCapital(state, p));
