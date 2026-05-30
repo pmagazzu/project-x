@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.22';
+export const GAME_VERSION = 'v1.21.23';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -2026,6 +2026,20 @@ export class GameScene extends Phaser.Scene {
         g.lineTo(x + i * s * 0.35 + s, y + s * 0.35);
         g.strokePath();
       }
+    } else if (isSettlement && b.captureProgress?.required) {
+      const cp = b.captureProgress;
+      const fraction = Math.min(1, (cp.turns || 0) / cp.required);
+      const barW = HEX_SIZE * 0.75;
+      const barH = 4;
+      const barX = x - barW / 2;
+      const barY = y + cH * 0.42;
+      const capColor = PLAYER_COLORS[cp.player] || 0xffaa44;
+      g.fillStyle(0x000000, 0.75);
+      g.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+      g.fillStyle(0x444444, 0.9);
+      g.fillRect(barX, barY, barW, barH);
+      g.fillStyle(capColor, 0.95);
+      g.fillRect(barX, barY, barW * fraction, barH);
     }
   }
 

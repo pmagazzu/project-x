@@ -20,6 +20,7 @@ export const CODEX_PAGES = {
   population: [
     { title: 'Manpower pool', body: 'HUD shows fielded/cap on map and free manpower (e.g. 4/30 map · 21 free). Only map units + active train head + 📦 ready bays reserve pop; extra queue slots are waiting only. Tiny armies keep shallow VTC queues so recruits are not blocked.' },
     { title: 'VTC base cap', body: 'Village +5, Town +10, City +15 (scaled in setup). Home capital = village +5 HQ bonus (10 at default scale). Capture neutral settlements to add more cap.' },
+    { title: 'Capturing settlements', body: 'Only combat units can capture (not Engineers or Recon). Stand on the VTC hex: Village 2 turns, Town 3, City/HQ 5. Progress bar shows on the settlement. Leaving the hex or swapping to a non-combat unit resets progress.' },
     { title: 'VTC housing upgrades', body: 'Housing Development (+1, villages). Suburbs (+2, towns & cities). Urban Housing (+4, cities only). Built from the VTC UPGRADE tab; one of each per settlement.' },
     { title: 'Logistics, not a hard cap', body: 'Population is not meant to stop large armies — food, iron, oil, supply, and production queues are the real limits. Scale population up or down in skirmish/endless setup.' },
     { title: 'Unit costs', body: 'Infantry/support ≈1 pop. Tanks/artillery ≈2–3. Destroyers ≈5. Battleships ≈10. Check the recruit panel — each row shows 👥 cost.' },

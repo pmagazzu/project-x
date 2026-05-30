@@ -85,17 +85,37 @@ function vtcStrategicWeight(b) {
 
 function garrisonWantForVTC(vtc, turn, enemyNear) {
   if (vtc.isCapital) {
-    if (enemyNear) return turn < 12 ? 2 : 1;
-    return turn < 8 ? 1 : 0;
+    if (enemyNear) return turn < 12 ? 3 : 2;
+    return turn < 10 ? 2 : 1;
   }
   if (!enemyNear) {
-    if (vtc.type === 'CITY') return turn >= 10 ? 2 : (turn >= 6 ? 1 : 0);
-    if (vtc.type === 'TOWN') return turn >= 14 ? 1 : 0;
-    return turn >= 18 ? 1 : 0;
+    if (vtc.type === 'CITY') return turn >= 6 ? 2 : 1;
+    if (vtc.type === 'TOWN') return turn >= 8 ? 2 : 1;
+    return turn >= 10 ? 1 : 0;
   }
   let want = vtc.type === 'CITY' ? 3 : vtc.type === 'TOWN' ? 2 : 1;
-  if (turn >= 20 && vtc.type === 'CITY') want += 1;
+  if (turn >= 16 && vtc.type === 'CITY') want += 1;
   return want;
+}
+
+function countOwnedVTCsNeedingDefense(gs, player, perceivedEnemies = []) {
+  let need = 0;
+  for (const b of gs.buildings || []) {
+    if (Number(b.owner) !== Number(player) || !['VILLAGE', 'TOWN', 'CITY'].includes(b.type) || b.underConstruction) continue;
+    if (b.captureProgress && Number(b.captureProgress.player) !== Number(player)) {
+      need += 2;
+      continue;
+    }
+    const threat = perceivedEnemies.some(e => hexDistance(e.q, e.r, b.q, b.r) <= 14)
+      || gs.units.some(u => Number(u.owner) !== Number(player) && !u.embarked
+        && hexDistance(u.q, u.r, b.q, b.r) <= 3);
+    const onStation = gs.units.filter(u =>
+      Number(u.owner) === Number(player) && !u.embarked && isCombatUnitForGarrison(u)
+      && hexDistance(u.q, u.r, b.q, b.r) <= 2).length;
+    const want = garrisonWantForVTC(b, gs.turn || 1, threat);
+    if (onStation < want) need += 1;
+  }
+  return need;
 }
 
 function vtcSupplyRadius(vtc) {
@@ -220,17 +240,19 @@ function assignOwnedVTCCoverage(gs, player, unitObjective, combatUnits, perceive
   const pool = combatUnits.filter(isCombatUnitForGarrison);
   const used = new Set();
   const ownedCount = owned.length;
-  const holdCapPct = ownedCount >= 3 ? 0.5 : (ownedCount >= 2 ? 0.45 : 0.4);
-  const maxHoldAssign = Math.max(0, Math.min(
-    pool.length - 2,
+  const defendDebt = countOwnedVTCsNeedingDefense(gs, player, perceivedEnemies);
+  const holdCapPct = ownedCount >= 3 ? 0.58 : (ownedCount >= 2 ? 0.52 : 0.45);
+  const maxHoldAssign = Math.max(defendDebt > 0 ? 2 : 0, Math.min(
+    pool.length - 1,
     Math.floor(pool.length * holdCapPct),
-    perceivedEnemies.length > 0 ? pool.length : Math.max(2, Math.floor(pool.length * 0.4)),
+    defendDebt > 0 ? pool.length : Math.max(2, Math.floor(pool.length * 0.45)),
   ));
 
   for (const { vtc, threat } of owned) {
     if (used.size >= maxHoldAssign) break;
-    const enemyNear = threat > 0;
-    if (pool.length <= 8 && !enemyNear && !vtc.isCapital) continue;
+    const enemyNear = threat > 0
+      || (vtc.captureProgress && Number(vtc.captureProgress.player) !== Number(player));
+    if (pool.length <= 6 && !enemyNear && !vtc.isCapital && vtc.type === 'VILLAGE') continue;
     const want = garrisonWantForVTC(vtc, turn, enemyNear);
     if (want <= 0) continue;
     let onStation = gs.units.filter(u =>
@@ -249,6 +271,8 @@ function assignOwnedVTCCoverage(gs, player, unitObjective, combatUnits, perceive
         let score = vtcStrategicWeight(vtc) * 8 - d;
         if (capital && !vtc.isCapital) score += Math.min(12, hexDistance(u.q, u.r, capital.q, capital.r) * 0.15);
         if (existing?.mission === 'main' || existing?.mission === 'closing') score -= 4;
+        if (enemyNear) score += 14;
+        if (vtc.captureProgress && Number(vtc.captureProgress.player) !== Number(player)) score += 22;
         if (score > bestScore) { bestScore = score; best = u; }
       }
       if (!best) break;
@@ -2318,6 +2342,7 @@ function assignHoldVTCCMissions(gs, player, unitObjective, combatUnits, perceive
   const turn = gs.turn || 1;
   if (turn < 3) return;
   const capital = getPlayerCapital(gs, player);
+  const defendDebt = countOwnedVTCsNeedingDefense(gs, player, perceivedEnemies);
   const pool = combatUnits.filter((u) => {
     const m = unitObjective[u.id]?.mission;
     return m !== 'hold_vtc' && (!m || ['expand', 'probe', 'garrison'].includes(m));
@@ -2337,7 +2362,9 @@ function assignHoldVTCCMissions(gs, player, unitObjective, combatUnits, perceive
     .sort((a, b) => b.weight - a.weight || Number(b.nearOwned) - Number(a.nearOwned) || b.threat - a.threat);
 
   let secured = 0;
-  const maxSecure = turn < 20 ? 4 : 7;
+  let maxSecure = turn < 20 ? 3 : 5;
+  if (defendDebt >= 2) maxSecure = 0;
+  else if (defendDebt >= 1) maxSecure = Math.min(maxSecure, 1);
   for (const { vtc, nearOwned } of neutralVTC) {
     if (secured >= maxSecure) break;
     const enemyOn = gs.units.some(u => Number(u.owner) !== Number(player) && !u.embarked

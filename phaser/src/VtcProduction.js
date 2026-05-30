@@ -563,6 +563,17 @@ export function getVtcInspectorLines(gs, viewerPlayer, building, fogVisibleHexes
     }
   } else {
     lines.push('Production: unknown (enemy)');
+    const cp = building.captureProgress;
+    if (cp?.player != null && cp.required) {
+      lines.push(`Capture: P${cp.player} ${cp.turns || 0}/${cp.required}`);
+    }
+  }
+
+  if (isOwn && building.captureProgress?.player != null) {
+    const cp = building.captureProgress;
+    if (Number(cp.player) !== Number(viewerPlayer)) {
+      lines.push(`⚠ Being captured: P${cp.player} ${cp.turns || 0}/${cp.required}`);
+    }
   }
 
   const rad = VTC_SUPPLY_RADIUS?.[building.type];

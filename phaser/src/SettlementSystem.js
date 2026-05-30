@@ -3,7 +3,7 @@
  * Engineers build roads, defenses, and field extractors only.
  */
 import {
-  hexDistance, ROAD_TYPES,
+  hexDistance, ROAD_TYPES, unitAt, BUILDING_TYPES, VTC_TYPES,
   getPlayerCapital, isPlayerCapitalBuilding,
   canQueueGlobalRecruit,
   getBuildingTierForDeploy, isNavalDeployAllowed, getNavalCoastalCheckRadius,
@@ -20,6 +20,85 @@ export const SETTLEMENT_PROMOTE = {
 };
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
+
+/** Turns a combat unit must hold a settlement hex to flip ownership. */
+export const SETTLEMENT_CAPTURE_TURNS = { VILLAGE: 2, TOWN: 3, CITY: 5, HQ: 5 };
+
+export function isCapturableSettlementBuilding(b) {
+  if (!b || b.underConstruction || ROAD_TYPES.has(b.type)) return false;
+  return VTC_TYPES.has(b.type) || b.type === 'HQ';
+}
+
+/** Engineers, recon, and non-combat support cannot capture VTCs. */
+export function canUnitCaptureSettlement(unit) {
+  if (!unit || unit.embarked || (unit.health ?? 1) <= 0) return false;
+  if (unit.type === 'ENGINEER' || unit.type === 'RECON' || unit.type === 'MOTORCYCLE') return false;
+  if (unit.type === 'MEDIC' || unit.type === 'SUPPLY_TRUCK' || unit.type === 'SUPPLY_SHIP') return false;
+  const def = UNIT_TYPES[unit.type] || {};
+  return (def.soft_attack || 0) > 0 || (def.hard_attack || 0) > 0 || (def.attack || 0) > 0;
+}
+
+export function getSettlementCaptureTurns(buildingType) {
+  return SETTLEMENT_CAPTURE_TURNS[buildingType] ?? 0;
+}
+
+/**
+ * Advance or complete settlement captures for the acting player (IGOUGO end-of-turn).
+ * Pass onlyPlayer=null in simultaneous resolveTurn to tick any capturer on the hex.
+ */
+export function tickSettlementCaptures(state, events, opts = {}) {
+  const onlyPlayer = opts.onlyPlayer != null ? Number(opts.onlyPlayer) : null;
+  let settlementCapture = false;
+
+  for (const b of state.buildings || []) {
+    if (!isCapturableSettlementBuilding(b)) continue;
+
+    const unit = unitAt(state, b.q, b.r);
+    const capturer = unit && canUnitCaptureSettlement(unit) ? Number(unit.owner) : null;
+
+    if (!capturer || capturer === Number(b.owner)) {
+      if (b.captureProgress) delete b.captureProgress;
+      continue;
+    }
+    if (onlyPlayer != null && capturer !== onlyPlayer) continue;
+
+    const required = getSettlementCaptureTurns(b.type);
+    if (required <= 0) continue;
+
+    if (!b.captureProgress || Number(b.captureProgress.player) !== capturer) {
+      b.captureProgress = { player: capturer, turns: 1, required };
+      events.push(`P${capturer} begins capturing ${BUILDING_TYPES[b.type]?.name || b.type} (1/${required})`);
+      continue;
+    }
+
+    b.captureProgress.turns += 1;
+    const cur = b.captureProgress.turns;
+    if (cur >= required) {
+      events.push(`P${capturer} captures ${BUILDING_TYPES[b.type]?.name || b.type}!`);
+      b.owner = capturer;
+      delete b.captureProgress;
+      settlementCapture = true;
+    } else {
+      events.push(`P${capturer} capturing ${BUILDING_TYPES[b.type]?.name || b.type} (${cur}/${required})`);
+    }
+  }
+  return settlementCapture;
+}
+
+/** Mines, farms, depots, etc. — still flip instantly when a valid unit holds the hex. */
+export function tickInstantBuildingCaptures(state, events, opts = {}) {
+  const onlyPlayer = opts.onlyPlayer != null ? Number(opts.onlyPlayer) : null;
+  for (const b of state.buildings || []) {
+    if (ROAD_TYPES.has(b.type) || isCapturableSettlementBuilding(b) || b.underConstruction) continue;
+    const unit = unitAt(state, b.q, b.r);
+    if (!unit || unit.owner === b.owner) continue;
+    if (onlyPlayer != null && Number(unit.owner) !== onlyPlayer) continue;
+    if (unit.type === 'RECON' || unit.type === 'MOTORCYCLE') continue;
+    events.push(`P${unit.owner} captures ${BUILDING_TYPES[b.type]?.name || b.type}!`);
+    b.owner = unit.owner;
+    delete b.captureProgress;
+  }
+}
 
 /** Purchasable upgrades at a VTC (build menu → UPGRADE tab). */
 export const VTC_MENU_UPGRADES = {

@@ -4,7 +4,8 @@
 import { computeTechBonuses } from './ResearchData.js';
 import {
   hasNavalYardNearSettlement, playerHasCityWithNavalYard,
-  canPromoteSettlement, tickVtcUpgrades,
+  canPromoteSettlement, tickVtcUpgrades, tickSettlementCaptures, tickInstantBuildingCaptures,
+  SETTLEMENT_CAPTURE_TURNS, canUnitCaptureSettlement,
 } from './SettlementSystem.js';
 import {
   getRecruitOptionsForVTC, getGlobalRecruitOptionsForVTC, getGlobalRecruitOptionsForPlayer,
@@ -20,6 +21,7 @@ import {
 
 export {
   hasNavalYardNearSettlement, playerHasCityWithNavalYard, canPromoteSettlement,
+  tickSettlementCaptures, tickInstantBuildingCaptures, SETTLEMENT_CAPTURE_TURNS, canUnitCaptureSettlement,
   getRecruitOptionsForVTC, getGlobalRecruitOptionsForVTC, getGlobalRecruitOptionsForPlayer,
   canQueueVtcRecruit, canQueueGlobalRecruit, queueVtcRecruit, queueGlobalRecruit,
   deployReadyVtcUnitAtHex, deployReadyGlobalRecruitAtHex, deployReadyGlobalRecruit,
@@ -2567,17 +2569,9 @@ export function resolveTurn(state, terrain) {
     }
   }
 
-  // Phase 3: Captures
-  let settlementCapture = false;
-  for (const b of state.buildings) {
-    if (ROAD_TYPES.has(b.type)) continue;
-    const unit = unitAt(state, b.q, b.r);
-    if (unit && unit.owner !== b.owner) {
-      events.push(`P${unit.owner} captures ${BUILDING_TYPES[b.type].name}!`);
-      b.owner = unit.owner;
-      if (VTC_TYPES.has(b.type) || b.type === 'HQ') settlementCapture = true;
-    }
-  }
+  // Phase 3: Captures (VTCs = multi-turn hold; other buildings = instant)
+  tickInstantBuildingCaptures(state, events);
+  const settlementCapture = tickSettlementCaptures(state, events);
   if (settlementCapture) {
     for (const p of getPlayerIds(state)) recalcPlayerPopulation(state, p);
   }
@@ -2882,17 +2876,9 @@ export function resolveEndOfTurn(state, terrain) {
   state.currentPlayer = player;
   state._terrain = terrain;
 
-  // Captures (only by current player's units)
-  let settlementCapture = false;
-  for (const b of state.buildings) {
-    if (ROAD_TYPES.has(b.type)) continue;
-    const unit = unitAt(state, b.q, b.r);
-    if (unit && unit.owner !== b.owner && unit.owner === player) {
-      events.push(`P${player} captures ${BUILDING_TYPES[b.type].name}!`);
-      b.owner = player;
-      if (VTC_TYPES.has(b.type) || b.type === 'HQ') settlementCapture = true;
-    }
-  }
+  // Captures: VTCs need 2/3/5-turn hold (combat only); other buildings instant
+  tickInstantBuildingCaptures(state, events, { onlyPlayer: player });
+  const settlementCapture = tickSettlementCaptures(state, events, { onlyPlayer: player });
   if (settlementCapture) {
     for (const p of getPlayerIds(state)) recalcPlayerPopulation(state, p);
   }
