@@ -239,6 +239,56 @@ export function cancelVtcQueueHead(state, player, buildingId) {
   return { ok: true, type: head.type };
 }
 
+/** Drop a waiting (non-training) queue entry — frees a recruit slot without stopping the active head. */
+export function popVtcTrainQueueTail(state, player, buildingId) {
+  const b = state.buildings.find(x => x.id === buildingId && Number(x.owner) === Number(player));
+  if (!b?.trainQueue?.length) return { ok: false, reason: 'Queue empty' };
+  ensureVtcProductionFields(b);
+  if (b.trainQueue.length <= 1) return { ok: false, reason: 'Only training head' };
+  const tail = b.trainQueue.pop();
+  recalcPlayerPopulation(state, player);
+  return { ok: true, type: tail.type };
+}
+
+function releaseUndersizedArmyQueueSlots(state, player, events = []) {
+  const p = Number(player);
+  const pop = getPopBreakdown(state, p);
+  const fieldedTarget = Math.max(6, Math.floor(pop.cap * 0.35));
+  if (calcPopFieldedByPlayer(state, p) >= fieldedTarget || pop.avail < 2) return 0;
+
+  const capital = getPlayerCapital(state, p);
+  const anchors = (state.buildings || []).filter((b) =>
+    Number(b.owner) === p && PRODUCTION_VTC_TYPES.has(b.type) && !b.underConstruction);
+  const sorted = [...anchors].sort((a, b) => {
+    const aCap = isPlayerCapitalBuilding(a) ? 0 : 1;
+    const bCap = isPlayerCapitalBuilding(b) ? 1 : 0;
+    if (aCap !== bCap) return bCap - aCap;
+    const da = capital ? hexDistance(a.q, a.r, capital.q, capital.r) : 0;
+    const db = capital ? hexDistance(b.q, b.r, capital.q, capital.r) : 0;
+    return db - da;
+  });
+
+  const hasOpenSlot = () => anchors.some((b) =>
+    (b.trainQueue?.length || 0) < getMaxVtcQueueDepth(state, p, b));
+
+  let released = 0;
+  while (!hasOpenSlot()) {
+    let cleared = false;
+    for (const b of sorted) {
+      ensureVtcProductionFields(b);
+      if (b.trainQueue.length <= 1) continue;
+      const tail = b.trainQueue.pop();
+      released += 1;
+      cleared = true;
+      events.push(`P${p} cleared waiting ${UNIT_TYPES[tail.type]?.name || tail.type} at ${b.type} (${b.q},${b.r})`);
+      break;
+    }
+    if (!cleared) break;
+  }
+  if (released > 0) recalcPlayerPopulation(state, p);
+  return released;
+}
+
 function canSpawnUnitAtHex(state, player, unitType, q, r, anchorQ, anchorR) {
   const mapSize = state._mapSize || 25;
   const terrain = state._terrain;
@@ -430,12 +480,13 @@ export function ensureVtcRecruitCapacity(state, player, events = []) {
   tickVtcProduction(state, p, events);
   let deployed = deployAllVtcReady(state, p, events, 'unstick-deploy');
   recalcPlayerPopulation(state, p);
+  const waitingCleared = releaseUndersizedArmyQueueSlots(state, p, events);
 
   const anchors = (state.buildings || []).filter((b) =>
     Number(b.owner) === p && PRODUCTION_VTC_TYPES.has(b.type) && !b.underConstruction);
   const hasOpenSlot = () => anchors.some((b) =>
     (b.trainQueue?.length || 0) < getMaxVtcQueueDepth(state, p, b));
-  if (hasOpenSlot()) return { deployed, freed: 0 };
+  if (hasOpenSlot()) return { deployed, freed: waitingCleared };
 
   const capital = getPlayerCapital(state, p);
   const sorted = [...anchors].sort((a, b) => {
@@ -459,7 +510,7 @@ export function ensureVtcRecruitCapacity(state, player, events = []) {
     }
   }
   if (freed > 0) recalcPlayerPopulation(state, p);
-  return { deployed, freed };
+  return { deployed, freed: freed + waitingCleared };
 }
 
 /** Trim queue tails that exceed each VTC's allowed depth (waiting slots do not reserve manpower). */

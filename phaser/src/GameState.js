@@ -14,7 +14,7 @@ import {
   enumerateVtcDeployHexes, enumerateGlobalDeployHexes,
   tickVtcProduction, forceDeployStrandedVtcReady, rebalanceVtcPopulationPipeline,
   pruneVtcQueueBacklog, clearVtcQueueTailForIdlePop, ensureVtcRecruitCapacity, hasOpenVtcRecruitSlot, getMaxVtcQueueDepth,
-  migrateGlobalQueuesToVtc, getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
+  migrateGlobalQueuesToVtc, getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE, cancelVtcQueueHead, popVtcTrainQueueTail,
   LEGACY_PRODUCTION_MAP_HIDDEN, getVtcFacilityBadgeGlyphs, getVtcFacilityChips, getVtcInspectorLines,
   countPlayerVtcUpgrade, countPlayerScienceLabs, countPlayerFactories, countPlayerBarracksFacilities,
 } from './VtcProduction.js';
@@ -28,7 +28,7 @@ export {
   enumerateVtcDeployHexes, enumerateGlobalDeployHexes,
   tickVtcProduction, forceDeployStrandedVtcReady, rebalanceVtcPopulationPipeline,
   pruneVtcQueueBacklog, clearVtcQueueTailForIdlePop, ensureVtcRecruitCapacity, hasOpenVtcRecruitSlot, getMaxVtcQueueDepth,
-  getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
+  getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE, cancelVtcQueueHead, popVtcTrainQueueTail,
   LEGACY_PRODUCTION_MAP_HIDDEN, getVtcFacilityBadgeGlyphs, getVtcFacilityChips, getVtcInspectorLines,
   countPlayerVtcUpgrade, countPlayerScienceLabs, countPlayerFactories, countPlayerBarracksFacilities,
 };

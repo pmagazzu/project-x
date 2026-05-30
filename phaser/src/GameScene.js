@@ -49,7 +49,7 @@ import {
 } from './SettlementSystem.js';
 import {
   migrateGlobalQueuesToVtc, enumerateVtcDeployHexes, getVtcFacilityChips, getVtcFacilityBadgeGlyphs,
-  cancelVtcQueueHead, getVtcInspectorLines, LEGACY_PRODUCTION_MAP_HIDDEN,
+  cancelVtcQueueHead, popVtcTrainQueueTail, getVtcInspectorLines, LEGACY_PRODUCTION_MAP_HIDDEN,
 } from './VtcProduction.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.28';
+export const GAME_VERSION = 'v1.21.29';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -8563,8 +8563,8 @@ export class GameScene extends Phaser.Scene {
 
   _prioritizeAIActions(actions) {
     const rank = {
-      attack: 0, global_deploy: 1, recruit: 2, transport_unload: 3, transport_load: 4,
-      move: 5, digin: 6, build: 7,
+      attack: 0, cancel_vtc_train: 1, global_deploy: 2, recruit: 3, transport_unload: 4, transport_load: 5,
+      move: 6, digin: 7, build: 8,
     };
     return [...(actions || [])].sort((a, b) => (rank[a.type] ?? 8) - (rank[b.type] ?? 8));
   }
@@ -8578,7 +8578,7 @@ export class GameScene extends Phaser.Scene {
     const moveCap = Math.max(8, Math.min(Math.floor(budget * 0.55), hugeMap ? 36 : (turn > 80 ? 48 : 64)));
     let buildCap = Math.max(4, Math.min(Math.floor(budget * 0.28), hugeMap ? 12 : (turn > 80 ? 14 : 24)));
     const hasArmyAction = (actions || []).some(a =>
-      ['attack', 'move', 'recruit', 'global_deploy', 'vtc_upgrade'].includes(a.type));
+      ['attack', 'move', 'recruit', 'global_deploy', 'vtc_upgrade', 'cancel_vtc_train'].includes(a.type));
     if (!hasArmyAction) buildCap = Math.min(buildCap, 2);
     const recruitCap = Math.max(2, Math.min(Math.floor(budget * 0.14), hugeMap ? 5 : 7));
     const kept = [];
@@ -8952,6 +8952,21 @@ export class GameScene extends Phaser.Scene {
         this._pushLog('AI attack resolved with no combat log entry');
         this._scheduleAIStep(200, next, turnId);
       }
+
+    } else if (action.type === 'cancel_vtc_train') {
+      const p = gs.currentPlayer;
+      const out = action.mode === 'tail'
+        ? popVtcTrainQueueTail(gs, p, action.buildingId)
+        : cancelVtcQueueHead(gs, p, action.buildingId);
+      if (out.ok) {
+        const def = UNIT_TYPES[out.type];
+        if (def?.cost) refundResources(gs.players[p], def.cost);
+        gs.players[p].food = (gs.players[p].food || 0) + getRecruitFoodCost(out.type);
+        recalcPlayerPopulation(gs, p);
+        this._pushLog(`AI cleared ${UNIT_TYPES[out.type]?.name || out.type} from VTC queue`);
+      }
+      this._updateTopBar();
+      next();
 
     } else if (action.type === 'global_deploy') {
       const unitType = action.unitType
