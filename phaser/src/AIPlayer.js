@@ -24,7 +24,7 @@ import {
   isNavalDeployAllowed, getNavalCoastalCheckRadius, canPromoteSettlement, VTC_SUPPLY_RADIUS, findRoadPath, canPlaceRoadOnTerrain,
 } from './GameState.js';
 import {
-  getVtcUpgradeMenu, purchaseVtcUpgrade,
+  getVtcUpgradeMenu, purchaseVtcUpgrade, isVtcUpgradeComplete,
 } from './SettlementSystem.js';
 import { ensureAIDesigns, pickAIRecruit, getClosingPressure } from './AIDesigner.js';
 import {
@@ -265,18 +265,67 @@ function pickBestVTCToQueue(gs, player, unitType, capital) {
       tier: VTC_DEPLOY_TIER[bb.type] ?? (bb.isCapital ? 0 : -1),
       isCap: isPlayerCapitalBuilding(bb),
     }))
-    .filter(a => getGlobalRecruitOptionsForVTC(gs, player, a.building.id).includes(unitType));
+    .filter(a => getGlobalRecruitOptionsForVTC(gs, player, a.building.id).includes(unitType))
+    .filter(a => (a.building.trainQueue?.length || 0) < MAX_VTC_TRAIN_QUEUE);
   if (!anchors.length) return null;
   const isNaval = NAVAL_UNITS.has(unitType);
   if (isNaval) {
     anchors.sort((a, b) => (b.tier - a.tier) || (b.coastal - a.coastal) || (b.dist - a.dist));
     return anchors[0].building;
   }
-  anchors.sort((a, b) => {
-    if (a.isCap !== b.isCap) return a.isCap ? 1 : -1;
-    return b.dist - a.dist;
-  });
+  if (!isNaval) {
+    anchors.sort((a, b) => {
+      const qa = a.building.trainQueue?.length || 0;
+      const qb = b.building.trainQueue?.length || 0;
+      if (qa !== qb) return qa - qb;
+      if (a.isCap !== b.isCap) return a.isCap ? 1 : -1;
+      return b.dist - a.dist;
+    });
+  }
   return anchors[0].building;
+}
+
+const AI_VILLAGE_FACILITY_PRIO = ['barracks', 'local_farm', 'road_link', 'housing'];
+const AI_TOWN_FACILITY_PRIO = ['factory', 'science_lab', 'paved_network', 'market', 'naval_yard'];
+
+/** Buy UPGRADE-tab facilities at forward VTCs before queuing units that need them. */
+function planAIVtcUpgrades(gs, player, actions, capital, perceivedEnemies, maxPerTurn = 2) {
+  if ((gs.turn || 1) < 4) return;
+  let planned = 0;
+  for (const { vtc } of listOwnedVTCSorted(gs, player, perceivedEnemies, capital)) {
+    if (planned >= maxPerTurn) break;
+    if (vtc.isCapital || isPlayerCapitalBuilding(vtc)) continue;
+    const menu = getVtcUpgradeMenu(gs, player, vtc.id);
+    if (!menu || menu.capital || menu.promoting) continue;
+    const prio = (vtc.type === 'TOWN' || vtc.type === 'CITY')
+      ? [...AI_VILLAGE_FACILITY_PRIO, ...AI_TOWN_FACILITY_PRIO]
+      : AI_VILLAGE_FACILITY_PRIO;
+    for (const uid of prio) {
+      if (isVtcUpgradeComplete(vtc, uid)) continue;
+      const it = menu.items.find(x => x.id === uid);
+      if (!it || it.external || it.complete || it.building || !it.canBuy) continue;
+      actions.push({ type: 'vtc_upgrade', buildingId: vtc.id, upgradeId: uid });
+      planned++;
+      break;
+    }
+    if (planned >= maxPerTurn) break;
+    if (menu.canPromote?.ok) {
+      actions.push({ type: 'upgrade_settlement', buildingId: vtc.id });
+      planned++;
+      break;
+    }
+  }
+}
+
+function filterRecruitPrioForVtc(gs, player, unitList) {
+  const avail = new Set();
+  for (const b of gs.buildings) {
+    if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type) || b.underConstruction) continue;
+    if ((b.trainQueue?.length || 0) >= MAX_VTC_TRAIN_QUEUE) continue;
+    for (const u of getGlobalRecruitOptionsForVTC(gs, player, b.id)) avail.add(u);
+  }
+  const filtered = unitList.filter(u => avail.has(u));
+  return filtered.length ? filtered : ['INFANTRY'];
 }
 
 function scoreGlobalDeploySite(gs, player, site, ready, terrain, ctx) {
@@ -4190,11 +4239,15 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   };
 
   const recruitCombatFromProduction = (prefer = ['INFANTRY', 'ANTI_TANK', 'MORTAR', 'RECON']) => {
-    for (const unitType of prefer) {
+    const list = filterRecruitPrioForVtc(gs, player, prefer);
+    for (const unitType of list) {
       if (queueGlobalBestVTC(unitType)) return true;
     }
     return false;
   };
+
+  // VTC UPGRADE tab: barracks/farm/etc. before training units that require them.
+  planAIVtcUpgrades(gs, player, actions, myCapital, perceivedEnemies, stockpilePressure >= 0.4 ? 2 : 1);
 
   const focusEnemy = strategic?.focusEnemyHQ
     || pickPrimaryEnemyHQ(gs, player, getEnemyCapitalBuildings(gs, player))
@@ -4292,33 +4345,14 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
   const waterMap = situation?.islandMap || (situation?.waterRatio || 0) >= 0.18;
 
-  if ((gs.turn || 1) >= 6 && !actions.some(a => a.type === 'vtc_upgrade' || a.type === 'upgrade_settlement')) {
-    for (const { vtc } of listOwnedVTCSorted(gs, player, perceivedEnemies, myCapital)) {
-      if (vtc.isCapital) continue;
-      const menu = getVtcUpgradeMenu(gs, player, vtc.id);
-      if (!menu || menu.capital) continue;
-      for (const it of menu.items) {
-        if (it.external || it.complete || it.building || !it.canBuy) continue;
-        actions.push({ type: 'vtc_upgrade', buildingId: vtc.id, upgradeId: it.id });
-        break;
-      }
-      if (actions.some(a => a.type === 'vtc_upgrade')) break;
-      const promo = canPromoteSettlement(gs, player, vtc.id);
-      if (promo.ok) {
-        actions.push({ type: 'upgrade_settlement', buildingId: vtc.id });
-        break;
-      }
-    }
-  }
-
-  // Global production queue: pick best VTC (forward for land, coastal town/city for naval).
+  // Per-VTC train queues: only unit types this player can build at some VTC right now.
   const vtcCanQueueMore = () => gs.buildings.some(b =>
     Number(b.owner) === Number(player) && PRODUCTION_VTC_TYPES.has(b.type)
     && (b.trainQueue?.length || 0) < MAX_VTC_TRAIN_QUEUE);
   if (vtcCanQueueMore() && plannedRecruits < armyBudget.maxRecruitsPerTurn) {
-    const preferList = waterMap
+    const preferList = filterRecruitPrioForVtc(gs, player, waterMap
       ? [...cfg.navalPrio, ...cfg.recruitPrio]
-      : [...cfg.recruitPrio, ...cfg.navalPrio];
+      : [...cfg.recruitPrio, ...cfg.navalPrio]);
     for (const unitType of preferList) {
       if (queueGlobalBestVTC(unitType)) break;
     }
@@ -4334,33 +4368,20 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
       const bootOrder = mySupplyShipsNow < 1
         ? ['SUPPLY_SHIP', 'PATROL_BOAT']
         : ['PATROL_BOAT', 'SUPPLY_SHIP'];
-      for (const pick of bootOrder) {
+      const navalBootUnits = filterRecruitPrioForVtc(gs, player, bootOrder);
+      for (const pick of navalBootUnits) {
         if (queueGlobalBestVTC(pick)) break;
       }
     }
-    const vtcCanQueueMore = () => gs.buildings.some(b =>
-    Number(b.owner) === Number(player) && PRODUCTION_VTC_TYPES.has(b.type)
-    && (b.trainQueue?.length || 0) < MAX_VTC_TRAIN_QUEUE);
-  if (vtcCanQueueMore() && plannedRecruits < armyBudget.maxRecruitsPerTurn) {
-      const navalBuildings = myBuildings.filter(bb => ['HARBOR', 'NAVAL_YARD', 'SHIPYARD', 'DRYDOCK', 'DRY_DOCK', 'NAVAL_BASE', 'NAVAL_DOCKYARD'].includes(bb.type));
-      for (const nb of navalBuildings) {
-        if (plannedRecruits >= armyBudget.maxRecruitsPerTurn) break;
-        if (actions.some(a => a.type === 'recruit' && a.buildingId === nb.id)) continue;
-        const can = BUILDING_TYPES[nb.type]?.canRecruit || [];
-        const yardPick = cfg.navalPrio.find(t => can.includes(t) && recruitAllowed(t));
-        if (!yardPick) continue;
-        const cost = UNIT_TYPES[yardPick]?.cost || {};
-        const foodCost = getRecruitFoodCost(yardPick);
-        if (resSim.iron >= (cost.iron || 0) && resSim.oil >= (cost.oil || 0) && resSim.wood >= (cost.wood || 0)
-          && resSim.food >= foodCost && resSim.components >= (cost.components || 0)) {
-          actions.push({ type: 'recruit', buildingId: nb.id, unitType: yardPick });
-          noteRecruit(yardPick);
-          resSim.iron -= (cost.iron || 0);
-          resSim.oil -= (cost.oil || 0);
-          resSim.wood -= (cost.wood || 0);
-          resSim.food -= foodCost;
-          resSim.components -= (cost.components || 0);
-        }
+    const coastalForward = listOwnedVTCSorted(gs, player, perceivedEnemies, myCapital)
+      .find(({ vtc }) => isNavalDeployAllowed(gs, vtc, getNavalCoastalCheckRadius(vtc))
+        && !isVtcUpgradeComplete(vtc, 'naval_yard') && vtc.type !== 'VILLAGE');
+    if (coastalForward && plannedRecruits < armyBudget.maxRecruitsPerTurn
+      && !actions.some(a => a.type === 'vtc_upgrade' && a.buildingId === coastalForward.vtc.id)) {
+      const menu = getVtcUpgradeMenu(gs, player, coastalForward.vtc.id);
+      const ny = menu?.items?.find(x => x.id === 'naval_yard');
+      if (ny?.canBuy) {
+        actions.push({ type: 'vtc_upgrade', buildingId: coastalForward.vtc.id, upgradeId: 'naval_yard' });
       }
     }
   }

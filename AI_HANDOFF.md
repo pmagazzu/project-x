@@ -133,6 +133,8 @@ Canonical code: `phaser/src/AIDoctrine.js`, `phaser/src/AIPlayer.js`, `phaser/sr
 | **v1.15.2** | JSON download on **victory / game-over** screen |
 | **v1.15.3** | Perf: cached landmass index, theater resource bucketing, slim/deferred turn snapshots (fix tab freeze) |
 | **v1.15.4** | Late-game perf: fix Dijkstra queue sort, AI light refresh (no full redraw per move), supply cache, road hard cap, thinner turn logging |
+| **v1.21.0** | **Per-VTC train queues** (`VtcProduction.js`): each VTC has `trainQueue[]` / `readyUnits[]`; PRODUCE/DEPLOY in build menu when VTC selected; facility-gated recruits |
+| **v1.21.1** | **AI uses VTC UPGRADE + per-VTC queues** (`AIPlayer.js`): `planAIVtcUpgrades`, `filterRecruitPrioForVtc`, `pickBestVTCToQueue`; naval via coastal VTC `naval_yard` upgrade, not engineer yards |
 
 **Dev tools (for playtest feedback):**
 
@@ -195,8 +197,29 @@ Export payload: `meta`, `turns[]` (economy per player per turn), `current`, `las
 - Mirror `getEndgamePressure` for **trailing AI** when ahead locally (not only leader).  
 - Require min army before `closing`: e.g. turn ≥ 8, `myCombat ≥ 6`, or local 1.3× enemy near HQ.
 
-**Phase 4 — Expedition playbook** ⬜  
+**Phase 4 — Expedition playbook** 🟡 *partial v1.21.x*  
 - Naval yard → transports → assault on water / multi-landmass / VP maps; supply ports as expansion enablers.
+
+#### VTC production & upgrades (v1.21+ — read before touching recruits/settlements)
+
+**Human UI:** Select an owned VTC → bottom-right panel (taller when VTC focused) → tabs **UPGRADE | PRODUCE | DEPLOY**. Engineers build **roads, defenses, extractors only** — not barracks/labs (those are menu purchases).
+
+**Code map:**
+
+| Module | Role |
+|--------|------|
+| `SettlementSystem.js` | `getVtcUpgradeMenu`, `purchaseVtcUpgrade`, `upgradeSettlement`, `vtcUpgrades` on building |
+| `VtcProduction.js` | Per-VTC `trainQueue` / `readyUnits`, `queueGlobalRecruit` → picks VTC, `tickVtcProduction`, deploy only from training VTC |
+| `GameScene.js` | Panel + executes AI `vtc_upgrade` / `upgrade_settlement` / `recruit` with `global: true` |
+| `AIPlayer.js` | Must buy facilities **before** queuing gated units; see below |
+
+**AI contract (`AIPlayer.js`):**
+
+- Turn ≥ 4: `planAIVtcUpgrades()` — forward VTCs first; village prio `barracks → local_farm → road_link → housing`; town+ adds `factory`, `science_lab`, `naval_yard`, etc.; may `upgrade_settlement` when `menu.canPromote.ok`.
+- Recruits: use `queueGlobalRecruit` via actions `{ type: 'recruit', global: true, unitType, buildingId? }` and `pickBestVTCToQueue` (shortest queue, facility-aware).
+- Never assume global `pendingGlobalRecruits`; filter with `filterRecruitPrioForVtc` so AI only queues buildable types.
+- Naval on water maps: buy `naval_yard` on coastal forward town+ VTC (`vtc_upgrade`), then queue `PATROL_BOAT` / `SUPPLY_SHIP` when coastal + yard complete.
+- Deploy: `global_deploy` from `readyUnits` on the VTC that trained them (`enumerateVtcDeployHexes`).
 
 **Phase 5 — Same-island combat quality** ⬜  
 - Flanks, chokes, hold/fire support; stop feeding unsupported hexes (tie to logistics tax).
@@ -266,7 +289,7 @@ When re-entering this project:
 1. Read this file.
 2. Read `project-x/AGENTS.md`.
 3. Confirm active code is in `project-x/phaser/`.
-4. Check current `GAME_VERSION` in `GameScene.js` (as of last handoff update: **v1.15.4**).
+4. Check current `GAME_VERSION` in `GameScene.js` (as of last handoff update: **v1.21.1**).
 5. Read **AI overhaul — master plan** (above) before changing `AIDoctrine.js` / `AIPlayer.js`.
 6. Make requested change (default: **Phase 2b + 3** per master plan unless user redirects).
 7. Bump version (gameplay patches).
