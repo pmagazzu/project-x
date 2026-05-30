@@ -3853,13 +3853,6 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     });
   }
 
-  const popRelief = getPopBreakdown(gs, player);
-  if (popRelief.reserve > Math.max(8, popRelief.fielded * 3 + 2) && popRelief.avail < 4) {
-    return finalizePipelineReliefPlan(gs, player, actions, terrain, aiDebug, {
-      enemyHQs, strategic, myCapital: myCapitalEarly,
-    });
-  }
-
   // Clone unit list so we can track "virtual" positions for multi-step planning
   // (Simple approach: plan each unit independently with live state)
   let plannedRoadBuilds = 0;

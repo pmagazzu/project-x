@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.19';
+export const GAME_VERSION = 'v1.21.20';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -3101,11 +3101,12 @@ export class GameScene extends Phaser.Scene {
     this._setCommandCard(c.food, `${fmtRes(pl.food || 0)}  ${sgn(netFood)}${ttzSuffix(ttzFood)}`, unitsOOS > 0 ? '#ff6644' : rowFill(ttzFood, ttzFood <= 1));
     recalcPlayerPopulation(gs, p);
     const pop = getPopBreakdown(gs, p);
-    const popText = pop.reserve > 0 && pop.avail < 2
-      ? `${pop.avail}/${pop.cap} · ${pop.fielded} map + ${pop.reserve} training`
+    const waitNote = pop.waiting > 0 ? ` · ${pop.waiting} waiting` : '';
+    const popText = pop.reserve > 0 && pop.avail < 3
+      ? `${pop.avail}/${pop.cap} (${pop.fielded} map + ${pop.reserve} train${waitNote})`
       : (pop.avail < 1 && pop.used >= pop.cap)
         ? `${pop.avail}/${pop.cap} full`
-        : `${pop.avail}/${pop.cap}`;
+        : `${pop.avail}/${pop.cap}${waitNote}`;
     const popWarn = pop.avail < 2 || (pop.reserve > 0 && pop.avail < 1);
     this._setCommandCard(c.pop, popText, popWarn ? '#ff8888' : '#c8e8c8');
     this._setCommandCard(c.gold, `${fmtRes(pl.gold || 0)}  ${sgn(netGold)}`);
@@ -8171,6 +8172,7 @@ export class GameScene extends Phaser.Scene {
       popReserved: pop.reserve,
       popQueued: pop.queued,
       popReady: pop.ready,
+      popWaiting: pop.waiting,
       unitTypes: byType,
       buildings: bldCounts,
       research: {

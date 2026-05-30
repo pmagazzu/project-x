@@ -789,13 +789,14 @@ export function calcPopFieldedByPlayer(state, player) {
   return fielded;
 }
 
-/** Manpower currently fielded or reserved in queues. */
+/** Manpower currently fielded or actively training (queue head + ready bays only). */
 export function calcPopUsedByPlayer(state, player) {
   const p = Number(player);
   let used = calcPopFieldedByPlayer(state, player);
   for (const b of state.buildings || []) {
     if (Number(b.owner) !== p) continue;
-    for (const q of b.trainQueue || []) used += getUnitPopCost(q.type);
+    const q = b.trainQueue || [];
+    if (q.length) used += getUnitPopCost(q[0].type);
     for (const r of b.readyUnits || []) used += getUnitPopCost(r.type);
   }
   for (const r of state.pendingRecruits || []) {
@@ -817,10 +818,15 @@ export function getPopBreakdown(state, player) {
   const fielded = calcPopFieldedByPlayer(state, player);
   let queued = 0;
   let ready = 0;
+  let waiting = 0;
   let legacyPending = 0;
   for (const b of state.buildings || []) {
     if (Number(b.owner) !== Number(player)) continue;
-    for (const q of b.trainQueue || []) queued += getUnitPopCost(q.type);
+    const q = b.trainQueue || [];
+    if (q.length) {
+      queued += getUnitPopCost(q[0].type);
+      waiting += Math.max(0, q.length - 1);
+    }
     for (const r of b.readyUnits || []) ready += getUnitPopCost(r.type);
   }
   for (const r of state.pendingRecruits || []) {
@@ -834,7 +840,7 @@ export function getPopBreakdown(state, player) {
   }
   const reserve = Math.max(0, used - fielded);
   const avail = Math.max(0, cap - used);
-  return { cap, used, avail, fielded, reserve, queued, ready, legacyPending };
+  return { cap, used, avail, fielded, reserve, queued, ready, waiting, legacyPending };
 }
 
 const PIPELINE_VTC_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY', 'HQ']);
@@ -852,33 +858,21 @@ export function countEmpirePipelineSlots(state, player) {
   return { queueSlots, readySlots };
 }
 
-/** Block training when VTC queues would hoard the whole manpower pool. */
+/** Can queue one more unit — only active training (head + ready) reserves manpower. */
 export function canAffordPipelinePop(state, player, unitType) {
   const pop = getPopBreakdown(state, player);
   const cost = getUnitPopCost(unitType);
+  if (pop.fielded + pop.reserve + cost > pop.cap) {
+    return {
+      ok: false,
+      reason: `Manpower cap reached (${pop.fielded + pop.reserve}/${pop.cap} active)`,
+    };
+  }
   if (pop.avail < cost) {
     return {
       ok: false,
-      reason: `Need ${cost} manpower (${pop.avail}/${pop.cap}, ${pop.reserve} in training)`,
+      reason: `Need ${cost} manpower (${pop.avail}/${pop.cap})`,
     };
-  }
-  const maxReserve = Math.max(0, pop.cap - pop.fielded - 2);
-  if (pop.reserve + cost > maxReserve) {
-    return {
-      ok: false,
-      reason: `Deploy units first (${pop.fielded} on map, ${pop.reserve} manpower in VTC queues)`,
-    };
-  }
-  const { queueSlots, readySlots } = countEmpirePipelineSlots(state, player);
-  const maxQueueSlots = Math.max(4, Math.floor(pop.cap / 2));
-  if (queueSlots >= maxQueueSlots) {
-    return {
-      ok: false,
-      reason: `Too many units training (${queueSlots}) — deploy VTC ready bays first`,
-    };
-  }
-  if (readySlots >= Math.max(3, Math.floor(pop.cap / 4)) && pop.avail < cost + 2) {
-    return { ok: false, reason: 'VTC ready bays full — deploy before training more' };
   }
   return { ok: true };
 }

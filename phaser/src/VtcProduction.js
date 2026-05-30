@@ -351,10 +351,19 @@ export function tickVtcProduction(state, player, events = []) {
     const head = b.trainQueue[0];
     head.turnsLeft = Math.max(0, (head.turnsLeft ?? 1) - 1);
     if (head.turnsLeft <= 0) {
-      b.readyUnits.push({ id: head.id, type: head.type });
-      b.trainQueue.shift();
-      const vtcName = b.type;
-      events.push(`P${player} ${UNIT_TYPES[head.type]?.name || head.type} ready at ${vtcName} (${b.q},${b.r})`);
+      const unitType = head.type;
+      const sites = enumerateVtcDeployHexes(state, player, b.id, unitType);
+      if (sites.length) {
+        const site = sites[0];
+        state.units.push(createUnit(unitType, player, site.q, site.r));
+        b.trainQueue.shift();
+        events.push(`P${player} ${UNIT_TYPES[unitType]?.name || unitType} deployed from ${b.type} (${site.q},${site.r})`);
+        recalcPlayerPopulation(state, player);
+      } else {
+        b.readyUnits.push({ id: head.id, type: unitType });
+        b.trainQueue.shift();
+        events.push(`P${player} ${UNIT_TYPES[unitType]?.name || unitType} ready at ${b.type} (${b.q},${b.r}) — deploy needed`);
+      }
     }
   }
 }
@@ -385,44 +394,10 @@ export function forceDeployStrandedVtcReady(state, player, events = []) {
   return deployAllVtcReady(state, player, events, 'deployed');
 }
 
-/** Deploy ready bays when manpower is hoarded in pipelines (few units on map, huge reserve). */
-export function forceDeployExcessVtcReady(state, player, events = []) {
-  const pop = getPopBreakdown(state, player);
-  if (pop.ready < 1) return 0;
-  const hoarded = pop.reserve > Math.max(6, pop.fielded * 3 + 2);
-  const starved = pop.avail < 2 && pop.fielded > 0;
-  if (!hoarded && !starved) return 0;
-  return deployAllVtcReady(state, player, events, 'deployed');
-}
-
-function pruneVtcQueueTail(state, player, building) {
-  if (!building?.trainQueue?.length) return false;
-  building.trainQueue.pop();
-  recalcPlayerPopulation(state, player);
-  return true;
-}
-
-/** End-of-turn safety: deploy ready units and trim over-long train backlogs. */
+/** End-of-turn: deploy any units stuck in VTC ready bays onto the map. */
 export function rebalanceVtcPopulationPipeline(state, player, events = []) {
   recalcPlayerPopulation(state, player);
-  let deployed = forceDeployExcessVtcReady(state, player, events);
-  if (calcPopFieldedByPlayer(state, player) < 1) {
-    deployed += forceDeployStrandedVtcReady(state, player, events);
-  }
-  let pop = getPopBreakdown(state, player);
-  const maxReserve = Math.max(0, pop.cap - pop.fielded - 1);
-  let guard = 0;
-  while (pop.reserve > maxReserve + 1 && guard < 48) {
-    guard += 1;
-    let longest = null;
-    for (const b of state.buildings || []) {
-      if (Number(b.owner) !== Number(player) || !PRODUCTION_VTC_TYPES.has(b.type) || b.underConstruction) continue;
-      if (!b.trainQueue?.length) continue;
-      if (!longest || b.trainQueue.length > longest.trainQueue.length) longest = b;
-    }
-    if (!longest || !pruneVtcQueueTail(state, player, longest)) break;
-    pop = getPopBreakdown(state, player);
-  }
+  const deployed = deployAllVtcReady(state, player, events, 'auto-deployed');
   recalcPlayerPopulation(state, player);
   return deployed;
 }
