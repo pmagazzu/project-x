@@ -4,7 +4,7 @@
 import {
   UNIT_TYPES, NAVAL_UNITS, AIR_UNITS, LOCKED_CHASSIS,
   getBuildingTierForDeploy, isNavalDeployAllowed, getNavalCoastalCheckRadius, canQueueNavalAtVtc,
-  isNavalAllowedAtVTCTier, getRecruitFoodCost, getUnitPopCost, recalcPlayerPopulation,
+  isNavalAllowedAtVTCTier, getRecruitFoodCost, getUnitPopCost, recalcPlayerPopulation, getPopBreakdown,
   getPlayerCapital, isPlayerCapitalBuilding, PRODUCTION_VTC_TYPES,
   CITY_YARD_NAVAL_UNITS, hexDistance, createUnit, buildingAt, ROAD_TYPES,
   canEnterTerrain, VTC_SUPPLY_RADIUS,
@@ -203,8 +203,10 @@ export function canQueueVtcRecruit(state, player, unitType, buildingId) {
   if ((pl.food || 0) < foodCost) return { ok: false, reason: 'Not enough food' };
   recalcPlayerPopulation(state, player);
   const popCost = getUnitPopCost(unitType);
-  if ((pl.population || 0) < popCost) {
-    return { ok: false, reason: `Need ${popCost} population (${pl.population || 0}/${pl.popCap || 0})` };
+  const pop = getPopBreakdown(state, player);
+  if (pop.avail < popCost) {
+    const reserveNote = pop.reserve > 0 ? `, ${pop.reserve} in queues` : '';
+    return { ok: false, reason: `Need ${popCost} manpower (${pop.avail}/${pop.cap}${reserveNote})` };
   }
   return { ok: true };
 }
@@ -223,13 +225,13 @@ export function queueVtcRecruit(state, player, unitType, buildingId) {
   pl.oil -= (def.cost.oil || 0);
   pl.components = (pl.components || 0) - (def.cost.components || 0);
   pl.food = (pl.food || 0) - getRecruitFoodCost(unitType);
-  pl.population = Math.max(0, (pl.population || 0) - getUnitPopCost(unitType));
   ensureVtcProductionFields(b);
   b.trainQueue.push({
     id: _nextTrainId++,
     type: unitType,
     turnsLeft: def.buildTime ?? 1,
   });
+  recalcPlayerPopulation(state, player);
   return { ok: true };
 }
 
@@ -241,6 +243,7 @@ export function cancelVtcQueueHead(state, player, buildingId) {
   const b = state.buildings.find(x => x.id === buildingId && Number(x.owner) === Number(player));
   if (!b?.trainQueue?.length) return { ok: false, reason: 'Queue empty' };
   const head = b.trainQueue.shift();
+  recalcPlayerPopulation(state, player);
   return { ok: true, type: head.type };
 }
 
@@ -334,6 +337,7 @@ export function deployReadyVtcUnitAtHex(state, player, buildingId, readyId, q, r
   if (!sites.some(s => s.q === q && s.r === r)) return { ok: false, reason: 'Cannot deploy here' };
   state.units.push(createUnit(ready.type, player, q, r));
   b.readyUnits.splice(idx, 1);
+  recalcPlayerPopulation(state, player);
   return { ok: true };
 }
 

@@ -18,7 +18,7 @@ export const CODEX_PAGES = {
     { title: 'Reading the Combat Card', body: 'Center number = expected damage to defender. Blue/red portraits show HP after the trade. THE MATH lists hit quality, pierce, defense, and roll band. Modifiers list every bonus/penalty applied.' },
   ],
   population: [
-    { title: 'Manpower pool', body: 'Shown as available/cap (e.g. 2/10). The number is free manpower — your opening units already count against the cap. "full" means every slot is fielded; capture towns or build housing to grow.' },
+    { title: 'Manpower pool', body: 'Shown as free/cap (e.g. 2/30). Training queues reserve manpower too — you may see "0/30 · 24 queued" with only a few units on the map. Deploy ready units at a VTC (📦) to free slots before recruiting more.' },
     { title: 'VTC base cap', body: 'Village +5, Town +10, City +15 (scaled in setup). Home capital = village +5 HQ bonus (10 at default scale). Capture neutral settlements to add more cap.' },
     { title: 'VTC housing upgrades', body: 'Housing Development (+1, villages). Suburbs (+2, towns & cities). Urban Housing (+4, cities only). Built from the VTC UPGRADE tab; one of each per settlement.' },
     { title: 'Logistics, not a hard cap', body: 'Population is not meant to stop large armies — food, iron, oil, supply, and production queues are the real limits. Scale population up or down in skirmish/endless setup.' },

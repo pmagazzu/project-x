@@ -776,14 +776,21 @@ export function recalcPlayerPopulation(state, player) {
   syncPlayerPopulationPool(state, player);
 }
 
+/** Manpower on the map only (not training pipeline). */
+export function calcPopFieldedByPlayer(state, player) {
+  const p = Number(player);
+  let fielded = 0;
+  for (const u of state.units || []) {
+    if (Number(u.owner) !== p || (u.health ?? 1) <= 0) continue;
+    fielded += getUnitPopCost(u.type);
+  }
+  return fielded;
+}
+
 /** Manpower currently fielded or reserved in queues. */
 export function calcPopUsedByPlayer(state, player) {
   const p = Number(player);
-  let used = 0;
-  for (const u of state.units || []) {
-    if (Number(u.owner) !== p || (u.health ?? 1) <= 0) continue;
-    used += getUnitPopCost(u.type);
-  }
+  let used = calcPopFieldedByPlayer(state, player);
   for (const b of state.buildings || []) {
     if (Number(b.owner) !== p) continue;
     for (const q of b.trainQueue || []) used += getUnitPopCost(q.type);
@@ -799,6 +806,33 @@ export function calcPopUsedByPlayer(state, player) {
     if (Number(r.owner) === p) used += getUnitPopCost(r.type);
   }
   return used;
+}
+
+/** Free/fielded/reserved breakdown for UI and telemetry. */
+export function getPopBreakdown(state, player) {
+  const cap = calcPlayerPopCap(state, Number(player));
+  const used = calcPopUsedByPlayer(state, player);
+  const fielded = calcPopFieldedByPlayer(state, player);
+  let queued = 0;
+  let ready = 0;
+  let legacyPending = 0;
+  for (const b of state.buildings || []) {
+    if (Number(b.owner) !== Number(player)) continue;
+    for (const q of b.trainQueue || []) queued += getUnitPopCost(q.type);
+    for (const r of b.readyUnits || []) ready += getUnitPopCost(r.type);
+  }
+  for (const r of state.pendingRecruits || []) {
+    if (Number(r.owner) === Number(player)) legacyPending += getUnitPopCost(r.type);
+  }
+  for (const r of state.pendingGlobalRecruits || []) {
+    if (Number(r.owner) === Number(player)) legacyPending += getUnitPopCost(r.type);
+  }
+  for (const r of state.readyGlobalRecruits || []) {
+    if (Number(r.owner) === Number(player)) legacyPending += getUnitPopCost(r.type);
+  }
+  const reserve = Math.max(0, used - fielded);
+  const avail = Math.max(0, cap - used);
+  return { cap, used, avail, fielded, reserve, queued, ready, legacyPending };
 }
 
 /** Available manpower = popCap minus units on map and production pipeline. */
@@ -1910,20 +1944,19 @@ export function queueRecruit(state, player, unitType, buildingId) {
     spendResources(state.players[player], design.trainCost);
     state.players[player].food = (state.players[player].food||0) - getRecruitFoodCost(design.chassis);
     const popCost = getUnitPopCost(design.chassis);
-    state.players[player].population = Math.max(0, (state.players[player].population || 0) - popCost);
     const buildTime = UNIT_TYPES[design.chassis]?.buildTime ?? 1;
     state.pendingRecruits.push({ owner: player, designId: unitType, buildingId, turnsLeft: buildTime });
+    recalcPlayerPopulation(state, player);
     return { ok: true };
   }
 
   const def = UNIT_TYPES[unitType];
-  const popCost = getUnitPopCost(unitType);
   state.players[player].iron -= (def.cost.iron||0);
   state.players[player].oil  -= (def.cost.oil||0);
   state.players[player].components = (state.players[player].components||0) - (def.cost.components||0);
   state.players[player].food = (state.players[player].food||0) - getRecruitFoodCost(unitType);
-  state.players[player].population = Math.max(0, (state.players[player].population || 0) - popCost);
   state.pendingRecruits.push({ owner: player, type: unitType, buildingId, turnsLeft: def.buildTime ?? 1 });
+  recalcPlayerPopulation(state, player);
   return { ok: true };
 }
 

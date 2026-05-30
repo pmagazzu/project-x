@@ -16,13 +16,13 @@ import {
   UNIT_TYPES, BUILDING_TYPES, AIR_UNITS, NAVAL_UNITS,
   MODULES, CHASSIS_BUILDINGS, getMaxDesignSlots,
   designRegistrationCost, computeDesignStats,
-  getReachableHexesForAI, getAttackableHexes, hexDistance, buildingAt, roadAt, getCachedSupply, getRecruitFoodCost,
+  getReachableHexesForAI, getAttackableHexes, hexDistance, buildingAt, roadAt, getCachedSupply, getRecruitFoodCost, getUnitPopCost,
   ROAD_TYPES, unitAt, computeFog, buildHQRoadNetwork, isHQNetworkPluggedToNeutralRoads,
   queueGlobalRecruit, enumerateVtcDeployHexes,
   getGlobalRecruitOptionsForVTC, canQueueGlobalRecruit, PRODUCTION_VTC_TYPES, MAX_VTC_TRAIN_QUEUE,
   getPlayerCapital, getPlayerCapitalBuildings, getEnemyCapitalBuildings, isPlayerCapitalBuilding,
   isNavalDeployAllowed, getNavalCoastalCheckRadius, canPromoteSettlement, VTC_SUPPLY_RADIUS, findRoadPath, canPlaceRoadOnTerrain,
-  recalcPlayerPopulation, syncPlayerPopulationPool, calcPopUsedByPlayer,
+  recalcPlayerPopulation, syncPlayerPopulationPool, calcPopUsedByPlayer, getPopBreakdown,
   countPlayerScienceLabs, countPlayerFactories, countPlayerBarracksFacilities, countPlayerVtcUpgrade,
 } from './GameState.js';
 import { calcPlayerPopCap } from './Population.js';
@@ -3644,6 +3644,11 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   assignHoldVTCCMissions(gs, player, unitObjective, sortedCombat, perceivedEnemies);
   assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjective, sortedCombat, flankCountForGarrison);
 
+  recalcPlayerPopulation(gs, player);
+  const popNow = getPopBreakdown(gs, player);
+  const populationFull = popNow.avail < 1 && popNow.used >= popNow.cap;
+  const popReserveNow = popNow.reserve;
+
   planDeployReadyVtcUnits(gs, player, actions, terrain, {
     capital: getPlayerCapital(gs, player),
     focusEnemy: strategic?.focusEnemyHQ || enemyHQs[0],
@@ -3660,10 +3665,6 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   const unsuppliedNow = myUnitsNow.filter(u => (u.outOfSupply || 0) > 0).length;
   const unsuppliedCombatNow = myUnitsNow.filter(u => (u.outOfSupply || 0) > 0 && u.type !== 'ENGINEER').length;
   const stagnantArmyBreakout = getStagnantArmyBreakout(gs, player, strategic, myCombatUnits);
-  const popAvailNow = gs.players[player]?.population ?? 0;
-  const popCapNow = gs.players[player]?.popCap ?? calcPlayerPopCap(gs, player);
-  const popUsedNow = calcPopUsedByPlayer(gs, player);
-  const populationFull = popAvailNow < 1 && popUsedNow >= popCapNow;
   const engineerOnlyOOS = unsuppliedNow > 0 && unsuppliedCombatNow === 0;
   const logisticsPressure = !stagnantArmyBreakout && !engineerOnlyOOS
     && unsuppliedNow >= Math.max(2, Math.floor(myUnitsNow.length * 0.2));
@@ -4463,6 +4464,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     || myBuildings.find(bb => isPlayerCapitalBuilding(bb) && !bb.underConstruction);
   const queueGlobalFromBuilding = (building, unitType) => {
     if (!building) return false;
+    const popBr = getPopBreakdown(gs, player);
+    if (popBr.ready > 0 && popBr.avail < getUnitPopCost(unitType)) return false;
     if ((building.trainQueue?.length || 0) >= MAX_VTC_TRAIN_QUEUE) return false;
     if (actions.some(a => a.type === 'recruit' && a.global && a.buildingId === building.id)) return false;
     if (!getGlobalRecruitOptionsForVTC(gs, player, building.id).includes(unitType)) return false;
@@ -5405,6 +5408,14 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   if (!hasArmyAction) {
     const myCap = getPlayerCapital(gs, player) || myCapital;
     if (populationFull || stagnantArmyBreakout) {
+      if (popReserveNow > 0) {
+        planDeployReadyVtcUnits(gs, player, actions, terrain, {
+          capital: myCap,
+          focusEnemy: strategic?.focusEnemyHQ || enemyHQs[0],
+          unitObjective: aiCtx?.unitObjective || {},
+          territorial,
+        });
+      }
       enforceExpansionMoveFloor(gs, player, actions, terrain, mapSize, enemyHQs, myCap, moveMemory);
     }
     if (!actions.some(a => ['move', 'attack'].includes(a.type))) {

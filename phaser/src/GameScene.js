@@ -17,7 +17,7 @@ import {
   getVtcQueueSummary, MAX_VTC_TRAIN_QUEUE,
   isNavalDeployAllowed, getNavalCoastalCheckRadius, getNavalDeployRadius,
   isHQNetworkPluggedToNeutralRoads, registerDesign,
-  getUnitPopCost, recalcPlayerPopulation, calcPopUsedByPlayer,
+  getUnitPopCost, recalcPlayerPopulation, calcPopUsedByPlayer, getPopBreakdown,
   calcUpkeep, calcRPFromLabs, computeSupply, invalidateSupplyCache, isHexInSupply, supplyPenalty, BUILDING_SUPPLY_RADIUS, VTC_SUPPLY_RADIUS, getRecruitFoodCost, getUnitSupplyRadius,
   UNIT_TYPES, PLAYER_COLORS, BUILDING_TYPES, RESOURCE_TYPES,
   MODULES, CHASSIS_BUILDINGS, getMaxDesignSlots, BASE_DESIGN_SLOTS,
@@ -60,7 +60,7 @@ const SELECTED_STROKE  = 0xffe066;
 const HOVER_STROKE     = 0xddaa33; // gold hover outline
 const MOVE_HIGHLIGHT   = 0x00ffcc;
 const ATTACK_HIGHLIGHT = 0xff6600;
-export const GAME_VERSION = 'v1.21.16';
+export const GAME_VERSION = 'v1.21.17';
 
 const SETTLEMENT_TYPES = new Set(['VILLAGE', 'TOWN', 'CITY']);
 const BUILD_MENU = {
@@ -3100,12 +3100,14 @@ export class GameScene extends Phaser.Scene {
     this._setCommandCard(c.wood, `${fmtRes(pl.wood || 0)}  ${sgn(netWood)}`);
     this._setCommandCard(c.food, `${fmtRes(pl.food || 0)}  ${sgn(netFood)}${ttzSuffix(ttzFood)}`, unitsOOS > 0 ? '#ff6644' : rowFill(ttzFood, ttzFood <= 1));
     recalcPlayerPopulation(gs, p);
-    const popAvail = pl.population ?? 0;
-    const popCap = pl.popCap ?? 0;
-    const popUsed = calcPopUsedByPlayer(gs, p);
-    const popFull = popAvail < 1 && popUsed >= popCap;
-    const popText = popFull ? `${popAvail}/${popCap} full` : `${popAvail}/${popCap}`;
-    this._setCommandCard(c.pop, popText, popFull || popAvail < 2 ? '#ff8888' : '#c8e8c8');
+    const pop = getPopBreakdown(gs, p);
+    const popText = pop.reserve > 0 && pop.avail < 1
+      ? `${pop.avail}/${pop.cap} · ${pop.reserve} queued`
+      : (pop.avail < 1 && pop.used >= pop.cap)
+        ? `${pop.avail}/${pop.cap} full`
+        : `${pop.avail}/${pop.cap}`;
+    const popWarn = pop.avail < 2 || (pop.reserve > 0 && pop.avail < 1);
+    this._setCommandCard(c.pop, popText, popWarn ? '#ff8888' : '#c8e8c8');
     this._setCommandCard(c.gold, `${fmtRes(pl.gold || 0)}  ${sgn(netGold)}`);
     this._setCommandCard(c.parts, `${fmtRes(pl.components || 0)}`);
     this._setCommandCard(c.steel, `${fmtRes(pl.hardenedSteel || 0)}`);
@@ -3622,7 +3624,7 @@ export class GameScene extends Phaser.Scene {
           const def = UNIT_TYPES[out.type];
           if (def?.cost) refundResources(gs.players[p], def.cost);
           gs.players[p].food = (gs.players[p].food || 0) + getRecruitFoodCost(out.type);
-          gs.players[p].population = (gs.players[p].population || 0) + getUnitPopCost(out.type);
+          recalcPlayerPopulation(gs, p);
         }
         this._refresh();
       });
@@ -4092,7 +4094,7 @@ export class GameScene extends Phaser.Scene {
         refundResources(gs.players[p], cost);
         if (refundType) {
           gs.players[p].food = (gs.players[p].food || 0) + getRecruitFoodCost(refundType);
-          gs.players[p].population = (gs.players[p].population || 0) + getUnitPopCost(refundType);
+          recalcPlayerPopulation(gs, p);
         }
         if (isVTC) {
           cancelVtcQueueHead(gs, p, building.id);
@@ -8128,6 +8130,8 @@ export class GameScene extends Phaser.Scene {
 
   _snapshotPlayerEconomy(gs, p) {
     const pl = gs.players?.[p] || {};
+    recalcPlayerPopulation(gs, p);
+    const pop = getPopBreakdown(gs, p);
     const inc = calcIncome(gs, p);
     const upk = calcUpkeep(gs, p);
     const units = gs.units.filter(u => Number(u.owner) === p && !u.embarked);
@@ -8159,6 +8163,13 @@ export class GameScene extends Phaser.Scene {
       units: units.length,
       combatUnits: combat.length,
       unsupplied: units.filter(u => (u.outOfSupply || 0) > 0).length,
+      population: pop.avail,
+      popCap: pop.cap,
+      popUsed: pop.used,
+      popFielded: pop.fielded,
+      popReserved: pop.reserve,
+      popQueued: pop.queued,
+      popReady: pop.ready,
       unitTypes: byType,
       buildings: bldCounts,
       research: {
