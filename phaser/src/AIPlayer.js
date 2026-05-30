@@ -248,9 +248,27 @@ function pickSettlementScoutHex(gs, terrain, mapSize, vtc, unit) {
   return best || { q: vtc.q + 1, r: vtc.r };
 }
 
+function settlementCaptureProgress(gs, b, player) {
+  if (!b?.captureProgress || Number(b.captureProgress.player) !== Number(player)) return null;
+  const required = b.captureProgress.required || getSettlementCaptureTurns(b.type) || 2;
+  const turns = b.captureProgress.turns || 1;
+  return { turns, required, remaining: Math.max(0, required - turns) };
+}
+
+/** Unit standing on an enemy/neutral VTC hex with capture in progress (or about to start). */
+function activeCaptureHoldForUnit(gs, unit) {
+  if (!unit || !canUnitCaptureSettlement(unit)) return null;
+  const b = buildingAt(gs, unit.q, unit.r);
+  if (!b || !['VILLAGE', 'TOWN', 'CITY', 'HQ'].includes(b.type) || b.underConstruction) return null;
+  if (Number(b.owner) === Number(unit.owner)) return null;
+  const prog = settlementCaptureProgress(gs, b, unit.owner);
+  if (prog) return { building: b, onHex: true, ...prog };
+  return null;
+}
+
 function canReassignForVTC(existing, vtc, guardsShort) {
   if (!existing) return true;
-  if (existing.mission === 'hold_vtc' || existing.kind === 'settlement') return false;
+  if (existing.mission === 'capture_hold' || existing.mission === 'hold_vtc' || existing.kind === 'settlement' || existing.kind === 'capture') return false;
   if (['scout', 'probe', 'expand', 'diversion', 'garrison'].includes(existing.mission)) return true;
   if (guardsShort && (vtc.type === 'CITY' || vtc.type === 'TOWN')) {
     return ['main', 'closing'].includes(existing.mission);
@@ -305,11 +323,20 @@ function assignOwnedVTCCoverage(gs, player, unitObjective, combatUnits, perceive
         if (score > bestScore) { bestScore = score; best = u; }
       }
       if (!best) break;
-      const patrol = pickVTCPatrolHex(gs, null, mapSize, vtc, best);
-      unitObjective[best.id] = {
-        q: patrol.q, r: patrol.r, mission: 'hold_vtc', kind: 'settlement', vtcType: vtc.type,
-        anchorQ: vtc.q, anchorR: vtc.r, patrol: true,
-      };
+      if (vtc.captureProgress && Number(vtc.captureProgress.player) !== Number(player)) {
+        const cp = vtc.captureProgress;
+        unitObjective[best.id] = {
+          q: vtc.q, r: vtc.r, mission: 'capture_hold', kind: 'defend_capture', vtcType: vtc.type,
+          anchorQ: vtc.q, anchorR: vtc.r,
+          captureTurns: cp.turns, captureRequired: cp.required,
+        };
+      } else {
+        const patrol = pickVTCPatrolHex(gs, null, mapSize, vtc, best);
+        unitObjective[best.id] = {
+          q: patrol.q, r: patrol.r, mission: 'hold_vtc', kind: 'settlement', vtcType: vtc.type,
+          anchorQ: vtc.q, anchorR: vtc.r, patrol: true,
+        };
+      }
       used.add(best.id);
       assigned += 1;
     }
@@ -2093,7 +2120,10 @@ function buildTerritorialIntel(terrain, mapSize, gs, player, strategic, resource
 /** Multi-mission doctrine: scouts, probes, diversions, main push, expand — not one blob to HQ. */
 function assignCombatMissions(gs, player, mapSize, strategic, territorial, enemyHQs, myCombatUnits, resourceTargets, unitObjective = {}) {
   const missionCounts = {};
-  const freeCombat = myCombatUnits.filter(u => unitObjective[u.id]?.mission !== 'hold_vtc');
+  const freeCombat = myCombatUnits.filter(u => {
+    const m = unitObjective[u.id]?.mission;
+    return m !== 'hold_vtc' && m !== 'capture_hold';
+  });
   const turn = gs.turn || 1;
   const phase = strategic?.phase || 'expand';
   const closing = phase === 'closing' || (strategic?.endgamePressure || 0) >= 0.5;
@@ -2401,7 +2431,7 @@ function assignHoldVTCCMissions(gs, player, unitObjective, combatUnits, perceive
   const pool = combatUnits.filter((u) => {
     if (!canUnitCaptureSettlement(u)) return false;
     const m = unitObjective[u.id]?.mission;
-    return m !== 'hold_vtc' && (!m || ['expand', 'probe', 'garrison'].includes(m));
+    return m !== 'hold_vtc' && m !== 'capture_hold' && (!m || ['expand', 'probe', 'garrison'].includes(m));
   });
 
   const neutralVTC = gs.buildings
@@ -2437,13 +2467,52 @@ function assignHoldVTCCMissions(gs, player, unitObjective, combatUnits, perceive
       if (d < bestD) { bestD = d; best = u; }
     }
     if (best && bestD <= 26 && canUnitCaptureSettlement(best)) {
-      const turns = getSettlementCaptureTurns(vtc.type);
+      const required = getSettlementCaptureTurns(vtc.type);
+      const prog = settlementCaptureProgress(gs, vtc, player);
       unitObjective[best.id] = {
-        q: vtc.q, r: vtc.r, mission: 'expand', kind: 'settlement', vtcType: vtc.type,
-        captureHold: turns,
+        q: vtc.q, r: vtc.r, mission: 'capture_hold', kind: 'capture', vtcType: vtc.type,
+        anchorQ: vtc.q, anchorR: vtc.r,
+        captureRequired: required,
+        captureTurns: prog?.turns || 0,
       };
       secured += 1;
     }
+  }
+}
+
+/** Pin units on in-progress settlement captures (do not wander off before the flip). */
+function assignSettlementCaptureHolds(gs, player, unitObjective, combatUnits) {
+  const p = Number(player);
+  const pool = combatUnits.filter((u) => canUnitCaptureSettlement(u));
+
+  for (const bld of gs.buildings || []) {
+    const prog = settlementCaptureProgress(gs, bld, p);
+    if (!prog) continue;
+    let holder = gs.units.find((u) =>
+      Number(u.owner) === p && !u.embarked && u.q === bld.q && u.r === bld.r && canUnitCaptureSettlement(u));
+    if (!holder) {
+      const byDist = (u1, u2) => hexDistance(u1.q, u1.r, bld.q, bld.r) - hexDistance(u2.q, u2.r, bld.q, bld.r);
+      holder = pool
+        .filter((u) => !unitObjective[u.id] || unitObjective[u.id].mission !== 'capture_hold')
+        .sort(byDist)[0];
+      if (!holder) holder = [...pool].sort(byDist)[0];
+    }
+    if (!holder) continue;
+    unitObjective[holder.id] = {
+      q: bld.q, r: bld.r, mission: 'capture_hold', kind: 'capture', vtcType: bld.type,
+      anchorQ: bld.q, anchorR: bld.r,
+      captureTurns: prog.turns, captureRequired: prog.required,
+    };
+  }
+
+  for (const u of pool) {
+    const onCap = activeCaptureHoldForUnit(gs, u);
+    if (!onCap) continue;
+    unitObjective[u.id] = {
+      q: onCap.building.q, r: onCap.building.r, mission: 'capture_hold', kind: 'capture',
+      vtcType: onCap.building.type, anchorQ: onCap.building.q, anchorR: onCap.building.r,
+      captureTurns: onCap.turns, captureRequired: onCap.required,
+    };
   }
 }
 
@@ -3197,8 +3266,11 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
           const raidPull = (((gs.turn || 1) >= 24 ? 58 : 42) + settlementBonus) * phase.combat;
           score += raidPull * (rushMissions.has(mission) || mission === 'expand' ? 1.1 : 0.7);
           score += closing * 18;
-          if (obj?.kind === 'recapture' || obj?.kind === 'settlement') score += 24;
-          if (q === destBld.q && r === destBld.r) score += 8 * holdTurns;
+          if (obj?.kind === 'recapture' || obj?.kind === 'settlement' || mission === 'capture_hold') score += 24;
+          const capHere = settlementCaptureProgress(gs, destBld, unit.owner);
+          if (q === destBld.q && r === destBld.r) {
+            score += capHere ? 60 + capHere.remaining * 18 : 8 * holdTurns;
+          }
           const guard = gs.units.find(u => u.q === q && u.r === r && u.owner !== unit.owner && !u.embarked);
           if (guard && (guard.health || 99) <= 2) score += 14;
         }
@@ -3238,8 +3310,24 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
     }
   }
 
-  // Mission objective pressure (scout / probe / diversion / main / expand / garrison)
-  if ((obj?.kind === 'settlement' || obj?.kind === 'hold_vtc' || mission === 'hold_vtc') && mission !== 'expand') {
+  // Multi-turn capture: stay on the settlement hex until progress completes.
+  const capAnchorQ = obj?.anchorQ ?? obj?.q;
+  const capAnchorR = obj?.anchorR ?? obj?.r;
+  const capBld = capAnchorQ != null ? buildingAt(gs, capAnchorQ, capAnchorR) : null;
+  const capProg = capBld ? settlementCaptureProgress(gs, capBld, unit.owner) : activeCaptureHoldForUnit(gs, unit);
+  if (mission === 'capture_hold' || obj?.kind === 'capture' || capProg) {
+    const aq = capProg?.building?.q ?? capAnchorQ ?? unit.q;
+    const ar = capProg?.building?.r ?? capAnchorR ?? unit.r;
+    const rem = capProg?.remaining ?? Math.max(1, (obj?.captureRequired || 2) - (obj?.captureTurns || 0));
+    if (q === aq && r === ar) score += 100 + rem * 14;
+    else {
+      const dNew = hexDistance(q, r, aq, ar);
+      const dCur = hexDistance(unit.q, unit.r, aq, ar);
+      if (dNew < dCur) score += 48 + rem * 5;
+      else score -= dCur <= 1 ? 120 : 70;
+    }
+    if (unit.q === aq && unit.r === ar) score += 35;
+  } else if ((obj?.kind === 'settlement' || obj?.kind === 'hold_vtc' || mission === 'hold_vtc') && mission !== 'expand') {
     const aq = obj?.anchorQ ?? obj?.q ?? unit.q;
     const ar = obj?.anchorR ?? obj?.r ?? unit.r;
     const vtcRad = vtcSupplyRadius({ type: obj?.vtcType });
@@ -3298,6 +3386,7 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
     if (mission === 'scout') pull = 22 * (phase.recon || 1);
     else if (mission === 'probe') pull = 16 * (phase.recon || 1);
     else if (mission === 'diversion') pull = 24 * (ctx.deceptionTurn ? 1.25 : 1);
+    else if (mission === 'capture_hold') pull = 0;
     else if (mission === 'expand') pull = 20 * (phase.economy || 1);
     else if (mission === 'main') pull = 20 * phase.combat;
     else if (passiveMissions.has(mission)) pull = 14;
@@ -3374,7 +3463,7 @@ function scoreMove(gs, terrain, unit, q, r, strat, enemies, myHQs, mySupply, ctx
   if (capital && role !== 'engineer' && role !== 'support') {
     const onCap = hexDistance(q, r, capital.q, capital.r) <= 4;
     const wasOnCap = hexDistance(unit.q, unit.r, capital.q, capital.r) <= 4;
-    const holdingForward = mission === 'hold_vtc' || obj?.kind === 'settlement';
+    const holdingForward = mission === 'hold_vtc' || mission === 'capture_hold' || obj?.kind === 'settlement' || obj?.kind === 'capture';
     if (wasOnCap && onCap && !holdingForward && enemies.length === 0 && (gs.turn || 1) > 10) {
       score -= 14;
     }
@@ -3922,6 +4011,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
   assignLocalRecaptureMissions(gs, player, unitObjective, sortedCombat, perceivedEnemies);
   assignHoldVTCCMissions(gs, player, unitObjective, sortedCombat, perceivedEnemies);
   assignTerritorialObjectives(gs, player, mapSize, territorial, unitObjective, sortedCombat, flankCountForGarrison);
+  assignSettlementCaptureHolds(gs, player, unitObjective, sortedCombat);
 
   recalcPlayerPopulation(gs, player);
   pruneVtcQueueBacklog(gs, player);
@@ -4080,6 +4170,7 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
     // A) Attack from current position
     const unitMission = unitObjective[unit.id]?.mission || 'expand';
+    const captureOnHex = activeCaptureHoldForUnit(gs, unit);
     const unitInSupply = mySupply?.has?.(`${unit.q},${unit.r}`);
     const preMoveTargets = getAttackableHexes(gs, unit, unit.q, unit.r, null);
     const preMoveTarget  = chooseBestTarget(gs, unit, preMoveTargets);
@@ -4092,7 +4183,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
     const killShot = preMoveTarget && (preMoveTarget.health || 99) <= 1;
     const scoutOk = unitMission === 'scout' && killShot;
     const probeOk = (unitMission === 'probe' || unitMission === 'diversion') && (killShot || preTrade >= 5);
-    const expandOk = unitMission === 'expand' && (killShot || (preTrade >= 3 && nearbyFriendliesForCommit >= 1));
+    const expandOk = unitMission === 'expand' && !captureOnHex
+      && (killShot || (preTrade >= 3 && nearbyFriendliesForCommit >= 1));
     const close = aiCtx?.closingPressure || 0;
     const midGameAggro = (gs.turn || 1) >= 14 ? -4 : ((gs.turn || 1) >= 10 ? -2 : 0);
     const pressureAggro = (strategic?.phase === 'pressure' || strategic?.phase === 'closing') ? -2 : 0;
@@ -4160,13 +4252,17 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         engineerMemory[unit.id] = mem;
       }
 
+      if (captureOnHex && unitMission === 'capture_hold') {
+        unit.moved = true;
+      }
+
       // Temporarily restore full budget for reachable calc
       const savedMovesLeft = unit.movesLeft;
       unit.movesLeft = unitDef.move ?? unit.movesLeft ?? 1;
       const reachable = unit.moved ? [] : getReachableHexesForAI(gs, unit, terrain, mapSize);
       unit.movesLeft  = savedMovesLeft;
 
-      if (reachable.length > 0) {
+      if (reachable.length > 0 && !captureOnHex) {
         const enemies = getEnemies();
         const myHQs   = getMyHQs();
         const moveObj = unitObjective[unit.id] || strategic?.focusEnemyHQ;
@@ -4205,9 +4301,10 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
         const lastMove = moveMemory?.[unit.id];
         const backtracking = isImmediateBacktrack(unit, bestDest, lastMove, gs.turn || 1);
         const objNow = unitObjective[unit.id] || strategic?.focusEnemyHQ;
-        const isHoldMission = unitMission === 'hold_vtc' || objNow?.kind === 'settlement';
+        const isHoldMission = unitMission === 'hold_vtc' || unitMission === 'capture_hold'
+          || objNow?.kind === 'settlement' || objNow?.kind === 'capture';
         const noContactJitter = !!bestDest && enemies.length === 0 && unitMission !== 'main' && unitMission !== 'closing'
-          && unitMission !== 'hold_vtc' && !isHoldMission && (() => {
+          && unitMission !== 'hold_vtc' && unitMission !== 'capture_hold' && !isHoldMission && (() => {
           if (!objNow) return hexDistance(unit.q, unit.r, bestDest.q, bestDest.r) <= 1;
           const curD = hexDistance(unit.q, unit.r, objNow.q, objNow.r);
           const newD = hexDistance(bestDest.q, bestDest.r, objNow.q, objNow.r);
@@ -4253,7 +4350,8 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
           ? (nearbyFriendliesPost >= 2 || (postMoveTarget && (postMoveTarget.health || 99) <= 1))
           : (nearbyFriendliesPost >= 3 || (postMoveTarget && (postMoveTarget.health || 99) <= 1));
         const postKill = postMoveTarget && (postMoveTarget.health || 99) <= 1;
-        const expandPostOk = unitMission === 'expand' && (postKill || (postTrade >= 3 && nearbyFriendliesPost >= 2));
+        const expandPostOk = unitMission === 'expand' && !captureOnHex
+          && (postKill || (postTrade >= 3 && nearbyFriendliesPost >= 2));
         const holdObjPost = unitObjective[unit.id];
         const holdPostDefend = unitMission === 'hold_vtc' && postMoveTarget && (
           postKill
@@ -4282,7 +4380,9 @@ export function planAITurn(gs, terrain, mapSize, strategy = 'balanced') {
 
       // D) Dig in if defensive and idle (boost on VTC patrol / garrison)
       let digChance = cfg.digInChance;
-      if (unitMission === 'hold_vtc' || unitMission === 'garrison') digChance = Math.max(digChance, 0.45);
+      if (unitMission === 'hold_vtc' || unitMission === 'capture_hold' || unitMission === 'garrison') {
+        digChance = Math.max(digChance, captureOnHex ? 0.65 : 0.45);
+      }
       if (holdObj?.anchorQ != null && hexDistance(unit.q, unit.r, holdObj.anchorQ, holdObj.anchorR) <= vtcSupplyRadius({ type: holdObj.vtcType })) {
         digChance = Math.max(digChance, 0.55);
       }
